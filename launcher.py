@@ -2,7 +2,7 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.0 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [6단계 — PyQt6 네이티브 UI]                                                ║
+║  [6단계 — PyQt6 네이티브 UI / 포팅 A+B]                                    ║
 ║                                                                              ║
 ║  NEW-A  MainWindow: 좌/우 분할 레이아웃 (설정 패널 + 결과 탭)               ║
 ║  NEW-B  ConfigPanel: 엔진 선택·적군 편대·아군 편대·무기 재고·MC 설정        ║
@@ -11,6 +11,9 @@
 ║  NEW-E  MC 통계 탭: plot_v7 차트 임베드                                     ║
 ║  NEW-F  교전 로그 탭: QTableWidget 시각별 이벤트                            ║
 ║  NEW-G  시스템 모니터 탭: CPU·RAM·스레드 실시간 (psutil + QTimer)           ║
+║  NEW-H  포팅 A — 방어 무기 재고 UI (SM-3~Mk.46·기만기)                     ║
+║  NEW-I  포팅 A — 적군 모드 선택 (커스텀/프리셋/랜덤) + 프리셋·난이도 UI    ║
+║  NEW-J  포팅 B — 전술 옵션 토글 (ECM·회피·기만기·자체방어 QCheckBox)       ║
 ║                                                                              ║
 ║  실행: python launcher.py                                                    ║
 ║  패키지: pip install PyQt6 psutil matplotlib numpy openpyxl                 ║
@@ -26,7 +29,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QSpinBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
-    QSizePolicy,
+    QSizePolicy, QCheckBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
@@ -46,11 +49,15 @@ try:
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
         WEATHER_DB,
+        ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
+        ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
     )
     _V7_OK = True
 except ImportError as e:
     _V7_OK = False
     _V7_ERR = str(e)
+    V7_ENEMY_FLEET_PRESETS = {}
+    V7_RANDOM_CFG = {}
 
 # ── 색상 팔레트 ──────────────────────────────────────────────────────────────
 C_BG      = '#0d1117'
@@ -525,36 +532,79 @@ class MainWindow(QMainWindow):
         self.spn_hs1 = QSpinBox(); self.spn_hs1.setRange(0, 30); self.spn_hs1.setValue(0)
         self.spn_hp  = QSpinBox(); self.spn_hp.setRange(0, 30);  self.spn_hp.setValue(4)
 
-        wl.addRow("해성-II",     self.spn_hs2)
-        wl.addRow("해성-I",      self.spn_hs1)
+        wl.addRow("해성-II",       self.spn_hs2)
+        wl.addRow("해성-I",        self.spn_hs1)
         wl.addRow("하푼 Block II", self.spn_hp)
         layout.addWidget(grp_w)
 
-        # ── 적군 편대 ──────────────────────────────────────────────────────
+        # ── 방어 무기 재고 (포팅 A) ───────────────────────────────────────
+        grp_d = QGroupBox("🛡️ 방어 무기 재고")
+        dl = QFormLayout(grp_d)
+        dl.setSpacing(5)
+
+        def _spn(lo, hi, val, suffix=''):
+            s = QSpinBox(); s.setRange(lo, hi); s.setValue(val)
+            if suffix: s.setSuffix(suffix)
+            return s
+
+        self.spn_sm3   = _spn(0, 60, 24);  self.spn_sm6  = _spn(0, 60, 16)
+        self.spn_sm2   = _spn(0, 90, 32);  self.spn_ram  = _spn(0, 30, 21)
+        self.spn_hong  = _spn(0, 20, 3);   self.spn_chng = _spn(0, 20, 4)
+        self.spn_mk46  = _spn(0, 30, 6);   self.spn_dcoy = _spn(0, 20, 4)
+
+        dl.addRow("SM-3 Block IIA",  self.spn_sm3)
+        dl.addRow("SM-6",            self.spn_sm6)
+        dl.addRow("SM-2 Block IIIB", self.spn_sm2)
+        dl.addRow("RIM-116 RAM",     self.spn_ram)
+        dl.addRow("홍상어 (대잠)",   self.spn_hong)
+        dl.addRow("청상어 (경어뢰)", self.spn_chng)
+        dl.addRow("Mk.46 경어뢰",    self.spn_mk46)
+        dl.addRow("기만기 재고",      self.spn_dcoy)
+        layout.addWidget(grp_d)
+
+        # ── 적군 편대 (포팅 A) ────────────────────────────────────────────
         grp_e = QGroupBox("🔴 적군 편대")
         el = QVBoxLayout(grp_e)
         el.setSpacing(4)
 
+        # 모드 선택
+        mode_row = QWidget(); mode_rl = QHBoxLayout(mode_row)
+        mode_rl.setContentsMargins(0, 0, 0, 0)
+        mode_rl.addWidget(QLabel("모드:"))
+        self.cmb_enemy_mode = QComboBox()
+        self.cmb_enemy_mode.addItems(['커스텀', '프리셋', '랜덤'])
+        mode_rl.addWidget(self.cmb_enemy_mode, stretch=1)
+        el.addWidget(mode_row)
+
+        # 프리셋 선택 (프리셋 모드용)
+        self.cmb_fleet_preset_e = QComboBox()
+        self.cmb_fleet_preset_e.addItems(list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else [])
+        el.addWidget(self.cmb_fleet_preset_e)
+
+        # 랜덤 난이도 + 시드 (랜덤 모드용)
+        rand_row = QWidget(); rand_rl = QHBoxLayout(rand_row)
+        rand_rl.setContentsMargins(0, 0, 0, 0); rand_rl.setSpacing(4)
+        self.cmb_difficulty = QComboBox()
+        self.cmb_difficulty.addItems(list(V7_RANDOM_CFG.keys()) if _V7_OK else ['보통'])
+        self.cmb_difficulty.setCurrentText('보통')
+        self.spn_seed = QSpinBox(); self.spn_seed.setRange(0, 99999); self.spn_seed.setValue(0)
+        self.spn_seed.setPrefix("씨앗: ")
+        rand_rl.addWidget(self.cmb_difficulty, stretch=1)
+        rand_rl.addWidget(self.spn_seed, stretch=1)
+        el.addWidget(rand_row)
+
+        # 커스텀 5행
         self._enemy_rows = []
         for i in range(5):
-            row_w = QWidget()
-            row_l = QHBoxLayout(row_w)
-            row_l.setContentsMargins(0, 0, 0, 0)
-            row_l.setSpacing(4)
-
+            row_w = QWidget(); row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 0, 0, 0); row_l.setSpacing(4)
             cmb = QComboBox()
-            if _V7_OK:
-                cmb.addItems(list(V7_ENEMY_DB.keys()))
-            spn = QSpinBox()
-            spn.setRange(0, 8)
-            spn.setValue(1 if i < 3 else 0)
-
-            row_l.addWidget(cmb, stretch=3)
-            row_l.addWidget(spn, stretch=1)
+            if _V7_OK: cmb.addItems(list(V7_ENEMY_DB.keys()))
+            spn = QSpinBox(); spn.setRange(0, 8); spn.setValue(1 if i < 3 else 0)
+            row_l.addWidget(cmb, stretch=3); row_l.addWidget(spn, stretch=1)
             el.addWidget(row_w)
             self._enemy_rows.append((cmb, spn))
 
-        # 기본값 설정
         if _V7_OK:
             defaults = ['055형 대형 구축함', 'J-20 (위룡)',
                         'DF-21D (대함 탄도)', '052D형 구축함',
@@ -565,6 +615,22 @@ class MainWindow(QMainWindow):
                     self._enemy_rows[i][0].setCurrentText(name)
 
         layout.addWidget(grp_e)
+
+        # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
+        grp_t = QGroupBox("⚙️ 전술 옵션")
+        tl = QVBoxLayout(grp_t)
+        tl.setSpacing(4)
+
+        self.chk_ecm   = QCheckBox("ECM 재밍 (거리 반비례 Pk 감소)");  self.chk_ecm.setChecked(True)
+        self.chk_eva   = QCheckBox("회피 기동 (종말·함정 어뢰)");       self.chk_eva.setChecked(True)
+        self.chk_dcoy  = QCheckBox("음향 기만기 AN/SLQ-25 (어뢰)");    self.chk_dcoy.setChecked(True)
+        self.chk_sd    = QCheckBox("적 자체방어 (CIWS + 채프/플레어)"); self.chk_sd.setChecked(True)
+
+        for chk in [self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]:
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            tl.addWidget(chk)
+
+        layout.addWidget(grp_t)
 
         # ── MC 설정 ────────────────────────────────────────────────────────
         grp_mc = QGroupBox("📊 몬테카를로")
@@ -668,25 +734,51 @@ class MainWindow(QMainWindow):
     # ── 시뮬 실행 ────────────────────────────────────────────────────────────
 
     def _run_sim(self):
-        enemy_fleet = []
-        for cmb, spn in self._enemy_rows:
-            cnt = spn.value()
-            if cnt > 0 and _V7_OK and cmb.currentText() in V7_ENEMY_DB:
-                enemy_fleet.append({'preset': cmb.currentText(), 'count': cnt})
+        # 적군 모드 및 편대 구성 (포팅 A)
+        mode_label = self.cmb_enemy_mode.currentText()
+        mode_map   = {'커스텀': 'custom', '프리셋': 'preset', '랜덤': 'random'}
+        enemy_mode = mode_map.get(mode_label, 'custom')
 
-        if not enemy_fleet:
-            QMessageBox.warning(self, "설정 오류", "적군 수량을 1 이상 설정하세요.")
-            return
+        enemy_fleet = []
+        if enemy_mode == 'custom':
+            for cmb, spn in self._enemy_rows:
+                cnt = spn.value()
+                if cnt > 0 and _V7_OK and cmb.currentText() in V7_ENEMY_DB:
+                    enemy_fleet.append({'preset': cmb.currentText(), 'count': cnt})
+            if not enemy_fleet:
+                QMessageBox.warning(self, "설정 오류", "커스텀 모드에서 수량을 1 이상 설정하세요.")
+                return
 
         cfg = {
+            # 아군 편대
             'fleet_preset':   self.cmb_fleet.currentText(),
             'weather':        self.cmb_weather.currentText(),
             'detect_km':      self.spn_detect.value(),
             'sub_detect_km':  self.spn_subdet.value(),
+            # 공격 무기
             'haesong2_stock': self.spn_hs2.value(),
             'haesong1_stock': self.spn_hs1.value(),
             'harpoon_stock':  self.spn_hp.value(),
-            'enemy_fleet':    enemy_fleet,
+            # 방어 무기 (포팅 A)
+            'sm3_stock':          self.spn_sm3.value(),
+            'sm6_stock':          self.spn_sm6.value(),
+            'sm2_stock':          self.spn_sm2.value(),
+            'ram_stock':          self.spn_ram.value(),
+            'hongsango_stock':    self.spn_hong.value(),
+            'cheongsango_stock':  self.spn_chng.value(),
+            'mk46_stock':         self.spn_mk46.value(),
+            'decoy_stock':        self.spn_dcoy.value(),
+            # 적군 (포팅 A)
+            'enemy_fleet_mode':       enemy_mode,
+            'enemy_fleet':            enemy_fleet,
+            'enemy_fleet_preset':     self.cmb_fleet_preset_e.currentText(),
+            'enemy_fleet_difficulty': self.cmb_difficulty.currentText(),
+            'enemy_fleet_seed':       self.spn_seed.value() or None,
+            # 전술 옵션 (포팅 B)
+            'enable_ecm':         self.chk_ecm.isChecked(),
+            'enable_evasion':     self.chk_eva.isChecked(),
+            'enable_decoy':       self.chk_dcoy.isChecked(),
+            'enable_selfdefense': self.chk_sd.isChecked(),
         }
         mc_n = self.spn_mc_n.value()
 
@@ -810,3 +902,12 @@ if __name__ == '__main__':
 # · NEW-G: SysMonitorTab — psutil CPU·RAM 1초 갱신 + 60초 히스토리 차트
 # · NEW-H: 핵심 지표 카드 5개 (요격률·완전요격·피격·격침·비용)
 # · NEW-I: 다크 테마 QSS + Fusion 팔레트
+
+# ── 포팅 A 패치 (launcher.py) ─────────────────────────────────────────────────
+# · NEW-J: 방어 무기 재고 QGroupBox — SM-3/SM-6/SM-2/RAM/홍상어/청상어/Mk.46/기만기 SpinBox
+# · NEW-K: 적군 모드 QComboBox — 커스텀/프리셋/랜덤 3종, 각 모드별 추가 위젯
+# · NEW-L: 적군 프리셋 QComboBox (V7_ENEMY_FLEET_PRESETS), 난이도+시드 SpinBox
+
+# ── 포팅 B 패치 (launcher.py) ─────────────────────────────────────────────────
+# · NEW-M: 전술 옵션 QGroupBox — ECM·회피·기만기·자체방어 QCheckBox 4개
+# · NEW-N: _run_sim() — defense_inventory / enemy_fleet_mode / 전술 플래그 cfg 전달

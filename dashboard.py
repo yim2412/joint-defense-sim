@@ -45,11 +45,15 @@ try:
         run_v7_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
+        ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
+        ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
     )
     _V7_OK = True
 except ImportError as e:
     _V7_OK = False
     _V7_ERR = str(e)
+    V7_ENEMY_FLEET_PRESETS = {}
+    V7_RANDOM_CFG = {}
 
 # ── 페이지 기본 설정 ─────────────────────────────────────────────────────────
 st.set_page_config(
@@ -106,19 +110,48 @@ with st.sidebar:
 
     # ── v7 전용 설정 ─────────────────────────────────────────────────────────
     if use_v7:
+        # ── 포팅 A: 적군 편대 모드 선택 ──────────────────────────────────
         st.markdown("### 🔴 [v7] 적군 편대")
-        _all_enemy_keys = list(V7_ENEMY_DB.keys())
-        _n_etypes = int(st.number_input("위협 종류 수", 1, 8, 3, step=1, key="v7_ne"))
-        v7_enemy_fleet = []
-        for _idx in range(_n_etypes):
-            _c1, _c2 = st.columns([3, 1])
-            with _c1:
-                _ep = st.selectbox(f"위협 #{_idx+1}", _all_enemy_keys,
-                                   key=f"v7_ep_{_idx}")
-            with _c2:
-                _ec = int(st.number_input("수", 1, 8, 1, step=1,
-                                          key=f"v7_ec_{_idx}"))
-            v7_enemy_fleet.append({'preset': _ep, 'count': _ec})
+        _v7_mode_label = st.radio(
+            "편대 모드", ['커스텀', '프리셋', '랜덤'],
+            horizontal=True, key="v7_flt_mode",
+            help="커스텀: 직접 위협 선택 | 프리셋: PLA 교리 5종 | 랜덤: 난이도별 자동 생성")
+        _v7_mode_map = {'커스텀': 'custom', '프리셋': 'preset', '랜덤': 'random'}
+        v7_enemy_fleet_mode = _v7_mode_map[_v7_mode_label]
+
+        v7_enemy_fleet        = []
+        v7_enemy_fleet_preset = list(V7_ENEMY_FLEET_PRESETS.keys())[0] if V7_ENEMY_FLEET_PRESETS else ''
+        v7_enemy_difficulty   = '보통'
+        v7_enemy_seed         = None
+
+        if v7_enemy_fleet_mode == 'preset':
+            v7_enemy_fleet_preset = st.selectbox(
+                "PLA 편대 프리셋", list(V7_ENEMY_FLEET_PRESETS.keys()),
+                key="v7_efp",
+                help="A2/AD 항공 포화 / 항모킬체인 / 수상함 포화 / 대잠 복합 / 전면전 포화")
+            _specs = V7_ENEMY_FLEET_PRESETS.get(v7_enemy_fleet_preset, [])
+            st.caption(" | ".join(f"{s['preset'].split('(')[0].strip()}×{s['count']}" for s in _specs))
+
+        elif v7_enemy_fleet_mode == 'random':
+            _rc1, _rc2 = st.columns([1, 1])
+            with _rc1:
+                v7_enemy_difficulty = st.selectbox(
+                    "난이도", list(V7_RANDOM_CFG.keys()) if V7_RANDOM_CFG else ['보통'],
+                    index=1, key="v7_diff")
+            with _rc2:
+                _sv = int(st.number_input("시드 (0=매번 랜덤)", 0, 99999, 0, step=1, key="v7_seed"))
+                v7_enemy_seed = None if _sv == 0 else _sv
+
+        else:  # 커스텀
+            _all_enemy_keys = list(V7_ENEMY_DB.keys())
+            _n_etypes = int(st.number_input("위협 종류 수", 1, 8, 3, step=1, key="v7_ne"))
+            for _idx in range(_n_etypes):
+                _c1, _c2 = st.columns([3, 1])
+                with _c1:
+                    _ep = st.selectbox(f"위협 #{_idx+1}", _all_enemy_keys, key=f"v7_ep_{_idx}")
+                with _c2:
+                    _ec = int(st.number_input("수", 1, 8, 1, step=1, key=f"v7_ec_{_idx}"))
+                v7_enemy_fleet.append({'preset': _ep, 'count': _ec})
 
         st.divider()
         st.markdown("### 🔵 [v7] 아군 편대")
@@ -133,6 +166,36 @@ with st.sidebar:
         with _sc1: v7_haesong2 = int(st.number_input("해성-II", 0, 20, 8, key="v7_hs2"))
         with _sc2: v7_haesong1 = int(st.number_input("해성-I",  0, 20, 0, key="v7_hs1"))
         with _sc3: v7_harpoon  = int(st.number_input("하푼",    0, 20, 4, key="v7_hp"))
+
+        # ── 포팅 A: 방어 무기 재고 ───────────────────────────────────────
+        st.divider()
+        st.markdown("### 🛡️ [v7] 방어 무기 재고")
+        _da1, _da2 = st.columns(2)
+        with _da1:
+            v7_sm3  = int(st.number_input("SM-3 Block IIA",  0, 60, 24, key="v7_sm3"))
+            v7_sm2  = int(st.number_input("SM-2 Block IIIB", 0, 90, 32, key="v7_sm2"))
+            v7_hong = int(st.number_input("홍상어 (대잠)",   0, 20, 3,  key="v7_hong"))
+            v7_mk46 = int(st.number_input("Mk.46 경어뢰",    0, 30, 6,  key="v7_mk46"))
+        with _da2:
+            v7_sm6  = int(st.number_input("SM-6",            0, 60, 16, key="v7_sm6"))
+            v7_ram  = int(st.number_input("RIM-116 RAM",      0, 30, 21, key="v7_ram"))
+            v7_chng = int(st.number_input("청상어 (경어뢰)", 0, 20, 4,  key="v7_chng"))
+            v7_dcoy = int(st.number_input("기만기 재고",      0, 20, 4,  key="v7_dcoy"))
+
+        # ── 포팅 B: 전술 옵션 ────────────────────────────────────────────
+        st.divider()
+        st.markdown("### ⚙️ [v7] 전술 옵션")
+        _tb1, _tb2 = st.columns(2)
+        with _tb1:
+            v7_ecm  = st.checkbox("ECM 재밍",    value=True, key="v7_ecm",
+                                  help="거리 반비례 Pk 감소 (50km 기준, 탄도/HGV 제외)")
+            v7_dcoy_en = st.checkbox("음향 기만기", value=True, key="v7_dcoyen",
+                                     help="AN/SLQ-25, 어뢰 전용 DECOY_PK=0.60")
+        with _tb2:
+            v7_eva  = st.checkbox("회피 기동",   value=True, key="v7_eva",
+                                  help="종말 회피(< 20km) + 함정 어뢰 회피 SHIP_EVASION_PK=0.30")
+            v7_sd   = st.checkbox("적 자체방어", value=True, key="v7_sd",
+                                  help="CIWS 요격 → 채프/플레어 Pk 감소")
 
         st.divider()
         st.markdown("### 📊 [v7] 몬테카를로")
@@ -481,14 +544,35 @@ if load_btn and load_file and load_file != '선택 안 함':
 
 if run_btn and use_v7:
     _v7_cfg = {
+        # 아군 편대
         'fleet_preset':    v7_fleet_preset,
         'weather':         v7_weather,
         'detect_km':       v7_detect_km,
         'sub_detect_km':   v7_sub_detect,
+        # 공격 무기
         'haesong2_stock':  v7_haesong2,
         'haesong1_stock':  v7_haesong1,
         'harpoon_stock':   v7_harpoon,
-        'enemy_fleet':     v7_enemy_fleet,
+        # 방어 무기 (포팅 A)
+        'sm3_stock':          v7_sm3,
+        'sm6_stock':          v7_sm6,
+        'sm2_stock':          v7_sm2,
+        'ram_stock':          v7_ram,
+        'hongsango_stock':    v7_hong,
+        'cheongsango_stock':  v7_chng,
+        'mk46_stock':         v7_mk46,
+        'decoy_stock':        v7_dcoy,
+        # 적군 편대 (포팅 A)
+        'enemy_fleet_mode':       v7_enemy_fleet_mode,
+        'enemy_fleet':            v7_enemy_fleet,
+        'enemy_fleet_preset':     v7_enemy_fleet_preset,
+        'enemy_fleet_difficulty': v7_enemy_difficulty,
+        'enemy_fleet_seed':       v7_enemy_seed,
+        # 전술 옵션 (포팅 B)
+        'enable_ecm':         v7_ecm,
+        'enable_evasion':     v7_eva,
+        'enable_decoy':       v7_dcoy_en,
+        'enable_selfdefense': v7_sd,
     }
     with st.spinner("⚙️ v7 시뮬레이션 실행 중..."):
         try:
@@ -1721,3 +1805,12 @@ elif 'v7_sim_data' not in st.session_state:
 # · NEW-C: run_btn use_v7 분기 — run_v7_simulation() + monte_carlo_v7() 실행
 # · NEW-D: 전장 애니메이션 탭 — SimFrame 슬라이더로 함정·미사일 위치 재생
 # · NEW-E: MC 통계 / 교전 로그 / Excel·PNG 다운로드 탭 (v7 전용)
+
+# ── 포팅 A 패치 (dashboard.py) ────────────────────────────────────────────────
+# · NEW-F: V7_ENEMY_FLEET_PRESETS / V7_RANDOM_CFG 임포트
+# · NEW-G: v7 적군 편대 모드 radio — 커스텀/프리셋/랜덤 3종, 모드별 위젯
+# · NEW-H: v7 방어 무기 재고 섹션 — SM-3/SM-6/SM-2/RAM/홍상어/청상어/Mk.46/기만기
+
+# ── 포팅 B 패치 (dashboard.py) ────────────────────────────────────────────────
+# · NEW-I: v7 전술 옵션 체크박스 — ECM·회피·기만기·자체방어
+# · NEW-J: _v7_cfg에 방어재고·편대모드·전술플래그 포함하여 엔진 전달

@@ -29,6 +29,16 @@ v7.0 패치 이력:
     - plot_v7(): 6개 서브플롯 PNG 차트 (히스토그램·무기소모·수치요약)
     - save_excel_report_v7(): 4시트 Excel 보고서 (MC요약/무기소모/교전로그/차트)
     - __main__ 인수: python engine_v7.py [시나리오] [MC횟수]
+  · 포팅 A: 방어 무기 재고 수동 설정 + 적군 편대 모드
+    - _build_friendly(): sm3/sm6/sm2/ram/홍상어/청상어/mk46 수동 재고 지원 (cfg 키로 설정)
+    - _build_enemies(): enemy_fleet_mode 4종 지원 (single/preset/custom/random)
+    - ENEMY_FLEET_PRESETS / ENEMY_FLEET_RANDOM_CFG / generate_random_enemy_fleet 연동
+  · 포팅 B: 전술 기능 — ECM·종말회피·음향기만기·함정회피·적 자체방어
+    - ECM_REF_RANGE_M=50km 기준 거리 반비례 Pk 감소, Pk 하한 50% (탄도/HGV 제외)
+    - 종말 회피: 20km 이내 terminal_evasion_factor 적용 (ENEMY_DB missile_terminal_evasion)
+    - 음향 기만기: DECOY_PK=0.60, 어뢰 전용, decoy_stock 소모
+    - 함정 회피 기동: SHIP_EVASION_PK=0.30, 어뢰 전용
+    - 적 자체방어: CIWS(enemy_ciws_pk) 요격 → 채프/플레어(self_defense_pk) Pk 감소
 """
 
 import math, random, os
@@ -57,6 +67,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 from engine import (
     ENEMY_DB, FRIENDLY_DB, WEATHER_DB,
     SHIP_DB, FLEET_PRESETS,
+    ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
 )
 
@@ -64,6 +75,9 @@ from engine import (
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 700    # 최대 시뮬 시간 (초)
 INTERCEPT_DIST_M = 2000   # SAM 요격 판정 거리 (m)
+ECM_REF_RANGE_M  = 50_000 # 포팅 B: ECM 재밍 기준 거리 (m)
+DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
+SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
 
 # ════════════════════════════════════════════════════════════════════════════
 #  새 DB: 아군 대함 공격 무기
@@ -203,6 +217,10 @@ class MissileObj:
         self.is_qbm:       bool  = False
         self.is_ballistic: bool  = False
 
+        # 포팅 B: 전술 속성
+        self.terminal_evasion_factor: float = 1.0  # 종말 회피 계수 (< 20km 적용)
+        self.is_torpedo:              bool  = False # 어뢰 여부 (기만기/회피 판정용)
+
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
         if not self.alive:
@@ -318,6 +336,7 @@ class FriendlyShipObj:
         self.hit_count     = 0
         self.total_cost    = 0.0
         self.channels_used = 0
+        self.decoy_stock   = 4  # 포팅 B: AN/SLQ-25 음향 기만기 기본 재고
 
     @property
     def operational(self) -> bool:
@@ -399,6 +418,22 @@ class TimeStepEngine:
                 '해성-I':        self.cfg.get('haesong1_stock', 0),
                 '하푼 Block II': self.cfg.get('harpoon_stock',  4),
             }
+            # 포팅 A: 방어 무기 재고 수동 설정 (설정 없으면 SHIP_DB 기본값 유지)
+            _def_map = [
+                ('SM-3 Block IIA',  'sm3_stock'),
+                ('SM-6',            'sm6_stock'),
+                ('SM-2 Block IIIB', 'sm2_stock'),
+                ('RIM-116 RAM',     'ram_stock'),
+                ('홍상어 (대잠)',    'hongsango_stock'),
+                ('청상어 (경어뢰)', 'cheongsango_stock'),
+                ('Mk.46 경어뢰',    'mk46_stock'),
+            ]
+            for wpn, cfg_key in _def_map:
+                if cfg_key in self.cfg and wpn in s.inventory:
+                    s.inventory[wpn] = self.cfg[cfg_key]
+            # 포팅 B: 기만기 재고 수동 설정
+            if 'decoy_stock' in self.cfg:
+                s.decoy_stock = self.cfg['decoy_stock']
             ships.append(s)
         return ships
 
@@ -407,7 +442,18 @@ class TimeStepEngine:
         플랫폼(항공기/수상함/잠수함) → EnemyThreatObj
         독립 미사일(탄도/순항/HGV/QBM) → MissileObj (self.missiles에 직접 추가)
         """
-        fleet_cfg  = self.cfg.get('enemy_fleet', [])
+        # 포팅 A: 적군 편대 모드 (단일/프리셋/커스텀/랜덤)
+        mode = self.cfg.get('enemy_fleet_mode', 'custom')
+        if mode == 'preset':
+            fleet_cfg = ENEMY_FLEET_PRESETS.get(
+                self.cfg.get('enemy_fleet_preset', ''), [])
+        elif mode == 'random':
+            fleet_cfg = generate_random_enemy_fleet(
+                difficulty=self.cfg.get('enemy_fleet_difficulty', '보통'),
+                seed=self.cfg.get('enemy_fleet_seed', None))
+        else:
+            fleet_cfg = self.cfg.get('enemy_fleet', [])
+
         detect_km  = self.cfg.get('detect_km', 200)
         sub_det_km = self.cfg.get('sub_detect_km', 50)
         primary    = self._primary()  # 독립 미사일 표적
@@ -449,10 +495,12 @@ class TimeStepEngine:
                         owner_id = -1,
                         t_spawn  = 0.0,
                     )
-                    m.altitude_m   = float(info.get('altitude_m', 0))
-                    m.is_hgv       = bool(info.get('is_hgv', False))
-                    m.is_qbm       = bool(info.get('is_qbm', False))
-                    m.is_ballistic = (ttype == '탄도미사일')
+                    m.altitude_m             = float(info.get('altitude_m', 0))
+                    m.is_hgv                 = bool(info.get('is_hgv', False))
+                    m.is_qbm                 = bool(info.get('is_qbm', False))
+                    m.is_ballistic           = (ttype == '탄도미사일')
+                    m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
+                    m.is_torpedo             = False
                     self.missiles.append(m)
                     self.stats['total_threats'] += 1
                 else:
@@ -535,7 +583,7 @@ class TimeStepEngine:
                     et.pos.x + random.uniform(-500, 500),
                     et.pos.y + random.uniform(-500, 500),
                 )
-                self.missiles.append(MissileObj(
+                _m = MissileObj(
                     mtype    = 'enemy_strike',
                     name     = m_name,
                     pos      = offset,
@@ -544,7 +592,11 @@ class TimeStepEngine:
                     pk_base  = 0.80,
                     owner_id = id(et),
                     t_spawn  = self.t,
-                ))
+                )
+                # 포팅 B: 전술 속성 설정
+                _m.terminal_evasion_factor = et.info.get('missile_terminal_evasion', 1.0)
+                _m.is_torpedo = '어뢰' in m_name
+                self.missiles.append(_m)
 
             et.has_fired = True
             self.stats['total_threats'] += salvo
@@ -834,14 +886,27 @@ class TimeStepEngine:
             sam.alive = False
             tgt_name  = tgt.name if hasattr(tgt, 'name') else str(tgt)
 
-            if random.random() < sam.pk_base:
+            # 포팅 B: ECM 재밍 + 종말 회피 Pk 보정 (아군 SAM vs 적 미사일)
+            eff_pk = sam.pk_base
+            if sam.mtype == 'friendly_sam' and isinstance(tgt, MissileObj):
+                remaining_m = sam.pos.dist_to(tgt.pos)
+                if self.cfg.get('enable_ecm', True) and not tgt.is_ballistic and not tgt.is_hgv:
+                    eff_ecm = 0.30  # 아군 함정 ECM 표준 효과
+                    ecm_f = 1.0 - eff_ecm * (ECM_REF_RANGE_M / max(remaining_m, 5_000))
+                    eff_pk *= max(0.50, min(1.0, ecm_f))
+                if self.cfg.get('enable_evasion', True) and remaining_m < 20_000:
+                    eff_pk *= tgt.terminal_evasion_factor
+
+            if random.random() < eff_pk:
                 tgt.alive       = False
                 tgt.intercepted = True
                 tgt.t_intercept = self.t
 
                 if sam.mtype == 'friendly_sam':
                     self._log(f"[요격 성공] {sam.name} -> {tgt_name} 격추 ({self.t:.0f}s)")
-                    self.stats['intercepted_threats'] += 1
+                    # MissileObj만 intercepted_threats에 집계 (BUG 수정: 항공기 플랫폼 격추는 enemy_ships_destroyed로)
+                    if isinstance(tgt, MissileObj):
+                        self.stats['intercepted_threats'] += 1
                     for ship in self.friendly_ships:
                         if id(ship) == sam.owner_id:
                             ship.channels_used = max(0, ship.channels_used - 1)
@@ -873,6 +938,20 @@ class TimeStepEngine:
             if m.mtype == 'enemy_strike':
                 tgt = m.target
                 if isinstance(tgt, FriendlyShipObj) and tgt.alive:
+                    # 포팅 B: 음향 기만기 AN/SLQ-25 — 어뢰 전용
+                    if m.is_torpedo and self.cfg.get('enable_decoy', True):
+                        if tgt.decoy_stock > 0:
+                            tgt.decoy_stock -= 1
+                            if random.random() < DECOY_PK:
+                                self._log(
+                                    f"[기만기] {tgt.name} 기만기 성공 — {m.name} 회피 "
+                                    f"(잔여 {tgt.decoy_stock}발)")
+                                continue
+                    # 포팅 B: 함정 회피 기동 — 어뢰 전용
+                    if m.is_torpedo and self.cfg.get('enable_evasion', True):
+                        if random.random() < SHIP_EVASION_PK:
+                            self._log(f"[회피] {tgt.name} 회피 기동 성공 — {m.name}")
+                            continue
                     if random.random() < m.pk_base:
                         tgt.take_hit(m.name, self.t)
                         self.stats['friendly_hits'] += 1
@@ -883,7 +962,16 @@ class TimeStepEngine:
             elif m.mtype == 'friendly_strike':
                 tgt = m.target
                 if isinstance(tgt, EnemyThreatObj) and tgt.alive:
-                    if random.random() < m.pk_base:
+                    # 포팅 B: 적 자체방어 — CIWS 요격 → 채프/플레어
+                    eff_pk = m.pk_base
+                    if self.cfg.get('enable_selfdefense', True):
+                        ciws_pk = tgt.info.get('enemy_ciws_pk', 0.0)
+                        if ciws_pk > 0 and random.random() < ciws_pk:
+                            self._log(f"[적 CIWS] {tgt.preset_name} CIWS 요격 — {m.name}")
+                            continue
+                        sdpk   = tgt.info.get('self_defense_pk', 0.0)
+                        eff_pk = m.pk_base * (1.0 - sdpk)
+                    if random.random() < eff_pk:
                         tgt.take_hit(m.name, self.t)
                         self.stats['enemy_hits'] += 1
                         status = '격침' if not tgt.alive else f'손상 (HP {tgt.hp})'
@@ -1489,3 +1577,21 @@ if __name__ == '__main__':
 # · NEW-M: plot_v7() — 6개 서브플롯 PNG 차트
 # · NEW-N: save_excel_report_v7() — 4시트 Excel 보고서
 # · NEW-O: __main__ 인수 확장 (python engine_v7.py [시나리오] [MC횟수])
+
+# ── v7.0 포팅 A 패치 ──────────────────────────────────────────────────────────
+# · NEW-P: ENEMY_FLEET_PRESETS / ENEMY_FLEET_RANDOM_CFG / generate_random_enemy_fleet 임포트
+# · NEW-Q: _build_enemies() — enemy_fleet_mode 4종 (custom/preset/random) 지원
+# · NEW-R: _build_friendly() — SM-3/SM-6/SM-2/RAM/홍상어/청상어/Mk.46 수동 재고 설정
+# · BUG-6: intercept_rate 계산 오류 수정 — 항공기 플랫폼 격추가 intercepted_threats에 집계되어
+#           미사일 미발사 항공기 격추 시 intercept_rate > 1.0 발생하던 문제 제거
+#           (MissileObj만 intercepted_threats 카운트, 플랫폼 격추는 enemy_ships_destroyed)
+
+# ── v7.0 포팅 B 패치 ──────────────────────────────────────────────────────────
+# · NEW-S: ECM_REF_RANGE_M / DECOY_PK / SHIP_EVASION_PK 상수 추가
+# · NEW-T: MissileObj.terminal_evasion_factor / is_torpedo 속성 추가
+# · NEW-U: FriendlyShipObj.decoy_stock (기본 4발) 추가
+# · NEW-V: _check_intercepts() — ECM 재밍 (50km 기준 Pk 감소, 하한 50%, 탄도/HGV 제외)
+# · NEW-W: _check_intercepts() — 종말 회피 (< 20km, terminal_evasion_factor 적용)
+# · NEW-X: _check_hits() — 음향 기만기 AN/SLQ-25 (어뢰 전용, DECOY_PK=0.60)
+# · NEW-Y: _check_hits() — 함정 회피 기동 (어뢰 전용, SHIP_EVASION_PK=0.30)
+# · NEW-Z: _check_hits() — 적 자체방어 (CIWS 요격 → 채프/플레어 eff_pk 감소)
