@@ -1461,3 +1461,31 @@ if __name__ == '__main__':
     print(f"     python engine_v7.py [시나리오] [MC횟수]")
     print(f"     예) python engine_v7.py mixed 500")
     print("=" * 66)
+
+# ── v7.0 1단계 패치 ───────────────────────────────────────────────────────────
+# · NEW-A: 시간 스텝(1초) 루프 + Vec2 2D 위치 모델
+# · NEW-B: 아군 방어 SAM (SM-3/SM-6/SM-2/RAM/CIWS)
+# · NEW-C: 아군 공격 (해성-I/II·하푼) — FRIENDLY_STRIKE_DB 신규
+# · NEW-D: 적 SAM 방어 (HHQ-9B/HHQ-16/HHQ-10/1130-CIWS) — ENEMY_SAM_DB 신규
+# · NEW-E: SimFrame 단위 상태 기록 (애니메이션 준비)
+
+# ── v7.0 2단계 패치 ───────────────────────────────────────────────────────────
+# · BUG-1: SAM alive=False 조기 설정 → 요격 판정 스킵 문제 수정
+# · BUG-2: INTERCEPT_DIST_M 300m → 2000m (1초 스텝 해상도 반영)
+# · BUG-3: 대함 탐지 거리 수정 (자함 레이더 45km → detect_km 병용)
+# · BUG-4: 적 함정 시작 위치 1.8x → 1.0x (교전 즉시 개시)
+# · BUG-5: 적 함정 재발사 허용 (미사일 소진 후 재장전)
+
+# ── v7.0 3단계 패치 ───────────────────────────────────────────────────────────
+# · NEW-F: EnemyShipObj → EnemyThreatObj 통합 (항공/함정/잠수함/독립미사일)
+# · NEW-G: 항공기 접근→발사→이탈 행동 패턴
+# · NEW-H: 탄도/순항/HGV/QBM 독립 미사일 MissileObj 직접 생성
+# · NEW-I: 대잠전 홍상어/청상어 ASW + 소나 탐지 범위
+# · NEW-J: _select_defense_wpn() 고도·유형 인식 (SM-3 HGV/탄도, SM-6 QBM)
+
+# ── v7.0 4단계 패치 ───────────────────────────────────────────────────────────
+# · NEW-K: matplotlib 한글 폰트 설정 (Malgun Gothic)
+# · NEW-L: monte_carlo_v7() — N회 반복 통계 집계
+# · NEW-M: plot_v7() — 6개 서브플롯 PNG 차트
+# · NEW-N: save_excel_report_v7() — 4시트 Excel 보고서
+# · NEW-O: __main__ 인수 확장 (python engine_v7.py [시나리오] [MC횟수])
