@@ -23,10 +23,36 @@ v7.0 패치 이력:
     - 대잠전: 홍상어/청상어 ASW 운용, 소나 탐지 범위 반영
     - _select_defense_wpn(): 고도/유형 인식 (SM-3 HGV/탄도, SM-6 QBM)
     - _friendly_strike(): 수상함(해성/하푼) + 잠수함(홍상어/청상어) 분리
+  · 4단계: 몬테카를로 분석 + 보고서 생성
+    - matplotlib 한글 폰트 설정 (Malgun Gothic)
+    - monte_carlo_v7(): N회 반복 통계 집계 (요격률/피격/격침/비용)
+    - plot_v7(): 6개 서브플롯 PNG 차트 (히스토그램·무기소모·수치요약)
+    - save_excel_report_v7(): 4시트 Excel 보고서 (MC요약/무기소모/교전로그/차트)
+    - __main__ 인수: python engine_v7.py [시나리오] [MC횟수]
 """
 
-import math, random
+import math, random, os
 from typing import List, Optional
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.font_manager as fm
+import numpy as np
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+try:
+    from openpyxl.drawing.image import Image as XLImage
+    _CAN_IMG = True
+except Exception:
+    _CAN_IMG = False
+
+for _fp in ['C:/Windows/Fonts/malgun.ttf', 'C:/Windows/Fonts/malgunbd.ttf']:
+    if os.path.exists(_fp):
+        fm.fontManager.addfont(_fp)
+matplotlib.rcParams['font.family'] = 'Malgun Gothic'
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 from engine import (
     ENEMY_DB, FRIENDLY_DB, WEATHER_DB,
@@ -955,6 +981,355 @@ def run_v7_simulation(cfg: dict) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  몬테카를로 분석
+# ════════════════════════════════════════════════════════════════════════════
+
+def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '') -> dict:
+    """
+    run_v7_simulation을 n회 반복해 통계를 집계한다.
+
+    반환 dict 키:
+      intercept_rates   : list[float]   — 회차별 요격률
+      friendly_hits     : list[int]
+      enemy_destroyed   : list[int]
+      friendly_lost     : list[int]
+      total_costs       : list[float]
+      mean_intercept    : float
+      std_intercept     : float
+      full_pass_rate    : float          — 요격률 1.0 비율
+    """
+    rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+
+    step = max(1, n // 5)
+    if desc:
+        print(f'  [{desc}] {n}회 MC 시작... ', end='', flush=True)
+
+    for i in range(n):
+        r = run_v7_simulation(cfg)
+        rates.append(r['intercept_rate'])
+        f_hits.append(r['friendly_hits'])
+        e_dest.append(r['enemy_ships_destroyed'])
+        f_lost.append(r['friendly_ships_lost'])
+        costs.append(r['total_cost'])
+        if desc and (i + 1) % step == 0:
+            print(f'{(i + 1) * 100 // n}%', end=' ', flush=True)
+
+    if desc:
+        print('완료')
+
+    arr = np.array(rates)
+    return {
+        'intercept_rates':  rates,
+        'friendly_hits':    f_hits,
+        'enemy_destroyed':  e_dest,
+        'friendly_lost':    f_lost,
+        'total_costs':      costs,
+        'mean_intercept':   float(arr.mean()),
+        'std_intercept':    float(arr.std()),
+        'full_pass_rate':   float((arr == 1.0).mean()),
+        'n':                n,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  PNG 차트 생성
+# ════════════════════════════════════════════════════════════════════════════
+
+_BG   = '#0a0e1a'
+_GRID = '#1e2a3a'
+_ACC  = '#3498db'
+
+def _ax_style(ax, title: str):
+    ax.set_facecolor(_BG)
+    ax.tick_params(colors='#aab', labelsize=8)
+    for sp in ax.spines.values():
+        sp.set_color(_GRID)
+    ax.set_title(title, color='#dde', fontsize=9, fontweight='bold', pad=6)
+
+
+def plot_v7(result: dict, mc: dict, cfg: dict,
+            img_path: str = '이지스_기동전단_v7_분석.png') -> str:
+    """
+    단일 시뮬 결과(result) + MC 통계(mc)를 6개 서브플롯으로 시각화.
+    img_path에 저장 후 경로 반환.
+    """
+    fig = plt.figure(figsize=(16, 10), facecolor=_BG)
+    fig.suptitle(
+        f"이지스 기동전단 통합 방어 시뮬레이터 v7.0\n"
+        f"시나리오: {cfg.get('fleet_preset','?')} | "
+        f"날씨: {cfg.get('weather','?')} | "
+        f"MC {mc['n']}회",
+        color='white', fontsize=13, fontweight='bold', y=0.98,
+    )
+
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35,
+                           left=0.07, right=0.97, top=0.90, bottom=0.08)
+
+    # ── (0,0) 요격률 히스토그램 ──────────────────────────────────────────────
+    ax0 = fig.add_subplot(gs[0, 0])
+    _ax_style(ax0, '요격률 분포 (MC)')
+    ax0.hist(mc['intercept_rates'], bins=20, color=_ACC, edgecolor='#0a0e1a', alpha=0.85)
+    ax0.axvline(mc['mean_intercept'], color='#e74c3c', lw=1.5, ls='--',
+                label=f"평균 {mc['mean_intercept']:.1%}")
+    ax0.set_xlabel('요격률', color='#aab', fontsize=8)
+    ax0.set_ylabel('빈도', color='#aab', fontsize=8)
+    ax0.legend(fontsize=7, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
+    ax0.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:.0%}'))
+
+    # ── (0,1) 아군 피격 분포 ─────────────────────────────────────────────────
+    ax1 = fig.add_subplot(gs[0, 1])
+    _ax_style(ax1, '아군 피격 횟수 분포 (MC)')
+    ax1.hist(mc['friendly_hits'], bins=range(0, max(mc['friendly_hits']) + 2),
+             color='#e74c3c', edgecolor='#0a0e1a', alpha=0.85, align='left')
+    ax1.set_xlabel('피격 횟수', color='#aab', fontsize=8)
+    ax1.set_ylabel('빈도', color='#aab', fontsize=8)
+
+    # ── (0,2) 적 격침 분포 ───────────────────────────────────────────────────
+    ax2 = fig.add_subplot(gs[0, 2])
+    _ax_style(ax2, '적 플랫폼 격침 수 분포 (MC)')
+    max_dest = max(mc['enemy_destroyed']) if mc['enemy_destroyed'] else 1
+    ax2.hist(mc['enemy_destroyed'], bins=range(0, max_dest + 2),
+             color='#2ecc71', edgecolor='#0a0e1a', alpha=0.85, align='left')
+    ax2.set_xlabel('격침 수', color='#aab', fontsize=8)
+    ax2.set_ylabel('빈도', color='#aab', fontsize=8)
+
+    # ── (1,0) 무기 소모 현황 (단일 시뮬) ─────────────────────────────────────
+    ax3 = fig.add_subplot(gs[1, 0])
+    _ax_style(ax3, '무기 소모 현황 (단일 시뮬)')
+    ships = result.get('friendly_ships', [])
+    wpn_used: dict = {}
+    for s in ships:
+        spec = SHIP_DB.get(s.ship_type, {})
+        default_inv = spec.get('default_inventory', {})
+        for wpn, orig in default_inv.items():
+            used = orig - s.inventory.get(wpn, orig)
+            if used > 0:
+                wpn_used[wpn] = wpn_used.get(wpn, 0) + used
+    if wpn_used:
+        labels = list(wpn_used.keys())
+        values = [wpn_used[k] for k in labels]
+        colors = [_ACC if i % 2 == 0 else '#5dade2' for i in range(len(labels))]
+        bars = ax3.barh(labels, values, color=colors, edgecolor='#0a0e1a')
+        ax3.bar_label(bars, padding=3, color='white', fontsize=7)
+        ax3.set_xlabel('발사 수', color='#aab', fontsize=8)
+        ax3.tick_params(axis='y', labelsize=7)
+    else:
+        ax3.text(0.5, 0.5, '발사 없음', color='#aab', ha='center', va='center',
+                 transform=ax3.transAxes)
+
+    # ── (1,1) 비용 분포 ──────────────────────────────────────────────────────
+    ax4 = fig.add_subplot(gs[1, 1])
+    _ax_style(ax4, '총 교전 비용 분포 (MC)')
+    costs_m = [c / 1_000_000 for c in mc['total_costs']]
+    ax4.hist(costs_m, bins=20, color='#f39c12', edgecolor='#0a0e1a', alpha=0.85)
+    mean_m = np.mean(costs_m)
+    ax4.axvline(mean_m, color='#e74c3c', lw=1.5, ls='--',
+                label=f'평균 ${mean_m:.1f}M')
+    ax4.set_xlabel('비용 (백만 USD)', color='#aab', fontsize=8)
+    ax4.set_ylabel('빈도', color='#aab', fontsize=8)
+    ax4.legend(fontsize=7, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
+
+    # ── (1,2) 핵심 수치 요약 ────────────────────────────────────────────────
+    ax5 = fig.add_subplot(gs[1, 2])
+    ax5.set_facecolor(_BG)
+    ax5.axis('off')
+    _ax_style(ax5, '핵심 수치 요약')
+
+    enemy_count = sum(s.get('count', 1) for s in cfg.get('enemy_fleet', []))
+    summary_lines = [
+        ('적 편대 규모',     f"{enemy_count}기/척"),
+        ('시뮬 종료 시각',   f"{result['sim_time']:.0f}s"),
+        ('총 위협 수',       f"{result['total_threats']}발/기"),
+        ('요격 성공 (단일)', f"{result['intercepted_threats']}발/기"),
+        ('', ''),
+        ('MC 평균 요격률',   f"{mc['mean_intercept']:.1%}"),
+        ('MC 표준편차',      f"±{mc['std_intercept']:.1%}"),
+        ('완전요격 비율',    f"{mc['full_pass_rate']:.1%}"),
+        ('', ''),
+        ('아군 피격 (단일)', f"{result['friendly_hits']}회"),
+        ('적 격침 (단일)',   f"{result['enemy_ships_destroyed']}기/척"),
+        ('아군 손실 (단일)', f"{result['friendly_ships_lost']}척"),
+        ('총 비용 (단일)',   f"${result['total_cost']:,.0f}"),
+    ]
+    y = 0.97
+    for label, val in summary_lines:
+        if not label:
+            y -= 0.04
+            continue
+        ax5.text(0.04, y, label, color='#7fb3d3', fontsize=8, transform=ax5.transAxes, va='top')
+        ax5.text(0.96, y, val,   color='white',   fontsize=8, transform=ax5.transAxes, va='top', ha='right', fontweight='bold')
+        y -= 0.072
+
+    plt.savefig(img_path, dpi=150, bbox_inches='tight', facecolor=_BG)
+    plt.close(fig)
+    print(f"  그래프 저장: '{img_path}'")
+    return img_path
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Excel 보고서 생성
+# ════════════════════════════════════════════════════════════════════════════
+
+def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
+                          img_path: str = '',
+                          xlsx_path: str = '이지스_기동전단_v7_보고서.xlsx'):
+    """
+    Sheet1: MC 통계 요약
+    Sheet2: 무기 소모 현황
+    Sheet3: 교전 로그
+    Sheet4: PNG 차트 삽입 (이미지 있을 때)
+    """
+    wb = Workbook()
+    tb = Border(**{s: Side(style='thin', color='CCCCCC')
+                   for s in ('left', 'right', 'top', 'bottom')})
+
+    def cs(ws, r, c, v, bold=False, bg=None, center=True, color='000000'):
+        cell = ws.cell(row=r, column=c, value=v)
+        cell.font      = Font(bold=bold, size=10, name='Arial', color=color)
+        cell.alignment = Alignment(
+            horizontal='center' if center else 'left',
+            vertical='center', wrap_text=True,
+        )
+        cell.border = tb
+        if bg:
+            cell.fill = PatternFill('solid', start_color=bg)
+
+    def title_row(ws, r, text, cols='A:F', bg='1A252F'):
+        end_col = cols.split(':')[1]
+        ws.merge_cells(f'A{r}:{end_col}{r}')
+        cell = ws.cell(row=r, column=1, value=text)
+        cell.font      = Font(bold=True, size=13, color='FFFFFF', name='Arial')
+        cell.fill      = PatternFill('solid', start_color=bg)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws.row_dimensions[r].height = 28
+
+    def hdr(ws, r, headers, bg='2C3E50'):
+        for j, h in enumerate(headers, 1):
+            cell = ws.cell(row=r, column=j, value=h)
+            cell.font      = Font(bold=True, size=10, color='FFFFFF', name='Arial')
+            cell.fill      = PatternFill('solid', start_color=bg)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border    = tb
+
+    # ── Sheet1: MC 통계 요약 ─────────────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = 'MC 통계 요약'
+    ws1.sheet_view.showGridLines = False
+    for col, w in zip('ABCDEF', [20, 20, 18, 18, 18, 18]):
+        ws1.column_dimensions[col].width = w
+
+    title_row(ws1, 1, f'이지스 기동전단 v7.0 — MC {mc["n"]}회 통계 요약')
+    hdr(ws1, 2, ['항목', '단일 시뮬', 'MC 평균', 'MC 표준편차', 'MC 최솟값', 'MC 최댓값'])
+
+    rows = [
+        ('요격률',
+         f"{result['intercept_rate']:.1%}",
+         f"{mc['mean_intercept']:.1%}",
+         f"±{mc['std_intercept']:.1%}",
+         f"{min(mc['intercept_rates']):.1%}",
+         f"{max(mc['intercept_rates']):.1%}"),
+        ('아군 피격',
+         result['friendly_hits'],
+         f"{np.mean(mc['friendly_hits']):.1f}",
+         f"±{np.std(mc['friendly_hits']):.1f}",
+         min(mc['friendly_hits']),
+         max(mc['friendly_hits'])),
+        ('적 격침',
+         result['enemy_ships_destroyed'],
+         f"{np.mean(mc['enemy_destroyed']):.1f}",
+         f"±{np.std(mc['enemy_destroyed']):.1f}",
+         min(mc['enemy_destroyed']),
+         max(mc['enemy_destroyed'])),
+        ('아군 함정 손실',
+         result['friendly_ships_lost'],
+         f"{np.mean(mc['friendly_lost']):.1f}",
+         f"±{np.std(mc['friendly_lost']):.1f}",
+         min(mc['friendly_lost']),
+         max(mc['friendly_lost'])),
+        ('총 비용 (USD)',
+         f"${result['total_cost']:,.0f}",
+         f"${np.mean(mc['total_costs']):,.0f}",
+         f"±${np.std(mc['total_costs']):,.0f}",
+         f"${min(mc['total_costs']):,.0f}",
+         f"${max(mc['total_costs']):,.0f}"),
+        ('완전 요격 비율',
+         '—',
+         f"{mc['full_pass_rate']:.1%}",
+         '—', '—', '—'),
+    ]
+    for i, row in enumerate(rows):
+        bg = 'D5F5E3' if i % 2 == 0 else 'EBF5FB'
+        for j, val in enumerate(row, 1):
+            cs(ws1, i + 3, j, val, bg=bg, center=(j > 1))
+
+    # 시나리오 파라미터 블록
+    ws1.cell(row=len(rows) + 5, column=1, value='【시나리오 파라미터】').font = Font(bold=True, size=11)
+    params = [
+        ('편대 프리셋',   cfg.get('fleet_preset', '?')),
+        ('날씨',          cfg.get('weather', '?')),
+        ('탐지 거리',     f"{cfg.get('detect_km', '?')} km"),
+        ('해성-II 재고',  cfg.get('haesong2_stock', 0)),
+        ('해성-I  재고',  cfg.get('haesong1_stock', 0)),
+        ('하푼 재고',     cfg.get('harpoon_stock', 0)),
+    ]
+    for k, (label, val) in enumerate(params):
+        cs(ws1, len(rows) + 6 + k, 1, label, center=False)
+        cs(ws1, len(rows) + 6 + k, 2, val,   center=False)
+
+    # ── Sheet2: 무기 소모 현황 ───────────────────────────────────────────────
+    ws2 = wb.create_sheet('무기 소모 현황')
+    ws2.sheet_view.showGridLines = False
+    for col, w in zip('ABCDE', [24, 16, 16, 16, 16]):
+        ws2.column_dimensions[col].width = w
+
+    title_row(ws2, 1, '함정별 무기 소모 현황 (단일 시뮬)')
+    hdr(ws2, 2, ['함정명', '무기', '초기 재고', '소모량', '잔여량'])
+
+    row_idx = 3
+    for s in result.get('friendly_ships', []):
+        spec        = SHIP_DB.get(s.ship_type, {})
+        default_inv = spec.get('default_inventory', {})
+        for wpn, orig in default_inv.items():
+            remaining = s.inventory.get(wpn, orig)
+            used      = orig - remaining
+            bg = 'FADBD8' if used > 0 else 'F2F3F4'
+            cs(ws2, row_idx, 1, s.name,      bg=bg, center=False)
+            cs(ws2, row_idx, 2, wpn,         bg=bg, center=False)
+            cs(ws2, row_idx, 3, orig,        bg=bg)
+            cs(ws2, row_idx, 4, used,        bg='E74C3C' if used > 0 else bg,
+               color='FFFFFF' if used > 0 else '000000', bold=(used > 0))
+            cs(ws2, row_idx, 5, remaining,   bg=bg)
+            row_idx += 1
+
+    # ── Sheet3: 교전 로그 ────────────────────────────────────────────────────
+    ws3 = wb.create_sheet('교전 로그')
+    ws3.sheet_view.showGridLines = False
+    for col, w in zip('AB', [12, 80]):
+        ws3.column_dimensions[col].width = w
+
+    title_row(ws3, 1, '교전 로그 (단일 시뮬)', cols='A:B')
+    hdr(ws3, 2, ['시각 (s)', '이벤트'])
+
+    for i, (t, msg) in enumerate(result.get('log', [])):
+        bg = 'EBF5FB' if i % 2 == 0 else 'FDFEFE'
+        cs(ws3, i + 3, 1, f'{t:.0f}', bg=bg)
+        cs(ws3, i + 3, 2, msg,        bg=bg, center=False)
+
+    # ── Sheet4: PNG 차트 ─────────────────────────────────────────────────────
+    if img_path and _CAN_IMG and os.path.exists(img_path):
+        ws4 = wb.create_sheet('분석 차트')
+        ws4.sheet_view.showGridLines = False
+        title_row(ws4, 1, 'MC 분석 차트', cols='A:L')
+        img_obj = XLImage(img_path)
+        img_obj.anchor = 'A2'
+        ws4.add_image(img_obj)
+
+    wb.save(xlsx_path)
+    print(f"  엑셀 보고서 저장: '{xlsx_path}'")
+    return xlsx_path
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  단독 실행 테스트 — 32종 혼합 시나리오
 # ════════════════════════════════════════════════════════════════════════════
 if __name__ == '__main__':
@@ -1044,6 +1419,8 @@ if __name__ == '__main__':
 
     cfg = SCENARIOS.get(scenario, SCENARIOS['mixed'])
 
+    MC_N = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+
     print("=" * 66)
     print(f"  이지스 기동전단 통합 방어 시뮬레이터 v7.0  [시나리오: {scenario}]")
     print("=" * 66)
@@ -1063,4 +1440,24 @@ if __name__ == '__main__':
     print("  교전 로그:")
     for t, msg in result['log']:
         print(f"  [{t:5.0f}s] {msg}")
+    print("=" * 66)
+
+    # ── MC 분석 + 보고서 생성 ────────────────────────────────────────────────
+    print(f"\n  몬테카를로 분석 ({MC_N}회) 시작...")
+    mc = monte_carlo_v7(cfg, n=MC_N, desc=scenario)
+
+    print(f"  MC 평균 요격률 : {mc['mean_intercept']:.1%}  "
+          f"(±{mc['std_intercept']:.1%})")
+    print(f"  완전 요격 비율 : {mc['full_pass_rate']:.1%}")
+
+    img_path  = f'이지스_기동전단_v7_{scenario}_분석.png'
+    xlsx_path = f'이지스_기동전단_v7_{scenario}_보고서.xlsx'
+
+    plot_v7(result, mc, cfg, img_path=img_path)
+    save_excel_report_v7(result, mc, cfg,
+                         img_path=img_path, xlsx_path=xlsx_path)
+
+    print("\n  ※ 실행 방법:")
+    print(f"     python engine_v7.py [시나리오] [MC횟수]")
+    print(f"     예) python engine_v7.py mixed 500")
     print("=" * 66)
