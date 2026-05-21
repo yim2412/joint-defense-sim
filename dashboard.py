@@ -35,6 +35,17 @@ except ImportError as e:
     _ENGINE_OK = False
     _ENGINE_ERR = str(e)
 
+try:
+    from engine_v7 import (
+        run_v7_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
+        FLEET_PRESETS as V7_FLEET_PRESETS,
+        ENEMY_DB as V7_ENEMY_DB,
+    )
+    _V7_OK = True
+except ImportError as e:
+    _V7_OK = False
+    _V7_ERR = str(e)
+
 # ── 페이지 기본 설정 ─────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="이지스 기동전단 통합 방어 시뮬레이터 v6.8.4",
@@ -72,8 +83,55 @@ if not _ENGINE_OK:
 with st.sidebar:
     st.image("https://img.shields.io/badge/정조대왕급-이지스구축함-003366?style=for-the-badge",
              use_container_width=True)
-    st.title("⚓ 이지스 기동전단 v6.8.4")
+    st.title("⚓ 이지스 기동전단 v6.8 / v7.0")
     st.caption("파라미터를 설정한 뒤 실행 버튼을 누르세요.")
+
+    # ── 엔진 선택 ────────────────────────────────────────────────────────────
+    st.markdown("### ⚙️ 엔진 버전")
+    _engine_choice = st.radio(
+        "시뮬레이션 엔진",
+        ["v6 — 이벤트 기반 (기존)", "v7 — 시간스텝 양방향 (신규)"],
+        horizontal=True,
+        help="v6: 기존 이벤트 기반 엔진 (REQ 판정·비교 지원)\nv7: 시간 스텝 양방향 교전 엔진 (SimFrame 애니메이션·MC 통계)",
+    )
+    use_v7 = (_engine_choice.startswith("v7")) and _V7_OK
+    if _engine_choice.startswith("v7") and not _V7_OK:
+        st.error(f"v7 엔진 로드 실패: {_V7_ERR}")
+    st.divider()
+
+    # ── v7 전용 설정 ─────────────────────────────────────────────────────────
+    if use_v7:
+        st.markdown("### 🔴 [v7] 적군 편대")
+        _all_enemy_keys = list(V7_ENEMY_DB.keys())
+        _n_etypes = int(st.number_input("위협 종류 수", 1, 8, 3, step=1, key="v7_ne"))
+        v7_enemy_fleet = []
+        for _idx in range(_n_etypes):
+            _c1, _c2 = st.columns([3, 1])
+            with _c1:
+                _ep = st.selectbox(f"위협 #{_idx+1}", _all_enemy_keys,
+                                   key=f"v7_ep_{_idx}")
+            with _c2:
+                _ec = int(st.number_input("수", 1, 8, 1, step=1,
+                                          key=f"v7_ec_{_idx}"))
+            v7_enemy_fleet.append({'preset': _ep, 'count': _ec})
+
+        st.divider()
+        st.markdown("### 🔵 [v7] 아군 편대")
+        v7_fleet_preset = st.selectbox("편대 프리셋", list(V7_FLEET_PRESETS.keys()), key="v7_fp")
+        v7_weather      = st.selectbox("날씨", list(WEATHER_DB.keys()), key="v7_wx")
+        v7_detect_km    = int(st.number_input("탐지 거리 (km)", 50, 500, 200, step=10, key="v7_dk"))
+        v7_sub_detect   = int(st.number_input("대잠 탐지 거리 (km)", 10, 100, 50, step=5, key="v7_sdk"))
+
+        st.divider()
+        st.markdown("### 🚀 [v7] 공격 무기 재고")
+        _sc1, _sc2, _sc3 = st.columns(3)
+        with _sc1: v7_haesong2 = int(st.number_input("해성-II", 0, 20, 8, key="v7_hs2"))
+        with _sc2: v7_haesong1 = int(st.number_input("해성-I",  0, 20, 0, key="v7_hs1"))
+        with _sc3: v7_harpoon  = int(st.number_input("하푼",    0, 20, 4, key="v7_hp"))
+
+        st.divider()
+        st.markdown("### 📊 [v7] 몬테카를로")
+        v7_mc_n = int(st.number_input("MC 반복 횟수", 50, 1000, 200, step=50, key="v7_mcn"))
 
     # ── [1] 적군 위협 ─────────────────────────────────────────────────────
     st.markdown("### 🔴 [1] 적군 위협 / 편대")
@@ -372,8 +430,13 @@ with st.sidebar:
                 help="SM-3/SM-6/SM-2/RAM 각 사거리 링 표시")
 
     st.divider()
-    run_btn = st.button("🚀 시뮬레이션 실행", type="primary",
-                        use_container_width=True)
+    if use_v7:
+        st.caption("v7 설정은 상단 **[v7]** 섹션에서 입력하세요.")
+        run_btn = st.button("🚀 v7 시뮬레이션 실행", type="primary",
+                            use_container_width=True)
+    else:
+        run_btn = st.button("🚀 시뮬레이션 실행", type="primary",
+                            use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 #  메인 영역 — 헤더
@@ -411,7 +474,36 @@ if load_btn and load_file and load_file != '선택 안 함':
     except Exception as _e:
         st.sidebar.error(f"불러오기 실패: {_e}")
 
-if run_btn:
+if run_btn and use_v7:
+    _v7_cfg = {
+        'fleet_preset':    v7_fleet_preset,
+        'weather':         v7_weather,
+        'detect_km':       v7_detect_km,
+        'sub_detect_km':   v7_sub_detect,
+        'haesong2_stock':  v7_haesong2,
+        'haesong1_stock':  v7_haesong1,
+        'harpoon_stock':   v7_harpoon,
+        'enemy_fleet':     v7_enemy_fleet,
+    }
+    with st.spinner("⚙️ v7 시뮬레이션 실행 중..."):
+        try:
+            _t0 = time.time()
+            _v7_result = run_v7_simulation(_v7_cfg)
+            _v7_mc     = monte_carlo_v7(_v7_cfg, n=v7_mc_n)
+            _v7_elapsed = time.time() - _t0
+        except Exception as _e:
+            st.error(f"❌ v7 오류: {_e}")
+            st.exception(_e)
+            st.stop()
+    st.session_state['v7_sim_data'] = {
+        'result':  _v7_result,
+        'mc':      _v7_mc,
+        'cfg':     _v7_cfg,
+        'elapsed': _v7_elapsed,
+    }
+    st.success(f"✅ v7 완료 ({_v7_elapsed:.1f}초) — MC {v7_mc_n}회")
+
+if run_btn and not use_v7:
     cfg = {
         'enemy_preset':               enemy_preset,
         'friendly_preset':            friendly_preset,
@@ -507,8 +599,199 @@ if run_btn:
             st.session_state['comparison_results'] = cmp_results
         st.success("📊 A vs B 비교 완료 — 'A vs B 비교' 탭에서 확인하세요.")
 
+# ════════════════════════════════════════════════════════════════════════════
+#  v7 결과 표시
+# ════════════════════════════════════════════════════════════════════════════
+if 'v7_sim_data' in st.session_state and use_v7:
+    _vd      = st.session_state['v7_sim_data']
+    _vr      = _vd['result']
+    _vm      = _vd['mc']
+    _vcfg    = _vd['cfg']
+    _velapsed= _vd['elapsed']
+
+    # ── 핵심 지표 카드 ──────────────────────────────────────────────────────
+    def _vcard(col, label, value, color="#3498db"):
+        col.markdown(
+            f"<div class='metric-card' style='border-color:{color}'>"
+            f"<div class='metric-label'>{label}</div>"
+            f"<div class='metric-value'>{value}</div></div>",
+            unsafe_allow_html=True)
+
+    _vc1,_vc2,_vc3,_vc4,_vc5 = st.columns(5)
+    _vcard(_vc1, "MC 평균 요격률",
+           f"{_vm['mean_intercept']:.1%}",
+           "#27ae60" if _vm['mean_intercept'] >= 0.9 else "#e74c3c")
+    _vcard(_vc2, "완전 요격 비율", f"{_vm['full_pass_rate']:.1%}")
+    _vcard(_vc3, "아군 피격 (단일)", f"{_vr['friendly_hits']}회",
+           "#27ae60" if _vr['friendly_hits'] == 0 else "#e74c3c")
+    _vcard(_vc4, "적 격침 (단일)", f"{_vr['enemy_ships_destroyed']}기/척")
+    _vcard(_vc5, "총 비용 (단일)", f"${_vr['total_cost']:,.0f}")
+
+    st.divider()
+    st.caption(f"v7 시뮬 종료: {_vr['sim_time']:.0f}s | "
+               f"총 위협: {_vr['total_threats']}발/기 | "
+               f"요격: {_vr['intercepted_threats']}발/기 | "
+               f"실행시간: {_velapsed:.1f}s")
+
+    # ── 탭 구성 ─────────────────────────────────────────────────────────────
+    _vt1, _vt2, _vt3, _vt4 = st.tabs(
+        ["🗺️ 전장 애니메이션", "📊 MC 통계", "📜 교전 로그", "⬇️ 다운로드"])
+
+    # ── Tab 1: 전장 애니메이션 ──────────────────────────────────────────────
+    with _vt1:
+        _frames = _vr.get('frames', [])
+        if not _frames:
+            st.info("프레임 데이터 없음")
+        else:
+            _t_max = len(_frames) - 1
+            _fi = st.slider("시각 (프레임)", 0, _t_max, 0,
+                            help="슬라이더를 움직여 전장 상황을 재생하세요")
+            _frame = _frames[_fi]
+            st.caption(f"t = {_frame.t:.0f}s")
+
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            _fig, _ax = plt.subplots(figsize=(9, 9),
+                                     facecolor='#0a0e1a')
+            _ax.set_facecolor('#0a0e1a')
+            _ax.tick_params(colors='#aab', labelsize=8)
+            for _sp in _ax.spines.values():
+                _sp.set_color('#1e2a3a')
+
+            # 배경 바다
+            _ax.set_xlim(-320_000, 320_000)
+            _ax.set_ylim(-320_000, 320_000)
+            _ax.set_xlabel('X (km)', color='#aab', fontsize=8)
+            _ax.set_ylabel('Y (km)', color='#aab', fontsize=8)
+            _ax.xaxis.set_major_formatter(
+                plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
+            _ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
+            _ax.set_title(f'전장 상황 — t={_frame.t:.0f}s',
+                          color='#dde', fontsize=10, fontweight='bold')
+            _ax.grid(color='#1e2a3a', linewidth=0.5)
+
+            # 아군 함정
+            for _sname, _sx, _sy, _salive, _shp in _frame.friendly_ships:
+                _color = '#2ecc71' if _salive else '#7f8c8d'
+                _ax.scatter(_sx, _sy, s=120, c=_color,
+                            marker='^', zorder=5)
+                _ax.annotate(_sname, (_sx, _sy),
+                             xytext=(4, 4), textcoords='offset points',
+                             color=_color, fontsize=6)
+
+            # 적 위협
+            for _euid, _epname, _ex, _ey, _ealive, _ehp in _frame.enemy_ships:
+                _color = '#e74c3c' if _ealive else '#7f8c8d'
+                _ax.scatter(_ex, _ey, s=100, c=_color,
+                            marker='v', zorder=5)
+                _ax.annotate(_epname[:8], (_ex, _ey),
+                             xytext=(4, -10), textcoords='offset points',
+                             color=_color, fontsize=6)
+
+            # 미사일
+            _mtype_colors = {
+                'enemy_strike':    '#ff6b6b',
+                'friendly_strike': '#3498db',
+                'friendly_sam':    '#2ecc71',
+                'enemy_sam':       '#e67e22',
+            }
+            for _muid, _mx, _my, _mtype, _mname in _frame.missiles:
+                _mc = _mtype_colors.get(_mtype, '#aab')
+                _ax.scatter(_mx, _my, s=20, c=_mc,
+                            marker='o', alpha=0.8, zorder=4)
+
+            # 범례
+            from matplotlib.lines import Line2D
+            _legend = [
+                Line2D([0],[0], marker='^', color='w',
+                       markerfacecolor='#2ecc71', markersize=9,
+                       label='아군 함정'),
+                Line2D([0],[0], marker='v', color='w',
+                       markerfacecolor='#e74c3c', markersize=9,
+                       label='적 위협'),
+                Line2D([0],[0], marker='o', color='w',
+                       markerfacecolor='#ff6b6b', markersize=6,
+                       label='적 미사일'),
+                Line2D([0],[0], marker='o', color='w',
+                       markerfacecolor='#2ecc71', markersize=6,
+                       label='아군 SAM'),
+                Line2D([0],[0], marker='o', color='w',
+                       markerfacecolor='#3498db', markersize=6,
+                       label='아군 대함'),
+            ]
+            _ax.legend(handles=_legend, loc='upper right', fontsize=7,
+                       facecolor='#0a0e1a', labelcolor='white',
+                       edgecolor='#1e2a3a')
+
+            st.pyplot(_fig, use_container_width=True)
+            plt.close(_fig)
+
+            # 해당 프레임 이벤트
+            if _frame.events:
+                st.markdown("**이벤트:**")
+                for _ev in _frame.events:
+                    st.caption(f"▶ {_ev}")
+
+    # ── Tab 2: MC 통계 ──────────────────────────────────────────────────────
+    with _vt2:
+        import io as _io
+        _mc_fig_buf = _io.BytesIO()
+        _mc_img = plot_v7(_vr, _vm, _vcfg, img_path='_v7_tmp_chart.png')
+        with open('_v7_tmp_chart.png', 'rb') as _f:
+            st.image(_f.read(), use_container_width=True)
+
+        import pandas as _pd
+        _mc_df = _pd.DataFrame({
+            '회차': range(1, _vm['n'] + 1),
+            '요격률': [f"{v:.1%}" for v in _vm['intercept_rates']],
+            '아군피격': _vm['friendly_hits'],
+            '적격침': _vm['enemy_destroyed'],
+            '함정손실': _vm['friendly_lost'],
+            '비용(USD)': [f"${c:,.0f}" for c in _vm['total_costs']],
+        })
+        st.dataframe(_mc_df, use_container_width=True, height=300)
+
+    # ── Tab 3: 교전 로그 ────────────────────────────────────────────────────
+    with _vt3:
+        _log_df = _pd.DataFrame(
+            [(f"{t:.0f}s", msg) for t, msg in _vr.get('log', [])],
+            columns=['시각', '이벤트'],
+        )
+        st.dataframe(_log_df, use_container_width=True,
+                     height=500)
+
+    # ── Tab 4: 다운로드 ─────────────────────────────────────────────────────
+    with _vt4:
+        _dc1, _dc2 = st.columns(2)
+        with _dc1:
+            if st.button("📄 v7 Excel 보고서 생성", use_container_width=True):
+                with st.spinner("Excel 생성 중..."):
+                    _xp = save_excel_report_v7(
+                        _vr, _vm, _vcfg,
+                        img_path='_v7_tmp_chart.png',
+                        xlsx_path='v7_보고서.xlsx',
+                    )
+                with open(_xp, 'rb') as _f:
+                    st.download_button(
+                        "⬇️ Excel 다운로드", _f.read(),
+                        file_name='이지스_v7_보고서.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    )
+        with _dc2:
+            if st.button("🖼️ PNG 차트 다운로드", use_container_width=True):
+                import os as _os
+                if _os.path.exists('_v7_tmp_chart.png'):
+                    with open('_v7_tmp_chart.png', 'rb') as _f:
+                        st.download_button(
+                            "⬇️ PNG 다운로드", _f.read(),
+                            file_name='이지스_v7_분석.png',
+                            mime='image/png',
+                        )
+
 # BUG-FIX v6.5.1: session_state에 데이터 있으면 레이어 토글 변경 시에도 결과 표시
-if 'sim_data' in st.session_state:
+if 'sim_data' in st.session_state and not use_v7:
     _d = st.session_state['sim_data']
     max_cd=_d['max_cd']; t_arrive=_d['t_arrive']; t_fly=_d['t_fly']
     mc=_d['mc']; min_d=_d['min_d']; all_events=_d['all_events']
@@ -1391,9 +1674,12 @@ if 'sim_data' in st.session_state:
                 f"🚁 헬기 출격: **{ship_status.helo_sorties}회** | "
                 f"요격 성공: **{ship_status.helo_intercepts}회**")
 
-else:
-    # ── 초기 화면 (실행 전) ─────────────────────────────────────────────
+elif not use_v7:
+    # ── 초기 화면 (실행 전, v6) ─────────────────────────────────────────
     st.info("👈 왼쪽 사이드바에서 파라미터를 설정한 뒤 **🚀 시뮬레이션 실행** 버튼을 누르세요.")
+elif 'v7_sim_data' not in st.session_state:
+    # ── 초기 화면 (실행 전, v7) ─────────────────────────────────────────
+    st.info("👈 상단 **[v7]** 섹션에서 편대·적군·무기 재고를 설정한 뒤 **🚀 v7 시뮬레이션 실행** 버튼을 누르세요.")
 
     cinfo1, cinfo2, cinfo3 = st.columns(3)
     with cinfo1:
