@@ -10,6 +10,12 @@ v7.0 핵심 변경:
 
 v7.0 패치 이력:
   · 1단계: 시간 스텝 루프 + 위치 모델 + 기본 교전 판정
+  · 2단계: 양방향 교전 검증
+    - SAM alive=False 조기 설정 버그 수정 (요격 판정 스킵 문제)
+    - INTERCEPT_DIST_M 300m → 2000m (1초 스텝 해상도 반영)
+    - 대함 탐지 거리 수정 (자함 레이더 45km → 전술 인식 detect_km 병용)
+    - 적 함정 시작 위치 수정 (1.8x → 1.0x, 교전 즉시 개시)
+    - 적 함정 재발사 허용 (비행 중 미사일 소진 후 재장전)
 """
 
 import math, random
@@ -359,7 +365,7 @@ class TimeStepEngine:
                 # 방위각 균등 배분 (전방위 접근)
                 bearing_deg = (idx / max(total, 1)) * 360
                 bearing_rad = math.radians(bearing_deg)
-                start_m = detect_km * 1000 * 1.8  # 탐지거리 1.8배 밖에서 시작
+                start_m = detect_km * 1000 * 1.0  # 탐지 범위 경계에서 시작 (교전 즉시 개시)
                 pos = Vec2(
                     math.cos(bearing_rad) * start_m,
                     math.sin(bearing_rad) * start_m,
@@ -382,7 +388,13 @@ class TimeStepEngine:
         self._tick_events.append(msg)
 
     def _detect_range_m(self, ship: FriendlyShipObj, category: str) -> float:
-        base_km = ship.sensor_km.get(category, 200)
+        if category == '대함':
+            # 수상함: 자함 레이더(레이더 지평선 ~45km) 단독으로는 짧음.
+            # 헬기/P-3C/위성 등 전술 인식(detect_km)을 함께 활용.
+            tactical_km = self.cfg.get('detect_km', 200)
+            base_km = max(ship.sensor_km.get('대함', 45), tactical_km)
+        else:
+            base_km = ship.sensor_km.get(category, 200)
         return base_km * 1000 * self.wx.get('detect_range_factor', 1.0)
 
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
@@ -399,9 +411,17 @@ class TimeStepEngine:
     def _enemy_fire(self):
         primary = self._primary()
         for es in self.enemy_ships:
-            if not es.alive or es.has_fired:
+            if not es.alive:
                 continue
             if not es.info.get('can_fire_missile'):
+                continue
+
+            # 비행 중인 자기 미사일이 있으면 재발사 대기
+            in_flight = sum(
+                1 for m in self.missiles
+                if m.alive and m.owner_id == id(es) and m.mtype == 'enemy_strike'
+            )
+            if in_flight > 0:
                 continue
 
             dist_m      = es.pos.dist_to(primary.pos)
@@ -435,7 +455,7 @@ class TimeStepEngine:
                 )
                 self.missiles.append(m)
 
-            es.has_fired = True
+            es.has_fired = True  # 이번 발사 완료 (재발사는 기존 미사일 소진 후)
             self.stats['total_threats'] += salvo
             self._log(f"[적 발사] {es.preset_name} → {m_name} {salvo}발 (거리 {dist_m/1000:.0f}km)")
 
@@ -709,8 +729,8 @@ class TimeStepEngine:
         # 날아다니는 위협 없고 적 함정도 발사 완료 → 교전 종료
         active_threats = [m for m in self.missiles
                           if m.alive and m.mtype == 'enemy_strike']
-        all_fired = all(es.has_fired or not es.alive for es in self.enemy_ships)
-        if not active_threats and all_fired:
+        enemy_alive    = [es for es in self.enemy_ships if es.alive]
+        if not active_threats and not enemy_alive:
             self._log("[종료] 교전 종료 - 위협 소진")
             return True
         return False
