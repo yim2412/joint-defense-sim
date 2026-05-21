@@ -10,17 +10,17 @@
 
 | 파일 | 역할 |
 |------|------|
-| `import_matplotlib_v6_8_4.py` | 시뮬레이션 엔진 (DB, 물리모델, 교전 로직, 출력) |
-| `Dashboard_v6_8_4.py` | Streamlit 실시간 대시보드 |
+| `engine.py` | 시뮬레이션 엔진 (DB, 물리모델, 교전 로직, 출력) |
+| `dashboard.py` | Streamlit 실시간 대시보드 |
 
 ### 실행 방법
 
 ```
 # 대시보드 실행
-python -m streamlit run Dashboard_v6_8_4.py
+python -m streamlit run dashboard.py
 
 # 엔진 단독 실행
-python import_matplotlib_v6_8_4.py
+python engine.py
 ```
 
 ### 필수 패키지
@@ -45,17 +45,16 @@ patch : 버그 수정 전용
 
 ### 파일 이름 규칙
 
-버전이 바뀌면 **파일명도 함께 변경**한다.
+파일명은 버전을 포함하지 않는다. 버전은 git 태그로만 관리한다.
 
 ```
-import_matplotlib_v6_8_4.py  →  import_matplotlib_v6_8_5.py
-Dashboard_v6_8_4.py          →  Dashboard_v6_8_5.py
+engine.py      # 시뮬레이션 엔진 (고정)
+dashboard.py   # 대시보드 (고정)
 ```
 
-Dashboard는 반드시 엔진 파일과 버전을 맞춘다. Dashboard 상단 import 경로도 함께 수정한다.
-
-```python
-from import_matplotlib_v6_8_5 import (...)   # 버전 동기화
+버전 태그 방법:
+```
+git tag v6.8.5
 ```
 
 ### 헤더 주석 규칙
