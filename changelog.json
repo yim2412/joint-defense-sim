@@ -1,5 +1,192 @@
 [
   {
+    "version": "v5.14",
+    "date": "2026-05-01",
+    "title": "개별 미사일 Pk 판정 + 기만기·회피·종말회피",
+    "changes": [
+      "NEW-A  개별 미사일 Pk 판정 (Beta 분포 기반 확률 샘플링)",
+      "NEW-B  음향 기만기 AN/SLQ-25 + 함정 회피 기동",
+      "NEW-C  적 다발 발사 모드 (RANDOM / FIXED / MAX)",
+      "NEW-D  미사일 종말 회피 기동 (20km 이내 활성화)",
+      "NEW-E  적 회피 기동 (속도 증가·고도수심 변경·재추적)"
+    ]
+  },
+  {
+    "version": "v5.16.1",
+    "date": "2026-05-05",
+    "title": "ECM 재밍 + 함재 헬기 대잠 + 미구현 항목 수정",
+    "changes": [
+      "NEW-F  적 자체 방어 (채프·플레어 self_defense_pk)",
+      "NEW-F  적 CIWS 요격 (enemy_ciws_pk)",
+      "NEW-G  ECM 재밍 시스템 (거리 반비례, 50km 기준, enable_ecm)",
+      "NEW-H  함재 헬기 대잠 운용 (AW-159, HeloEvent 클래스, 날씨 출격 제한)",
+      "BUG-4  normalize_enemy_db() 플랫폼 종말회피 자동 설정",
+      "BUG-5  missile_salvo_fixed 범위 초과 경고 추가",
+      "BUG-6  monte_carlo 독립 ShipStatus 집계 (mc_hit_avg / save_nth)",
+      "미구현-1~5  enable_missile_evasion·current_depth·MC샘플로그 등 적용"
+    ]
+  },
+  {
+    "version": "v6.1",
+    "date": "2026-05-08",
+    "title": "P-3C 초계기 + Streamlit 실시간 대시보드",
+    "changes": [
+      "NEW-I  P-3C 오라이온 해상초계기 대잠 운용 (포항기지, Mk.46 4발, enable_p3c)",
+      "NEW    실시간 Streamlit 대시보드 (사이드바 파라미터·탭·XLSX 다운로드)",
+      "NEW    항공기별 날씨 제한 (weather_limits 필드 — 헬기/P-3C/P-8A)"
+    ]
+  },
+  {
+    "version": "v6.2",
+    "date": "2026-05-10",
+    "title": "P-8A 포세이돈 + BUG 수정 + 데드코드 정리",
+    "changes": [
+      "NEW-J  P-8A 포세이돈 해상초계기 (준비 30분, Mk.46 5발, 소노부이 +18km, enable_p8a)",
+      "BUG-7  HeloEvent.uid 동적 ID로 변경 (다수 헬기 동시 운용 uid 중복 해소)",
+      "BUG-8  __main__ inventory에 Mk.46 경어뢰 누락 추가",
+      "DEAD-1~6  데드코드 정리"
+    ]
+  },
+  {
+    "version": "v6.2.1",
+    "date": "2026-05-11",
+    "title": "HeloEvent _id_counter 리셋 + MC 항공기 효과 수정",
+    "changes": [
+      "BUG-9  HeloEvent._id_counter 리셋 누락 → MC 1000회 H번호 누적 방지",
+      "DEAD-7  HeloEvent.enemy_self_def_apps 잔존 필드 삭제",
+      "FIX    monte_carlo silent=True 시에도 _try_aircraft 실행 (P-8A/P-3C/헬기 MC 반영)"
+    ]
+  },
+  {
+    "version": "v6.3",
+    "date": "2026-05-13",
+    "title": "SHIP_DB + 함대 편대 모드 + Fleet 클래스 체계",
+    "changes": [
+      "NEW-K  SHIP_DB: KDX-III(24채널)·KDX-II(12채널)·FFX(8채널) 함정 스펙 DB",
+      "NEW-K  FLEET_PRESETS: 한국 해군 교리 기반 편대 프리셋 5종",
+      "NEW-K  Ship / Fleet / FleetStatus / FleetChannelManager 클래스 추가",
+      "NEW-K  build_fleet() / run_fleet_sim_core() — enable_fleet 플래그로 하위 호환"
+    ]
+  },
+  {
+    "version": "v6.4",
+    "date": "2026-05-15",
+    "title": "적군 편대 프리셋 + 랜덤 편대 생성기",
+    "changes": [
+      "NEW-L  ENEMY_FLEET_PRESETS: PLA 교리 기반 적군 편대 6종 (A2/AD·항모킬체인·수상함·대잠·BMD·전면전)",
+      "NEW-L  ENEMY_FLEET_RANDOM_CFG: 난이도별 랜덤 편대 풀 (쉬움/보통/어려움/극한)",
+      "NEW-L  generate_random_enemy_fleet(): 난이도별 pool 무작위 생성",
+      "NEW-L  build_enemy_threat_list(): single/preset/custom/random 4모드 통합",
+      "NEW-L  아군 편대 커스텀 모드 (fleet_mode='custom')"
+    ]
+  },
+  {
+    "version": "v6.6",
+    "date": "2026-05-17",
+    "title": "다층 방어 레이어 + A vs B 시나리오 비교",
+    "changes": [
+      "NEW-N  다층 방어 (Layered Defense): KDX-III→KDX-II→FFX 자동 인계 (CEC 교리 기반)",
+      "NEW-N  run_comparison(): A vs B 시나리오 비교 함수 (요격률·MC성공률·비용·REQ)",
+      "NEW-N  Dashboard A vs B 비교 모드"
+    ]
+  },
+  {
+    "version": "v6.6.1",
+    "date": "2026-05-17",
+    "title": "편대 모드 BUG 패치 5종",
+    "changes": [
+      "BUG-1  편대 모드 무기 재고 사용량 음수 → 합산 초기값으로 수정",
+      "BUG-3  랜덤 편대 항상 1종 → 난이도별 최소 종류 보장",
+      "BUG-4  TEWA 부하 분산 미작동 → assigned_count 기반 균등 배분",
+      "BUG-5  수상함/잠수함 REQ-02 C&D 0초 → CIWS 최소 거리 기준으로 수정"
+    ]
+  },
+  {
+    "version": "v6.7",
+    "date": "2026-05-18",
+    "title": "상세 분석 탭 추가 (대시보드)",
+    "changes": [
+      "NEW    편대 함정별 생존 현황 시각화",
+      "NEW    MC 통계 강화 (요격률 바차트·비용 박스플롯)",
+      "NEW    교전 타임라인 개선 (함정별 시퀀스)",
+      "NEW    비용 분석 차트 (무기별 파이·위협당 평균)",
+      "NEW    위협 카테고리별 요격률 바차트"
+    ]
+  },
+  {
+    "version": "v6.8",
+    "date": "2026-05-19",
+    "title": "다방위 공격 + SM-3 미드코스 제한 + ECM 차등",
+    "changes": [
+      "NEW    다방위 공격: enable_multibearing + assign_bearings() + 탑다운 시각화",
+      "NEW    SM-3 미드코스 단계 제한 (alt ≥ 40km 조건)",
+      "NEW    ECM 취약도 차등 (radar/ir/combined/none 유형별 효과 차등)",
+      "NEW    CEC 사전 동시 배정 방식 (enable_cec_preassign)"
+    ]
+  },
+  {
+    "version": "v6.8.1",
+    "date": "2026-05-19",
+    "title": "프로젝트명 변경 + 한글 출력 전면 정리",
+    "changes": [
+      "NEW    프로젝트명: 이지스 기동전단 통합 방어 시뮬레이터",
+      "NEW    전술교전도·엑셀 보고서 파일명 프로젝트명 반영",
+      "NEW    Dashboard 상세 분석 탭 기동전단 관점으로 개편"
+    ]
+  },
+  {
+    "version": "v6.8.3",
+    "date": "2026-05-20",
+    "title": "HeloEvent 안전 접근 + 랜덤 난이도 툴팁 수정",
+    "changes": [
+      "BUG    HeloEvent.assigned_ship 없음 → getattr 안전 처리",
+      "BUG    랜덤 난이도 툴팁 줄바꿈 깨짐 → 슬래시 구분자로 변경"
+    ]
+  },
+  {
+    "version": "v6.8.5",
+    "date": "2026-05-20",
+    "title": "현실성 수정 — 무기·센서·적 DB 중간 우선순위 20종",
+    "changes": [
+      "MED-1  094형 JL-2 SLBM → Yu-6 중어뢰 (전술 교전 반영)",
+      "MED-2  YJ-12 속도 1000→1400 m/s (Mach 4 말단)",
+      "MED-3  KDX-III 대공 탐지 800km (SPY-1D 실측 기준)",
+      "MED-6  022형 속도 18.5 m/s (35 kts 실 최고속)",
+      "MED-7  MiG-29 미사일 YJ-91→Kh-31A",
+      "MED-9  ECM 기준거리 50km→25km (AN/SLQ-32 실전 유효거리)",
+      "MED-11 P-3C/P-8A 소노부이 보너스 8/10km (과대 감소)",
+      "MED-17 Yu-6 어뢰 속도 21 m/s·사거리 18km (실측)",
+      "MED-19 SM-3 재고 8→32발 (KDX-III Batch-II VLS)"
+    ]
+  },
+  {
+    "version": "v6.8.6",
+    "date": "2026-05-20",
+    "title": "현실성 수정 — 무기·센서 낮은 우선순위 18종",
+    "changes": [
+      "LOW-1  YJ-91 속도 680 m/s",
+      "LOW-2  P-800 오닉스 속도 824 m/s (Mach 2.5 해면)",
+      "LOW-3  DF-26 속도 5000 m/s (MRBM 종말)",
+      "LOW-5  DF-17 속도 3000 m/s (HGV Mach 9+)",
+      "LOW-6  SM-6 Pk mean 0.75 (현실화)",
+      "LOW-7  기만기 성공률 0.50 (AN/SLQ-25 실전)",
+      "LOW-8  함정 회피 성공률 0.20 (과대 → 현실화)",
+      "LOW-15 SM-6 속도 1000 m/s",
+      "LOW-16/17 홍상어·청상어 Pk 0.65 (현실화)"
+    ]
+  },
+  {
+    "version": "v6.8.4",
+    "date": "2026-05-21",
+    "title": "BMD 탄도 포화 프리셋 + HeloEvent BUG 패치",
+    "changes": [
+      "NEW    ENEMY_FLEET_PRESETS 'BMD 탄도 포화' 추가 (KN-23×2·DF-15×2·DF-21D×2·DF-17×1)",
+      "BUG    HeloEvent.is_missile / is_active / intercepted / _layered getattr 안전 접근",
+      "BUG    MH-60R 시호크 Dashboard 드롭다운 제거 (한국 해군 미운용)",
+      "NEW    교리 현실화 4개: TEWA 우선순위·Shoot-Look-Shoot·이탈잠수함 억제·함대 분산"
+    ]
+  },
+  {
     "version": "v7.0",
     "date": "2026-05-22",
     "title": "PyQt6 네이티브 런처 + 2.5D 전장 애니메이션",
