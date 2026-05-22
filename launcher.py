@@ -1182,6 +1182,9 @@ class MainWindow(QMainWindow):
         self.tab_ci = MplCanvas(figsize=(12, 5))
         self.tabs.addTab(self.tab_ci,       "📈  MC 신뢰구간")
 
+        self.tab_timeline = MplCanvas(figsize=(14, 5))
+        self.tabs.addTab(self.tab_timeline, "⏱️  교전 타임라인")
+
         return panel
 
     def _build_req_tab(self) -> QWidget:
@@ -1479,6 +1482,7 @@ class MainWindow(QMainWindow):
         self._draw_cost_effect(result, mc)
         self._draw_ammo_curve(mc)
         self._draw_ci_chart(mc)
+        self._draw_timeline(result)
 
         self.tabs.setCurrentIndex(0)
 
@@ -2023,6 +2027,68 @@ class MainWindow(QMainWindow):
 
         fig.tight_layout()
         self.tab_ci.draw()
+
+    def _draw_timeline(self, result: dict):
+        """⏱️ 교전 타임라인: 무기 발사/요격/피격 이벤트 Gantt형 시각화."""
+        log = result.get('log', [])
+        fig = self.tab_timeline.fig
+        fig.clear()
+        fig.patch.set_facecolor(C_BG)
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+
+        if not log:
+            ax.text(0.5, 0.5, '로그 데이터 없음', ha='center', va='center',
+                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+            fig.tight_layout()
+            self.tab_timeline.draw()
+            return
+
+        # 이벤트 분류: (시각, 카테고리, 텍스트)
+        _CAT = [
+            ('[방어]',     C_GREEN,  '방어 발사',   0),
+            ('[대공 방어]', C_ACCENT, '대공 발사',   1),
+            ('[공격]',     '#e67e22','대함 공격',   2),
+            ('[대잠 공격]', '#9b59b6','대잠 공격',   3),
+            ('[피격]',     C_RED,    '피격',        4),
+            ('[경고]',     C_ORANGE, '경고',        5),
+            ('[적 발사]',  '#c0392b','적 발사',     6),
+        ]
+        events = []
+        for t, msg in log:
+            for tag, color, label, yi in _CAT:
+                if tag in msg:
+                    events.append((t, yi, color, label, msg[:60]))
+                    break
+
+        if not events:
+            ax.text(0.5, 0.5, '분류 가능한 이벤트 없음', ha='center', va='center',
+                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+            fig.tight_layout()
+            self.tab_timeline.draw()
+            return
+
+        y_labels = ['방어 발사', '대공 발사', '대함 공격', '대잠 공격', '피격', '경고', '적 발사']
+        for t, yi, color, label, msg in events:
+            ax.scatter(t, yi, c=color, s=30, zorder=3, alpha=0.8)
+
+        ax.set_yticks(range(len(y_labels)))
+        ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=9)
+        ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
+        ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=11)
+        ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+        ax.set_ylim(-0.8, len(y_labels) - 0.2)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.grid(axis='x', color='#1e2a3a', lw=0.5)
+
+        # 범례
+        handles = [plt.Line2D([0], [0], marker='o', color='w',
+                               markerfacecolor=c, markersize=7, label=l)
+                   for _, c, l, _ in _CAT]
+        ax.legend(handles=handles, fontsize=7, facecolor='#0a0e1a',
+                  labelcolor=C_TEXT, edgecolor='#1e2a3a',
+                  loc='upper right', ncol=4)
+        fig.tight_layout()
+        self.tab_timeline.draw()
 
 
 # ════════════════════════════════════════════════════════════════════════════
