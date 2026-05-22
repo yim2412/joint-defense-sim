@@ -520,6 +520,11 @@ class TimeStepEngine:
             # 포팅 B: 기만기 재고 수동 설정
             if 'decoy_stock' in self.cfg:
                 s.decoy_stock = self.cfg['decoy_stock']
+            # NEW-AW: 함정별 위치 분산 (KDX-III 중심, KDX-II 3km, FFX 5km 기준 반경)
+            radius = self._FORMATION_RADIUS.get(spec['type'], 3_000)
+            if radius > 0:
+                angle = math.radians(len(ships) * (360.0 / max(len(preset), 1)))
+                s.pos = Vec2(math.cos(angle) * radius, math.sin(angle) * radius)
             ships.append(s)
         return ships
 
@@ -783,14 +788,19 @@ class TimeStepEngine:
         """
         다층 방어 (enable_layered_defense=True, 기본 ON):
           KDX-III → KDX-II → FFX 순서로 위협당 1발씩 배정.
-          함정 우선순위 정렬 후 첫 번째 가용 함정이 교전.
 
         CEC 사전 동시 배정 (enable_cec_preassign=True, 기본 OFF):
           탐지 즉시 1차+2차 함정 동시 발사. 위협당 최대 2발 허용.
-          1차 성공 시 2차 SAM은 표적 소멸로 자동 종료.
+
+        NEW-AW: 위협 긴급도 정렬 — 속도/잔여거리 내림차순 (빠르고 가까운 위협 먼저)
+        NEW-AW: Shoot-Look-Shoot — 탄도/초음속/HGV/QBM 위협은 CEC 없이도 2발 배정
         """
-        cec     = self.cfg.get('enable_cec_preassign', False)
-        max_sams = 2 if cec else 1
+        cec = self.cfg.get('enable_cec_preassign', False)
+        primary_pos = self._primary().pos
+
+        def _urgency(obj):
+            d = max(obj.pos.dist_to(primary_pos), 1)
+            return getattr(obj, 'speed_ms', 300) / d
 
         # 다층 방어 우선순위 정렬 (KDX-III=0, KDX-II=1, FFX=2, 나머지=99)
         sorted_ships = sorted(
@@ -798,14 +808,19 @@ class TimeStepEngine:
             key=lambda s: SHIP_LAYER_PRI.get(s.ship_type, 99)
         )
 
-        # (A) 적 대함 미사일 요격 (MissileObj enemy_strike)
-        for m in self.missiles:
-            if not m.alive or m.mtype != 'enemy_strike':
-                continue
+        # (A) 적 대함 미사일 요격 — 긴급도 순 정렬
+        sorted_missiles = sorted(
+            [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike'],
+            key=_urgency, reverse=True
+        )
+        for m in sorted_missiles:
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
             )
+            # 탄도/극초음속/초음속(≥1000m/s) 고위협은 Shoot-Look-Shoot: 2발 배정
+            is_high = m.is_ballistic or m.is_hgv or m.is_qbm or m.speed_ms >= 1000
+            max_sams = 2 if (cec or is_high) else 1
             if sams_on >= max_sams:
                 continue
 
@@ -822,14 +837,20 @@ class TimeStepEngine:
                 self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False)
                 shots += 1
 
-        # (B) 적 항공기 직접 요격 (EnemyThreatObj is_aircraft)
-        for et in self.enemy_threats:
-            if not et.alive or not et.is_aircraft or et.is_retreating:
-                continue
+        # (B) 적 항공기 직접 요격 — 긴급도 순 정렬
+        sorted_ac = sorted(
+            [et for et in self.enemy_threats
+             if et.alive and et.is_aircraft and not et.is_retreating],
+            key=_urgency, reverse=True
+        )
+        for et in sorted_ac:
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is et and s.mtype == 'friendly_sam'
             )
+            # 초음속 항공기(≥600m/s, 약 Mach 1.8+)는 2발 배정
+            is_high_ac = et.speed_ms >= 600
+            max_sams = 2 if (cec or is_high_ac) else 1
             if sams_on >= max_sams:
                 continue
 
@@ -873,6 +894,8 @@ class TimeStepEngine:
 
     # LOW-11: 조명기(SPG-62) 가용 채널 (SM-2는 반능동 유도 → 조명기 필요)
     _ILLUMINATOR_MAX = {'KDX-III': 3, 'KDX-II': 2, 'FFX': 1}
+    # NEW-AW: 함대 포진 기준 반경 (KDX-III 중심, KDX-II 3km, FFX 5km)
+    _FORMATION_RADIUS = {'KDX-III': 0, 'KDX-II': 3_000, 'FFX': 5_000}
 
     def _sm2_illuminator_ok(self, ship: FriendlyShipObj) -> bool:
         """SM-2 추가 발사 가능 여부: 현재 비행 중 SM-2 수 < 조명기 최대 채널."""
@@ -968,6 +991,9 @@ class TimeStepEngine:
                 # 잠수함: 수온약층 소나 보정 추가 적용
                 if et.is_sub:
                     detect_m *= self._thermocline_factor(et)
+                    # NEW-AW: 이탈 잠수함 — 고속 이탈로 소나 접촉 급감 (탐지 70% 감소)
+                    if et.is_retreating:
+                        detect_m *= 0.30
                 if dist_m > detect_m:
                     continue
 
@@ -1069,6 +1095,9 @@ class TimeStepEngine:
                 # 소나 탐지 + 소노부이 보너스 + 수온약층 보정
                 detect_m = self._detect_range_m(primary, '대잠')
                 detect_m *= self._thermocline_factor(et)
+                # NEW-AW: 이탈 잠수함 — 고속 이탈로 소나 접촉 급감 (탐지 70% 감소)
+                if et.is_retreating:
+                    detect_m *= 0.30
                 bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
                 if dist_to_sub > detect_m + bonus_m:
                     continue
@@ -2185,3 +2214,12 @@ if __name__ == '__main__':
 # · BUG-6: ECM 방향 역전 수정 — 아군 SAM Pk 감소 제거, 적 미사일 타격 Pk 30% 감소로 이동
 #          종말 회피 적용 거리 20km→10km 동시 수정
 # · BUG-7: _AIRCRAFT_V7_SORTIE 데드코드 적용 — P-3C 600초, P-8A 480초 출격
+
+# ── 교리 현실화 패치 (4개) ────────────────────────────────────────────────────
+# · NEW-AW: _friendly_defense() — 위협 긴급도 정렬 (속도/잔여거리, 빠르고 가까운 위협 먼저)
+# · NEW-AW: Shoot-Look-Shoot — 탄도/HGV/QBM/초음속(≥1000m/s) 위협은 CEC 없이도 2발 배정
+#           초음속 항공기(≥600m/s, 약 Mach 1.8+)도 2발 배정
+# · NEW-AW: 이탈 잠수함 타격 억제 — is_retreating 잠수함 소나 탐지거리 70% 감소
+#           _friendly_strike() + _aircraft_asw() 양쪽 적용
+# · NEW-AW: 함대 위치 분산 — _build_friendly() KDX-III 중심(0,0), KDX-II 3km, FFX 5km
+#           _FORMATION_RADIUS 클래스 상수 추가
