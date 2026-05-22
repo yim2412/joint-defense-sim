@@ -46,8 +46,8 @@ ECM_REF_RANGE_M         = 25000  # MED-9: 기준 25km (기존 50km 과대, 실 A
 HELO_SORTIE_COST_USD    = 50000
 
 # ── NEW-B: 음향 기만기 / 함정 회피 ──────────────────────────────────────────
-DECOY_PK        = 0.60
-SHIP_EVASION_PK = 0.30
+DECOY_PK        = 0.50  # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
+SHIP_EVASION_PK = 0.20  # LOW-8: 0.30→0.20 (회피 기동 성공률 과대 → 현실화)
 
 WPN_COLOR = {
     'SM-3 Block IIA':    '#1A7A3C',
@@ -156,7 +156,8 @@ ENEMY_DB = {
     'J-10A (비맹)':
         {'category':'대공','type':'전투기','speed_ms':700,'altitude_m':10000,
          # 4.5세대, 전술 고도 10km
-         'missile_name':'YJ-91 대함미사일','missile_speed_ms':900,'missile_range_km':120,
+         # LOW-1: YJ-91 속도 900→680 m/s (Mach 2 at 고고도, 실제 공개 제원)
+         'missile_name':'YJ-91 대함미사일','missile_speed_ms':680,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':2.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.78,
@@ -220,7 +221,8 @@ ENEMY_DB = {
     'JH-7A (날치)':
         {'category':'대공','type':'전폭기','speed_ms':596,'altitude_m':2000,  # MED-16: 500→596 m/s (Mach 1.75 실제 최고속도)
          # 공격기: 저고도 침투 2km (해면 근접 돌파 → RAM 위협)
-         'missile_name':'YJ-91 대함미사일','missile_speed_ms':900,'missile_range_km':120,
+         # LOW-1: YJ-91 속도 900→680 m/s
+         'missile_name':'YJ-91 대함미사일','missile_speed_ms':680,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':6.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.78,
@@ -241,7 +243,7 @@ ENEMY_DB = {
 
     # ════ 대공: 탄도미사일 ══════════════════════════════════════════════════════
     'DF-11A (단거리 탄도)':
-        {'category':'대공','type':'탄도미사일','speed_ms':1500,'altitude_m':50000,
+        {'category':'대공','type':'탄도미사일','speed_ms':900,'altitude_m':50000,  # LOW-4: 1500→900 m/s (Scud급 종말 속도)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':300,
          'can_fire_missile':False,'rcs_m2':0.1,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
@@ -262,7 +264,7 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
     'DF-26 (중장거리 탄도)':
-        {'category':'대공','type':'탄도미사일','speed_ms':6000,'altitude_m':300000,
+        {'category':'대공','type':'탄도미사일','speed_ms':5000,'altitude_m':300000,  # LOW-3: 6000→5000 m/s (MRBM 종말 재진입)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':4000,
          'can_fire_missile':False,'rcs_m2':0.05,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
@@ -270,7 +272,7 @@ ENEMY_DB = {
 
     # ⭐ HGV: SM-3만 요격 가능
     'DF-17 (극초음속 활공)':
-        {'category':'대공','type':'극초음속활공체','speed_ms':2000,'altitude_m':60000,
+        {'category':'대공','type':'극초음속활공체','speed_ms':3000,'altitude_m':60000,  # LOW-5: 2000→3000 m/s (Mach 9+ 활공 단계)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':2500,
          'can_fire_missile':False,'rcs_m2':0.05,'is_hgv':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
@@ -301,7 +303,7 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
     'P-800 오닉스 (야혼트)':
-        {'category':'대공','type':'순항미사일','speed_ms':750,'altitude_m':15,
+        {'category':'대공','type':'순항미사일','speed_ms':824,'altitude_m':15,  # LOW-2: 750→824 m/s (Mach 2.5 해면 근접)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':300,
          'can_fire_missile':False,'rcs_m2':0.10,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
@@ -439,9 +441,10 @@ FRIENDLY_DB = {
          'category':['대공','탄도미사일'],
          'pk_dist':{'alpha':18,'beta':2,'mean':0.900},'requires_illuminator':False},
     'SM-6':
-        {'speed_ms':1360,'range_km':240,'cost_usd':4200000,'stock':32,
+        {'speed_ms':1000,'range_km':240,'cost_usd':4200000,'stock':32,  # LOW-15: 1360→1000 m/s (Block I 실제 순항속도)
          'category':['대공','탄도미사일'],
-         'pk_dist':{'alpha':19,'beta':2,'mean':0.905},'requires_illuminator':False},
+         # LOW-6: Pk mean 0.905→0.75 (SM-6 실전 교전 Pk 과대 평가 수정)
+         'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     'SM-2 Block IIIB':
         {'speed_ms':1190,'range_km':170,'cost_usd':400000,'stock':48,
          'category':['대공','대함'],
@@ -451,13 +454,15 @@ FRIENDLY_DB = {
          'category':['대공','대함','근접'],
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     '홍상어 (대잠)':
-        {'speed_ms':25.0,'range_km':19,'cost_usd':500000,'stock':16,  # MED-4: 28.3→25 m/s (로켓추진 경어뢰 ~48 kts)
+        {'speed_ms':25.0,'range_km':19,'cost_usd':500000,'stock':16,  # MED-4: 28.3→25 m/s
          'category':['대잠'],
-         'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
+         # LOW-16: Pk mean 0.700→0.65 (실전 수중 유도 탐지 성공률 반영)
+         'pk_dist':{'alpha':13,'beta':7,'mean':0.650},'requires_illuminator':False},
     '청상어 (경어뢰)':
-        {'speed_ms':23.0,'range_km':9,'cost_usd':200000,'stock':12,  # MED-4: 28.3→23 m/s (K745 청상어 ~45 kts)
+        {'speed_ms':23.0,'range_km':9,'cost_usd':200000,'stock':12,  # MED-4: 28.3→23 m/s
          'category':['대잠'],
-         'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
+         # LOW-17: Pk mean 0.700→0.65
+         'pk_dist':{'alpha':13,'beta':7,'mean':0.650},'requires_illuminator':False},
     'CIWS-II (Phalanx)':
         {'speed_ms':1100,'range_km':2,'cost_usd':5000,'stock':9999,
          'category':['대공','대함','근접'],
@@ -476,10 +481,12 @@ WEATHER_DB = {
         {'detect_range_factor':1.00,'radar_factor':1.00,'sonar_factor':1.00,
          'intercept_prob_delta': 0.00,'cd_time_factor':1.00},
     '맑음 (야간)':
-        {'detect_range_factor':0.97,'radar_factor':0.97,'sonar_factor':0.98,
+        # LOW-14: radar_factor 0.97→0.95 (야간 레이더 성능 소폭 저하)
+        {'detect_range_factor':0.97,'radar_factor':0.95,'sonar_factor':0.98,
          'intercept_prob_delta':-0.01,'cd_time_factor':1.05},
     '흐림 (박무)':
-        {'detect_range_factor':0.90,'radar_factor':0.90,'sonar_factor':0.92,
+        # LOW-13: sonar_factor 0.92→0.85 (박무 시 해상 소음 증가)
+        {'detect_range_factor':0.90,'radar_factor':0.90,'sonar_factor':0.85,
          'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
     '황사 (봄철 황사)':
         {'detect_range_factor':0.93,'radar_factor':0.72,'sonar_factor':1.00,
@@ -494,7 +501,8 @@ WEATHER_DB = {
         {'detect_range_factor':0.55,'radar_factor':0.62,'sonar_factor':0.22,
          'intercept_prob_delta':-0.15,'cd_time_factor':1.50},
     '농무 (시정 200m 이하)':
-        {'detect_range_factor':0.88,'radar_factor':0.96,'sonar_factor':0.94,
+        # LOW-12: radar_factor 0.96→0.80 (농무는 레이더 흡수·산란 심각)
+        {'detect_range_factor':0.88,'radar_factor':0.80,'sonar_factor':0.94,
          'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
 }
 
@@ -680,7 +688,7 @@ _P3C_WX  = {
 
 FRIENDLY_AIRCRAFT_DB = {
     'AW-159 와일드캣': {
-        'speed_ms':100,'range_km':140,'sortie_time_s':300,
+        'speed_ms':78,'range_km':140,'sortie_time_s':300,  # LOW-10: 100→78 m/s (Wildcat 실제 순항속도 ~150 kts)
         'payload_wpn':'청상어 (경어뢰)','payload_cnt':2,
         'cost_usd':HELO_SORTIE_COST_USD,'pk_bonus':0.05,'on_deck':True,
         'base_type':'ship','weather_limits':_HELO_WX,
@@ -3806,6 +3814,23 @@ if __name__ == "__main__":
 # · MED-17: Yu-6 어뢰 속도 33→21 m/s, 사거리 45→18 km (039형·041형·094형)
 # · MED-18: 055형 속도 17→15.4 m/s (30 kts)
 # · MED-19: SM-3 재고 8→32 (KDX-III Batch-II VLS)
+#
+# ── v6.8.6 패치 (현실성 수정 낮음 18개) ──────────────────────────────────────
+# · LOW-1:  YJ-91 속도 900→680 m/s (J-10A, JH-7A missile_speed)
+# · LOW-2:  P-800 오닉스 속도 750→824 m/s (Mach 2.5 해면)
+# · LOW-3:  DF-26 속도 6000→5000 m/s (MRBM 종말 재진입)
+# · LOW-4:  DF-11A 속도 1500→900 m/s (Scud급 종말 속도)
+# · LOW-5:  DF-17 속도 2000→3000 m/s (HGV Mach 9+ 활공)
+# · LOW-6:  SM-6 Pk mean 0.905→0.75 (alpha=9,beta=3)
+# · LOW-7:  DECOY_PK 0.60→0.50
+# · LOW-8:  SHIP_EVASION_PK 0.30→0.20
+# · LOW-10: AW-159 속도 100→78 m/s (~150 kts 순항)
+# · LOW-12: 농무 radar_factor 0.96→0.80
+# · LOW-13: 흐림(박무) sonar_factor 0.92→0.85
+# · LOW-14: 맑음(야간) radar_factor 0.97→0.95
+# · LOW-15: SM-6 속도 1360→1000 m/s
+# · LOW-16: 홍상어 Pk mean 0.700→0.65 (alpha=13,beta=7)
+# · LOW-17: 청상어 Pk mean 0.700→0.65
 #
 # ── v6.8.4 패치 ───────────────────────────────────────────────────────────────
 # · BUG: HeloEvent.is_missile 없음 → getattr 안전 접근 (run_fleet_sim_core 전체)

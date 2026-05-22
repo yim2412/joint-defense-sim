@@ -86,8 +86,8 @@ DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — BUG-3: 해성 90m/s 기준 250km = 2778초
 INTERCEPT_DIST_M = 200    # BUG-5: SAM 근접 신관 범위 (m). 기존 2000m 과대, 실제 50-200m
 ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km 과대)
-DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
-SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
+DECOY_PK         = 0.50   # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
+SHIP_EVASION_PK  = 0.20   # LOW-8: 0.30→0.20 (회피 기동 성공률 현실화)
 MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
 
 # 다층 방어 레이어 순서: 가장 먼저 교전하는 함정 유형부터
@@ -388,7 +388,9 @@ class FriendlyShipObj:
 
         self.strike_inventory: dict = {}
 
-        self.hp            = 5
+        # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
+        _hp_map = {'KDX-III': 5, 'KDX-II': 4, 'FFX': 3}
+        self.hp            = _hp_map.get(ship_type, 4)
         self.alive         = True
         self.hit_count     = 0
         self.total_cost    = 0.0
@@ -757,6 +759,18 @@ class TimeStepEngine:
                     f"[적 발사+이탈] {et.preset_name} -> {m_name} {salvo}발 "
                     f"(거리 {dist_m/1000:.0f}km), 이탈 개시"
                 )
+            elif et.is_sub:
+                # LOW-18: 잠수함 발사 후 회피 기동 (발사 후 반대 방향 50km 이탈)
+                et.is_retreating = True
+                angle = et.pos.bearing_to(primary.pos) + math.pi
+                et.retreat_pos = Vec2(
+                    et.pos.x + math.cos(angle) * 50_000,
+                    et.pos.y + math.sin(angle) * 50_000,
+                )
+                self._log(
+                    f"[적 발사+잠항회피] {et.preset_name} -> {m_name} {salvo}발 "
+                    f"(거리 {dist_m/1000:.0f}km), 반대 방향 잠항"
+                )
             else:
                 self._log(
                     f"[적 발사] {et.preset_name} -> {m_name} {salvo}발 "
@@ -857,6 +871,16 @@ class TimeStepEngine:
         tgt_name = target.name if hasattr(target, 'name') else target.preset_name
         self._log(f"{prefix} {ship.name} -> {wpn} 발사 -> {tgt_name} (거리 {dist_m/1000:.1f}km)")
 
+    # LOW-11: 조명기(SPG-62) 가용 채널 (SM-2는 반능동 유도 → 조명기 필요)
+    _ILLUMINATOR_MAX = {'KDX-III': 3, 'KDX-II': 2, 'FFX': 1}
+
+    def _sm2_illuminator_ok(self, ship: FriendlyShipObj) -> bool:
+        """SM-2 추가 발사 가능 여부: 현재 비행 중 SM-2 수 < 조명기 최대 채널."""
+        max_ill = self._ILLUMINATOR_MAX.get(ship.ship_type, 1)
+        in_flight = sum(1 for s in self.missiles
+                        if s.alive and s.name == 'SM-2 Block IIIB' and s.owner_id == id(ship))
+        return in_flight < max_ill
+
     def _select_defense_wpn(self, ship: FriendlyShipObj, m: MissileObj,
                             dist_m: float) -> Optional[str]:
         """미사일 위협 요격 무기 선택. 고도·유형 인식."""
@@ -876,10 +900,12 @@ class TimeStepEngine:
             if inv.get('SM-6', 0) > 0:
                 return 'SM-6'
 
-        # 근거리→원거리 표준 다층
+        # 근거리→원거리 표준 다층 (SM-2는 조명기 가용 시에만)
         if dist_m <= 2_000   and inv.get('CIWS-II (Phalanx)', 0) > 0: return 'CIWS-II (Phalanx)'
         if dist_m <= 9_000   and inv.get('RIM-116 RAM',        0) > 0: return 'RIM-116 RAM'
-        if dist_m <= 170_000 and inv.get('SM-2 Block IIIB',    0) > 0: return 'SM-2 Block IIIB'
+        # LOW-11: SM-2 조명기 채널 확인
+        if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and self._sm2_illuminator_ok(ship):
+            return 'SM-2 Block IIIB'
         if dist_m <= 240_000 and inv.get('SM-6',               0) > 0: return 'SM-6'
         if dist_m <= 500_000 and inv.get('SM-3 Block IIA',     0) > 0: return 'SM-3 Block IIA'  # BUG-2
         return None
@@ -897,15 +923,17 @@ class TimeStepEngine:
         inv = ship.inventory
         alt = et.altitude_m
 
+        sm2_ok = self._sm2_illuminator_ok(ship)  # LOW-11: 조명기 가용 여부
+
         if alt >= 10_000:
             # 고고도: SM-2/SM-6만 유효, SM-3 배정 금지
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
+            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
             return None  # 사거리 초과 → 교전 불가
 
         elif alt >= 3_000:
             # 중고도: SM-2 → SM-6, 접근 시 RAM 보조
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
+            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
             if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
             return None
@@ -913,7 +941,7 @@ class TimeStepEngine:
         else:
             # 저고도 침투 (JH-7A 등 해면 근접): RAM 우선, SM-2/SM-6 원거리 커버
             if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
+            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
             return None
 
@@ -2139,6 +2167,14 @@ if __name__ == '__main__':
 # · MED-12: 적 항공기 재공격 — 200km 후퇴 후 재접근 (최대 1회 추가 공격)
 #           EnemyThreatObj.reattack_count / max_reattacks 필드 추가
 # · 나머지 MED 수정은 engine.py DB 변경 (import로 자동 반영)
+#
+# ── 현실성 감사 패치 (낮음 심각도 18개) ─────────────────────────────────────
+# · LOW-7:  DECOY_PK 0.60→0.50 / LOW-8: SHIP_EVASION_PK 0.30→0.20
+# · LOW-9:  FriendlyShipObj HP 유형별 차등: KDX-III=5, KDX-II=4, FFX=3
+# · LOW-11: SM-2 조명기(SPG-62) 채널 제한 — KDX-III:3, KDX-II:2, FFX:1
+#           _sm2_illuminator_ok() 메서드 + _select_aa_wpn/_select_defense_wpn 적용
+# · LOW-18: 잠수함 발사 후 회피 기동 — 50km 후퇴 잠항 (항공기처럼 is_retreating=True)
+# · 나머지 LOW는 engine.py DB 변경 (import로 자동 반영)
 #
 # ── 현실성 감사 패치 (높음 심각도 7개) ──────────────────────────────────────
 # · BUG-1: KN-23 속도 600→1800 m/s (engine.py) — 실제 이스칸데르 Mach 6+ 반영
