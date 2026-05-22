@@ -1484,7 +1484,7 @@ class MainWindow(QMainWindow):
         self._draw_ci_chart(mc)
         self._draw_timeline(result)
 
-        self.tabs.setCurrentIndex(0)
+        self.tabs.setCurrentIndex(1)  # MC 통계 탭으로 자동 전환
 
     def _fill_req(self, result: dict, mc: dict):
         """포팅 D: REQ 판정 테이블 채우기."""
