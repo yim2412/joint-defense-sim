@@ -119,101 +119,113 @@ SUB_LAYERS = [
 ENEMY_DB = {
 
     # ════ 대공: 전투기 (기존 3종) ════════════════════════════════════════════
+    # ── 고도 기준: 미사일 발사 시 실제 접근 고도 (서비스 실링 아님) ──────────
     'MiG-29 (풀크럼)':
-        {'category':'대공','type':'전투기','speed_ms':765,'altitude_m':10000,
+        {'category':'대공','type':'전투기','speed_ms':765,'altitude_m':8000,
+         # 전술 교전 고도 8km (서비스 실링 18km)
          'missile_name':'YJ-91 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':5.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.78,
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.18,'alt_change_m':2500,'max_attempts':2},
-         'self_defense_pk':0.10,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.10,'enemy_ciws_pk':0.0},
 
     'MiG-23 (플로거)':
-        {'category':'대공','type':'전투기','speed_ms':797,'altitude_m':10000,
+        {'category':'대공','type':'전투기','speed_ms':797,'altitude_m':7000,
+         # 전술 고도 7km (구형 4세대, 중고도)
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':180,
          'can_fire_missile':True,'rcs_m2':6.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.15,'alt_change_m':2000,'max_attempts':2},
-         'self_defense_pk':0.08,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.08,'enemy_ciws_pk':0.0},
 
     'J-7 (섬광)':
-        {'category':'대공','type':'전투기','speed_ms':680,'altitude_m':10000,
+        {'category':'대공','type':'전투기','speed_ms':680,'altitude_m':5000,
+         # 구형 MiG-21 계열, 저중고도 5km
          'missile_name':'YJ-8K 대함미사일','missile_speed_ms':300,'missile_range_km':50,
          'can_fire_missile':True,'rcs_m2':3.0,
          'missile_salvo_min':1,'missile_salvo_max':1,
          'missile_terminal_evasion':0.90,
          'evasion_profile':{'speed_boost_min':0.06,'speed_boost_max':0.12,'alt_change_m':1500,'max_attempts':1},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
     # ════ 대공: 전투기 (NEW-2 추가 7종) ══════════════════════════════════════
     'J-10A (비맹)':
-        {'category':'대공','type':'전투기','speed_ms':700,'altitude_m':16000,
+        {'category':'대공','type':'전투기','speed_ms':700,'altitude_m':10000,
+         # 4.5세대, 전술 고도 10km
          'missile_name':'YJ-91 대함미사일','missile_speed_ms':900,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':2.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.78,
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.20,'alt_change_m':3000,'max_attempts':2},
-         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-11B (플랭커-B)':
-        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':19000,
+        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':11000,
+         # Su-27 계열, 전술 고도 11km
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':180,
          'can_fire_missile':True,'rcs_m2':10.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.12,'speed_boost_max':0.22,'alt_change_m':3500,'max_attempts':2},
-         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-15 (비상어)':
-        {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':15000,
+        {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':9000,
+         # 함재기, 중고도 9km (항모 작전 특성상 중간 고도)
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':160,
          'can_fire_missile':True,'rcs_m2':8.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.20,'alt_change_m':3000,'max_attempts':2},
-         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-16 (플랭커-D)':
-        {'category':'대공','type':'전투기','speed_ms':780,'altitude_m':17000,
+        {'category':'대공','type':'전투기','speed_ms':780,'altitude_m':10000,
+         # 다역할 전폭기, 전술 고도 10km
          'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':8.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.72,
          'evasion_profile':{'speed_boost_min':0.12,'speed_boost_max':0.22,'alt_change_m':3000,'max_attempts':2},
-         'self_defense_pk':0.15,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.15,'enemy_ciws_pk':0.0},
 
     'J-20 (위룡)':
         # ⭐ 5세대 스텔스 RCS=0.001㎡ → 탐지거리 ~67km + ECM 자체방어 높음
-        {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':20000,
+        {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':12000,
+         # 5세대 스텔스, 고고도 12km (고고도 활동 선호)
          'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':0.001,
          'missile_salvo_min':1,'missile_salvo_max':4,
          'missile_terminal_evasion':0.72,
          'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.15,'alt_change_m':4000,'max_attempts':3},
-         'self_defense_pk':0.18,'enemy_ciws_pk':0.0},   # NEW-F (5세대 ECM 최고)
+         'self_defense_pk':0.18,'enemy_ciws_pk':0.0},
 
     'Su-35 (플랭커-E)':
-        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':18000,
+        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':11000,
+         # 슈퍼 플랭커, 전술 고도 11km
          'missile_name':'Kh-31A 대함미사일','missile_speed_ms':1000,'missile_range_km':70,
          'can_fire_missile':True,'rcs_m2':4.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.68,
          'evasion_profile':{'speed_boost_min':0.12,'speed_boost_max':0.25,'alt_change_m':3500,'max_attempts':3},
-         'self_defense_pk':0.15,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.15,'enemy_ciws_pk':0.0},
 
     'JH-7A (날치)':
-        {'category':'대공','type':'전폭기','speed_ms':500,'altitude_m':15200,
+        {'category':'대공','type':'전폭기','speed_ms':500,'altitude_m':2000,
+         # 공격기: 저고도 침투 2km (해면 근접 돌파 → RAM 위협)
          'missile_name':'YJ-91 대함미사일','missile_speed_ms':900,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':6.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.78,
-         'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.12,'alt_change_m':1500,'max_attempts':1},
-         'self_defense_pk':0.10,'enemy_ciws_pk':0.0},   # NEW-F
+         'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.12,'alt_change_m':500,'max_attempts':1},
+         'self_defense_pk':0.10,'enemy_ciws_pk':0.0},
 
     # ════ 대공: 폭격기 ════════════════════════════════════════════════════════
     'H-6 (폭격기)':
-        {'category':'대공','type':'폭격기','speed_ms':290,'altitude_m':12000,
+        {'category':'대공','type':'폭격기','speed_ms':290,'altitude_m':10000,
+         # Tu-16 계열 개량형, 순항 고도 10km
          'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':40.0,
          'missile_salvo_min':4,'missile_salvo_max':6,
@@ -268,11 +280,12 @@ ENEMY_DB = {
 
     # ════ 대공: 순항미사일 ════════════════════════════════════════════════════
     'CJ-10 (순항미사일)':
-        {'category':'대공','type':'순항미사일','speed_ms':270,'altitude_m':10,
+        {'category':'대공','type':'순항미사일','speed_ms':270,'altitude_m':100,
+         # 지형추적 순항 100m (종말 단계에서 해면 밀착, 평균 순항은 100m)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
          'can_fire_missile':False,'rcs_m2':0.01,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
-         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F (미사일은 자체방어 없음)
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 
     'YJ-12 (초음속 순항)':
         {'category':'대공','type':'순항미사일','speed_ms':1000,'altitude_m':15,
@@ -296,11 +309,12 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
     'YJ-100 (장거리 순항)':
-        {'category':'대공','type':'순항미사일','speed_ms':300,'altitude_m':10,
+        {'category':'대공','type':'순항미사일','speed_ms':300,'altitude_m':50,
+         # 장거리 지형추적 순항 50m (CJ-10보다 낮은 스텔스 비행 프로파일)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':800,
          'can_fire_missile':False,'rcs_m2':0.01,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
-         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 
     # ════ 대함: 수상함 (5종) ══════════════════════════════════════════════════
     # NEW-F: 수상함은 함대공미사일 + CIWS 자체방어 현실적 수치
@@ -355,51 +369,58 @@ ENEMY_DB = {
          'self_defense_pk':0.38,'enemy_ciws_pk':0.33},  # NEW-F (중국 최강 자체방어)
 
     # ════ 대잠: 잠수함 (5종) ══════════════════════════════════════════════════
-    # NEW-F: 잠수함은 잠항 중 소음기동으로 소나 교란 (소폭 Pk 감소)
+    # altitude_m = 잠항 수심 (음수 = 수면 아래)
+    # 수온약층(thermocline): 100~300m 구간 소나 탐지 가장 어려움
+    # 회피 기동: depth_change_m으로 더 깊이 잠항
     '039형 잠수함 (송급)':
-        {'category':'대잠','type':'잠수함','speed_ms':11.0,'altitude_m':0,
+        {'category':'대잠','type':'잠수함','speed_ms':11.0,'altitude_m':-150,
+         # Song급 SSK: 최대 잠항 300m, 작전 수심 150m (수온약층 내)
          'missile_name':'Yu-6 중어뢰','missile_speed_ms':33.0,'missile_range_km':45,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.90,
          'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.15,'depth_change_m':-80,'max_attempts':2},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
     '041형 잠수함 (위안급 개량)':
-        {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':0,
+        {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':-200,
+         # Yuan급 AIP SSK: 최대 잠항 350m, 작전 수심 200m (수온약층 깊은 곳)
          'missile_name':'Yu-6 중어뢰','missile_speed_ms':33.0,'missile_range_km':45,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.90,
          'evasion_profile':{'speed_boost_min':0.06,'speed_boost_max':0.16,'depth_change_m':-80,'max_attempts':2},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
-    '093형 잠수함 (위안급)':
-        {'category':'대잠','type':'잠수함','speed_ms':15.0,'altitude_m':0,
+    '093형 잠수함 (상급)':
+        {'category':'대잠','type':'잠수함','speed_ms':15.0,'altitude_m':-280,
+         # Shang급 SSN: 최대 잠항 400m, 작전 수심 280m (수온약층 하부)
          'missile_name':'YJ-18B 잠대함미사일','missile_speed_ms':1000,'missile_range_km':500,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':6,
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.18,'depth_change_m':-90,'max_attempts':2},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
     '094형 잠수함 (진급)':
-        {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':0,
+        {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':-200,
+         # Jin급 SSBN: 미사일 발사는 50m 이내, 순항 작전 수심 200m
          'missile_name':'JL-2 SLBM','missile_speed_ms':3400,'missile_range_km':7200,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.85,
          'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.12,'depth_change_m':-80,'max_attempts':1},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
     '095형 잠수함 (차세대 SSN)':
-        {'category':'대잠','type':'잠수함','speed_ms':18.0,'altitude_m':0,
+        {'category':'대잠','type':'잠수함','speed_ms':18.0,'altitude_m':-350,
+         # Type-095 SSN (추정): 최대 잠항 500m+, 작전 수심 350m (수온약층 완전 하부)
          'missile_name':'YJ-18B 잠대함미사일','missile_speed_ms':1000,'missile_range_km':500,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':8,
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.22,'depth_change_m':-100,'max_attempts':3},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},   # NEW-F
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 }
 
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
@@ -440,22 +461,32 @@ FRIENDLY_DB = {
 }
 
 WEATHER_DB = {
+    # radar_factor : 레이더 탐지거리 배율 (대공·대함)
+    # sonar_factor : 소나 탐지거리 배율 (대잠)  — 황사는 소나 영향 없음, 풍랑/폭풍은 해상 소음으로 급감
     '맑음 (주간)':
-        {'detect_range_factor':1.00,'intercept_prob_delta': 0.00,'cd_time_factor':1.00},
+        {'detect_range_factor':1.00,'radar_factor':1.00,'sonar_factor':1.00,
+         'intercept_prob_delta': 0.00,'cd_time_factor':1.00},
     '맑음 (야간)':
-        {'detect_range_factor':0.97,'intercept_prob_delta':-0.01,'cd_time_factor':1.05},
+        {'detect_range_factor':0.97,'radar_factor':0.97,'sonar_factor':0.98,
+         'intercept_prob_delta':-0.01,'cd_time_factor':1.05},
     '흐림 (박무)':
-        {'detect_range_factor':0.90,'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
+        {'detect_range_factor':0.90,'radar_factor':0.90,'sonar_factor':0.92,
+         'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
     '황사 (봄철 황사)':
-        {'detect_range_factor':0.93,'intercept_prob_delta':-0.02,'cd_time_factor':1.10},
+        {'detect_range_factor':0.93,'radar_factor':0.72,'sonar_factor':1.00,
+         'intercept_prob_delta':-0.02,'cd_time_factor':1.10},
     '풍랑 (7~8등급)':
-        {'detect_range_factor':0.85,'intercept_prob_delta':-0.06,'cd_time_factor':1.20},
+        {'detect_range_factor':0.85,'radar_factor':0.92,'sonar_factor':0.60,
+         'intercept_prob_delta':-0.06,'cd_time_factor':1.20},
     '폭풍 (해상 악화)':
-        {'detect_range_factor':0.75,'intercept_prob_delta':-0.08,'cd_time_factor':1.25},
+        {'detect_range_factor':0.75,'radar_factor':0.82,'sonar_factor':0.40,
+         'intercept_prob_delta':-0.08,'cd_time_factor':1.25},
     '태풍 (9~12등급)':
-        {'detect_range_factor':0.55,'intercept_prob_delta':-0.15,'cd_time_factor':1.50},
+        {'detect_range_factor':0.55,'radar_factor':0.62,'sonar_factor':0.22,
+         'intercept_prob_delta':-0.15,'cd_time_factor':1.50},
     '농무 (시정 200m 이하)':
-        {'detect_range_factor':0.88,'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
+        {'detect_range_factor':0.88,'radar_factor':0.96,'sonar_factor':0.94,
+         'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
 }
 
 SHIP_SPEC = {

@@ -602,6 +602,32 @@ class TimeStepEngine:
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
         return base_km * 1000 * factor
 
+    def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
+        """
+        수온약층(thermocline) 소나 탐지 보정.
+        altitude_m < 0 = 잠항 수심 (음수).
+
+        수심 구간별 탐지거리 배율:
+          0 ~ 100m   : 1.00 (수온약층 위, 정상 탐지)
+          100 ~ 300m : 1.00 → 0.45 (수온약층 내, 음파 굴절 → shadow zone)
+          300 ~ 500m : 0.45 → 0.65 (수온약층 아래, 수렴대 부분 회복)
+          500m+      : 0.65 (매우 깊은 수심, 소나 도달 한계)
+
+        현실: 한국 동해/서해 수온약층은 계절에 따라 50~200m에 형성.
+        이 모델은 100~300m를 최대 shadow zone으로 단순화.
+        """
+        if not et.is_sub:
+            return 1.0
+        depth = abs(et.altitude_m)   # 양수 수심 (m)
+        if depth < 100:
+            return 1.0
+        elif depth < 300:
+            return 1.0 - 0.55 * (depth - 100) / 200   # 1.00 → 0.45
+        elif depth < 500:
+            return 0.45 + 0.20 * (depth - 300) / 200  # 0.45 → 0.65
+        else:
+            return 0.65
+
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
 
     def _update_positions(self):
@@ -812,18 +838,36 @@ class TimeStepEngine:
 
     def _select_aa_wpn(self, ship: FriendlyShipObj, et: EnemyThreatObj,
                        dist_m: float) -> Optional[str]:
-        """항공기 목표 대공 무기 선택 (고도 반영)."""
+        """
+        항공기 목표 대공 무기 선택 (고도 3단 구분).
+
+        SM-3는 대기권 외 BMD 전용 → 항공기 요격 불가.
+          ≥ 10,000m (고고도): SM-2 → SM-6 (RAM 불필요, 사거리 초과 시 교전 불가)
+          3,000–10,000m (중고도): SM-2 → SM-6 → RAM (근접 시)
+          < 3,000m (저고도 침투): RAM 우선 → SM-2 → SM-6
+        """
         inv = ship.inventory
         alt = et.altitude_m
 
         if alt >= 10_000:
+            # 고고도: SM-2/SM-6만 유효, SM-3 배정 금지
             if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
-        if dist_m <= 9_000   and inv.get('RIM-116 RAM',        0) > 0: return 'RIM-116 RAM'
-        if dist_m <= 170_000 and inv.get('SM-2 Block IIIB',    0) > 0: return 'SM-2 Block IIIB'
-        if dist_m <= 240_000 and inv.get('SM-6',               0) > 0: return 'SM-6'
-        if dist_m <= 1_200_000 and inv.get('SM-3 Block IIA',   0) > 0: return 'SM-3 Block IIA'
-        return None
+            return None  # 사거리 초과 → 교전 불가
+
+        elif alt >= 3_000:
+            # 중고도: SM-2 → SM-6, 접근 시 RAM 보조
+            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
+            if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
+            if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
+            return None
+
+        else:
+            # 저고도 침투 (JH-7A 등 해면 근접): RAM 우선, SM-2/SM-6 원거리 커버
+            if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
+            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0: return 'SM-2 Block IIIB'
+            if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
+            return None
 
     # ── 4단계: 아군 공격 TEWA ─────────────────────────────────────────────────
 
@@ -844,7 +888,11 @@ class TimeStepEngine:
 
                 dist_m   = ship.pos.dist_to(et.pos)
                 category = et.category
-                if dist_m > self._detect_range_m(ship, category):
+                detect_m = self._detect_range_m(ship, category)
+                # 잠수함: 수온약층 소나 보정 추가 적용
+                if et.is_sub:
+                    detect_m *= self._thermocline_factor(et)
+                if dist_m > detect_m:
                     continue
 
                 if et.is_ship:
@@ -942,8 +990,9 @@ class TimeStepEngine:
                 if total_dist > ac.info['range_km'] * 1000:
                     continue
 
-                # 소나 탐지 + 소노부이 보너스
+                # 소나 탐지 + 소노부이 보너스 + 수온약층 보정
                 detect_m = self._detect_range_m(primary, '대잠')
+                detect_m *= self._thermocline_factor(et)
                 bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
                 if dist_to_sub > detect_m + bonus_m:
                     continue
@@ -2008,3 +2057,26 @@ if __name__ == '__main__':
 #     위협당 가장 고성능 함정이 항상 1차 교전, 부재 시 다음 레이어 자동 인계
 #   - CEC 사전 동시 배정(enable_cec_preassign): 위협당 최대 2발 동시 허용
 #     1차 SAM 성공 시 2차 SAM은 표적 소멸로 자동 종료
+
+# ── v7.0 포팅 F 패치 ──────────────────────────────────────────────────────────
+# · BUG-1: _select_aa_wpn() SM-3 항공기 배정 버그 수정
+#   SM-3 Block IIA는 BMD 전용 (대기권 외 요격), 항공기 요격 불가 → 완전 제거
+# · NEW-AT: _select_aa_wpn() 고도 3단 구분 재설계
+#   고고도 (≥10km): SM-2 → SM-6, 사거리 이탈 시 교전 불가
+#   중고도 (3~10km): SM-2 → SM-6 → RAM (접근 시)
+#   저고도 (<3km, JH-7A 등): RAM 우선 → SM-2 → SM-6
+# · NEW-AU: _thermocline_factor() — 수온약층 소나 탐지 보정
+#   altitude_m < 0 = 잠항 수심
+#   0~100m: 1.00, 100~300m: 1.00→0.45 (shadow zone), 300~500m: 0.45→0.65 (수렴대)
+# · NEW-AV: _friendly_strike() / _aircraft_asw() — 잠수함 탐지에 _thermocline_factor 적용
+# engine.py ENEMY_DB 수정 (고도/수심 현실화):
+# · 전투기: 서비스 실링 → 작전 접근 고도로 수정
+#   MiG-29: 10,000→8,000m / MiG-23: 10,000→7,000m / J-7: 10,000→5,000m
+#   J-10A: 16,000→10,000m / J-11B: 19,000→11,000m / J-15: 15,000→9,000m
+#   J-16: 17,000→10,000m / J-20: 20,000→12,000m / Su-35: 18,000→11,000m
+#   H-6: 12,000→10,000m
+# · 전폭기: JH-7A 15,200→2,000m (저고도 침투 공격기, RAM 위협권 진입)
+# · 순항미사일: CJ-10 10→100m (지형추적 순항고도), YJ-100 10→50m
+# · 잠수함: altitude_m 0→음수 (작전 수심 반영)
+#   039형: -150m / 041형: -200m / 093형: -280m / 094형: -200m / 095형: -350m
+# · '093형 잠수함 (위안급)' → '093형 잠수함 (상급)' DB키 수정 (상급=Shang-class)
