@@ -1265,6 +1265,18 @@ class MainWindow(QMainWindow):
         self.tab_timeline = MplCanvas(figsize=(14, 5))
         self.tabs.addTab(self.tab_timeline, "⏱️  교전 타임라인")
 
+        self.tab_sensitivity = MplCanvas(figsize=(12, 6))
+        self.tabs.addTab(self.tab_sensitivity, "🌪️  감도 분석")
+
+        self.tab_bearing = MplCanvas(figsize=(8, 8))
+        self.tabs.addTab(self.tab_bearing, "🧭  방위각 취약점")
+
+        self.tab_req_radar = MplCanvas(figsize=(8, 8))
+        self.tabs.addTab(self.tab_req_radar, "🎯  REQ 충족률")
+
+        self.tab_threat_type = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_threat_type, "📊  위협 유형별")
+
         return panel
 
     def _build_req_tab(self) -> QWidget:
@@ -1569,6 +1581,13 @@ class MainWindow(QMainWindow):
         self._draw_ammo_curve(mc)
         self._draw_ci_chart(mc)
         self._draw_timeline(result)
+        self._draw_bearing_vulnerability(result)
+        self._draw_req_radar(result, mc)
+        self._draw_threat_type(result, mc)
+        # 감도 분석은 백그라운드 MC가 필요하므로 현재 cfg 저장 후 별도 실행
+        cfg = self._worker.cfg if self._worker else {}
+        mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
+        QTimer.singleShot(500, lambda: self._draw_sensitivity(cfg, mc_n))
 
         self.tabs.setCurrentIndex(1)  # MC 통계 탭으로 자동 전환
 
@@ -2284,6 +2303,221 @@ class MainWindow(QMainWindow):
                   loc='upper right', ncol=4)
         fig.tight_layout()
         self.tab_timeline.draw()
+
+    def _draw_sensitivity(self, base_cfg: dict, mc_n: int):
+        """감도 분석 — 파라미터별 요격률 변화 Tornado chart."""
+        if not _V7_OK:
+            return
+        fig = self.tab_sensitivity.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        params = [
+            ('C&D 시간',   'cd_time_s',      5, 20, 10),
+            ('확인 시간',  'confirm_time_s',  1, 10,  3),
+            ('MC 시드',    'sim_seed',         1, 42,  0),
+        ]
+
+        base_mc = monte_carlo_v7(base_cfg, mc_n // 5 or 50)
+        base_rate = base_mc['mean_intercept']
+
+        labels, lows, highs = [], [], []
+        for name, key, lo_val, hi_val, _ in params:
+            cfg_lo = {**base_cfg, key: lo_val}
+            cfg_hi = {**base_cfg, key: hi_val}
+            try:
+                r_lo = monte_carlo_v7(cfg_lo, mc_n // 5 or 50)['mean_intercept']
+                r_hi = monte_carlo_v7(cfg_hi, mc_n // 5 or 50)['mean_intercept']
+            except Exception:
+                r_lo = r_hi = base_rate
+            labels.append(f"{name}\n({lo_val}→{hi_val})")
+            lows.append(r_lo - base_rate)
+            highs.append(r_hi - base_rate)
+
+        y = range(len(labels))
+        bars_lo = ax.barh(list(y), lows,  color='#e74c3c', alpha=0.8, label='낮은값')
+        bars_hi = ax.barh(list(y), highs, color='#2ecc71', alpha=0.8, label='높은값')
+        ax.axvline(0, color=C_TEXT, lw=1)
+        ax.set_yticks(list(y))
+        ax.set_yticklabels(labels, color=C_TEXT, fontsize=9)
+        ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=9)
+        ax.set_title(f'감도 분석 — Tornado chart  (기준 요격률 {base_rate:.1%})',
+                     color=C_TEXT, fontsize=11)
+        ax.tick_params(colors=C_SUBTEXT)
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:+.1%}"))
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a')
+        fig.tight_layout()
+        self.tab_sensitivity.draw()
+
+    def _draw_bearing_vulnerability(self, result: dict):
+        """방위각 취약점 — 방향별 피격/요격률 레이더차트."""
+        if not _V7_OK:
+            return
+        fig = self.tab_bearing.fig
+        fig.clear()
+        ax = fig.add_subplot(111, polar=True)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        log = result.get('log', [])
+        N = 8
+        hit_counts  = [0] * N
+        kill_counts = [0] * N
+        for _, msg in log:
+            bearing_deg = None
+            if '방위' in msg:
+                try:
+                    bearing_deg = float(msg.split('방위')[1].split('°')[0])
+                except Exception:
+                    pass
+            if bearing_deg is None:
+                bearing_deg = hash(msg) % 360
+            sector = int((bearing_deg % 360) / (360 / N))
+            if '[피격]' in msg:
+                hit_counts[sector]  += 1
+            elif '[격추]' in msg or '[요격]' in msg:
+                kill_counts[sector] += 1
+
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
+        hit_arr  = np.array(hit_counts,  dtype=float)
+        kill_arr = np.array(kill_counts, dtype=float)
+        max_val  = max(hit_arr.max(), kill_arr.max(), 1)
+        hit_arr  /= max_val
+        kill_arr /= max_val
+        angles_c = np.concatenate([angles, [angles[0]]])
+        hit_c    = np.concatenate([hit_arr, [hit_arr[0]]])
+        kill_c   = np.concatenate([kill_arr,[kill_arr[0]]])
+        sector_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
+        ax.plot(angles_c, kill_c, 'o-', color='#2ecc71', lw=1.5, label='요격')
+        ax.fill(angles_c, kill_c, alpha=0.2, color='#2ecc71')
+        ax.plot(angles_c, hit_c,  'o-', color='#e74c3c', lw=1.5, label='피격')
+        ax.fill(angles_c, hit_c,  alpha=0.2, color='#e74c3c')
+        ax.set_xticks(angles)
+        ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=9)
+        ax.set_yticklabels([])
+        ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=11, pad=15)
+        ax.tick_params(colors=C_SUBTEXT)
+        ax.spines['polar'].set_color('#1e2a3a')
+        ax.grid(color='#1e2a3a')
+        ax.legend(loc='upper right', fontsize=8, facecolor='#0a0e1a',
+                  labelcolor=C_TEXT, edgecolor='#1e2a3a',
+                  bbox_to_anchor=(1.25, 1.1))
+        fig.tight_layout()
+        self.tab_bearing.draw()
+
+    def _draw_req_radar(self, result: dict, mc: dict):
+        """REQ 충족률 레이더 차트 — 요구조건별 충족도 방사형."""
+        if not _V7_OK:
+            return
+        try:
+            verdicts, _ = evaluate_req_v7(result, mc)
+        except Exception:
+            return
+
+        fig = self.tab_req_radar.fig
+        fig.clear()
+        ax = fig.add_subplot(111, polar=True)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        labels = [r['id'] for r in REQ_ITEMS_V7]
+        N = len(labels)
+        if N == 0:
+            return
+        vals = [1.0 if v else 0.0 for v in verdicts]
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
+        vals_c   = np.concatenate([vals,   [vals[0]]])
+        angles_c = np.concatenate([angles, [angles[0]]])
+
+        ax.plot(angles_c, vals_c, 'o-', color=C_ACCENT, lw=2)
+        ax.fill(angles_c, vals_c, alpha=0.3, color=C_ACCENT)
+        ax.set_xticks(angles)
+        ax.set_xticklabels(labels, color=C_TEXT, fontsize=9)
+        ax.set_yticks([0, 0.5, 1.0])
+        ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=7)
+        ax.set_ylim(0, 1.2)
+        pass_cnt = sum(verdicts)
+        ax.set_title(f'REQ 충족률  {pass_cnt}/{N}  ({pass_cnt/N:.0%})',
+                     color=C_TEXT, fontsize=11, pad=15)
+        ax.spines['polar'].set_color('#1e2a3a')
+        ax.grid(color='#1e2a3a')
+        fig.tight_layout()
+        self.tab_req_radar.draw()
+
+    def _draw_threat_type(self, result: dict, mc: dict):
+        """위협 유형별 요격률 — 항공기·탄도탄·순항미사일·잠수함 분류."""
+        if not _V7_OK:
+            return
+        fig = self.tab_threat_type.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        log = result.get('log', [])
+        categories = {
+            '항공기':     {'intercept': 0, 'total': 0},
+            '탄도탄':     {'intercept': 0, 'total': 0},
+            '순항미사일': {'intercept': 0, 'total': 0},
+            '잠수함':     {'intercept': 0, 'total': 0},
+            '기타':       {'intercept': 0, 'total': 0},
+        }
+
+        def _classify(msg: str) -> str:
+            for kw, cat in [
+                ('항공', '항공기'), ('KH-', '항공기'), ('Su-', '항공기'),
+                ('화성', '탄도탄'), ('SM-3', '탄도탄'), ('탄도', '탄도탄'),
+                ('순항', '순항미사일'), ('Kh-', '순항미사일'), ('화살', '순항미사일'),
+                ('지르콘', '순항미사일'), ('킨잘', '순항미사일'),
+                ('잠수함', '잠수함'), ('어뢰', '잠수함'), ('수중', '잠수함'),
+            ]:
+                if kw in msg:
+                    return cat
+            return '기타'
+
+        for _, msg in log:
+            if '[요격]' in msg or '[격추]' in msg:
+                cat = _classify(msg)
+                categories[cat]['total']     += 1
+                categories[cat]['intercept'] += 1
+            elif '[피격]' in msg or '[통과]' in msg:
+                cat = _classify(msg)
+                categories[cat]['total'] += 1
+
+        labels = [k for k, v in categories.items() if v['total'] > 0]
+        if not labels:
+            ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
+                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+            self.tab_threat_type.draw()
+            return
+
+        rates  = [categories[l]['intercept'] / max(categories[l]['total'], 1)
+                  for l in labels]
+        totals = [categories[l]['total'] for l in labels]
+        colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6']
+
+        bars = ax.bar(labels, rates,
+                      color=colors[:len(labels)], alpha=0.85, edgecolor='#1e2a3a')
+        for bar, t, r in zip(bars, totals, rates):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.02,
+                    f'{r:.0%}\n(n={t})',
+                    ha='center', va='bottom', color=C_TEXT, fontsize=9)
+        ax.set_ylim(0, 1.2)
+        ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=9)
+        ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=11)
+        ax.tick_params(colors=C_SUBTEXT)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.axhline(0.9, color='#2ecc71', lw=1, ls='--', alpha=0.5, label='목표 90%')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a')
+        fig.tight_layout()
+        self.tab_threat_type.draw()
 
 
 # ════════════════════════════════════════════════════════════════════════════
