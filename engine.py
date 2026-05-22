@@ -432,6 +432,59 @@ ENEMY_DB = {
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.22,'depth_change_m':-100,'max_attempts':3},
          'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
+
+    # ════ 북한 위협 ══════════════════════════════════════════════════════════
+    '화성-15 (북한 ICBM급)': {
+        'type':'탄도미사일','category':'대공','altitude_m':1200000,
+        'speed_ms':7400,  # 재진입 단계 최대속도
+        'range_km':13000, 'is_ballistic':True, 'is_hgv':False, 'is_qbm':False,
+        'rcs_m2':0.5, 'cost_usd':0},
+    '화성-17 (북한 ICBM 개량)': {
+        'type':'탄도미사일','category':'대공','altitude_m':1200000,
+        'speed_ms':7700,
+        'range_km':15000, 'is_ballistic':True, 'is_hgv':False, 'is_qbm':False,
+        'rcs_m2':0.5, 'cost_usd':0},
+    '북한 순항미사일 (화살-2)': {
+        'type':'순항미사일','category':'대공','altitude_m':50,
+        'speed_ms':250, 'range_km':1500,
+        'rcs_m2':0.03, 'cost_usd':0,
+        'missile_terminal_evasion':0.82},
+
+    # ════ 러시아 위협 ════════════════════════════════════════════════════════
+    '킨잘 (극초음속 탄도)': {
+        'type':'극초음속활공체','category':'대공','altitude_m':20000,
+        'speed_ms':3500,  # Mach 10
+        'range_km':2000, 'is_ballistic':False, 'is_hgv':True, 'is_qbm':False,
+        'rcs_m2':0.1, 'cost_usd':0,
+        'missile_terminal_evasion':0.92},
+    '지르콘 (극초음속 순항)': {
+        'type':'순항미사일','category':'대공','altitude_m':10000,
+        'speed_ms':2700,  # Mach 8
+        'range_km':1000, 'is_ballistic':False, 'is_hgv':True, 'is_qbm':False,
+        'rcs_m2':0.05, 'cost_usd':0,
+        'missile_terminal_evasion':0.90},
+    'Kh-101 (스텔스 순항)': {
+        'type':'순항미사일','category':'대공','altitude_m':100,
+        'speed_ms':250,   # 아음속 스텔스
+        'range_km':5500,
+        'rcs_m2':0.01,    # 매우 낮은 RCS (스텔스)
+        'cost_usd':0,
+        'missile_terminal_evasion':0.78},
+
+    # ════ 드론 떼 ════════════════════════════════════════════════════════════
+    '소형 자폭 드론 (UAV)': {
+        'type':'전투기','category':'대공','altitude_m':200,
+        'speed_ms':60,    # ~220km/h
+        'range_km':300,
+        'rcs_m2':0.005,   # 극소 RCS
+        'cost_usd':10000,
+        'missile_salvo_min':1,'missile_salvo_max':1,
+        'can_fire_missile':False,  # 자폭 방식 (체계 피격으로 처리)
+        'missile_name':'드론 자폭',
+        'missile_speed_ms':60,
+        'missile_range_km':0,
+        'missile_terminal_evasion':0.60,
+        'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 }
 
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
@@ -763,6 +816,13 @@ ENEMY_FLEET_PRESETS = {
         {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
         {'preset': '093형 잠수함 (위안급)',      'count': 1},
     ],
+    # BMD 탄도 포화 — 순수 탄도·HGV 방어 전용 (SM-3/SM-6 BMD 성능 평가)
+    'BMD 탄도 포화': [
+        {'preset': 'KN-23 (북한 이스칸데르)',   'count': 2},   # QBM: SM-3 무력화, SM-6/ESSM 대응
+        {'preset': 'DF-15 (단거리 탄도)',       'count': 2},   # SRBM: SM-3 주 요격
+        {'preset': 'DF-21D (대함 탄도)',        'count': 2},   # MRBM: SM-3 필수
+        {'preset': 'DF-17 (극초음속 활공)',     'count': 1},   # HGV: SM-3만 가능, 최고 난이도
+    ],
     # 전면전 포화 — 모든 카테고리 혼합 (최고 난이도)
     '전면전 포화': [
         {'preset': 'J-20 (위룡)',           'count': 2},
@@ -770,6 +830,22 @@ ENEMY_FLEET_PRESETS = {
         {'preset': '055형 대형 구축함',     'count': 1},
         {'preset': 'DF-21D (대함 탄도)',    'count': 1},
         {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
+    ],
+    # 북한 탄도 포화 — 화성 계열 + 순항
+    '북한 탄도 포화': [
+        {'preset': 'KN-23 (북한 이스칸데르)',      'count': 3},
+        {'preset': '화성-15 (북한 ICBM급)',        'count': 1},
+        {'preset': '북한 순항미사일 (화살-2)',      'count': 2},
+    ],
+    # 러시아 극초음속 — 킨잘·지르콘·스텔스 순항
+    '러시아 극초음속': [
+        {'preset': '킨잘 (극초음속 탄도)',    'count': 2},
+        {'preset': '지르콘 (극초음속 순항)', 'count': 2},
+        {'preset': 'Kh-101 (스텔스 순항)', 'count': 2},
+    ],
+    # 드론 떼 포화 — CIWS/RAM 전용 위협
+    '드론 떼 포화': [
+        {'preset': '소형 자폭 드론 (UAV)', 'count': 20},
     ],
 }
 
@@ -3727,8 +3803,8 @@ if __name__ == "__main__":
 #             MC 1000회도 편대 모드 지원 (매 회차 독립 Fleet 인스턴스)
 #
 # ── v6.4 (NEW-L) [기능 53~57] ─────────────────────────────────────────────
-#  [53] ★ NEW-L: ENEMY_FLEET_PRESETS — PLA 교리 기반 적군 편대 5종
-#             A2/AD 항공 포화 / 항모 킬 체인 / 수상함 편대전 / 대잠 복합 / 전면전 포화
+#  [53] ★ NEW-L: ENEMY_FLEET_PRESETS — PLA 교리 기반 적군 편대 6종
+#             A2/AD 항공 포화 / 항모 킬 체인 / 수상함 편대전 / 대잠 복합 / BMD 탄도 포화 / 전면전 포화
 #
 #  [54] ★ NEW-L: ENEMY_FLEET_RANDOM_CFG — 난이도별 랜덤 편대 풀
 #             쉬움/보통/어려움/극한 4단계 | 시드값으로 재현 가능
@@ -3831,6 +3907,10 @@ if __name__ == "__main__":
 # · LOW-15: SM-6 속도 1360→1000 m/s
 # · LOW-16: 홍상어 Pk mean 0.700→0.65 (alpha=13,beta=7)
 # · LOW-17: 청상어 Pk mean 0.700→0.65
+#
+# ── v6.8.4 패치 (BMD 프리셋 추가) ────────────────────────────────────────────
+# · NEW: ENEMY_FLEET_PRESETS 'BMD 탄도 포화' 추가 (6번째 프리셋)
+#        KN-23×2 + DF-15×2 + DF-21D×2 + DF-17×1 — 순수 탄도·HGV 전용 시나리오
 #
 # ── v6.8.4 패치 ───────────────────────────────────────────────────────────────
 # · BUG: HeloEvent.is_missile 없음 → getattr 안전 접근 (run_fleet_sim_core 전체)
