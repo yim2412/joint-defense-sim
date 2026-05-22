@@ -38,8 +38,8 @@ from PyQt6.QtWidgets import (
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
 )
-from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QKeySequence
+from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 import matplotlib
 matplotlib.use('QtAgg')
