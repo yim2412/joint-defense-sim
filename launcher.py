@@ -2026,6 +2026,151 @@ class MainWindow(QMainWindow):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  SplashWindow — 런처 화면
+# ════════════════════════════════════════════════════════════════════════════
+
+_FEATURES = [
+    ("🗺️  전장 애니메이션",    "2.5D 등각투영, 줌/속도 조절, 격추 북마크, 스크린샷"),
+    ("📊  MC 통계",           "N회 몬테카를로 분석, 요격률 분포, 비용 통계"),
+    ("✅  REQ 판정",           "REQ-01~08 요구조건 자동 판정"),
+    ("🌤️  날씨 비교",          "맑음/흐림/폭풍 3종 MC 비교, 무기 소모·피격 통계"),
+    ("🆚  A vs B",            "두 시나리오 MC 결과 자동 비교 (Δ요격률·Δ비용)"),
+    ("📜  교전 로그",          "시각별 발사·요격·피격 이벤트 전체 기록"),
+    ("📡  채널 포화도",         "함정별 채널 사용률 시계열 히트맵"),
+    ("💰  비용 효과",          "격추당 비용 ($) + 무기별 잔여 재고"),
+    ("🔫  탄약 소모",          "MC 평균 잔여 재고 가로 막대"),
+    ("📈  MC 신뢰구간",        "95%CI 히스토그램 + 함정별 피격 횟수"),
+    ("🖥️  시스템 모니터",       "CPU·RAM 실시간 + 시뮬 구간 하이라이트"),
+    ("⚙️  엔진 현실성",         "C&D 딜레이·VLS 간격·부분 피해·SM-6 대함·Mk.45"),
+]
+
+
+class SplashWindow(QWidget):
+    """프로그램 진입 런처. [시뮬레이터 시작] → MainWindow 열기."""
+
+    launch_requested = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터")
+        self.setFixedSize(820, 600)
+        self.setStyleSheet(f"""
+            QWidget {{ background: {C_BG}; color: {C_TEXT};
+                       font-family: 'Malgun Gothic', 'Segoe UI'; font-size: 13px; }}
+            QTabWidget::pane {{ border: 1px solid {C_BORDER}; background: {C_BG}; }}
+            QTabBar::tab {{ background: {C_PANEL}; color: {C_SUBTEXT};
+                            padding: 6px 18px; border: 1px solid {C_BORDER}; }}
+            QTabBar::tab:selected {{ background: {C_BG}; color: {C_ACCENT};
+                                     border-bottom: 2px solid {C_ACCENT}; }}
+            QPushButton {{ background: {C_ACCENT}; color: white; border: none;
+                           padding: 10px 28px; border-radius: 5px; font-size: 14px; }}
+            QPushButton:hover {{ background: #2980b9; }}
+            QTableWidget {{ background: {C_PANEL}; gridline-color: {C_BORDER};
+                            border: none; font-size: 11px; }}
+            QHeaderView::section {{ background: {C_PANEL}; color: {C_ACCENT};
+                                    border: none; padding: 4px; font-size: 11px; }}
+        """)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("⚓ 이지스 기동전단 통합 방어 시뮬레이터")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setFont(QFont('Malgun Gothic', 16, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C_ACCENT}; padding: 4px;")
+        layout.addWidget(title)
+
+        sub = QLabel("v7.0  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 11px;")
+        layout.addWidget(sub)
+
+        tabs = QTabWidget()
+        layout.addWidget(tabs, stretch=1)
+        tabs.addTab(self._build_feature_tab(),   "📋  탑재 기능")
+        tabs.addTab(self._build_changelog_tab(), "📝  패치 내역")
+
+        btn = QPushButton("🚀  시뮬레이터 시작")
+        btn.setFixedHeight(46)
+        btn.clicked.connect(self.launch_requested.emit)
+        layout.addWidget(btn)
+
+    def _build_feature_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        tbl = QTableWidget(len(_FEATURES), 2)
+        tbl.setHorizontalHeaderLabels(["탭 / 기능", "설명"])
+        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        tbl.setColumnWidth(0, 180)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setAlternatingRowColors(True)
+        tbl.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        for row, (name, desc) in enumerate(_FEATURES):
+            ni = QTableWidgetItem(name)
+            ni.setForeground(QColor(C_ACCENT))
+            tbl.setItem(row, 0, ni)
+            tbl.setItem(row, 1, QTableWidgetItem(desc))
+        layout.addWidget(tbl)
+        return w
+
+    def _build_changelog_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        changelog = []
+        cl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'changelog.json')
+        if os.path.exists(cl_path):
+            try:
+                with open(cl_path, encoding='utf-8') as f:
+                    changelog = json.load(f)
+            except Exception:
+                pass
+        if not changelog:
+            layout.addWidget(QLabel("changelog.json 없음"))
+            return w
+        tbl = QTableWidget()
+        tbl.setColumnCount(3)
+        tbl.setHorizontalHeaderLabels(["버전", "날짜", "변경 내용"])
+        hh = tbl.horizontalHeader()
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        tbl.setColumnWidth(0, 160)
+        tbl.setColumnWidth(1, 100)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setAlternatingRowColors(True)
+        tbl.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        for entry in reversed(changelog):
+            ver   = entry.get('version', '')
+            date  = entry.get('date', '')
+            items = entry.get('changes', [])
+            for i, item in enumerate(items):
+                row = tbl.rowCount()
+                tbl.insertRow(row)
+                if i == 0:
+                    vi = QTableWidgetItem(ver)
+                    vi.setForeground(QColor(C_ACCENT))
+                    tbl.setItem(row, 0, vi)
+                    di = QTableWidgetItem(date)
+                    di.setForeground(QColor(C_SUBTEXT))
+                    tbl.setItem(row, 1, di)
+                else:
+                    tbl.setItem(row, 0, QTableWidgetItem(""))
+                    tbl.setItem(row, 1, QTableWidgetItem(""))
+                tbl.setItem(row, 2, QTableWidgetItem(item))
+        layout.addWidget(tbl)
+        return w
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  진입점
 # ════════════════════════════════════════════════════════════════════════════
 def main():
@@ -2045,8 +2190,17 @@ def main():
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
     app.setPalette(palette)
 
-    win = MainWindow()
-    win.show()
+    _main_win: list = []  # mutable closure
+
+    def _launch():
+        splash.close()
+        win = MainWindow()
+        _main_win.append(win)
+        win.show()
+
+    splash = SplashWindow()
+    splash.launch_requested.connect(_launch)
+    splash.show()
     sys.exit(app.exec())
 
 

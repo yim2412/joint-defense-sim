@@ -1,0 +1,76 @@
+[
+  {
+    "version": "v7.0",
+    "date": "2026-05-22",
+    "title": "PyQt6 네이티브 런처 + 2.5D 전장 애니메이션",
+    "changes": [
+      "NEW-A  MainWindow 좌/우 분할 레이아웃 (설정 패널 + 결과 탭)",
+      "NEW-B  ConfigPanel: 적군·아군 편대, 무기 재고, MC 설정",
+      "NEW-C  SimWorker(QThread): 백그라운드 시뮬 (UI 블로킹 없음)",
+      "NEW-D  전장 애니메이션 탭: matplotlib 2.5D 등각투영",
+      "NEW-E  MC 통계 탭: plot_v7 차트 임베드",
+      "NEW-F  교전 로그 탭: QTableWidget 시각별 이벤트",
+      "NEW-G  시스템 모니터 탭: CPU·RAM 실시간 (psutil + QTimer)",
+      "NEW-H  방어 무기 재고 UI (SM-3~Mk.46·기만기)",
+      "NEW-I  적군 모드 선택 (커스텀/프리셋/랜덤) + 프리셋·난이도",
+      "NEW-J  전술 옵션 토글 (ECM·회피·기만기·자체방어)",
+      "NEW-K  항공 자산 토글 (AW-159·P-3C·P-8A)"
+    ]
+  },
+  {
+    "version": "v7.0 (포팅 A~D)",
+    "date": "2026-05-22",
+    "title": "다층 방어·CEC·REQ 판정·날씨 비교·시나리오 저장",
+    "changes": [
+      "NEW-L  다층 방어 레이어 (KDX-III→KDX-II→FFX 순서)",
+      "NEW-M  CEC 사전 배정 (편대 동시 발사)",
+      "NEW-N  REQ-01~08 요구조건 판정 탭",
+      "NEW-O  날씨별 3종 비교 탭 (맑음/흐림/폭풍)",
+      "NEW-P  A vs B 시나리오 비교",
+      "NEW-Q  시나리오 저장/불러오기 (JSON)",
+      "NEW-R  BMD 탄도 포화 적군 편대 프리셋 추가"
+    ]
+  },
+  {
+    "version": "v7.0 (1단계 UI)",
+    "date": "2026-05-22",
+    "title": "전장 애니메이션 개선 + 시스템 모니터 강화",
+    "changes": [
+      "NEW-S  애니메이션 줌인/줌아웃 (마우스 휠)",
+      "NEW-T  재생 속도 조절 버튼 (0.5x / 1x / 2x / 4x)",
+      "NEW-U  격추 이벤트 북마크 (◀ 격추 / 격추 ▶)",
+      "NEW-V  스크린샷 저장 (PNG)",
+      "NEW-W  미사일 이름 표시 (색상 코딩)",
+      "NEW-X  단축키: Space 재생/정지, ←/→ 프레임 이동",
+      "NEW-Y  MC 진행률 실시간 표시 (회차/예상 잔여 시간)",
+      "NEW-Z  시스템 모니터 시뮬 구간 하이라이트"
+    ]
+  },
+  {
+    "version": "v7.0 (2단계 엔진)",
+    "date": "2026-05-22",
+    "title": "엔진 현실성 강화 — C&D 딜레이·부분 피해·SM-6 대함",
+    "changes": [
+      "NEW-AA C&D 딜레이: 레이더 탐지+확인+랜덤 편차 자동 적용",
+      "NEW-AB VLS 연속 발사 간격 2.5초 최소 대기",
+      "NEW-AC 함정 부분 피해 모델 (레이더·채널 성능 저하)",
+      "NEW-AD 탄약 소진 경고 로그",
+      "NEW-AE SM-6 대함 모드 (OTH 370km, Mach 3.5)",
+      "NEW-AF Mk.45 5인치 함포 최후 레이어 (24km)",
+      "NEW-AG sim_seed 기반 재현 가능 시뮬레이션",
+      "NEW-AH JSON 결과 내보내기 (save_json_report_v7)"
+    ]
+  },
+  {
+    "version": "v7.0 (3단계 분석)",
+    "date": "2026-05-22",
+    "title": "분석 탭 추가 + 날씨 비교 상세 통계",
+    "changes": [
+      "NEW-AI 비용 효과 탭: 격추당 비용·무기별 잔여 재고",
+      "NEW-AJ 탄약 소모 탭: MC 평균 잔여 재고 막대",
+      "NEW-AK MC 신뢰구간 탭: 95%CI 히스토그램 + 함정별 피격",
+      "NEW-AL 날씨 비교탭: 최다 소모 무기·피격 함정 열 추가",
+      "NEW-AM 날씨 비교탭 1000회 MC로 변경"
+    ]
+  }
+]
