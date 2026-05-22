@@ -2971,14 +2971,13 @@ _FEATURES = [
     ("📊  MC 통계",           "N회 몬테카를로 분석, 요격률 분포, 비용 통계"),
     ("✅  REQ 판정",           "REQ-01~08 요구조건 자동 판정"),
     ("🌤️  날씨 비교",          "맑음/흐림/폭풍 3종 MC 비교, 무기 소모·피격 통계"),
-    ("🆚  A vs B",            "두 시나리오 MC 결과 자동 비교 (Δ요격률·Δ비용) + PDF 통합 보고서"),
     ("📜  교전 로그",          "시각별 발사·요격·피격 이벤트 전체 기록"),
     ("📡  채널 포화도",         "함정별 채널 사용률 시계열 히트맵"),
     ("💰  비용 효과",          "격추당 비용 ($) + 무기별 잔여 재고"),
     ("🔫  탄약 소모",          "MC 평균 잔여 재고 가로 막대"),
     ("📈  MC 신뢰구간",        "95%CI 히스토그램 + 함정별 피격 횟수"),
     ("⏱️  교전 타임라인",       "이벤트 산점도 Gantt형 시각화"),
-    ("🌪️  감도 분석",          "파라미터 변화 → 요격률 Tornado chart"),
+    ("🌪️  감도 분석",          "파라미터 변화 → 요격률 Tornado chart (백그라운드 비차단)"),
     ("🧭  방위각 취약점",       "방향별 피격/요격률 레이더차트"),
     ("🎯  REQ 충족률",         "요구조건별 방사형 레이더차트"),
     ("📊  위협 유형별",         "항공기·탄도탄·순항미사일·잠수함 요격률 분류"),
@@ -2987,6 +2986,8 @@ _FEATURES = [
     ("📋  설정 프로필",         "시나리오 설정을 이름 붙여 저장/불러오기"),
     ("📄  보고서 출력",         "Excel + PDF (4페이지) 보고서 내보내기"),
     ("🖥️  시스템 모니터",       "CPU·RAM 실시간 + 시뮬 구간 하이라이트"),
+    ("📺  플로팅 모니터",        "시뮬 중 팝업 — MC 진행률 + CPU/RAM/GPU, 드래그 이동"),
+    ("⚡  MC 멀티프로세싱",      "ProcessPoolExecutor 최대 8코어 자동 병렬 배치 (≥100회)"),
     ("⚙️  엔진 전술 기동",      "CEC두절·함정회피·V자/포위 기동·다방위 공격"),
     ("🌊  적군 DB",            "32종 위협 (북한·러시아·드론떼·수중드론 포함)"),
 ]
@@ -3030,7 +3031,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 4px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.0  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.2  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 11px;")
         layout.addWidget(sub)
@@ -3195,3 +3196,15 @@ if __name__ == '__main__':
 # · NEW-R: _build_ab_tab() — A vs B 비교 탭 (슬롯 레이블 + 실행 버튼 + 결과 테이블)
 # · NEW-S: _fill_req() — _on_finished에서 REQ 결과 자동 채움
 # · NEW-T: _run_weather_compare() / _run_ab_compare() / _save_scenario() / _load_scenario() / _save_ab()
+
+# ── v7.2 패치 (launcher.py) ───────────────────────────────────────────────────
+# · FIX-1: A vs B 탭 완전 제거 — _build_ab_tab / _run_ab_compare / _export_ab_pdf / _generate_ab_pdf / _save_ab 삭제
+# · FIX-2: 감도 분석 freeze 수정 — QTimer.singleShot → SensitivityWorker(QThread) 백그라운드 실행
+#           _sensitivity_placeholder / _sensitivity_error / _on_sensitivity_done 추가
+#           _draw_sensitivity 시그니처 변경 (base_cfg,mc_n → labels,lows,highs,base_rate)
+# · NEW-BP: FloatingMonitor — 시뮬 중 팝업 (MC 진행률 + CPU/RAM/GPU), 드래그 이동, 0.8s 갱신
+# · NEW-BQ: SimWorker MC 멀티프로세싱 — ProcessPoolExecutor 최대 8코어 자동 배치 (≥100회)
+# · NEW-BR: _mc_batch_worker (engine_v7.py) — PyQt6 미포함 서브프로세스 안전 배치 워커
+# · NEW-BS: multiprocessing.freeze_support() 추가 — PyInstaller exe 멀티프로세싱 지원
+# · UX:     _FEATURES에서 A vs B 제거, 플로팅 모니터·멀티프로세싱 항목 추가
+# · UX:     SplashWindow 서브타이틀 v7.0 → v7.2

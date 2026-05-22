@@ -2533,3 +2533,8 @@ if __name__ == '__main__':
 #           _friendly_strike() + _aircraft_asw() 양쪽 적용
 # · NEW-AW: 함대 위치 분산 — _build_friendly() KDX-III 중심(0,0), KDX-II 3km, FFX 5km
 #           _FORMATION_RADIUS 클래스 상수 추가
+
+# ── v7.2 패치 (engine_v7.py) ──────────────────────────────────────────────────
+# · NEW-BR: _mc_batch_worker(args) 추가 — ProcessPoolExecutor 배치 워커
+#           PyQt6 미포함, subprocess 안전, seed_offset으로 회차별 시드 분리
+#           반환: (rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc)
