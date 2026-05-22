@@ -124,6 +124,20 @@ FRIENDLY_STRIKE_DB = {
         'cost_usd': 1_500_000,
         'pk_base':  0.78,
     },
+    # SM-6 Block IB 대함 모드 (OTH 대함 공격, Link-16 유도)
+    'SM-6 대함 모드': {
+        'speed_ms': 1000,   # Mach 3.5
+        'range_km': 370,    # OTH 사거리
+        'cost_usd': 4_200_000,
+        'pk_base':  0.70,
+    },
+    # 5인치 Mk.45 Mod 4 함포 (근거리 최후 레이어)
+    'Mk.45 5인치 함포': {
+        'speed_ms': 830,   # 포탄 초속 ~Mach 2.4
+        'range_km': 24,    # 유효 사거리 24km
+        'cost_usd': 2_000, # 발당 약 $2,000
+        'pk_base':  0.40,  # 대함 Pk (표적이 클수록 높음)
+    },
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -381,7 +395,7 @@ class FriendlyShipObj:
         spec             = SHIP_DB[ship_type]
         self.display     = spec['display']
         self.sensor_km   = spec['sensor_km']
-        self.max_channels= spec['max_channels']
+        # max_channels는 @property로 계산 (부분 피해 반영)
         self.pos         = pos or Vec2(0, 0)
 
         self.inventory   = spec['default_inventory'].copy()
@@ -391,12 +405,23 @@ class FriendlyShipObj:
         # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
         _hp_map = {'KDX-III': 5, 'KDX-II': 4, 'FFX': 3}
         self.hp            = _hp_map.get(ship_type, 4)
+        self._max_hp       = self.hp
         self.alive         = True
         self.hit_count     = 0
         self.hits_taken    = 0  # MC 집계용 피격 횟수 (hit_count와 동일)
         self.total_cost    = 0.0
         self.channels_used = 0
         self.decoy_stock   = 4  # 포팅 B: AN/SLQ-25 음향 기만기 기본 재고
+        # 부분 피해: 레이더/채널 성능 배율 (0.0~1.0)
+        self.radar_factor  = 1.0
+        self.channel_factor= 1.0
+        self._vls_depleted = False  # 탄약 완전 소진 플래그
+
+    @property
+    def max_channels(self):
+        # 채널 계산 시 부분 피해 반영
+        spec = SHIP_DB[self.ship_type]
+        return max(1, int(spec['max_channels'] * self.channel_factor))
 
     @property
     def operational(self) -> bool:
@@ -406,6 +431,16 @@ class FriendlyShipObj:
         self.hit_count  += 1
         self.hits_taken += 1
         self.hp -= 1
+        # 부분 피해 모델: HP가 줄수록 성능 저하
+        # HP 절반 이하: 레이더 80%, 채널 80%
+        # HP 1 남음: 레이더 60%, 채널 60%
+        ratio = self.hp / self._max_hp
+        if ratio <= 0.25:
+            self.radar_factor   = 0.60
+            self.channel_factor = 0.60
+        elif ratio <= 0.50:
+            self.radar_factor   = 0.80
+            self.channel_factor = 0.80
         if self.hp <= 0:
             self.alive = False
 
@@ -664,7 +699,8 @@ class TimeStepEngine:
             else:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
-        return base_km * 1000 * factor
+        # 함정 부분 피해: 레이더 성능 저하 반영
+        return base_km * 1000 * factor * ship.radar_factor
 
     def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
         """
@@ -801,12 +837,17 @@ class TimeStepEngine:
     # ── 3단계: 아군 방어 TEWA ─────────────────────────────────────────────────
 
     def _cd_allowed(self, target_key: int) -> bool:
-        """C&D 딜레이 판정. 첫 탐지 시 딜레이 등록, 이후 시각 도달 시 True."""
+        """
+        C&D 딜레이 판정.
+        첫 탐지 시: 레이더 빔 드웰(1~3s) + cd_time_s + confirm_time_s + uniform(2,10)s
+        이후 시각 도달하면 True.
+        """
         if target_key not in self._cd_fire_time:
-            cd   = self.cfg.get('cd_time_s', 10)
-            conf = self.cfg.get('confirm_time_s', 3)
-            jitter = random.uniform(2, 10)
-            self._cd_fire_time[target_key] = self.t + cd + conf + jitter
+            cd     = self.cfg.get('cd_time_s', 10)
+            conf   = self.cfg.get('confirm_time_s', 3)
+            dwell  = random.uniform(1, 3)   # 레이더 빔 드웰 타임
+            jitter = random.uniform(2, 10)  # 위협 분류 랜덤 편차
+            self._cd_fire_time[target_key] = self.t + dwell + cd + conf + jitter
             return False
         return self.t >= self._cd_fire_time[target_key]
 
@@ -934,6 +975,12 @@ class TimeStepEngine:
         prefix = '[대공 방어]' if is_aa else '[방어]'
         tgt_name = target.name if hasattr(target, 'name') else target.preset_name
         self._log(f"{prefix} {ship.name} -> {wpn} 발사 -> {tgt_name} (거리 {dist_m/1000:.1f}km)")
+        # 탄약 재보급 한계: VLS 주요 무기 완전 소진 시 경고
+        vls_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB', 'RIM-116 RAM']
+        if not ship._vls_depleted:
+            if all(ship.inventory.get(w, 0) == 0 for w in vls_wpns):
+                ship._vls_depleted = True
+                self._log(f"[경고] {ship.name} VLS 탄약 완전 소진 — 방어 불능")
 
     # LOW-11: 조명기(SPG-62) 가용 채널 (SM-2는 반능동 유도 → 조명기 필요)
     _ILLUMINATOR_MAX = {'KDX-III': 3, 'KDX-II': 2, 'FFX': 1}
@@ -1051,7 +1098,13 @@ class TimeStepEngine:
                     if not wpn:
                         continue
                     wpn_info = FRIENDLY_STRIKE_DB[wpn]
-                    ship.strike_inventory[wpn] -= 1
+                    # SM-6 대함 모드: VLS inventory에서 소모
+                    if wpn == 'SM-6 대함 모드':
+                        ship.inventory['SM-6'] -= 1
+                    elif wpn == 'Mk.45 5인치 함포':
+                        pass  # 함포는 재고 무한 (수백 발 탑재)
+                    else:
+                        ship.strike_inventory[wpn] = ship.strike_inventory.get(wpn, 0) - 1
                     ship.total_cost += wpn_info['cost_usd']
                     self.missiles.append(MissileObj(
                         mtype    = 'friendly_strike',
@@ -1184,11 +1237,20 @@ class TimeStepEngine:
                 break  # 한 tick당 한 표적만 공격
 
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
+        # 우선순위: 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)
         for wpn in ['해성-II', '해성-I', '하푼 Block II']:
             if ship.strike_inventory.get(wpn, 0) <= 0:
                 continue
             if dist_m <= FRIENDLY_STRIKE_DB[wpn]['range_km'] * 1000:
                 return wpn
+        # SM-6 대함 모드: 해성/하푼 소진 후 OTH 사거리 내 수상함 공격
+        if (self.cfg.get('enable_sm6_surface', True)
+                and ship.inventory.get('SM-6', 0) > 0
+                and dist_m <= FRIENDLY_STRIKE_DB['SM-6 대함 모드']['range_km'] * 1000):
+            return 'SM-6 대함 모드'
+        # Mk.45 함포: 근거리 최후 수단
+        if dist_m <= FRIENDLY_STRIKE_DB['Mk.45 5인치 함포']['range_km'] * 1000:
+            return 'Mk.45 5인치 함포'
         return None
 
     def _select_asw_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
