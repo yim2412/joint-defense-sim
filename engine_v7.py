@@ -393,6 +393,7 @@ class FriendlyShipObj:
         self.hp            = _hp_map.get(ship_type, 4)
         self.alive         = True
         self.hit_count     = 0
+        self.hits_taken    = 0  # MC 집계용 피격 횟수 (hit_count와 동일)
         self.total_cost    = 0.0
         self.channels_used = 0
         self.decoy_stock   = 4  # 포팅 B: AN/SLQ-25 음향 기만기 기본 재고
@@ -402,7 +403,8 @@ class FriendlyShipObj:
         return self.alive
 
     def take_hit(self, weapon_name: str, t: float):
-        self.hit_count += 1
+        self.hit_count  += 1
+        self.hits_taken += 1
         self.hp -= 1
         if self.hp <= 0:
             self.alive = False
@@ -437,8 +439,8 @@ class SimFrame:
     def __init__(self, t: float):
         self.t              = t
         self.friendly_ships = []  # [(name, x, y, alive, hp)]
-        self.enemy_ships    = []  # [(uid, preset, x, y, alive, hp)]
-        self.missiles       = []  # [(uid, x, y, mtype, name)]
+        self.enemy_ships    = []  # [(uid, preset, x, y, alive, hp, alt_m)]
+        self.missiles       = []  # [(uid, x, y, mtype, name, alt_m)]
         self.events         = []  # [str]
         self.ship_channels  = []  # [(name, channels_used, max_channels)]
 
@@ -464,8 +466,19 @@ class TimeStepEngine:
         self._log_entries: list = []
         self._tick_events:  list = []
 
+        # sim_seed 적용 (재현 보장)
+        seed = cfg.get('sim_seed', None)
+        if seed:
+            random.seed(int(seed))
+
         MissileObj.reset_counter()
         EnemyThreatObj.reset_counter()
+
+        # C&D 딜레이: {target_id → t_fire_allowed}
+        # 탐지 시각 + cd_time_s + confirm_time_s + uniform(2,10)s 이후 발사 허용
+        self._cd_fire_time: dict = {}
+        # VLS 연속 발사 간격: {ship_id → t_last_vls}
+        self._vls_last_fire: dict = {}
 
         # stats / wx 먼저 초기화 (build 함수에서 참조 가능)
         self.stats = {
@@ -597,6 +610,9 @@ class TimeStepEngine:
                     m.is_ballistic           = (ttype == '탄도미사일')
                     m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
                     m.is_torpedo             = False
+                    # 3D 시각화용: 포물선 궤도 계산에 사용할 초기 거리·정점 고도 저장
+                    m._init_dist  = m.pos.dist_to(primary.pos)
+                    m._peak_alt_m = m.altitude_m  # DB 고도 = 정점 고도
                     self.missiles.append(m)
                     self.stats['total_threats'] += 1
                 else:
@@ -784,6 +800,21 @@ class TimeStepEngine:
 
     # ── 3단계: 아군 방어 TEWA ─────────────────────────────────────────────────
 
+    def _cd_allowed(self, target_key: int) -> bool:
+        """C&D 딜레이 판정. 첫 탐지 시 딜레이 등록, 이후 시각 도달 시 True."""
+        if target_key not in self._cd_fire_time:
+            cd   = self.cfg.get('cd_time_s', 10)
+            conf = self.cfg.get('confirm_time_s', 3)
+            jitter = random.uniform(2, 10)
+            self._cd_fire_time[target_key] = self.t + cd + conf + jitter
+            return False
+        return self.t >= self._cd_fire_time[target_key]
+
+    def _vls_interval_ok(self, ship: 'FriendlyShipObj') -> bool:
+        """VLS 연속 발사 간격 2.5s 체크."""
+        last = self._vls_last_fire.get(id(ship), -999.0)
+        return (self.t - last) >= 2.5
+
     def _friendly_defense(self):
         """
         다층 방어 (enable_layered_defense=True, 기본 ON):
@@ -814,6 +845,9 @@ class TimeStepEngine:
             key=_urgency, reverse=True
         )
         for m in sorted_missiles:
+            # C&D 딜레이: 탐지 후 충분한 시간이 지나야 발사
+            if not self._cd_allowed(id(m)):
+                continue
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
@@ -828,6 +862,8 @@ class TimeStepEngine:
             for ship in sorted_ships:
                 if sams_on + shots >= max_sams:
                     break
+                if not self._vls_interval_ok(ship):
+                    continue
                 dist_m = ship.pos.dist_to(m.pos)
                 wpn    = self._select_defense_wpn(ship, m, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
@@ -835,6 +871,7 @@ class TimeStepEngine:
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
                 self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False)
+                self._vls_last_fire[id(ship)] = self.t
                 shots += 1
 
         # (B) 적 항공기 직접 요격 — 긴급도 순 정렬
@@ -844,6 +881,9 @@ class TimeStepEngine:
             key=_urgency, reverse=True
         )
         for et in sorted_ac:
+            # C&D 딜레이: 항공기도 동일 적용
+            if not self._cd_allowed(id(et)):
+                continue
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is et and s.mtype == 'friendly_sam'
@@ -858,6 +898,8 @@ class TimeStepEngine:
             for ship in sorted_ships:
                 if sams_on + shots >= max_sams:
                     break
+                if not self._vls_interval_ok(ship):
+                    continue
                 dist_m = ship.pos.dist_to(et.pos)
                 wpn    = self._select_aa_wpn(ship, et, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
@@ -865,6 +907,7 @@ class TimeStepEngine:
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
                 self._launch_friendly_sam(ship, wpn, et, dist_m, is_aa=True)
+                self._vls_last_fire[id(ship)] = self.t
                 shots += 1
 
     def _launch_friendly_sam(self, ship: FriendlyShipObj, wpn: str, target,
@@ -1326,13 +1369,27 @@ class TimeStepEngine:
             frame.ship_channels.append((s.name, s.channels_used, s.max_channels))
         for et in self.enemy_threats:
             frame.enemy_ships.append(
-                (et.uid, et.preset_name, et.pos.x, et.pos.y, et.alive, et.hp))
+                (et.uid, et.preset_name, et.pos.x, et.pos.y, et.alive, et.hp,
+                 et.altitude_m))
         for m in self.missiles:
             if m.alive:
-                frame.missiles.append((m.uid, m.pos.x, m.pos.y, m.mtype, m.name))
+                frame.missiles.append(
+                    (m.uid, m.pos.x, m.pos.y, m.mtype, m.name,
+                     self._missile_disp_alt(m)))
         frame.events = list(self._tick_events)
         self.frames.append(frame)
         self._tick_events.clear()
+
+    def _missile_disp_alt(self, m) -> float:
+        """3D 시각화용 미사일 고도(m). 탄도/HGV는 포물선 궤도 추정."""
+        if (m.is_ballistic or m.is_hgv) and getattr(m, '_init_dist', 0) > 0:
+            target = m.target
+            if target and hasattr(target, 'pos'):
+                rem = m.pos.dist_to(target.pos)
+                progress = max(0.0, min(1.0, 1.0 - rem / m._init_dist))
+                peak = getattr(m, '_peak_alt_m', 50_000.0)
+                return max(0.0, 4.0 * peak * progress * (1.0 - progress))
+        return m.altitude_m
 
     # ── 종료 조건 ─────────────────────────────────────────────────────────────
 
@@ -1489,7 +1546,8 @@ def run_v7_simulation(cfg: dict) -> dict:
 #  몬테카를로 분석
 # ════════════════════════════════════════════════════════════════════════════
 
-def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '') -> dict:
+def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
+                   progress_cb=None) -> dict:
     """
     run_v7_simulation을 n회 반복해 통계를 집계한다.
 
@@ -1499,40 +1557,71 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '') -> dict:
       enemy_destroyed   : list[int]
       friendly_lost     : list[int]
       total_costs       : list[float]
+      weapon_usage      : dict[str, list[int]]  — 무기별 회차별 소모량
+      ship_hits         : dict[str, list[int]]  — 함정별 회차별 피격 횟수
       mean_intercept    : float
       std_intercept     : float
       full_pass_rate    : float          — 요격률 1.0 비율
     """
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    weapon_usage: dict = {}   # {무기명: [회차별 소모량]}
+    ship_hits_mc: dict = {}   # {함정명: [회차별 피격]}
 
     step = max(1, n // 5)
     if desc:
         print(f'  [{desc}] {n}회 MC 시작... ', end='', flush=True)
 
+    base_seed = cfg.get('sim_seed', None)
     for i in range(n):
-        r = run_v7_simulation(cfg)
+        # 회차마다 다른 시드 (기반 시드 + 회차번호)
+        run_cfg = dict(cfg)
+        if base_seed:
+            run_cfg['sim_seed'] = int(base_seed) + i
+        r = run_v7_simulation(run_cfg)
         rates.append(r['intercept_rate'])
         f_hits.append(r['friendly_hits'])
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
         costs.append(r['total_cost'])
+
+        # 무기별 소모량 (초기 재고 - 잔여 재고)
+        for wpn, remaining in r.get('remaining_inventory', {}).items():
+            if wpn not in weapon_usage:
+                weapon_usage[wpn] = []
+            weapon_usage[wpn].append(remaining)
+
+        # 함정별 피격 횟수
+        for ship in r.get('friendly_ships', []):
+            sname = ship.name
+            hits = getattr(ship, 'hits_taken', 0)
+            if sname not in ship_hits_mc:
+                ship_hits_mc[sname] = []
+            ship_hits_mc[sname].append(hits)
+
         if desc and (i + 1) % step == 0:
             print(f'{(i + 1) * 100 // n}%', end=' ', flush=True)
+        if progress_cb:
+            progress_cb(i + 1, n)
 
     if desc:
         print('완료')
 
     arr = np.array(rates)
+    # 무기별 평균 잔여 재고 (소모량 = 초기 - 평균 잔여)
+    weapon_avg_remaining = {k: float(np.mean(v)) for k, v in weapon_usage.items()}
+    ship_avg_hits = {k: float(np.mean(v)) for k, v in ship_hits_mc.items()}
     return {
-        'intercept_rates':  rates,
-        'friendly_hits':    f_hits,
-        'enemy_destroyed':  e_dest,
-        'friendly_lost':    f_lost,
-        'total_costs':      costs,
-        'mean_intercept':   float(arr.mean()),
-        'std_intercept':    float(arr.std()),
-        'full_pass_rate':   float((arr == 1.0).mean()),
-        'n':                n,
+        'intercept_rates':       rates,
+        'friendly_hits':         f_hits,
+        'enemy_destroyed':       e_dest,
+        'friendly_lost':         f_lost,
+        'total_costs':           costs,
+        'weapon_avg_remaining':  weapon_avg_remaining,
+        'ship_avg_hits':         ship_avg_hits,
+        'mean_intercept':        float(arr.mean()),
+        'std_intercept':         float(arr.std()),
+        'full_pass_rate':        float((arr == 1.0).mean()),
+        'n':                     n,
     }
 
 
@@ -1954,6 +2043,66 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
     wb.save(xlsx_path)
     print(f"  엑셀 보고서 저장: '{xlsx_path}'")
     return xlsx_path
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  결과 JSON 내보내기
+# ════════════════════════════════════════════════════════════════════════════
+
+def save_json_report_v7(result: dict, mc: dict, path: str):
+    """
+    단일 시뮬 결과 + MC 통계를 JSON으로 저장.
+    FriendlyShipObj 등 직렬화 불가 객체는 요약 딕셔너리로 변환.
+    """
+    def _safe(v):
+        if isinstance(v, (int, float, str, bool, type(None))):
+            return v
+        if isinstance(v, (list, tuple)):
+            return [_safe(x) for x in v]
+        if isinstance(v, dict):
+            return {k2: _safe(v2) for k2, v2 in v.items()}
+        # 객체: 기본 속성만 추출
+        return str(v)
+
+    summary = {
+        'result': {
+            'intercept_rate':      result.get('intercept_rate'),
+            'total_threats':       result.get('total_threats'),
+            'intercepted_threats': result.get('intercepted_threats'),
+            'friendly_hits':       result.get('friendly_hits'),
+            'enemy_ships_destroyed': result.get('enemy_ships_destroyed'),
+            'friendly_ships_lost': result.get('friendly_ships_lost'),
+            'total_cost':          result.get('total_cost'),
+            'sim_time':            result.get('sim_time'),
+            't_first_fire':        result.get('t_first_fire'),
+            'total_missiles_fired': result.get('total_missiles_fired'),
+            'remaining_inventory': result.get('remaining_inventory', {}),
+            'ships': [
+                {
+                    'name':         s.name,
+                    'type':         s.ship_type,
+                    'alive':        s.alive,
+                    'hits_taken':   getattr(s, 'hits_taken', 0),
+                    'total_cost':   s.total_cost,
+                    'inventory':    dict(s.inventory),
+                }
+                for s in result.get('friendly_ships', [])
+            ],
+        },
+        'mc': {
+            'n':               mc.get('n'),
+            'mean_intercept':  mc.get('mean_intercept'),
+            'std_intercept':   mc.get('std_intercept'),
+            'full_pass_rate':  mc.get('full_pass_rate'),
+            'mean_cost':       float(np.mean(mc['total_costs'])) if mc.get('total_costs') else 0,
+            'weapon_avg_remaining': mc.get('weapon_avg_remaining', {}),
+            'ship_avg_hits':   mc.get('ship_avg_hits', {}),
+        },
+    }
+    with open(path, 'w', encoding='utf-8') as f:
+        _json.dump(summary, f, ensure_ascii=False, indent=2, default=_safe)
+    print(f"  JSON 보고서 저장: '{path}'")
+    return path
 
 
 # ════════════════════════════════════════════════════════════════════════════

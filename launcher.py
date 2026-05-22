@@ -7,7 +7,7 @@
 ║  NEW-A  MainWindow: 좌/우 분할 레이아웃 (설정 패널 + 결과 탭)               ║
 ║  NEW-B  ConfigPanel: 엔진 선택·적군 편대·아군 편대·무기 재고·MC 설정        ║
 ║  NEW-C  SimWorker(QThread): 백그라운드 시뮬 (UI 블로킹 없음)                ║
-║  NEW-D  전장 애니메이션 탭: matplotlib canvas + QSlider 재생                ║
+║  NEW-D  전장 애니메이션 탭: matplotlib 2.5D 등각투영 + QSlider 재생         ║
 ║  NEW-E  MC 통계 탭: plot_v7 차트 임베드                                     ║
 ║  NEW-F  교전 로그 탭: QTableWidget 시각별 이벤트                            ║
 ║  NEW-G  시스템 모니터 탭: CPU·RAM·스레드 실시간 (psutil + QTimer)           ║
@@ -21,7 +21,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, time, threading
+import sys, os, time, threading, json
 import psutil
 
 from PyQt6.QtWidgets import (
@@ -31,10 +31,10 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QSpinBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
-    QSizePolicy, QCheckBox,
+    QSizePolicy, QCheckBox, QFileDialog,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QKeySequence
 
 import matplotlib
 matplotlib.use('QtAgg')
@@ -43,6 +43,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 import numpy as np
+
 
 # ── 엔진 import ──────────────────────────────────────────────────────────────
 try:
@@ -57,6 +58,7 @@ try:
         scenario_comparison_v7, compare_ab_v7,
         save_scenario_v7, load_scenario_v7,
         calculate_fleet_detect_ranges,
+        save_json_report_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -207,9 +209,12 @@ QToolTip {{
 #  백그라운드 시뮬레이션 워커
 # ════════════════════════════════════════════════════════════════════════════
 class SimWorker(QThread):
-    progress  = pyqtSignal(str)          # 진행 메시지
-    finished  = pyqtSignal(dict, dict)   # (result, mc)
-    error     = pyqtSignal(str)
+    progress        = pyqtSignal(str)           # 진행 메시지
+    progress_detail = pyqtSignal(int, int, float) # (현재, 전체, ETA초)
+    finished        = pyqtSignal(dict, dict)    # (result, mc)
+    error           = pyqtSignal(str)
+    sim_started     = pyqtSignal()
+    sim_ended       = pyqtSignal()
 
     def __init__(self, cfg: dict, mc_n: int):
         super().__init__()
@@ -218,12 +223,25 @@ class SimWorker(QThread):
 
     def run(self):
         try:
+            self.sim_started.emit()
             self.progress.emit("시뮬레이션 실행 중...")
             result = run_v7_simulation(self.cfg)
             self.progress.emit(f"MC {self.mc_n}회 분석 중...")
-            mc = monte_carlo_v7(self.cfg, n=self.mc_n)
+            t0 = time.time()
+            # MC 진행률 콜백 지원 (monte_carlo_v7가 progress_cb를 지원할 경우)
+            def _cb(done, total):
+                elapsed = time.time() - t0
+                eta = (elapsed / done * (total - done)) if done > 0 else 0.0
+                self.progress_detail.emit(done, total, eta)
+                self.progress.emit(f"MC {done}/{total}회 | 잔여 약 {eta:.0f}초")
+            try:
+                mc = monte_carlo_v7(self.cfg, n=self.mc_n, progress_cb=_cb)
+            except TypeError:
+                mc = monte_carlo_v7(self.cfg, n=self.mc_n)
+            self.sim_ended.emit()
             self.finished.emit(result, mc)
         except Exception as e:
+            self.sim_ended.emit()
             self.error.emit(str(e))
 
 
@@ -239,37 +257,143 @@ class MplCanvas(FigureCanvas):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  전장 애니메이션 탭
+#  전장 애니메이션 탭 (matplotlib 2.5D 등각투영)
 # ════════════════════════════════════════════════════════════════════════════
 class AnimationTab(QWidget):
+    """
+    2.5D 등각투영(isometric) 전장 애니메이션.
+    matplotlib 2D 위에 등각투영 좌표 변환으로 고도를 시각화.
+    탄도탄 포물선 호, 항공기·잠수함 고도가 수직 오프셋으로 표현됨.
+    """
+
+    # 엔티티 유형 → (matplotlib marker, 크기, 색상, zorder)
+    _ENT_CFG = {
+        'friendly': ('^', 140, '#2ecc71',  8),
+        'aircraft':  ('*', 170, '#ff6b6b',  7),
+        'ship':      ('s',  90, '#ff8c8c',  7),
+        'sub':       ('D',  75, '#e74c3c',  7),
+        'em_bm':    ('^',  55, '#ff2222',  9),
+        'em_cm':    ('o',  30, '#ff8888',  9),
+        'sam':       ('^',  30, '#55ff99', 10),
+        'fstk':      ('o',  30, '#55aaff', 10),
+        'esam':      ('v',  22, '#e67e22',  9),
+    }
+
+    # 등각투영 파라미터
+    _ISO_COS      = np.cos(np.radians(30))   # ≈ 0.866
+    _ISO_SIN      = np.sin(np.radians(30))   # ≈ 0.500
+    _ALT_SCALE    = 0.50   # 고도 1km → 화면 0.5단위
+    _MAX_DISP_ALT = 200.0  # 탄도탄 고도 표시 상한(km)
+
     def __init__(self):
         super().__init__()
         self.frames = []
+        self._display_range = 350.0
+        self._cur_idx = 0
+        self._zoom = 1.0
+        self._kill_frames = []
+        self._play_interval = 80
         self._build_ui()
+
+    # ── 등각투영 좌표 변환 ────────────────────────────────────────────────
+    def _iso(self, xk: float, yk: float, ak: float = 0.0):
+        """월드 좌표(km) → 등각투영 화면 좌표 (sx, sy)."""
+        ak_c = min(ak, self._MAX_DISP_ALT)
+        sx = (xk - yk) * self._ISO_COS
+        sy = (xk + yk) * self._ISO_SIN + ak_c * self._ALT_SCALE
+        return sx, sy
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        self.canvas = MplCanvas(figsize=(9, 8))
+        # ── matplotlib 캔버스 ─────────────────────────────────────────────
+        self._fig = Figure(figsize=(8, 6), facecolor='#0d1117')
+        self.canvas = FigureCanvas(self._fig)
+        self.canvas.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.ax = self._fig.add_axes([0.01, 0.01, 0.98, 0.98],
+                                      facecolor='#0d1117')
+        self.ax.set_aspect('equal')
+        self.ax.axis('off')
         layout.addWidget(self.canvas)
 
+        # 스크롤 줌 이벤트 연결
+        self.canvas.mpl_connect('scroll_event', self._on_scroll)
+
+        # ── 옵션 행 ──────────────────────────────────────────────────────
+        opt_row = QHBoxLayout()
+        self.chk_labels = QCheckBox("이름 표시")
+        self.chk_labels.setChecked(True)
+        self.chk_labels.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
+        self.chk_labels.stateChanged.connect(lambda _: self._redraw_current())
+
+        self.chk_altitude = QCheckBox("고도선 표시")
+        self.chk_altitude.setChecked(True)
+        self.chk_altitude.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
+        self.chk_altitude.stateChanged.connect(lambda _: self._redraw_current())
+
+        _bs = (f"background:{C_PANEL}; color:{C_TEXT}; "
+               f"border:1px solid #3a5a7a; font-size:11px; padding:2px 7px;")
+
+        # 재생 속도 버튼
+        lbl_spd = QLabel("속도:")
+        lbl_spd.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._spd_btns = []
+        for label, ms in [("0.5x", 160), ("1x", 80), ("2x", 40), ("4x", 20)]:
+            b = QPushButton(label)
+            b.setFixedHeight(24); b.setFixedWidth(36)
+            b.setStyleSheet(_bs)
+            b.clicked.connect(lambda _, m=ms: self._set_speed(m))
+            self._spd_btns.append(b)
+            opt_row.addWidget(b) if label != "0.5x" else None
+
+        opt_row.addWidget(self.chk_labels)
+        opt_row.addWidget(self.chk_altitude)
+        opt_row.addWidget(lbl_spd)
+        for b in self._spd_btns:
+            opt_row.addWidget(b)
+
+        # 스크린샷 버튼
+        btn_shot = QPushButton("📷")
+        btn_shot.setFixedHeight(24); btn_shot.setFixedWidth(30)
+        btn_shot.setStyleSheet(_bs)
+        btn_shot.setToolTip("현재 프레임 PNG 저장")
+        btn_shot.clicked.connect(self._save_screenshot)
+        opt_row.addWidget(btn_shot)
+
+        lbl_hint = QLabel("  휠:줌  2.5D 등각투영")
+        lbl_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+        opt_row.addWidget(lbl_hint)
+        opt_row.addStretch()
+        layout.addLayout(opt_row)
+
+        # ── 재생 컨트롤 ───────────────────────────────────────────────────
         ctrl = QHBoxLayout()
         self.lbl_time = QLabel("t = 0s")
-        self.lbl_time.setStyleSheet(f"color:{C_ACCENT}; font-weight:bold; font-size:14px;")
+        self.lbl_time.setStyleSheet(
+            f"color:{C_ACCENT}; font-weight:bold; font-size:14px;")
         self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(0)
+        self.slider.setMinimum(0); self.slider.setMaximum(0)
         self.slider.valueChanged.connect(self._on_slider)
-
-        self.btn_play  = QPushButton("▶ 재생")
+        self.btn_play = QPushButton("▶ 재생")
         self.btn_play.setFixedWidth(90)
         self.btn_play.clicked.connect(self._toggle_play)
+
+        # 격추 이벤트 이동 버튼
+        self.btn_prev_kill = QPushButton("◀ 격추")
+        self.btn_next_kill = QPushButton("격추 ▶")
+        for b in [self.btn_prev_kill, self.btn_next_kill]:
+            b.setFixedWidth(65); b.setFixedHeight(26)
+            b.setStyleSheet(_bs)
+        self.btn_prev_kill.clicked.connect(self._prev_kill)
+        self.btn_next_kill.clicked.connect(self._next_kill)
 
         self.lbl_events = QLabel("")
         self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
         self.lbl_events.setWordWrap(True)
-
+        ctrl.addWidget(self.btn_prev_kill)
+        ctrl.addWidget(self.btn_next_kill)
         ctrl.addWidget(self.lbl_time)
         ctrl.addWidget(self.slider, stretch=1)
         ctrl.addWidget(self.btn_play)
@@ -280,22 +404,45 @@ class AnimationTab(QWidget):
         self._play_timer.timeout.connect(self._step_play)
         self._playing = False
 
+    # ── 공개 API ──────────────────────────────────────────────────────────
     def load_frames(self, frames):
         self.frames = frames
+        self._display_range = self._calc_range(frames)
+        self._zoom = 1.0
+        # 격추 이벤트 발생 프레임 인덱스 추출
+        self._kill_frames = [
+            i for i, f in enumerate(frames)
+            if any('격추' in e or '요격' in e or '파괴' in e
+                   for e in (f.events or []))
+        ]
         if not frames:
             return
         self.slider.setMaximum(len(frames) - 1)
         self.slider.setValue(0)
         self._draw_frame(0)
 
+    # ── 내부 헬퍼 ─────────────────────────────────────────────────────────
+    def _calc_range(self, frames) -> float:
+        if not frames:
+            return 350.0
+        max_r = 150.0
+        f = frames[0]
+        for item in f.enemy_ships:
+            max_r = max(max_r, abs(item[2]) / 1000, abs(item[3]) / 1000)
+        for item in f.missiles:
+            max_r = max(max_r, abs(item[1]) / 1000, abs(item[2]) / 1000)
+        return max_r * 1.12
+
+    def _redraw_current(self):
+        if self.frames:
+            self._draw_frame(self._cur_idx)
+
     def _toggle_play(self):
         if self._playing:
-            self._play_timer.stop()
-            self._playing = False
+            self._play_timer.stop(); self._playing = False
             self.btn_play.setText("▶ 재생")
         else:
-            self._play_timer.start(80)
-            self._playing = True
+            self._play_timer.start(self._play_interval); self._playing = True
             self.btn_play.setText("⏸ 일시정지")
 
     def _step_play(self):
@@ -303,80 +450,214 @@ class AnimationTab(QWidget):
         if v < self.slider.maximum():
             self.slider.setValue(v + 1)
         else:
-            self._play_timer.stop()
-            self._playing = False
+            self._play_timer.stop(); self._playing = False
             self.btn_play.setText("▶ 재생")
 
     def _on_slider(self, val):
         if self.frames:
             self._draw_frame(val)
 
-    def _draw_frame(self, idx):
+    def _on_scroll(self, event):
+        """마우스 휠 줌인/줌아웃."""
+        if event.button == 'up':
+            self._zoom *= 0.85
+        elif event.button == 'down':
+            self._zoom *= 1.15
+        self._zoom = max(0.2, min(5.0, self._zoom))
+        self._redraw_current()
+
+    def _set_speed(self, ms: int):
+        """재생 속도 변경."""
+        self._play_interval = ms
+        if self._playing:
+            self._play_timer.setInterval(ms)
+
+    def _prev_kill(self):
+        """이전 격추 이벤트 프레임으로 이동."""
+        if not self._kill_frames:
+            return
+        cur = self._cur_idx
+        prev = [f for f in self._kill_frames if f < cur]
+        if prev:
+            self.slider.setValue(prev[-1])
+
+    def _next_kill(self):
+        """다음 격추 이벤트 프레임으로 이동."""
+        if not self._kill_frames:
+            return
+        cur = self._cur_idx
+        nxt = [f for f in self._kill_frames if f > cur]
+        if nxt:
+            self.slider.setValue(nxt[0])
+
+    def _save_screenshot(self):
+        """현재 프레임을 PNG로 저장."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "스크린샷 저장",
+            f"전장_{self._cur_idx:04d}.png",
+            "PNG (*.png)")
+        if path:
+            self._fig.savefig(path, dpi=150,
+                              bbox_inches='tight',
+                              facecolor='#0d1117')
+
+    def _draw_grid(self, R: float):
+        """등각투영 해수면 격자 + 거리 링."""
+        ax = self.ax
+        step = max(50, int(R / 5) // 10 * 10)
+        gc = '#0c2640'
+
+        r_int = int(R) + step
+        vals = range(-r_int, r_int + step, step)
+        for v in vals:
+            x1, y1 = self._iso(-R, v);  x2, y2 = self._iso(R, v)
+            ax.plot([x1, x2], [y1, y2], color=gc, lw=0.55, zorder=1)
+            x1, y1 = self._iso(v, -R);  x2, y2 = self._iso(v, R)
+            ax.plot([x1, x2], [y1, y2], color=gc, lw=0.55, zorder=1)
+
+        for ring_r in [r for r in [100, 200, 300, 400, 500, 700] if r < R * 1.05]:
+            θ = np.linspace(0, 2 * np.pi, 80)
+            rxs = ring_r * np.cos(θ); rys = ring_r * np.sin(θ)
+            sxs = [(x - y) * self._ISO_COS for x, y in zip(rxs, rys)]
+            sys_ = [(x + y) * self._ISO_SIN for x, y in zip(rxs, rys)]
+            ax.plot(sxs, sys_, color='#152e48', lw=0.85, ls='--', zorder=1)
+            lx, ly = self._iso(ring_r * 0.72, ring_r * (-0.72))
+            ax.text(lx, ly, f'{ring_r}km',
+                    color='#2a4e72', fontsize=7, va='center', zorder=2)
+
+    # ── 핵심: 프레임 렌더링 ──────────────────────────────────────────────
+    def _draw_frame(self, idx: int):
+        self._cur_idx = idx
         frame = self.frames[idx]
         self.lbl_time.setText(f"t = {frame.t:.0f}s")
 
-        fig = self.canvas.fig
-        fig.clear()
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.set_facecolor('#0a0e1a')
-        ax.tick_params(colors='#aab', labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        ax.set_xlim(-350_000, 350_000)
-        ax.set_ylim(-350_000, 350_000)
-        ax.set_xlabel('X (km)', color='#aab', fontsize=8)
-        ax.set_ylabel('Y (km)', color='#aab', fontsize=8)
-        ax.set_title(f'전장 상황  t = {frame.t:.0f}s', color='#dde',
-                     fontsize=10, fontweight='bold')
-        ax.grid(color='#1e2a3a', linewidth=0.5)
-        ax.xaxis.set_major_formatter(
-            plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
-        ax.yaxis.set_major_formatter(
-            plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
+        ax = self.ax
+        ax.cla()
+        ax.set_facecolor('#0d1117')
+        ax.axis('off')
+        ax.set_aspect('equal')
 
-        # 아군 함정
-        for sname, sx, sy, salive, shp in frame.friendly_ships:
-            color = C_GREEN if salive else '#555'
-            ax.scatter(sx, sy, s=160, c=color, marker='^', zorder=5)
-            ax.annotate(sname, (sx, sy), xytext=(5, 5),
-                        textcoords='offset points',
-                        color=color, fontsize=7)
+        R  = self._display_range
+        km = lambda v: v / 1000.0
+        show_labels    = self.chk_labels.isChecked()
+        show_alt_lines = self.chk_altitude.isChecked()
 
-        # 적 위협
-        for euid, epname, ex, ey, ealive, ehp in frame.enemy_ships:
-            color = C_RED if ealive else '#555'
-            ax.scatter(ex, ey, s=130, c=color, marker='v', zorder=5)
-            ax.annotate(epname[:10], (ex, ey), xytext=(5, -12),
-                        textcoords='offset points',
-                        color=color, fontsize=7)
+        self._draw_grid(R)
 
-        # 미사일
-        mtype_colors = {
-            'enemy_strike':    '#ff6b6b',
-            'friendly_strike': '#3498db',
-            'friendly_sam':    '#2ecc71',
-            'enemy_sam':       '#e67e22',
-        }
-        for muid, mx, my, mtype, mname in frame.missiles:
-            c = mtype_colors.get(mtype, '#aaa')
-            ax.scatter(mx, my, s=18, c=c, marker='o', alpha=0.85, zorder=4)
+        # 화면 범위 확정 (등각투영 기준 + zoom 적용)
+        cx = R * self._ISO_COS
+        cy_gnd = R * self._ISO_SIN
+        cy_alt = self._MAX_DISP_ALT * self._ALT_SCALE
+        x_span  = cx * 1.10 * self._zoom
+        y_bot   = -cy_gnd * 0.40 * self._zoom   # 하단 여유 확대
+        y_top   = (cy_gnd + cy_alt * 0.60) * self._zoom
+        ax.set_xlim(-x_span, x_span)
+        ax.set_ylim(y_bot, y_top)
 
-        # 범례
-        legend = [
-            Line2D([0],[0], marker='^', color='w', markerfacecolor=C_GREEN,
-                   markersize=9, label='아군 함정'),
-            Line2D([0],[0], marker='v', color='w', markerfacecolor=C_RED,
-                   markersize=9, label='적 위협'),
-            Line2D([0],[0], marker='o', color='w', markerfacecolor='#ff6b6b',
-                   markersize=7, label='적 미사일'),
-            Line2D([0],[0], marker='o', color='w', markerfacecolor=C_GREEN,
-                   markersize=7, label='아군 SAM'),
-            Line2D([0],[0], marker='o', color='w', markerfacecolor=C_ACCENT,
-                   markersize=7, label='아군 대함'),
+        # ── 적 위협 ───────────────────────────────────────────────────────
+        for item in frame.enemy_ships:
+            euid, epname, ex, ey, ealive, ehp = item[:6]
+            ealt = item[6] if len(item) > 6 else 0.0
+            xk, yk, ak = km(ex), km(ey), km(ealt)
+
+            gx, gy = self._iso(xk, yk, 0)
+            px, py = self._iso(xk, yk, ak)
+
+            if ak > 0.5 and show_alt_lines:
+                ax.plot([gx, px], [gy, py],
+                        color='#ff6b6b', lw=0.9, alpha=0.40, zorder=5)
+                ax.scatter([gx], [gy], s=10, c='#ff4444',
+                           marker='o', alpha=0.22, zorder=5, edgecolors='none')
+
+            if ak < -0.02:
+                key = 'sub'
+            elif ak > 0.5:
+                key = 'aircraft'
+            else:
+                key = 'ship'
+            mk, sz, col, zo = self._ENT_CFG[key]
+            ec = '#ff0000' if not ealive else 'none'
+            lw = 2.0   if not ealive else 0
+            ax.scatter([px], [py], s=sz, c=col, marker=mk,
+                       edgecolors=ec, linewidths=lw, zorder=zo)
+            if show_labels and ealive:
+                ax.text(px + R * 0.02, py + R * 0.015, epname[:10],
+                        color='#ffaaaa', fontsize=7,
+                        ha='left', va='bottom', zorder=12)
+
+        # ── 아군 함정 ─────────────────────────────────────────────────────
+        for sname, sx_, sy_, salive, shp in frame.friendly_ships:
+            xk, yk = km(sx_), km(sy_)
+            px, py = self._iso(xk, yk, 0)
+            mk, sz, col, zo = self._ENT_CFG['friendly']
+            ec = '#ff0000' if not salive else 'none'
+            lw = 2.5   if not salive else 0
+            ax.scatter([px], [py], s=sz, c=col, marker=mk,
+                       edgecolors=ec, linewidths=lw, zorder=zo)
+            if show_labels:
+                ax.text(px + R * 0.02, py + R * 0.015, sname[:9],
+                        color='#aaffcc', fontsize=7,
+                        ha='left', va='bottom', zorder=12)
+
+        # ── 미사일 ────────────────────────────────────────────────────────
+        for item in frame.missiles:
+            muid, mx_, my_, mtype, mname = item[:5]
+            malt = item[5] if len(item) > 5 else 0.0
+            xk, yk, ak = km(mx_), km(my_), km(malt)
+
+            gx, gy = self._iso(xk, yk, 0)
+            px, py = self._iso(xk, yk, ak)
+
+            if mtype == 'enemy_strike':
+                key = 'em_bm' if malt > 5000 else 'em_cm'
+            elif mtype == 'friendly_sam':
+                key = 'sam'
+            elif mtype == 'friendly_strike':
+                key = 'fstk'
+            elif mtype == 'enemy_sam':
+                key = 'esam'
+            else:
+                continue
+
+            mk, sz, col, zo = self._ENT_CFG[key]
+            if ak > 0.5 and show_alt_lines:
+                ax.plot([gx, px], [gy, py],
+                        color=col, lw=0.7, alpha=0.38, zorder=6)
+            ax.scatter([px], [py], s=sz, c=col, marker=mk,
+                       edgecolors='none', zorder=zo)
+            # 미사일 이름 표시
+            if show_labels and mname:
+                short = mname[:8]
+                lbl_col = '#aaffaa' if mtype == 'friendly_sam' else \
+                          '#aaaaff' if mtype == 'friendly_strike' else '#ffaaaa'
+                ax.text(px + R * 0.015, py + R * 0.01, short,
+                        color=lbl_col, fontsize=6,
+                        ha='left', va='bottom', zorder=12)
+
+        # ── 타이틀 ────────────────────────────────────────────────────────
+        ylim_top = ax.get_ylim()[1]
+        ax.text(0, ylim_top * 0.975,
+                f"전장 상황   t = {frame.t:.0f}s",
+                color='#dde8ff', fontsize=11, fontweight='bold',
+                ha='center', va='top', zorder=15)
+
+        # ── 범례 ─────────────────────────────────────────────────────────
+        legend_items = [
+            ('▲ 아군 함정',  '#2ecc71'),
+            ('★ 적 항공기',  '#ff6b6b'),
+            ('■ 적 수상함',  '#ff8c8c'),
+            ('◆ 적 잠수함',  '#e74c3c'),
+            ('▲ 아군 SAM',   '#55ff99'),
+            ('● 적 미사일',  '#ff2222'),
+            ('▲ 적 탄도탄',  '#ff4444'),
         ]
-        ax.legend(handles=legend, loc='upper right', fontsize=7,
-                  facecolor='#0a0e1a', labelcolor='white',
-                  edgecolor='#1e2a3a')
+        lx_leg = cx * 0.90
+        ly_leg = ylim_top * 0.95
+        row_h  = (ylim_top - ax.get_ylim()[0]) * 0.055
+        for i, (lbl, col) in enumerate(legend_items):
+            ax.text(lx_leg, ly_leg - i * row_h,
+                    lbl, color=col, fontsize=7,
+                    ha='center', va='top', zorder=15)
 
         self.canvas.draw()
 
@@ -396,6 +677,19 @@ class SysMonitorTab(QWidget):
         self._timer.start(1000)
         self._cpu_hist  = [0.0] * 60
         self._ram_hist  = [0.0] * 60
+        self._sim_ranges = []   # [(start_idx, end_idx)] 시뮬 구간
+        self._sim_start_idx = None
+
+    def mark_sim_start(self):
+        self._sim_start_idx = len(self._cpu_hist) - 1
+
+    def mark_sim_end(self):
+        if self._sim_start_idx is not None:
+            end = len(self._cpu_hist) - 1
+            self._sim_ranges.append((self._sim_start_idx, end))
+            self._sim_start_idx = None
+            # 최근 3구간만 유지
+            self._sim_ranges = self._sim_ranges[-3:]
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -458,6 +752,13 @@ class SysMonitorTab(QWidget):
         ax.grid(color='#1e2a3a', linewidth=0.5)
         ax.plot(self._cpu_hist, color=C_ACCENT, lw=1.5, label='CPU')
         ax.plot(self._ram_hist, color=C_ORANGE, lw=1.5, label='RAM')
+        # 시뮬 실행 구간 하이라이트
+        for s, e in self._sim_ranges:
+            ax.axvspan(s, min(e, 59), color='#f1c40f', alpha=0.12, zorder=0)
+        if self._sim_start_idx is not None:
+            ax.axvspan(self._sim_start_idx, 59,
+                       color='#f1c40f', alpha=0.18, zorder=0,
+                       label='시뮬 실행 중')
         ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white',
                   edgecolor='#1e2a3a')
         self.canvas.draw()
@@ -507,6 +808,29 @@ class MainWindow(QMainWindow):
         self.status.addWidget(self._lbl_status)
         self.status.addPermanentWidget(self._prog)
 
+        # 단축키
+        QShortcut(QKeySequence(Qt.Key.Key_Space), self,
+                  activated=self._shortcut_play_pause)
+        QShortcut(QKeySequence(Qt.Key.Key_Left), self,
+                  activated=self._shortcut_prev_frame)
+        QShortcut(QKeySequence(Qt.Key.Key_Right), self,
+                  activated=self._shortcut_next_frame)
+
+    def _shortcut_play_pause(self):
+        if hasattr(self, 'tab_anim'):
+            self.tab_anim._toggle_play()
+
+    def _shortcut_prev_frame(self):
+        if hasattr(self, 'tab_anim'):
+            v = self.tab_anim.slider.value()
+            self.tab_anim.slider.setValue(max(0, v - 1))
+
+    def _shortcut_next_frame(self):
+        if hasattr(self, 'tab_anim'):
+            v = self.tab_anim.slider.value()
+            self.tab_anim.slider.setValue(
+                min(self.tab_anim.slider.maximum(), v + 1))
+
     def _build_config_panel(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -554,61 +878,6 @@ class MainWindow(QMainWindow):
         fl.addRow("탐지 정보",   self.lbl_detect_info)
         layout.addWidget(grp_f)
 
-        # ── 공격 무기 재고 ────────────────────────────────────────────────
-        grp_w = QGroupBox("🚀 공격 무기 재고")
-        wg = QGridLayout(grp_w)
-        wg.setSpacing(4); wg.setContentsMargins(8, 14, 8, 6)
-
-        self.spn_hs2 = NoScrollSpinBox(); self.spn_hs2.setRange(0, 30); self.spn_hs2.setValue(8)
-        self.spn_hs1 = NoScrollSpinBox(); self.spn_hs1.setRange(0, 30); self.spn_hs1.setValue(0)
-        self.spn_hp  = NoScrollSpinBox(); self.spn_hp.setRange(0, 30);  self.spn_hp.setValue(4)
-        self.spn_hs2.setToolTip("해성-II 함대함 미사일\n사거리: 1,500km+ | 속도: 마하 0.9\n장거리 수상함 타격 전용 — 이지스함 VLS 탑재")
-        self.spn_hs1.setToolTip("해성-I 함대함 미사일\n사거리: 180km | 속도: 마하 0.9\n단·중거리 수상함 타격")
-        self.spn_hp.setToolTip("AGM-84L 하푼 Block II\n사거리: 280km | 속도: 마하 0.9\n미국제 함대함 미사일")
-
-        _hs2_lbl = QLabel("해성-II");  _hs2_lbl.setToolTip(self.spn_hs2.toolTip())
-        _hs1_lbl = QLabel("해성-I");   _hs1_lbl.setToolTip(self.spn_hs1.toolTip())
-        _hp_lbl  = QLabel("하푼 B.II");_hp_lbl.setToolTip(self.spn_hp.toolTip())
-        wg.addWidget(_hs2_lbl,  0, 0); wg.addWidget(self.spn_hs2, 0, 1)
-        wg.addWidget(_hs1_lbl,  0, 2); wg.addWidget(self.spn_hs1, 0, 3)
-        wg.addWidget(_hp_lbl,   1, 0); wg.addWidget(self.spn_hp,  1, 1)
-        wg.setColumnStretch(0, 2); wg.setColumnStretch(1, 1)
-        wg.setColumnStretch(2, 2); wg.setColumnStretch(3, 1)
-        layout.addWidget(grp_w)
-
-        # ── 방어 무기 재고 (포팅 A) ───────────────────────────────────────
-        grp_d = QGroupBox("🛡️ 방어 무기 재고")
-        dg = QGridLayout(grp_d)
-        dg.setSpacing(4); dg.setContentsMargins(8, 14, 8, 6)
-
-        def _spn(lo, hi, val):
-            s = NoScrollSpinBox(); s.setRange(lo, hi); s.setValue(val)
-            return s
-
-        self.spn_sm3   = _spn(0, 60, 24);  self.spn_sm6  = _spn(0, 60, 16)
-        self.spn_sm2   = _spn(0, 90, 32);  self.spn_ram  = _spn(0, 30, 21)
-        self.spn_hong  = _spn(0, 20, 3);   self.spn_chng = _spn(0, 20, 4)
-        self.spn_mk46  = _spn(0, 30, 6);   self.spn_dcoy = _spn(0, 20, 4)
-
-        _tips = {
-            self.spn_sm3:  ("SM-3 IIA",  "RIM-161 SM-3 Block IIA\n사거리: 2,500km | 요격 고도: 500km+\nBMD 전용 — 탄도미사일·극초음속체 요격"),
-            self.spn_sm6:  ("SM-6",      "RIM-174 SM-6\n사거리: 370km | 다목적 미사일\n대공·탄도·순항미사일·대함 요격 가능"),
-            self.spn_sm2:  ("SM-2 IIIB", "RIM-66 SM-2 Block IIIB\n사거리: 167km | 주력 대공\n중·고고도 항공기·순항미사일 요격"),
-            self.spn_ram:  ("RAM-116",   "RIM-116 RAM (Rolling Airframe Missile)\n사거리: 9km | 최후방어선\nCIWS 보완 근거리 대공 — 포화공격 대응"),
-            self.spn_hong: ("홍상어",    "홍상어 경어뢰 (K745)\n사거리: 19km | 수상함 투하\n한국형 중경어뢰 — 수상함 대잠 전용"),
-            self.spn_chng: ("청상어",    "청상어 경어뢰 (K-745LW)\n사거리: 19km | 항공기·수상함 투하\n한국형 경어뢰 — 헬기·함정 공용"),
-            self.spn_mk46: ("Mk.46",     "Mk.46 Mod 5 경어뢰\n사거리: 11km | 항공기 투하\n미국제 경어뢰 — P-3C·P-8A 탑재"),
-            self.spn_dcoy: ("기만기",    "AN/SLQ-25 Nixie 음향 기만기\n어뢰 유도 신호 교란\n탐지된 어뢰에 대해 60% 기만 효과"),
-        }
-        for i, (spn, (lbl_txt, tip)) in enumerate(_tips.items()):
-            r, c = divmod(i, 2)
-            spn.setToolTip(tip)
-            lbl_w = QLabel(lbl_txt); lbl_w.setToolTip(tip)
-            dg.addWidget(lbl_w, r, c*2)
-            dg.addWidget(spn,   r, c*2+1)
-        dg.setColumnStretch(0, 2); dg.setColumnStretch(1, 1)
-        dg.setColumnStretch(2, 2); dg.setColumnStretch(3, 1)
-        layout.addWidget(grp_d)
 
         # ── 적군 편대 (포팅 A) ────────────────────────────────────────────
         grp_e = QGroupBox("🔴 적군 편대")
@@ -620,7 +889,7 @@ class MainWindow(QMainWindow):
         mode_rl.setContentsMargins(0, 0, 0, 0)
         mode_rl.addWidget(QLabel("모드:"))
         self.cmb_enemy_mode = NoScrollComboBox()
-        self.cmb_enemy_mode.addItems(['커스텀', '프리셋', '랜덤'])
+        self.cmb_enemy_mode.addItems(['프리셋', '랜덤'])
         mode_rl.addWidget(self.cmb_enemy_mode, stretch=1)
         el.addWidget(mode_row)
 
@@ -649,36 +918,9 @@ class MainWindow(QMainWindow):
         rand_rl.addWidget(self.spn_seed, stretch=1)
         el.addWidget(self._rand_row)
 
-        # 커스텀 5행
-        self._enemy_rows = []
-        self._enemy_row_widgets = []
-        for i in range(5):
-            row_w = QWidget(); row_l = QHBoxLayout(row_w)
-            row_l.setContentsMargins(0, 0, 0, 0); row_l.setSpacing(4)
-            cmb = NoScrollComboBox()
-            if _V7_OK: cmb.addItems(list(V7_ENEMY_DB.keys()))
-            cmb.currentTextChanged.connect(lambda name, c=cmb: self._update_enemy_row_tooltip(c, name))
-            spn = NoScrollSpinBox(); spn.setRange(0, 8); spn.setValue(1 if i < 3 else 0)
-            row_l.addWidget(cmb, stretch=3); row_l.addWidget(spn, stretch=1)
-            el.addWidget(row_w)
-            self._enemy_rows.append((cmb, spn))
-            self._enemy_row_widgets.append(row_w)
-
-        if _V7_OK:
-            defaults = ['055형 대형 구축함', 'J-20 (위룡)',
-                        'DF-21D (대함 탄도)', '052D형 구축함',
-                        '095형 잠수함 (차세대 SSN)']
-            keys = list(V7_ENEMY_DB.keys())
-            for i, name in enumerate(defaults):
-                if name in keys:
-                    self._enemy_rows[i][0].setCurrentText(name)
-
         self.cmb_enemy_mode.currentIndexChanged.connect(self._on_enemy_mode_changed)
-        self._on_enemy_mode_changed(0)  # 초기 상태 적용
-        # 초기 툴팁 세팅
+        self._on_enemy_mode_changed(0)  # 초기 상태 적용 (기본: 프리셋)
         if _V7_OK:
-            for cmb, _ in self._enemy_rows:
-                self._update_enemy_row_tooltip(cmb, cmb.currentText())
             if self.cmb_fleet_preset_e.count():
                 self._update_enemy_preset_detail(self.cmb_fleet_preset_e.currentText())
             if self.cmb_difficulty.count():
@@ -699,6 +941,7 @@ class MainWindow(QMainWindow):
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
             tl.addWidget(chk)
 
+        grp_t.hide()
         layout.addWidget(grp_t)
 
         # ── 항공 자산 (포팅 C) ────────────────────────────────────────────
@@ -715,6 +958,7 @@ class MainWindow(QMainWindow):
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
             acl.addWidget(chk)
 
+        grp_ac.hide()
         layout.addWidget(grp_ac)
 
         # ── 방어 전술 옵션 ─────────────────────────────────────────────────
@@ -761,16 +1005,17 @@ class MainWindow(QMainWindow):
         seed_row.addWidget(self.spn_sim_seed)
         defl.addLayout(seed_row)
 
+        grp_def.hide()
         layout.addWidget(grp_def)
 
         # ── C&D 시간 설정 ──────────────────────────────────────────────────
-        grp_cd = QGroupBox("⏱️ C&D 시간 설정")
+        grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
         cdl = QVBoxLayout(grp_cd)
         cdl.setSpacing(6)
 
         # cd_time_s
         cd_row1 = QHBoxLayout()
-        lbl_cd_name = QLabel("C&D 시간 (초)")
+        lbl_cd_name = QLabel("C&&D 시간 (초)")
         lbl_cd_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
         self.lbl_cd_val = QLabel("10s")
         self.lbl_cd_val.setStyleSheet(f"color:{C_ACCENT}; font-size:11px; font-weight:bold;")
@@ -819,8 +1064,8 @@ class MainWindow(QMainWindow):
         grp_mc = QGroupBox("📊 몬테카를로")
         mcl = QFormLayout(grp_mc)
         self.spn_mc_n = NoScrollSpinBox()
-        self.spn_mc_n.setRange(50, 2000)
-        self.spn_mc_n.setValue(200)
+        self.spn_mc_n.setRange(50, 5000)
+        self.spn_mc_n.setValue(1000)
         self.spn_mc_n.setSingleStep(50)
         mcl.addRow("반복 횟수", self.spn_mc_n)
         layout.addWidget(grp_mc)
@@ -921,12 +1166,6 @@ class MainWindow(QMainWindow):
         self.tab_log = self._build_log_tab()
         self.tabs.addTab(self.tab_log,       "📜  교전 로그")
 
-        self.tab_tactical = MplCanvas(figsize=(12, 6))
-        self.tabs.addTab(self.tab_tactical,  "📐  전술교전도")
-
-        self.tab_topdown = MplCanvas(figsize=(12, 7))
-        self.tabs.addTab(self.tab_topdown,   "🌐  Top-down 교전도")
-
         self.tab_channel = MplCanvas(figsize=(12, 5))
         self.tabs.addTab(self.tab_channel,   "📡  채널 포화도")
 
@@ -964,7 +1203,7 @@ class MainWindow(QMainWindow):
         btn_row = QWidget()
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        self.btn_weather_run = QPushButton("🌤️  날씨별 비교 실행 (각 200회 MC)")
+        self.btn_weather_run = QPushButton("🌤️  날씨별 비교 실행 (각 1000회 MC)")
         self.btn_weather_run.setFixedHeight(36)
         self.btn_weather_run.clicked.connect(self._run_weather_compare)
         btn_layout.addWidget(self.btn_weather_run)
@@ -1140,8 +1379,6 @@ class MainWindow(QMainWindow):
         self.cmb_fleet_preset_e.setVisible(is_preset)
         self.lbl_enemy_preset_detail.setVisible(is_preset)
         self._rand_row.setVisible(mode == '랜덤')
-        for w in self._enemy_row_widgets:
-            w.setVisible(mode == '커스텀')
         if is_preset and self.cmb_fleet_preset_e.count():
             self._update_enemy_preset_detail(self.cmb_fleet_preset_e.currentText())
 
@@ -1153,56 +1390,32 @@ class MainWindow(QMainWindow):
     def _run_sim(self):
         # 적군 모드 및 편대 구성 (포팅 A)
         mode_label = self.cmb_enemy_mode.currentText()
-        mode_map   = {'커스텀': 'custom', '프리셋': 'preset', '랜덤': 'random'}
-        enemy_mode = mode_map.get(mode_label, 'custom')
-
-        enemy_fleet = []
-        if enemy_mode == 'custom':
-            for cmb, spn in self._enemy_rows:
-                cnt = spn.value()
-                if cnt > 0 and _V7_OK and cmb.currentText() in V7_ENEMY_DB:
-                    enemy_fleet.append({'preset': cmb.currentText(), 'count': cnt})
-            if not enemy_fleet:
-                QMessageBox.warning(self, "설정 오류", "커스텀 모드에서 수량을 1 이상 설정하세요.")
-                return
+        mode_map   = {'프리셋': 'preset', '랜덤': 'random'}
+        enemy_mode = mode_map.get(mode_label, 'preset')
 
         cfg = {
             # 아군 편대 (탐지거리는 엔진이 함대+날씨로 자동 계산)
             'fleet_preset':      self.cmb_fleet.currentText(),
             'weather':           self.cmb_weather.currentText(),
             'detect_km_manual':  False,
-            # 공격 무기
-            'haesong2_stock': self.spn_hs2.value(),
-            'haesong1_stock': self.spn_hs1.value(),
-            'harpoon_stock':  self.spn_hp.value(),
-            # 방어 무기 (포팅 A)
-            'sm3_stock':          self.spn_sm3.value(),
-            'sm6_stock':          self.spn_sm6.value(),
-            'sm2_stock':          self.spn_sm2.value(),
-            'ram_stock':          self.spn_ram.value(),
-            'hongsango_stock':    self.spn_hong.value(),
-            'cheongsango_stock':  self.spn_chng.value(),
-            'mk46_stock':         self.spn_mk46.value(),
-            'decoy_stock':        self.spn_dcoy.value(),
             # 적군 (포팅 A)
             'enemy_fleet_mode':       enemy_mode,
-            'enemy_fleet':            enemy_fleet,
             'enemy_fleet_preset':     self.cmb_fleet_preset_e.currentText(),
             'enemy_fleet_difficulty': self.cmb_difficulty.currentText(),
             'enemy_fleet_seed':       self.spn_seed.value() or None,
-            # 전술 옵션 (포팅 B)
-            'enable_ecm':         self.chk_ecm.isChecked(),
-            'enable_evasion':     self.chk_eva.isChecked(),
-            'enable_decoy':       self.chk_dcoy.isChecked(),
-            'enable_selfdefense': self.chk_sd.isChecked(),
-            # 항공 자산 (포팅 C)
-            'enable_helo': self.chk_helo.isChecked(),
-            'enable_p3c':  self.chk_p3c.isChecked(),
-            'enable_p8a':  self.chk_p8a.isChecked(),
-            # 방어 전술 (다층 방어 / CEC / 다방위)
-            'enable_layered_defense': self.chk_layered.isChecked(),
-            'enable_cec_preassign':   self.chk_cec.isChecked(),
-            'enable_multibearing':    self.chk_multibearing.isChecked(),
+            # 전술 옵션 — 항상 ON
+            'enable_ecm':         True,
+            'enable_evasion':     True,
+            'enable_decoy':       True,
+            'enable_selfdefense': True,
+            # 항공 자산 — 항상 ON
+            'enable_helo': True,
+            'enable_p3c':  True,
+            'enable_p8a':  True,
+            # 방어 전술 — 항상 ON
+            'enable_layered_defense': True,
+            'enable_cec_preassign':   True,
+            'enable_multibearing':    True,
             'sim_seed':               self.spn_sim_seed.value() or None,
             # C&D 시간
             'cd_time_s':      self.sld_cd.value(),
@@ -1217,12 +1430,19 @@ class MainWindow(QMainWindow):
 
         self._worker = SimWorker(cfg, mc_n)
         self._worker.progress.connect(self._on_progress)
+        self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
+        self._worker.sim_started.connect(self.tab_sysmon.mark_sim_start)
+        self._worker.sim_ended.connect(self.tab_sysmon.mark_sim_end)
         self._worker.start()
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
+
+    def _on_progress_detail(self, done: int, total: int, eta: float):
+        eta_str = f" | 잔여 {eta:.0f}s" if eta > 0 else ""
+        self._lbl_status.setText(f"MC {done}/{total}{eta_str}")
 
     def _on_finished(self, result: dict, mc: dict):
         elapsed = time.time() - self._t0
@@ -1242,8 +1462,6 @@ class MainWindow(QMainWindow):
                             self._worker.cfg if self._worker else {})
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
-        self._draw_tactical(result)
-        self._draw_topdown(result)
         self._draw_channel_heatmap(result)
 
         self.tabs.setCurrentIndex(0)
@@ -1279,11 +1497,11 @@ class MainWindow(QMainWindow):
         self.btn_weather_run.setText("실행 중...")
         QApplication.processEvents()
         try:
-            sc = scenario_comparison_v7(cfg, n=200)
+            sc = scenario_comparison_v7(cfg, n=1000)
         except Exception as e:
             QMessageBox.critical(self, "오류", str(e))
             self.btn_weather_run.setEnabled(True)
-            self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 200회 MC)")
+            self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
             return
         self.weather_table.setRowCount(0)
         for label, res in sc.items():
@@ -1301,7 +1519,7 @@ class MainWindow(QMainWindow):
                         QColor('#2ecc71' if res['mean_intercept'] >= 0.9 else '#e74c3c'))
                 self.weather_table.setItem(row, col, item)
         self.btn_weather_run.setEnabled(True)
-        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 200회 MC)")
+        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
         self.tabs.setCurrentWidget(self.tab_weather)
 
     def _run_ab_compare(self):
@@ -1467,12 +1685,12 @@ class MainWindow(QMainWindow):
         missile_tracks = {}
         for frame in frames:
             t = frame.t
-            for uid, epname, ex, ey, ealive, ehp in frame.enemy_ships:
+            for uid, epname, ex, ey, ealive, ehp, *_ in frame.enemy_ships:
                 dist = ((ex - px0)**2 + (ey - py0)**2)**0.5 / 1000
                 if uid not in enemy_tracks:
                     enemy_tracks[uid] = {'name': epname, 'pts': []}
                 enemy_tracks[uid]['pts'].append((t, dist))
-            for uid, mx, my, mtype, mname in frame.missiles:
+            for uid, mx, my, mtype, mname, *_ in frame.missiles:
                 dist = ((mx - px0)**2 + (my - py0)**2)**0.5 / 1000
                 if uid not in missile_tracks:
                     missile_tracks[uid] = {'mtype': mtype, 'pts': []}
@@ -1534,7 +1752,7 @@ class MainWindow(QMainWindow):
 
         traj = {}
         for frame in frames:
-            for uid, mx, my, mtype, mname in frame.missiles:
+            for uid, mx, my, mtype, mname, *_ in frame.missiles:
                 if uid not in traj:
                     traj[uid] = {'mtype': mtype, 'xs': [], 'ys': []}
                 traj[uid]['xs'].append(mx)
