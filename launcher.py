@@ -540,7 +540,9 @@ class AnimationTab(QWidget):
         self._cur_idx = 0
         self._zoom = 1.0
         self._kill_frames = []
-        self._play_interval = 80
+        self._play_interval = 150   # 80ms → 150ms (matplotlib 렌더 여유 확보)
+        self._rendering = False     # 렌더링 중복 방지 lock
+        self._pending_idx = None    # 건너뛴 프레임 추적
         self._build_ui()
 
     # ── 등각투영 좌표 변환 ────────────────────────────────────────────────
@@ -775,6 +777,13 @@ class AnimationTab(QWidget):
 
     # ── 핵심: 프레임 렌더링 ──────────────────────────────────────────────
     def _draw_frame(self, idx: int):
+        if self._rendering:
+            # 렌더링 중이면 인덱스만 기억하고 즉시 반환
+            self._pending_idx = idx
+            self._cur_idx = idx
+            self.lbl_time.setText(f"t = {self.frames[idx].t:.0f}s" if idx < len(self.frames) else "")
+            return
+        self._rendering = True
         self._cur_idx = idx
         frame = self.frames[idx]
         self.lbl_time.setText(f"t = {frame.t:.0f}s")
@@ -911,6 +920,13 @@ class AnimationTab(QWidget):
 
         events_text = '  |  '.join(frame.events[:4]) if frame.events else ''
         self.lbl_events.setText(events_text)
+
+        self._rendering = False
+        # 건너뛴 pending 프레임이 있으면 다음 이벤트 루프에서 처리
+        if self._pending_idx is not None and self._pending_idx != self._cur_idx:
+            pending = self._pending_idx
+            self._pending_idx = None
+            QTimer.singleShot(0, lambda: self._draw_frame(pending))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1388,10 +1404,11 @@ class MainWindow(QMainWindow):
         btn_prof_load = QPushButton("불러오기")
         btn_prof_del  = QPushButton("삭제")
         for b in [btn_prof_save, btn_prof_load, btn_prof_del]:
-            b.setFixedHeight(26)
+            b.setFixedHeight(32)
             b.setMinimumWidth(90)
+            b.setFont(QFont('Malgun Gothic', 14))
             b.setStyleSheet(
-                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
+                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a;")
             prof_btn_row.addWidget(b)
         btn_prof_save.clicked.connect(self._save_profile)
         btn_prof_load.clicked.connect(self._load_profile)
@@ -1408,9 +1425,10 @@ class MainWindow(QMainWindow):
         btn_save = QPushButton("저장")
         btn_load = QPushButton("불러오기")
         for b in [btn_save, btn_load]:
-            b.setFixedHeight(28)
+            b.setFixedHeight(32)
             b.setMinimumWidth(90)
-            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
+            b.setFont(QFont('Malgun Gothic', 14))
+            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a;")
             scl.addWidget(b)
         btn_save.clicked.connect(self._save_scenario)
         btn_load.clicked.connect(self._load_scenario)
@@ -1419,6 +1437,7 @@ class MainWindow(QMainWindow):
         # ── 실행 버튼 ─────────────────────────────────────────────────────
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
         self.btn_run.setFixedHeight(44)
+        self.btn_run.setFont(QFont('Malgun Gothic', 15))
         self.btn_run.clicked.connect(self._run_sim)
         layout.addWidget(self.btn_run)
 
