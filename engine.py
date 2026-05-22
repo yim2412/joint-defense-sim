@@ -471,6 +471,23 @@ ENEMY_DB = {
         'cost_usd':0,
         'missile_terminal_evasion':0.78},
 
+    # ════ 수중 무인 드론 (UUAV) ══════════════════════════════════════════════
+    '수중 자폭 드론 (UUAV)': {
+        'type':'잠수함','category':'대잠','altitude_m':-30,
+        'speed_ms':8,         # ~15노트 수중
+        'range_km':150,
+        'rcs_m2':0.003,       # 소나 반사면적 (RCS 대신 소나 단면적으로 근사)
+        'cost_usd':50000,
+        'missile_salvo_min':1,'missile_salvo_max':1,
+        'can_fire_missile':True,
+        'missile_name':'UUAV 자폭',
+        'missile_speed_ms':8,
+        'missile_range_km':5,   # 5km 이내 접근 시 자폭
+        'missile_terminal_evasion':0.70,
+        'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+        'pk_base_override':0.75,  # 수중 자폭 — 어뢰 회피 더 어려움
+    },
+
     # ════ 드론 떼 ════════════════════════════════════════════════════════════
     '소형 자폭 드론 (UAV)': {
         'type':'전투기','category':'대공','altitude_m':200,
@@ -846,6 +863,11 @@ ENEMY_FLEET_PRESETS = {
     # 드론 떼 포화 — CIWS/RAM 전용 위협
     '드론 떼 포화': [
         {'preset': '소형 자폭 드론 (UAV)', 'count': 20},
+    ],
+    # 수중 드론 혼합 — 대잠 전력 압박
+    '수중 드론 포화': [
+        {'preset': '수중 자폭 드론 (UUAV)', 'count': 6},
+        {'preset': '039형 잠수함 (송급)',   'count': 2},
     ],
 }
 
