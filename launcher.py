@@ -776,6 +776,7 @@ class MainWindow(QMainWindow):
         self._result = None
         self._mc     = None
         self._t0     = 0.0
+        self._history: list = []  # 이전 실행 결과 히스토리 (최대 5개)
 
         self._build_ui()
         self._apply_style()
@@ -1277,6 +1278,12 @@ class MainWindow(QMainWindow):
         self.tab_threat_type = MplCanvas(figsize=(12, 5))
         self.tabs.addTab(self.tab_threat_type, "📊  위협 유형별")
 
+        self.tab_vuln_time = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_vuln_time, "⏰  취약 시간대")
+
+        self.tab_history = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_history, "🔄  이전 비교")
+
         return panel
 
     def _build_req_tab(self) -> QWidget:
@@ -1584,10 +1591,22 @@ class MainWindow(QMainWindow):
         self._draw_bearing_vulnerability(result)
         self._draw_req_radar(result, mc)
         self._draw_threat_type(result, mc)
+        self._draw_vuln_time(result)
+        self._draw_history_compare(result, mc)
         # 감도 분석은 백그라운드 MC가 필요하므로 현재 cfg 저장 후 별도 실행
         cfg = self._worker.cfg if self._worker else {}
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
         QTimer.singleShot(500, lambda: self._draw_sensitivity(cfg, mc_n))
+
+        # 히스토리 저장 (최대 5개)
+        self._history.append({
+            'mean_intercept': mc['mean_intercept'],
+            'full_pass_rate': mc.get('full_pass_rate', 0),
+            'mean_cost':      mc.get('mean_cost', result.get('total_cost', 0)),
+            'label': f"#{len(self._history)+1}  {cfg.get('weather','?')} / {cfg.get('enemy_fleet_preset', cfg.get('enemy_fleet_mode','?'))}",
+        })
+        if len(self._history) > 5:
+            self._history.pop(0)
 
         self.tabs.setCurrentIndex(1)  # MC 통계 탭으로 자동 전환
 
@@ -2518,6 +2537,105 @@ class MainWindow(QMainWindow):
                   edgecolor='#1e2a3a')
         fig.tight_layout()
         self.tab_threat_type.draw()
+
+    def _draw_vuln_time(self, result: dict):
+        """취약 시간대 분석 — 10초 구간별 피격·요격 빈도 히스토그램."""
+        fig = self.tab_vuln_time.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        log = result.get('log', [])
+        hit_times  = [t for t, msg in log if '[피격]' in msg]
+        kill_times = [t for t, msg in log if '[요격]' in msg or '[격추]' in msg]
+        max_t = max((result.get('sim_time', 300),
+                     max(hit_times or [0]),
+                     max(kill_times or [0]))) + 10
+        bins = np.arange(0, max_t + 10, 10)
+
+        if kill_times:
+            ax.hist(kill_times, bins=bins, color='#2ecc71', alpha=0.7,
+                    label='요격/격추', edgecolor='#0a0e1a')
+        if hit_times:
+            ax.hist(hit_times, bins=bins, color='#e74c3c', alpha=0.7,
+                    label='피격', edgecolor='#0a0e1a')
+
+        if hit_times:
+            # 가장 많이 뚫리는 시간대 강조
+            h, b = np.histogram(hit_times, bins=bins)
+            peak_start = b[np.argmax(h)]
+            ax.axvspan(peak_start, peak_start + 10, alpha=0.25, color='#e74c3c',
+                       label=f'최다 피격 구간 ({peak_start:.0f}~{peak_start+10:.0f}s)')
+
+        ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
+        ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=9)
+        ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=11)
+        ax.tick_params(colors=C_SUBTEXT)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a')
+        ax.grid(axis='y', color='#1e2a3a', lw=0.5)
+        fig.tight_layout()
+        self.tab_vuln_time.draw()
+
+    def _draw_history_compare(self, result: dict, mc: dict):
+        """이전 실행 결과와 자동 비교 — 히스토리 최대 5개 비교 막대."""
+        fig = self.tab_history.fig
+        fig.clear()
+
+        history = self._history  # 현재 실행 결과는 이 메서드 호출 전에 추가됨
+        if not history:
+            ax = fig.add_subplot(111)
+            ax.set_facecolor('#0a0e1a')
+            fig.patch.set_facecolor('#0a0e1a')
+            ax.text(0.5, 0.5, '이전 실행 결과 없음\n(2회 이상 실행 후 비교 표시)',
+                    ha='center', va='center', color=C_SUBTEXT, fontsize=11,
+                    transform=ax.transAxes)
+            fig.patch.set_facecolor('#0a0e1a')
+            self.tab_history.draw()
+            return
+
+        axes = fig.subplots(1, 3, facecolor='#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+        metrics = [
+            ('요격률',        'mean_intercept',  True,  '%'),
+            ('완전 요격 비율','full_pass_rate',   True,  '%'),
+            ('평균 비용',     'mean_cost',        False, '$'),
+        ]
+        labels = [h['label'] for h in history]
+        cmap   = ['#3498db', '#2ecc71', '#f39c12', '#e74c3c', '#9b59b6']
+
+        for ax, (title, key, higher_better, unit) in zip(axes, metrics):
+            ax.set_facecolor('#0a0e1a')
+            vals  = [h.get(key, 0) for h in history]
+            cols  = [cmap[i % len(cmap)] for i in range(len(history))]
+            bars  = ax.bar(range(len(history)), vals, color=cols, alpha=0.85,
+                           edgecolor='#1e2a3a')
+            for bar, v in zip(bars, vals):
+                label = f"{v:.1%}" if unit == '%' else f"${v:,.0f}"
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + max(vals) * 0.02,
+                        label, ha='center', va='bottom',
+                        color=C_TEXT, fontsize=8)
+            ax.set_title(title, color=C_TEXT, fontsize=10)
+            ax.set_xticks(range(len(history)))
+            ax.set_xticklabels([f'#{i+1}' for i in range(len(history))],
+                               color=C_SUBTEXT, fontsize=8)
+            ax.tick_params(colors=C_SUBTEXT)
+            for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+            ax.yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda v, _: f"{v:.0%}" if unit == '%'
+                                  else f"${v/1e6:.1f}M"))
+
+        # 범례: run 번호 → label 매핑
+        fig.text(0.5, 0.01,
+                 '  |  '.join(f'#{i+1}: {h["label"]}' for i, h in enumerate(history)),
+                 ha='center', va='bottom', color=C_SUBTEXT, fontsize=7,
+                 wrap=True)
+        fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=11)
+        fig.tight_layout(rect=[0, 0.06, 1, 1])
+        self.tab_history.draw()
 
 
 # ════════════════════════════════════════════════════════════════════════════
