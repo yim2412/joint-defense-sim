@@ -102,7 +102,7 @@ QMainWindow, QWidget {{
     background-color: {C_BG};
     color: {C_TEXT};
     font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
-    font-size: 15px;
+    font-size: 17px;
 }}
 QGroupBox {{
     border: 1px solid {C_BORDER};
@@ -111,7 +111,7 @@ QGroupBox {{
     padding-top: 8px;
     font-weight: bold;
     color: {C_ACCENT};
-    font-size: 15px;
+    font-size: 17px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
@@ -122,25 +122,25 @@ QComboBox, QSpinBox {{
     background-color: {C_PANEL};
     border: 1px solid {C_BORDER};
     border-radius: 4px;
-    padding: 5px 10px;
+    padding: 6px 12px;
     color: {C_TEXT};
-    font-size: 15px;
+    font-size: 17px;
 }}
 QComboBox::drop-down {{ border: none; }}
 QComboBox QAbstractItemView {{
     background-color: {C_PANEL};
     color: {C_TEXT};
     selection-background-color: {C_ACCENT};
-    font-size: 15px;
+    font-size: 17px;
 }}
 QPushButton {{
     background-color: {C_ACCENT};
     color: white;
     border: none;
     border-radius: 6px;
-    padding: 9px 18px;
+    padding: 10px 20px;
     font-weight: bold;
-    font-size: 15px;
+    font-size: 17px;
 }}
 QPushButton:hover  {{ background-color: #2980b9; }}
 QPushButton:pressed {{ background-color: #1a6fa3; }}
@@ -153,9 +153,9 @@ QTabBar::tab {{
     background: {C_PANEL};
     color: {C_SUBTEXT};
     border: 1px solid {C_BORDER};
-    padding: 8px 18px;
+    padding: 9px 20px;
     margin-right: 2px;
-    font-size: 14px;
+    font-size: 16px;
 }}
 QTabBar::tab:selected {{
     background: {C_BG};
@@ -167,15 +167,15 @@ QTableWidget {{
     gridline-color: {C_BORDER};
     color: {C_TEXT};
     border: none;
-    font-size: 14px;
+    font-size: 16px;
 }}
 QTableWidget QHeaderView::section {{
     background-color: {C_BG};
     color: {C_ACCENT};
     border: 1px solid {C_BORDER};
-    padding: 5px;
+    padding: 6px;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 16px;
 }}
 QScrollBar:vertical {{
     background: {C_PANEL};
@@ -257,14 +257,14 @@ class FloatingMonitor(QWidget):
         # 제목 행
         title_row = QHBoxLayout()
         lbl_title = QLabel("⚙  시뮬레이션 실행 중…")
-        lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:14px; font-weight:bold;")
+        lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:16px; font-weight:bold;")
         title_row.addWidget(lbl_title)
         title_row.addStretch()
         inner.addLayout(title_row)
 
         # MC 진행률
         self._lbl_mc = QLabel("MC  0 / 0")
-        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
+        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
         self._prog_mc = QProgressBar()
         self._prog_mc.setRange(0, 100)
         self._prog_mc.setValue(0)
@@ -274,7 +274,7 @@ class FloatingMonitor(QWidget):
             QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}
         """)
         self._lbl_eta = QLabel("잔여 약 —초")
-        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         inner.addWidget(self._lbl_mc)
         inner.addWidget(self._prog_mc)
         inner.addWidget(self._lbl_eta)
@@ -317,7 +317,7 @@ class FloatingMonitor(QWidget):
         t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
         val = QLabel(init)
         val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        val.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold;")
+        val.setStyleSheet(f"color:{C_TEXT}; font-size:15px; font-weight:bold;")
         val.setObjectName(f'stat_{title}')
         v.addWidget(t)
         v.addWidget(val)
@@ -572,20 +572,20 @@ class AnimationTab(QWidget):
         opt_row = QHBoxLayout()
         self.chk_labels = QCheckBox("이름 표시")
         self.chk_labels.setChecked(True)
-        self.chk_labels.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+        self.chk_labels.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
         self.chk_labels.stateChanged.connect(lambda _: self._redraw_current())
 
         self.chk_altitude = QCheckBox("고도선 표시")
         self.chk_altitude.setChecked(True)
-        self.chk_altitude.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+        self.chk_altitude.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
         self.chk_altitude.stateChanged.connect(lambda _: self._redraw_current())
 
         _bs = (f"background:{C_PANEL}; color:{C_TEXT}; "
-               f"border:1px solid #3a5a7a; font-size:13px; padding:2px 7px;")
+               f"border:1px solid #3a5a7a; font-size:15px; padding:2px 7px;")
 
         # 재생 속도 버튼
         lbl_spd = QLabel("속도:")
-        lbl_spd.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_spd.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self._spd_btns = []
         for label, ms in [("0.5x", 160), ("1x", 80), ("2x", 40), ("4x", 20)]:
             b = QPushButton(label)
@@ -619,7 +619,7 @@ class AnimationTab(QWidget):
         ctrl = QHBoxLayout()
         self.lbl_time = QLabel("t = 0s")
         self.lbl_time.setStyleSheet(
-            f"color:{C_ACCENT}; font-weight:bold; font-size:14px;")
+            f"color:{C_ACCENT}; font-weight:bold; font-size:16px;")
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setMinimum(0); self.slider.setMaximum(0)
         self.slider.valueChanged.connect(self._on_slider)
@@ -637,7 +637,7 @@ class AnimationTab(QWidget):
         self.btn_next_kill.clicked.connect(self._next_kill)
 
         self.lbl_events = QLabel("")
-        self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.lbl_events.setWordWrap(True)
         ctrl.addWidget(self.btn_prev_kill)
         ctrl.addWidget(self.btn_next_kill)
@@ -1018,7 +1018,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.0")
-        self.resize(1600, 980)
+        self.resize(1800, 1060)
         self._worker = None
         self._result = None
         self._mc     = None
@@ -1095,7 +1095,7 @@ class MainWindow(QMainWindow):
         # 타이틀
         title = QLabel("⚓ 이지스 기동전단\n통합 방어 시뮬레이터")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFont(QFont('Malgun Gothic', 15, QFont.Weight.Bold))
+        title.setFont(QFont('Malgun Gothic', 17, QFont.Weight.Bold))
         title.setStyleSheet(f"color:{C_ACCENT}; padding: 8px 0;")
         layout.addWidget(title)
 
@@ -1110,13 +1110,13 @@ class MainWindow(QMainWindow):
         self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
         self.lbl_fleet_detail = QLabel()
         self.lbl_fleet_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
+            f"color:{C_SUBTEXT}; font-size:15px; padding:2px 0;")
         self.lbl_fleet_detail.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
 
         self.lbl_detect_info = QLabel()
         self.lbl_detect_info.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:13px; padding:2px 0;")
+            f"color:{C_ACCENT}; font-size:15px; padding:2px 0;")
         self.lbl_detect_info.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
@@ -1150,7 +1150,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_enemy_preset_detail = QLabel()
         self.lbl_enemy_preset_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
+            f"color:{C_SUBTEXT}; font-size:15px; padding:2px 0;")
         self.lbl_enemy_preset_detail.setWordWrap(True)
         el.addWidget(self.lbl_enemy_preset_detail)
 
@@ -1187,7 +1187,7 @@ class MainWindow(QMainWindow):
         self.chk_sd    = QCheckBox("적 자체방어 (CIWS + 채프/플레어)"); self.chk_sd.setChecked(True)
 
         for chk in [self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             tl.addWidget(chk)
 
         grp_t.hide()
@@ -1204,7 +1204,7 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_helo, self.chk_p3c, self.chk_p8a]:
             chk.setChecked(False)
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             acl.addWidget(chk)
 
         grp_ac.hide()
@@ -1255,7 +1255,7 @@ class MainWindow(QMainWindow):
         # 적 편대 전술 기동
         tactics_row = QHBoxLayout()
         lbl_tactics = QLabel("적 전술 기동:")
-        lbl_tactics.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_tactics.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.cmb_enemy_tactics = NoScrollComboBox()
         self.cmb_enemy_tactics.addItems(['없음', 'V자 대형', '포위 기동'])
         self.cmb_enemy_tactics.setToolTip(
@@ -1268,14 +1268,14 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
 
         # 시뮬 시드
         seed_row = QHBoxLayout()
         lbl_seed = QLabel("시뮬 시드  (0=랜덤)")
-        lbl_seed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_seed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.spn_sim_seed = NoScrollSpinBox()
         self.spn_sim_seed.setRange(0, 99999)
         self.spn_sim_seed.setValue(0)
@@ -1296,9 +1296,9 @@ class MainWindow(QMainWindow):
         # cd_time_s
         cd_row1 = QHBoxLayout()
         lbl_cd_name = QLabel("C&&D 시간 (초)")
-        lbl_cd_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_cd_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.lbl_cd_val = QLabel("10s")
-        self.lbl_cd_val.setStyleSheet(f"color:{C_ACCENT}; font-size:13px; font-weight:bold;")
+        self.lbl_cd_val.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
         self.lbl_cd_val.setFixedWidth(32)
         cd_row1.addWidget(lbl_cd_name)
         cd_row1.addStretch()
@@ -1319,9 +1319,9 @@ class MainWindow(QMainWindow):
         # confirm_time_s
         cd_row2 = QHBoxLayout()
         lbl_cf_name = QLabel("확인 시간 (초)")
-        lbl_cf_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_cf_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.lbl_cf_val = QLabel("3s")
-        self.lbl_cf_val.setStyleSheet(f"color:{C_ACCENT}; font-size:13px; font-weight:bold;")
+        self.lbl_cf_val.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
         self.lbl_cf_val.setFixedWidth(32)
         cd_row2.addWidget(lbl_cf_name)
         cd_row2.addStretch()
@@ -1358,7 +1358,7 @@ class MainWindow(QMainWindow):
         # 프로필 선택 콤보박스
         prof_sel_row = QHBoxLayout()
         lbl_prof = QLabel("프로필:")
-        lbl_prof.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_prof.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         lbl_prof.setFixedWidth(42)
         self.cmb_profile = NoScrollComboBox()
         self.cmb_profile.setMinimumWidth(120)
@@ -1369,13 +1369,13 @@ class MainWindow(QMainWindow):
         # 새 프로필 이름 입력
         prof_name_row = QHBoxLayout()
         lbl_pname = QLabel("이름:")
-        lbl_pname.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        lbl_pname.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         lbl_pname.setFixedWidth(42)
         self.edt_profile_name = QLineEdit()
         self.edt_profile_name.setPlaceholderText("새 프로필 이름 입력")
         self.edt_profile_name.setStyleSheet(
             f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; "
-            f"font-size:13px; padding:2px 4px;")
+            f"font-size:15px; padding:2px 4px;")
         prof_name_row.addWidget(lbl_pname)
         prof_name_row.addWidget(self.edt_profile_name, stretch=1)
         profl.addLayout(prof_name_row)
@@ -1389,7 +1389,7 @@ class MainWindow(QMainWindow):
         for b in [btn_prof_save, btn_prof_load, btn_prof_del]:
             b.setFixedHeight(26)
             b.setStyleSheet(
-                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:13px;")
+                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
             prof_btn_row.addWidget(b)
         btn_prof_save.clicked.connect(self._save_profile)
         btn_prof_load.clicked.connect(self._load_profile)
@@ -1407,7 +1407,7 @@ class MainWindow(QMainWindow):
         btn_load = QPushButton("불러오기")
         for b in [btn_save, btn_load]:
             b.setFixedHeight(28)
-            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:13px;")
+            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
             scl.addWidget(b)
         btn_save.clicked.connect(self._save_scenario)
         btn_load.clicked.connect(self._load_scenario)
@@ -1421,7 +1421,7 @@ class MainWindow(QMainWindow):
 
         if not _V7_OK:
             err_lbl = QLabel(f"⚠️ engine_v7 로드 실패\n{_V7_ERR}")
-            err_lbl.setStyleSheet(f"color:{C_RED}; font-size:13px;")
+            err_lbl.setStyleSheet(f"color:{C_RED}; font-size:15px;")
             err_lbl.setWordWrap(True)
             layout.addWidget(err_lbl)
             self.btn_run.setEnabled(False)
@@ -1481,7 +1481,7 @@ class MainWindow(QMainWindow):
             b.setFixedHeight(28)
             b.setStyleSheet(
                 f"background:{C_PANEL}; color:{C_TEXT}; "
-                f"border:1px solid #3a5a7a; font-size:13px; padding:0 8px;")
+                f"border:1px solid #3a5a7a; font-size:15px; padding:0 8px;")
         self.btn_excel.clicked.connect(self._export_excel)
         self.btn_pdf.clicked.connect(self._export_pdf)
         export_rl.addWidget(self.btn_excel)
@@ -3007,22 +3007,22 @@ class SplashWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터")
-        self.setFixedSize(1100, 780)
+        self.setFixedSize(1400, 960)
         self.setStyleSheet(f"""
             QWidget {{ background: {C_BG}; color: {C_TEXT};
-                       font-family: 'Malgun Gothic', 'Segoe UI'; font-size: 15px; }}
+                       font-family: 'Malgun Gothic', 'Segoe UI'; font-size: 17px; }}
             QTabWidget::pane {{ border: 1px solid {C_BORDER}; background: {C_BG}; }}
             QTabBar::tab {{ background: {C_PANEL}; color: {C_SUBTEXT};
-                            padding: 8px 22px; border: 1px solid {C_BORDER}; font-size: 14px; }}
+                            padding: 10px 26px; border: 1px solid {C_BORDER}; font-size: 16px; }}
             QTabBar::tab:selected {{ background: {C_BG}; color: {C_ACCENT};
                                      border-bottom: 2px solid {C_ACCENT}; }}
             QPushButton {{ background: {C_ACCENT}; color: white; border: none;
-                           padding: 12px 32px; border-radius: 5px; font-size: 16px; }}
+                           padding: 14px 36px; border-radius: 6px; font-size: 18px; }}
             QPushButton:hover {{ background: #2980b9; }}
             QTableWidget {{ background: {C_PANEL}; gridline-color: {C_BORDER};
-                            border: none; font-size: 14px; }}
+                            border: none; font-size: 16px; }}
             QHeaderView::section {{ background: {C_PANEL}; color: {C_ACCENT};
-                                    border: none; padding: 6px; font-size: 14px; }}
+                                    border: none; padding: 8px; font-size: 16px; }}
         """)
         self._build_ui()
 
@@ -3033,13 +3033,13 @@ class SplashWindow(QWidget):
 
         title = QLabel("⚓ 이지스 기동전단 통합 방어 시뮬레이터")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFont(QFont('Malgun Gothic', 20, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {C_ACCENT}; padding: 6px;")
+        title.setFont(QFont('Malgun Gothic', 26, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
         sub = QLabel("v7.2  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 13px;")
+        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
 
         tabs = QTabWidget()
@@ -3059,8 +3059,8 @@ class SplashWindow(QWidget):
         tbl = QTableWidget(len(_FEATURES), 2)
         tbl.setHorizontalHeaderLabels(["탭 / 기능", "설명"])
         tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 230)
-        tbl.verticalHeader().setDefaultSectionSize(30)
+        tbl.setColumnWidth(0, 280)
+        tbl.verticalHeader().setDefaultSectionSize(36)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.verticalHeader().setVisible(False)
@@ -3095,16 +3095,16 @@ class SplashWindow(QWidget):
         tbl.setHorizontalHeaderLabels(["버전", "날짜", "변경 내용"])
         hh = tbl.horizontalHeader()
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 200)
-        tbl.setColumnWidth(1, 110)
-        tbl.verticalHeader().setDefaultSectionSize(30)
+        tbl.setColumnWidth(0, 240)
+        tbl.setColumnWidth(1, 120)
+        tbl.verticalHeader().setDefaultSectionSize(36)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
         tbl.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        for entry in reversed(changelog):
+        for entry in changelog:
             ver   = entry.get('version', '')
             date  = entry.get('date', '')
             items = entry.get('changes', [])
