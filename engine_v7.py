@@ -839,11 +839,13 @@ class TimeStepEngine:
     def _cd_allowed(self, target_key: int) -> bool:
         """
         C&D 딜레이 판정.
-        첫 탐지 시: 레이더 빔 드웰(1~3s) + cd_time_s + confirm_time_s + uniform(2,10)s
+        첫 탐지 시: 레이더 빔 드웰(1~3s) + cd_time_s*날씨계수 + confirm_time_s + uniform(2,10)s
+        야간/악천후: cd_time_factor로 딜레이 자동 증가.
         이후 시각 도달하면 True.
         """
         if target_key not in self._cd_fire_time:
-            cd     = self.cfg.get('cd_time_s', 10)
+            cd_factor = self.wx.get('cd_time_factor', 1.0)
+            cd     = self.cfg.get('cd_time_s', 10) * cd_factor
             conf   = self.cfg.get('confirm_time_s', 3)
             dwell  = random.uniform(1, 3)   # 레이더 빔 드웰 타임
             jitter = random.uniform(2, 10)  # 위협 분류 랜덤 편차
