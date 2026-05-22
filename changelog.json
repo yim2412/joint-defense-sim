@@ -91,5 +91,28 @@
       "NEW-AX ⏱️ 교전 타임라인 탭: 이벤트 산점도 Gantt형",
       "NEW-AY SplashWindow 런처: 기능 목록 + 패치 내역 탭"
     ]
+  },
+  {
+    "version": "v7.1 (포팅 G~O)",
+    "date": "2026-05-23",
+    "title": "분석 탭 확장 + 엔진 전술 기동 + 보고서 강화",
+    "changes": [
+      "NEW-AZ 시뮬 완료 시 MC 통계 탭 자동 전환",
+      "NEW-BA 설정 프로필 저장/불러오기 (profiles/ 폴더, JSON)",
+      "NEW-BB enable_multibearing 실제 구현: 2~4방위 섹터 분산",
+      "NEW-BC CEC 두절 시나리오 (재밍 → 함정 독립 교전)",
+      "NEW-BD 아군 함정 회피 기동 (15km 이내 지그재그 위치 보정)",
+      "NEW-BE 적 편대 전술 기동: V자 대형 / 포위 기동",
+      "NEW-BF 감도 분석 탭: C&D·확인시간 Tornado chart",
+      "NEW-BG 방위각 취약점 탭: 방향별 피격/요격 레이더차트",
+      "NEW-BH REQ 충족률 레이더 차트 (방사형)",
+      "NEW-BI 위협 유형별 요격률 탭 (항공기/탄도탄/순항/잠수함)",
+      "NEW-BJ 취약 시간대 분석: 10초 구간 히스토그램 + 최다 피격 강조",
+      "NEW-BK 이전 실행 결과 자동 비교 (최대 5회 히스토리)",
+      "NEW-BL 수중 드론 UUAV DB + 수중드론 포화 프리셋",
+      "NEW-BM PDF 보고서 생성 (4페이지: 커버·MC·탄약·로그)",
+      "NEW-BN A vs B 통합 PDF 비교 보고서",
+      "NEW-BO 앱 아이콘 (aegis_icon.ico) + spec 적용"
+    ]
   }
 ]
