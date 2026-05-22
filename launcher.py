@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
+    QListWidget, QListWidgetItem, QStackedWidget,
 )
 from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
@@ -1388,6 +1389,7 @@ class MainWindow(QMainWindow):
         btn_prof_del  = QPushButton("삭제")
         for b in [btn_prof_save, btn_prof_load, btn_prof_del]:
             b.setFixedHeight(26)
+            b.setMinimumWidth(90)
             b.setStyleSheet(
                 f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
             prof_btn_row.addWidget(b)
@@ -1407,6 +1409,7 @@ class MainWindow(QMainWindow):
         btn_load = QPushButton("불러오기")
         for b in [btn_save, btn_load]:
             b.setFixedHeight(28)
+            b.setMinimumWidth(90)
             b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:15px;")
             scl.addWidget(b)
         btn_save.clicked.connect(self._save_scenario)
@@ -1488,64 +1491,128 @@ class MainWindow(QMainWindow):
         export_rl.addWidget(self.btn_pdf)
         layout.addWidget(export_row)
 
-        # 탭
-        self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
-
-        self.tab_anim = AnimationTab()
-        self.tabs.addTab(self.tab_anim,     "🗺️  전장 애니메이션")
-
-        self.tab_mc_canvas = MplCanvas(figsize=(12, 7))
-        self.tabs.addTab(self.tab_mc_canvas, "📊  MC 통계")
-
-        self.tab_req = self._build_req_tab()
-        self.tabs.addTab(self.tab_req,       "✅  REQ 판정")
-
-        self.tab_weather = self._build_weather_tab()
-        self.tabs.addTab(self.tab_weather,   "🌤️  날씨 비교")
-
-
-        self.tab_log = self._build_log_tab()
-        self.tabs.addTab(self.tab_log,       "📜  교전 로그")
-
-        self.tab_channel = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_channel,   "📡  채널 포화도")
-
-        self.tab_sysmon = SysMonitorTab()
-        self.tabs.addTab(self.tab_sysmon,    "🖥️  시스템 모니터")
-
-        # ── 3단계 분석 탭 ──────────────────────────────────────────────────
-        self.tab_cost_eff = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_cost_eff, "💰  비용 효과")
-
-        self.tab_ammo_curve = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_ammo_curve, "🔫  탄약 소모")
-
-        self.tab_ci = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_ci,       "📈  MC 신뢰구간")
-
-        self.tab_timeline = MplCanvas(figsize=(14, 5))
-        self.tabs.addTab(self.tab_timeline, "⏱️  교전 타임라인")
-
+        # ── 사이드바 + QStackedWidget ─────────────────────────────────────
+        self.tab_anim        = AnimationTab()
+        self.tab_mc_canvas   = MplCanvas(figsize=(12, 7))
+        self.tab_req         = self._build_req_tab()
+        self.tab_weather     = self._build_weather_tab()
+        self.tab_log         = self._build_log_tab()
+        self.tab_channel     = MplCanvas(figsize=(12, 5))
+        self.tab_sysmon      = SysMonitorTab()
+        self.tab_cost_eff    = MplCanvas(figsize=(12, 5))
+        self.tab_ammo_curve  = MplCanvas(figsize=(12, 5))
+        self.tab_ci          = MplCanvas(figsize=(12, 5))
+        self.tab_timeline    = MplCanvas(figsize=(14, 5))
         self.tab_sensitivity = MplCanvas(figsize=(12, 6))
-        self.tabs.addTab(self.tab_sensitivity, "🌪️  감도 분석")
-
-        self.tab_bearing = MplCanvas(figsize=(8, 8))
-        self.tabs.addTab(self.tab_bearing, "🧭  방위각 취약점")
-
-        self.tab_req_radar = MplCanvas(figsize=(8, 8))
-        self.tabs.addTab(self.tab_req_radar, "🎯  REQ 충족률")
-
+        self.tab_bearing     = MplCanvas(figsize=(8, 8))
+        self.tab_req_radar   = MplCanvas(figsize=(8, 8))
         self.tab_threat_type = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_threat_type, "📊  위협 유형별")
+        self.tab_vuln_time   = MplCanvas(figsize=(12, 5))
+        self.tab_history     = MplCanvas(figsize=(12, 5))
 
-        self.tab_vuln_time = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_vuln_time, "⏰  취약 시간대")
+        # 사이드바 (QListWidget)
+        self._sidebar = QListWidget()
+        self._sidebar.setFixedWidth(190)
+        self._sidebar.setStyleSheet("""
+            QListWidget {
+                background: #161b22;
+                border: none;
+                border-right: 1px solid #30363d;
+                font-size: 15px;
+                font-family: 'Malgun Gothic', 'Segoe UI';
+            }
+            QListWidget::item {
+                color: #7d8590;
+                padding: 10px 12px;
+                border-bottom: 1px solid #21262d;
+            }
+            QListWidget::item:selected {
+                background: #0d1117;
+                color: #3498db;
+                border-left: 3px solid #3498db;
+                font-weight: bold;
+            }
+            QListWidget::item:hover:!selected {
+                background: #1c2128;
+                color: #e6edf3;
+            }
+        """)
+        for label in [
+            "🗺  전장 애니메이션", "📊  MC 통계", "✅  REQ 판정",
+            "🌤  날씨 비교", "📜  교전 로그", "📡  채널 포화도",
+            "🖥  시스템 모니터", "💰  비용 효과", "🔫  탄약 소모",
+            "📈  MC 신뢰구간", "⏱  교전 타임라인", "🌪  감도 분석",
+            "🧭  방위각 취약점", "🎯  REQ 충족률", "📊  위협 유형별",
+            "⏰  취약 시간대", "🔄  이전 비교",
+        ]:
+            self._sidebar.addItem(label)
+        self._sidebar.setCurrentRow(0)
 
-        self.tab_history = MplCanvas(figsize=(12, 5))
-        self.tabs.addTab(self.tab_history, "🔄  이전 비교")
+        # QStackedWidget (사이드바와 동일 순서)
+        self._stack = QStackedWidget()
+        for w in [
+            self.tab_anim,        # 0
+            self.tab_mc_canvas,   # 1
+            self.tab_req,         # 2
+            self.tab_weather,     # 3
+            self.tab_log,         # 4
+            self.tab_channel,     # 5
+            self.tab_sysmon,      # 6
+            self.tab_cost_eff,    # 7
+            self.tab_ammo_curve,  # 8
+            self.tab_ci,          # 9
+            self.tab_timeline,    # 10
+            self.tab_sensitivity, # 11
+            self.tab_bearing,     # 12
+            self.tab_req_radar,   # 13
+            self.tab_threat_type, # 14
+            self.tab_vuln_time,   # 15
+            self.tab_history,     # 16
+        ]:
+            self._stack.addWidget(w)
+
+        # 연결
+        self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
+        self._sidebar.currentRowChanged.connect(self._on_page_changed)
+
+        # body (사이드바 + 스택)
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._sidebar)
+        body_layout.addWidget(self._stack, stretch=1)
+        layout.addWidget(body, stretch=1)
+
+        # 지연 렌더링 dirty 집합 초기화
+        self._page_dirty: set = set()
 
         return panel
+
+    def _on_page_changed(self, idx: int):
+        """사이드바 선택 시 해당 페이지 지연 렌더링."""
+        if self._result is None:
+            return
+        cfg  = self._worker.cfg  if self._worker else {}
+        mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
+
+        render_map = {
+            1:  lambda: self._draw_mc_chart(self._result, self._mc, cfg),
+            5:  lambda: self._draw_channel_heatmap(self._result),
+            7:  lambda: self._draw_cost_effect(self._result, self._mc),
+            8:  lambda: self._draw_ammo_curve(self._mc),
+            9:  lambda: self._draw_ci_chart(self._mc),
+            10: lambda: self._draw_timeline(self._result),
+            12: lambda: None,   # 감도 분석은 SensitivityWorker가 처리
+            13: lambda: self._draw_bearing_vulnerability(self._result),
+            14: lambda: self._draw_req_radar(self._result, self._mc),
+            15: lambda: self._draw_threat_type(self._result, self._mc),
+            16: lambda: self._draw_vuln_time(self._result),
+            17: lambda: self._draw_history_compare(self._result, self._mc),
+        }
+        if idx in render_map and idx in self._page_dirty:
+            render_map[idx]()
+            self._page_dirty.discard(idx)
 
     def _build_req_tab(self) -> QWidget:
         """포팅 D: REQ 판정 결과 테이블."""
@@ -1814,20 +1881,8 @@ class MainWindow(QMainWindow):
 
         self._update_cards(result, mc)
         self.tab_anim.load_frames(result.get('frames', []))
-        self._draw_mc_chart(result, mc,
-                            self._worker.cfg if self._worker else {})
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
-        self._draw_channel_heatmap(result)
-        self._draw_cost_effect(result, mc)
-        self._draw_ammo_curve(mc)
-        self._draw_ci_chart(mc)
-        self._draw_timeline(result)
-        self._draw_bearing_vulnerability(result)
-        self._draw_req_radar(result, mc)
-        self._draw_threat_type(result, mc)
-        self._draw_vuln_time(result)
-        self._draw_history_compare(result, mc)
         # 감도 분석 — 백그라운드 SensitivityWorker로 비차단 실행
         cfg  = self._worker.cfg  if self._worker else {}
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
@@ -1836,6 +1891,9 @@ class MainWindow(QMainWindow):
         self._sens_worker.finished.connect(self._on_sensitivity_done)
         self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
         self._sens_worker.start()
+
+        # 모든 차트 페이지를 dirty로 표시 (지연 렌더링)
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -1847,7 +1905,7 @@ class MainWindow(QMainWindow):
         if len(self._history) > 5:
             self._history.pop(0)
 
-        self.tabs.setCurrentIndex(1)  # MC 통계 탭으로 자동 전환
+        self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환 (lazy render 트리거)
 
     def _fill_req(self, result: dict, mc: dict):
         """포팅 D: REQ 판정 테이블 채우기."""
@@ -1922,7 +1980,7 @@ class MainWindow(QMainWindow):
                 self.weather_table.setItem(row, col, item)
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
-        self.tabs.setCurrentWidget(self.tab_weather)
+        self._sidebar.setCurrentRow(3)
 
     # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
 
