@@ -42,7 +42,7 @@ CIRCLE_NUMS = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩',
 # ── 시스템 상수 ───────────────────────────────────────────────────────────────
 CIWS_BURST_COST_USD     = 3000
 MAX_ENGAGEMENT_CHANNELS = 24
-ECM_REF_RANGE_M         = 50000
+ECM_REF_RANGE_M         = 25000  # MED-9: 기준 25km (기존 50km 과대, 실 AN/SLQ-32 교란 유효거리)
 HELO_SORTIE_COST_USD    = 50000
 
 # ── NEW-B: 음향 기만기 / 함정 회피 ──────────────────────────────────────────
@@ -123,7 +123,8 @@ ENEMY_DB = {
     'MiG-29 (풀크럼)':
         {'category':'대공','type':'전투기','speed_ms':765,'altitude_m':8000,
          # 전술 교전 고도 8km (서비스 실링 18km)
-         'missile_name':'YJ-91 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':120,
+         # MED-7: MiG-29는 Kh-31A 사용 (YJ-91은 중국제, MiG-29 탑재 불가)
+         'missile_name':'Kh-31A 대함미사일','missile_speed_ms':680,'missile_range_km':70,
          'can_fire_missile':True,'rcs_m2':5.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.78,
@@ -133,8 +134,9 @@ ENEMY_DB = {
     'MiG-23 (플로거)':
         {'category':'대공','type':'전투기','speed_ms':797,'altitude_m':7000,
          # 전술 고도 7km (구형 4세대, 중고도)
+         # MED-8: MiG-23는 대함 미사일 운용 능력 없음 (YJ-83K 탑재 불가)
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':180,
-         'can_fire_missile':True,'rcs_m2':6.0,
+         'can_fire_missile':False,'rcs_m2':6.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.15,'alt_change_m':2000,'max_attempts':2},
@@ -162,7 +164,7 @@ ENEMY_DB = {
          'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-11B (플랭커-B)':
-        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':11000,
+        {'category':'대공','type':'전투기','speed_ms':800,'altitude_m':11000,  # MED-14: 830→800 m/s (Su-27 계열 실 최고속도)
          # Su-27 계열, 전술 고도 11km
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':180,
          'can_fire_missile':True,'rcs_m2':10.0,
@@ -172,7 +174,7 @@ ENEMY_DB = {
          'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-15 (비상어)':
-        {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':9000,
+        {'category':'대공','type':'전투기','speed_ms':680,'altitude_m':9000,  # MED-15: 750→680 m/s (함재기 중고도 작전 속도)
          # 함재기, 중고도 9km (항모 작전 특성상 중간 고도)
          'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':160,
          'can_fire_missile':True,'rcs_m2':8.0,
@@ -182,9 +184,10 @@ ENEMY_DB = {
          'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
 
     'J-16 (플랭커-D)':
-        {'category':'대공','type':'전투기','speed_ms':780,'altitude_m':10000,
+        {'category':'대공','type':'전투기','speed_ms':680,'altitude_m':10000,  # MED-15: 780→680 m/s
          # 다역할 전폭기, 전술 고도 10km
-         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
+         # MED-2: YJ-12 속도 1000→1400 m/s (Mach 4 말단 단계)
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':8.0,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.72,
@@ -195,7 +198,8 @@ ENEMY_DB = {
         # ⭐ 5세대 스텔스 RCS=0.001㎡ → 탐지거리 ~67km + ECM 자체방어 높음
         {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':12000,
          # 5세대 스텔스, 고고도 12km (고고도 활동 선호)
-         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
+         # MED-2: YJ-12 속도 1000→1400 m/s
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':0.001,
          'missile_salvo_min':1,'missile_salvo_max':4,
          'missile_terminal_evasion':0.72,
@@ -203,9 +207,10 @@ ENEMY_DB = {
          'self_defense_pk':0.18,'enemy_ciws_pk':0.0},
 
     'Su-35 (플랭커-E)':
-        {'category':'대공','type':'전투기','speed_ms':830,'altitude_m':11000,
+        {'category':'대공','type':'전투기','speed_ms':765,'altitude_m':11000,  # MED-14: 830→765 m/s (Mach 2.25 실 전투 속도)
          # 슈퍼 플랭커, 전술 고도 11km
-         'missile_name':'Kh-31A 대함미사일','missile_speed_ms':1000,'missile_range_km':70,
+         # MED-13: Kh-31A 속도 1000→680 m/s (Mach 2.0 at sea level)
+         'missile_name':'Kh-31A 대함미사일','missile_speed_ms':680,'missile_range_km':70,
          'can_fire_missile':True,'rcs_m2':4.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.68,
@@ -213,7 +218,7 @@ ENEMY_DB = {
          'self_defense_pk':0.15,'enemy_ciws_pk':0.0},
 
     'JH-7A (날치)':
-        {'category':'대공','type':'전폭기','speed_ms':500,'altitude_m':2000,
+        {'category':'대공','type':'전폭기','speed_ms':596,'altitude_m':2000,  # MED-16: 500→596 m/s (Mach 1.75 실제 최고속도)
          # 공격기: 저고도 침투 2km (해면 근접 돌파 → RAM 위협)
          'missile_name':'YJ-91 대함미사일','missile_speed_ms':900,'missile_range_km':120,
          'can_fire_missile':True,'rcs_m2':6.0,
@@ -224,9 +229,10 @@ ENEMY_DB = {
 
     # ════ 대공: 폭격기 ════════════════════════════════════════════════════════
     'H-6 (폭격기)':
-        {'category':'대공','type':'폭격기','speed_ms':290,'altitude_m':10000,
+        {'category':'대공','type':'폭격기','speed_ms':269,'altitude_m':10000,  # MED-10: 290→269 m/s (H-6K Mach 0.79 순항)
          # Tu-16 계열 개량형, 순항 고도 10km
-         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':400,
+         # MED-2: YJ-12 속도 1000→1400 m/s
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':40.0,
          'missile_salvo_min':4,'missile_salvo_max':6,
          'missile_terminal_evasion':0.72,
@@ -272,7 +278,7 @@ ENEMY_DB = {
 
     # ⭐ QBM: SM-3 거의 무력화
     'KN-23 (북한 이스칸데르)':
-        {'category':'대공','type':'저고도기동탄도','speed_ms':600,'altitude_m':2000,
+        {'category':'대공','type':'저고도기동탄도','speed_ms':1800,'altitude_m':2000,
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':700,
          'can_fire_missile':False,'rcs_m2':0.15,'is_qbm':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
@@ -288,7 +294,7 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 
     'YJ-12 (초음속 순항)':
-        {'category':'대공','type':'순항미사일','speed_ms':1000,'altitude_m':15,
+        {'category':'대공','type':'순항미사일','speed_ms':1400,'altitude_m':15,  # MED-2: 1000→1400 m/s (Mach 4 말단 단계)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':400,
          'can_fire_missile':False,'rcs_m2':0.05,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
@@ -302,7 +308,7 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
     'Kh-31A (항공기발사 대함)':
-        {'category':'대공','type':'순항미사일','speed_ms':1000,'altitude_m':20,
+        {'category':'대공','type':'순항미사일','speed_ms':680,'altitude_m':20,  # MED-13: 1000→680 m/s (Mach 2.0 at sea level)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':70,
          'can_fire_missile':False,'rcs_m2':0.05,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':8,'max_attempts':1},
@@ -324,7 +330,7 @@ ENEMY_DB = {
     #  052D형 구축함 : HHQ-9B VLS 64셀 + 1130 CIWS × 1 → 강력한 자체방어
     #  055형 대형구축함: HHQ-9B × 112셀 + 1130 CIWS × 2 → 최강 자체방어
     '022형 미사일 고속정':
-        {'category':'대함','type':'고속정','speed_ms':22.0,'altitude_m':10,
+        {'category':'대함','type':'고속정','speed_ms':18.5,'altitude_m':10,  # MED-6: 22→18.5 m/s (35-36 kts 실제 최고속)
          'missile_name':'YJ-83 대함미사일','missile_speed_ms':300,'missile_range_km':180,
          'can_fire_missile':True,'rcs_m2':50.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
@@ -360,7 +366,7 @@ ENEMY_DB = {
          'self_defense_pk':0.32,'enemy_ciws_pk':0.28},  # NEW-F
 
     '055형 대형 구축함':
-        {'category':'대함','type':'구축함','speed_ms':17.0,'altitude_m':30,
+        {'category':'대함','type':'구축함','speed_ms':15.4,'altitude_m':30,  # MED-18: 17→15.4 m/s (30 kts 실제 최고속)
          'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
          'can_fire_missile':True,'rcs_m2':2000.0,
          'missile_salvo_min':6,'missile_salvo_max':12,
@@ -375,7 +381,8 @@ ENEMY_DB = {
     '039형 잠수함 (송급)':
         {'category':'대잠','type':'잠수함','speed_ms':11.0,'altitude_m':-150,
          # Song급 SSK: 최대 잠항 300m, 작전 수심 150m (수온약층 내)
-         'missile_name':'Yu-6 중어뢰','missile_speed_ms':33.0,'missile_range_km':45,
+         # MED-17: Yu-6 속도 33→21 m/s, 사거리 45→18 km (실 Yu-6: 40 kts, 18km)
+         'missile_name':'Yu-6 중어뢰','missile_speed_ms':21.0,'missile_range_km':18,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.90,
@@ -385,7 +392,8 @@ ENEMY_DB = {
     '041형 잠수함 (위안급 개량)':
         {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':-200,
          # Yuan급 AIP SSK: 최대 잠항 350m, 작전 수심 200m (수온약층 깊은 곳)
-         'missile_name':'Yu-6 중어뢰','missile_speed_ms':33.0,'missile_range_km':45,
+         # MED-17: Yu-6 속도 33→21 m/s, 사거리 45→18 km
+         'missile_name':'Yu-6 중어뢰','missile_speed_ms':21.0,'missile_range_km':18,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':2,'missile_salvo_max':4,
          'missile_terminal_evasion':0.90,
@@ -405,7 +413,8 @@ ENEMY_DB = {
     '094형 잠수함 (진급)':
         {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':-200,
          # Jin급 SSBN: 미사일 발사는 50m 이내, 순항 작전 수심 200m
-         'missile_name':'JL-2 SLBM','missile_speed_ms':3400,'missile_range_km':7200,
+         # MED-1: JL-2 SLBM은 전략 핵무기 → 전술 교전에서는 Yu-6 어뢰 사용
+         'missile_name':'Yu-6 중어뢰','missile_speed_ms':21.0,'missile_range_km':18,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.85,
@@ -426,7 +435,7 @@ ENEMY_DB = {
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
 FRIENDLY_DB = {
     'SM-3 Block IIA':
-        {'speed_ms':4500,'range_km':1200,'cost_usd':25000000,'stock':8,
+        {'speed_ms':4500,'range_km':500,'cost_usd':25000000,'stock':8,
          'category':['대공','탄도미사일'],
          'pk_dist':{'alpha':18,'beta':2,'mean':0.900},'requires_illuminator':False},
     'SM-6':
@@ -442,11 +451,11 @@ FRIENDLY_DB = {
          'category':['대공','대함','근접'],
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     '홍상어 (대잠)':
-        {'speed_ms':28.3,'range_km':19,'cost_usd':500000,'stock':16,
+        {'speed_ms':25.0,'range_km':19,'cost_usd':500000,'stock':16,  # MED-4: 28.3→25 m/s (로켓추진 경어뢰 ~48 kts)
          'category':['대잠'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
     '청상어 (경어뢰)':
-        {'speed_ms':28.3,'range_km':9,'cost_usd':200000,'stock':12,
+        {'speed_ms':23.0,'range_km':9,'cost_usd':200000,'stock':12,  # MED-4: 28.3→23 m/s (K745 청상어 ~45 kts)
          'category':['대잠'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
     'CIWS-II (Phalanx)':
@@ -455,7 +464,7 @@ FRIENDLY_DB = {
          'pk_dist':{'alpha':6,'beta':4,'mean':0.600},'requires_illuminator':False},
     # NEW-I: P-3C 탑재 어뢰
     'Mk.46 경어뢰':
-        {'speed_ms':28.3,'range_km':11,'cost_usd':150000,'stock':8,
+        {'speed_ms':21.0,'range_km':11,'cost_usd':150000,'stock':8,  # MED-4: 28.3→21 m/s (Mk.46 Mod5 ~40 kts)
          'category':['대잠'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
 }
@@ -490,7 +499,7 @@ WEATHER_DB = {
 }
 
 SHIP_SPEC = {
-    '대공': {'sensor':'AN/SPY-1D(V) Baseline 9.C2','detect_km_max':1200},
+    '대공': {'sensor':'AN/SPY-1D(V) Baseline 9.C2','detect_km_max':800},  # MED-3: 1200→800 km (실 SPY-1D 공중 탐지 최대 800km)
     '대함': {'sensor':'AN/SPY-1D(V) Baseline 9.C2','detect_km_max':45},
     '대잠': {'sensor':'국산 첨단 통합소나체계',       'detect_km_max':50},
 }
@@ -503,11 +512,11 @@ SHIP_DB = {
     # ── 이지스 구축함 (KDX-III 정조대왕급 / 세종대왕급) ─────────────────────
     'KDX-III': {
         'display':      '이지스 구축함 (KDX-III)',
-        'sensor_km':    {'대공': 1200, '대함': 45, '대잠': 50},
+        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},  # MED-3: 대공 1200→800 km
         'max_channels': 24,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'default_inventory': {
-            'SM-3 Block IIA':    8,
+            'SM-3 Block IIA':   32,   # MED-19: 8→32 (KDX-III Batch-II: Mk.41 VLS 32셀 SM-3 탑재)
             'SM-6':             32,
             'SM-2 Block IIIB':  48,
             'RIM-116 RAM':      21,
@@ -696,7 +705,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_type':    'land',       # 육상기지 출격
         'base_name':    '포항기지',
         'base_dist_km': 300,          # 포항 → 작전해역 기본거리
-        'sonobuoy_detect_bonus_km': 15,  # 소노부이 탐지거리 보정
+        'sonobuoy_detect_bonus_km': 8,   # MED-11: 15→8 km (실 AN/SSQ-53F 부이 탐지 보정)
         'weather_limits':_P3C_WX,
     },
     # NEW-J: P-8A 포세이돈 — 미 해군/한국 해군 도입 추진 중
@@ -714,7 +723,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_type':    'land',       # 육상기지 출격
         'base_name':    '포항기지',
         'base_dist_km': 300,          # 포항 → 작전해역 기본거리
-        'sonobuoy_detect_bonus_km': 18,  # P-3C(15km)보다 향상된 소노부이 성능
+        'sonobuoy_detect_bonus_km': 10,  # MED-11: 18→10 km (실 AN/SSQ-62 DICASS 탐지 보정)
         'weather_limits':_P3C_WX,    # 태풍만 불가 (P-3C와 동일)
     },
 }
@@ -3779,6 +3788,25 @@ if __name__ == "__main__":
 # · BUG: HeloEvent.assigned_ship 없음 → getattr로 안전 처리
 # · BUG: 랜덤 난이도 툴팁 \n·~ 깨짐 → 슬래시 구분자로 변경
 #
+# ── v6.8.5 패치 (현실성 수정 중간 20개) ──────────────────────────────────────
+# · MED-1:  094형 SSBN: JL-2 SLBM → Yu-6 중어뢰 (전략핵 → 전술 교전)
+# · MED-2:  YJ-12 속도 1000→1400 m/s (Mach 4 말단 단계)
+# · MED-3:  KDX-III 대공 탐지거리 1200→800 km (SPY-1D 실제 공중 탐지)
+# · MED-4:  청상어 28.3→23, 홍상어 28.3→25, Mk.46 28.3→21 m/s
+# · MED-6:  022형 속도 22→18.5 m/s (35-36 kts 실 최고속)
+# · MED-7:  MiG-29 미사일 YJ-91→Kh-31A (speed 680, range 70km)
+# · MED-8:  MiG-23 can_fire_missile=False (대함 미사일 탑재 불가)
+# · MED-9:  ECM_REF_RANGE_M 50000→25000 m
+# · MED-10: H-6 속도 290→269 m/s (Mach 0.79 순항)
+# · MED-11: P-3C/P-8A 소노부이 보너스 15/18→8/10 km
+# · MED-13: Kh-31A 독립 위협 속도 1000→680 m/s (Mach 2.0)
+# · MED-14: J-11B 830→800, Su-35 830→765 m/s
+# · MED-15: J-16 780→680, J-15 750→680 m/s
+# · MED-16: JH-7A 500→596 m/s (Mach 1.75)
+# · MED-17: Yu-6 어뢰 속도 33→21 m/s, 사거리 45→18 km (039형·041형·094형)
+# · MED-18: 055형 속도 17→15.4 m/s (30 kts)
+# · MED-19: SM-3 재고 8→32 (KDX-III Batch-II VLS)
+#
 # ── v6.8.4 패치 ───────────────────────────────────────────────────────────────
 # · BUG: HeloEvent.is_missile 없음 → getattr 안전 접근 (run_fleet_sim_core 전체)
 # · BUG: HeloEvent.is_active, intercepted, _layered 동일 문제 일괄 수정
@@ -3813,6 +3841,10 @@ if __name__ == "__main__":
 #  │   │ (v7.x)                     │      │ 외부 의존성 높음            │
 #  └───┴────────────────────────────┴──────┴─────────────────────────────┘
 #
+# ── 현실성 감사 패치 (engine.py — 높음 심각도) ──────────────────────────────
+# · BUG-1: KN-23 speed_ms 600→1800 (Mach 1.76→Mach 6+)
+# · BUG-2: SM-3 Block IIA range_km 1200→500 (공식 사거리 500km)
+
 #  ★ UI 전환 전략 (v6.x → v7.0)
 #    v6.x : Streamlit 유지, 엔진 개발에 집중
 #    v7.0 : 양방향 교전 엔진 완성 시점에 PyQt6 UI 병행 개발 시작

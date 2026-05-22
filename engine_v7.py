@@ -83,9 +83,9 @@ from engine import (
 
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
-MAX_SIM_TIME     = 700    # 최대 시뮬 시간 (초)
-INTERCEPT_DIST_M = 2000   # SAM 요격 판정 거리 (m)
-ECM_REF_RANGE_M  = 50_000 # 포팅 B: ECM 재밍 기준 거리 (m)
+MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — BUG-3: 해성 90m/s 기준 250km = 2778초
+INTERCEPT_DIST_M = 200    # BUG-5: SAM 근접 신관 범위 (m). 기존 2000m 과대, 실제 50-200m
+ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km 과대)
 DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
 SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
 MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
@@ -107,19 +107,19 @@ _AIRCRAFT_V7_SORTIE = {
 # ════════════════════════════════════════════════════════════════════════════
 FRIENDLY_STRIKE_DB = {
     '해성-I': {
-        'speed_ms': 300,
+        'speed_ms': 90,    # BUG-3: 아음속 순항 ~85-100 m/s (Mach 0.25), 기존 300 m/s 오류
         'range_km': 180,
         'cost_usd': 800_000,
         'pk_base':  0.80,
     },
     '해성-II': {
-        'speed_ms': 300,
+        'speed_ms': 90,    # BUG-3: 동일 계열 아음속 순항
         'range_km': 250,
         'cost_usd': 1_200_000,
         'pk_base':  0.82,
     },
     '하푼 Block II': {
-        'speed_ms': 278,
+        'speed_ms': 245,   # BUG-4: Mach 0.72, 기존 278 m/s 과대
         'range_km': 280,
         'cost_usd': 1_500_000,
         'pk_base':  0.78,
@@ -163,6 +163,37 @@ ENEMY_SHIP_SAM_LOADOUT = {
 
 # 독립 미사일 유형 (EnemyThreatObj 대신 MissileObj로 직접 생성)
 _STANDALONE_MISSILE_TYPES = ('탄도미사일', '순항미사일', '극초음속활공체', '저고도기동탄도')
+
+# MED-5: 미사일 명칭별 함체 명중 Pk (0.80 하드코드 → 유형 기반 매핑)
+# 아음속 대함미사일은 요격 쉬움(Pk 높음), 초음속·어뢰는 요격 어려움(Pk 낮음)
+_MISSILE_PK_MAP = {
+    # 아음속 순항 대함 (0.70~0.72)
+    'YJ-83 대함미사일':          0.72,
+    'YJ-83K 주력 대함미사일':    0.70,
+    'YJ-8K 대함미사일':          0.72,
+    'YJ-91 대함미사일':          0.70,
+    'YJ-91 초음속 대함미사일':   0.70,
+    'YJ-100 (장거리 순항)':      0.70,
+    'CJ-10 (순항미사일)':        0.70,
+    # 초음속 순항 대함 (요격 어려움: 0.65~0.68)
+    'YJ-12 초음속 대함미사일':   0.65,
+    'YJ-12 (초음속 순항)':       0.65,
+    'YJ-18 초음속 대함미사일':   0.68,
+    'YJ-18B 잠대함미사일':       0.68,
+    'Kh-31A 대함미사일':         0.68,
+    'Kh-31A (항공기발사 대함)':  0.68,
+    'P-800 오닉스 (야혼트)':     0.65,
+    # 탄도/HGV/QBM (SM-3/SM-6 전담)
+    'DF-11A (단거리 탄도)':      0.75,
+    'DF-15 (단거리 탄도)':       0.75,
+    'DF-21D (대함 탄도)':        0.70,
+    'DF-26 (중장거리 탄도)':     0.65,
+    'DF-17 (극초음속 활공)':     0.65,
+    'KN-23 (북한 이스칸데르)':   0.72,
+    # 어뢰 (수중 유도, 회피 어려움: 0.78)
+    'Yu-6 중어뢰':               0.78,
+}
+_MISSILE_PK_DEFAULT = 0.72  # 미등록 미사일 기본값
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -314,6 +345,9 @@ class EnemyThreatObj:
         # 항공기 이탈 상태
         self.is_retreating             = False
         self.retreat_pos: Optional[Vec2] = None
+        # MED-12: 항공기 재공격 — 이탈 후 재접근 허용
+        self.reattack_count = 0
+        self.max_reattacks  = 1 if self.is_aircraft else 0
 
     def take_hit(self, weapon_name: str, t: float):
         self.hit_count += 1
@@ -384,7 +418,8 @@ class FriendlyAircraftObj:
         self.name              = name
         self.info              = FRIENDLY_AIRCRAFT_DB[name]
         self.home_pos          = home_pos.copy()
-        self.t_available       = float(self.info['sortie_time_s'])  # 초기 출격 준비 시간
+        # BUG-7: v7 시뮬(700초)에 맞는 전시 긴급 출격 시간 적용 (engine.py 평시값 무시)
+        self.t_available       = float(_AIRCRAFT_V7_SORTIE.get(name, self.info['sortie_time_s']))
         self.payload_remaining = self.info['payload_cnt']
         self.sorties           = 0
         self.total_cost        = 0.0
@@ -503,8 +538,9 @@ class TimeStepEngine:
         else:
             fleet_cfg = self.cfg.get('enemy_fleet', [])
 
-        detect_km  = self.cfg.get('detect_km', 200)
-        sub_det_km = self.cfg.get('sub_detect_km', 50)
+        detect_km      = self.cfg.get('detect_km', 200)
+        surface_det_km = self.cfg.get('surface_detect_km', self.cfg.get('detect_km', 45))
+        sub_det_km     = self.cfg.get('sub_detect_km', 50)
         primary    = self._primary()  # 독립 미사일 표적
 
         threats: List[EnemyThreatObj] = []
@@ -522,8 +558,12 @@ class TimeStepEngine:
             for _ in range(count):
                 bearing_rad = math.radians((idx / max(total, 1)) * 360)
 
+                # BUG-3 연계: 수상함은 대함 레이더 탐지거리(45km)에서 시작
+                # 항공·독립미사일은 대공 탐지거리, 잠수함은 소나 탐지거리 유지
                 if info.get('category') == '대잠':
                     start_m = sub_det_km * 1000
+                elif info.get('category') == '대함':
+                    start_m = surface_det_km * 1000
                 else:
                     start_m = detect_km * 1000
 
@@ -540,7 +580,7 @@ class TimeStepEngine:
                         pos      = pos,
                         target   = primary,
                         speed_ms = info['speed_ms'],
-                        pk_base  = 0.80,
+                        pk_base  = _MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),  # MED-5
                         owner_id = -1,
                         t_spawn  = 0.0,
                     )
@@ -593,10 +633,11 @@ class TimeStepEngine:
             base_km = ship.sensor_km.get('대잠', 50)
             factor  = self.wx.get('sonar_factor', self.wx.get('detect_range_factor', 1.0))
         else:
-            # 대공/대함: 데이터링크 적용 — cfg에 사전 계산된 detect_km 사용
+            # 대공: 이지스 데이터링크(Link-16) — 편대 최고 성능 레이더 공유
+            # 대함: 수상 레이더 한계 — 수평선 넘어 탐지 불가, surface_detect_km 사용
             if category == '대함':
                 base_km = max(ship.sensor_km.get('대함', 45),
-                              self.cfg.get('detect_km', 200))
+                              self.cfg.get('surface_detect_km', 45))
             else:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
@@ -638,8 +679,15 @@ class TimeStepEngine:
             if et.is_retreating and et.retreat_pos:
                 arrived = et.pos.move_toward(et.retreat_pos, et.speed_ms, DT)
                 if arrived:
-                    et.alive = False
-                    self._log(f"[이탈] {et.preset_name} 전장 이탈 완료")
+                    # MED-12: 재공격 가능 시 재접근, 아니면 전장 이탈
+                    if et.reattack_count < et.max_reattacks:
+                        et.reattack_count += 1
+                        et.is_retreating = False
+                        et.retreat_pos   = None
+                        self._log(f"[재공격] {et.preset_name} 재접근 개시 ({et.reattack_count}/{et.max_reattacks})")
+                    else:
+                        et.alive = False
+                        self._log(f"[이탈] {et.preset_name} 전장 이탈 완료")
             else:
                 et.pos.move_toward(primary_pos, et.speed_ms, DT)
         for m in self.missiles:
@@ -685,7 +733,7 @@ class TimeStepEngine:
                     pos      = offset,
                     target   = primary,
                     speed_ms = m_speed,
-                    pk_base  = 0.80,
+                    pk_base  = _MISSILE_PK_MAP.get(m_name, _MISSILE_PK_DEFAULT),  # MED-5
                     owner_id = id(et),
                     t_spawn  = self.t,
                 )
@@ -699,11 +747,11 @@ class TimeStepEngine:
 
             if et.is_aircraft:
                 et.is_retreating = True
-                # 이탈 방향: 함대 반대 방향 500km
+                # MED-12: 이탈 방향 현재 위치 기준 200km 후퇴 (기존 함대 반대 500km → 재공격 불가)
                 angle = et.pos.bearing_to(primary.pos) + math.pi
                 et.retreat_pos = Vec2(
-                    et.pos.x + math.cos(angle) * 500_000,
-                    et.pos.y + math.sin(angle) * 500_000,
+                    et.pos.x + math.cos(angle) * 200_000,
+                    et.pos.y + math.sin(angle) * 200_000,
                 )
                 self._log(
                     f"[적 발사+이탈] {et.preset_name} -> {m_name} {salvo}발 "
@@ -818,8 +866,8 @@ class TimeStepEngine:
         is_qbm       = m.is_qbm
         is_ballistic = m.is_ballistic
 
-        # HGV / 고고도 탄도 중간단계 → SM-3
-        if (is_hgv or (is_ballistic and alt >= 40_000)) and dist_m <= 1_200_000:
+        # HGV / 고고도 탄도 중간단계 → SM-3 (BUG-2: 사거리 500km, 기존 1200km 과대)
+        if (is_hgv or (is_ballistic and alt >= 40_000)) and dist_m <= 500_000:
             if inv.get('SM-3 Block IIA', 0) > 0:
                 return 'SM-3 Block IIA'
 
@@ -833,7 +881,7 @@ class TimeStepEngine:
         if dist_m <= 9_000   and inv.get('RIM-116 RAM',        0) > 0: return 'RIM-116 RAM'
         if dist_m <= 170_000 and inv.get('SM-2 Block IIIB',    0) > 0: return 'SM-2 Block IIIB'
         if dist_m <= 240_000 and inv.get('SM-6',               0) > 0: return 'SM-6'
-        if dist_m <= 1_200_000 and inv.get('SM-3 Block IIA',   0) > 0: return 'SM-3 Block IIA'
+        if dist_m <= 500_000 and inv.get('SM-3 Block IIA',     0) > 0: return 'SM-3 Block IIA'  # BUG-2
         return None
 
     def _select_aa_wpn(self, ship: FriendlyShipObj, et: EnemyThreatObj,
@@ -900,7 +948,7 @@ class TimeStepEngine:
                         1 for m in self.missiles
                         if m.alive and m.target is et and m.mtype == 'friendly_strike'
                     )
-                    if en_route >= 2:
+                    if en_route >= 4:  # BUG-3 연계: 대함 협조 살보 최대 4발 (기존 2발 과소)
                         continue
                     wpn = self._select_strike_wpn(ship, dist_m)
                     if not wpn:
@@ -1118,15 +1166,12 @@ class TimeStepEngine:
             sam.alive = False
             tgt_name  = tgt.name if hasattr(tgt, 'name') else str(tgt)
 
-            # 포팅 B: ECM 재밍 + 종말 회피 Pk 보정 (아군 SAM vs 적 미사일)
+            # 종말 회피 Pk 보정 (아군 SAM vs 적 미사일)
+            # BUG-6: ECM은 적 미사일 타격 Pk를 낮추는 것 → _check_hits로 이동
             eff_pk = sam.pk_base
             if sam.mtype == 'friendly_sam' and isinstance(tgt, MissileObj):
                 remaining_m = sam.pos.dist_to(tgt.pos)
-                if self.cfg.get('enable_ecm', True) and not tgt.is_ballistic and not tgt.is_hgv:
-                    eff_ecm = 0.30  # 아군 함정 ECM 표준 효과
-                    ecm_f = 1.0 - eff_ecm * (ECM_REF_RANGE_M / max(remaining_m, 5_000))
-                    eff_pk *= max(0.50, min(1.0, ecm_f))
-                if self.cfg.get('enable_evasion', True) and remaining_m < 20_000:
+                if self.cfg.get('enable_evasion', True) and remaining_m < 10_000:  # BUG 수정: 20km→10km
                     eff_pk *= tgt.terminal_evasion_factor
 
             if random.random() < eff_pk:
@@ -1170,6 +1215,10 @@ class TimeStepEngine:
             if m.mtype == 'enemy_strike':
                 tgt = m.target
                 if isinstance(tgt, FriendlyShipObj) and tgt.alive:
+                    # BUG-6: 아군 ECM(AN/SLQ-32) — 적 미사일 유도부 교란, Pk 30% 감소
+                    # 탄도/HGV는 레이더 유도가 아니므로 ECM 무효
+                    if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
+                        m.pk_base *= 0.70
                     # 포팅 B: 음향 기만기 AN/SLQ-25 — 어뢰 전용
                     if m.is_torpedo and self.cfg.get('enable_decoy', True):
                         if tgt.decoy_stock > 0:
@@ -1232,9 +1281,10 @@ class TimeStepEngine:
 
     def _is_over(self) -> bool:
         active_threats = [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike']
-        # 이탈 중인 항공기는 이미 발사 완료 → 위협 종료로 간주
+        # 이탈 중인 항공기: 재공격 가능하면 활성 위협으로 유지, 아니면 종료로 간주
         enemy_active   = [et for et in self.enemy_threats
-                          if et.alive and not (et.is_aircraft and et.is_retreating)]
+                          if et.alive and not (et.is_aircraft and et.is_retreating
+                                               and et.reattack_count >= et.max_reattacks)]
 
         if not active_threats and not enemy_active:
             self._log("[종료] 교전 종료 - 모든 위협 소진/격침/이탈")
@@ -1372,8 +1422,9 @@ def run_v7_simulation(cfg: dict) -> dict:
             cfg.get('fleet_preset', '단독 작전'),
             cfg.get('weather', '맑음 (주간)'))
         cfg = dict(cfg)
-        cfg['detect_km']     = ranges['대공']
-        cfg['sub_detect_km'] = ranges['대잠']
+        cfg['detect_km']         = ranges['대공']
+        cfg['surface_detect_km'] = ranges['대함']   # BUG-3 연계: 수상함 시작 거리
+        cfg['sub_detect_km']     = ranges['대잠']
     return TimeStepEngine(cfg).run()
 
 
@@ -2080,3 +2131,21 @@ if __name__ == '__main__':
 # · 잠수함: altitude_m 0→음수 (작전 수심 반영)
 #   039형: -150m / 041형: -200m / 093형: -280m / 094형: -200m / 095형: -350m
 # · '093형 잠수함 (위안급)' → '093형 잠수함 (상급)' DB키 수정 (상급=Shang-class)
+
+# ── 현실성 감사 패치 (중간 심각도 20개) ─────────────────────────────────────
+# · MED-5:  pk_base 0.80 하드코드 → _MISSILE_PK_MAP 유형별 Pk (0.65~0.78)
+# · MED-9:  ECM_REF_RANGE_M 50000→25000 m
+# · MED-11: sonobuoy 보너스 P-3C 15→8km, P-8A 18→10km (engine.py)
+# · MED-12: 적 항공기 재공격 — 200km 후퇴 후 재접근 (최대 1회 추가 공격)
+#           EnemyThreatObj.reattack_count / max_reattacks 필드 추가
+# · 나머지 MED 수정은 engine.py DB 변경 (import로 자동 반영)
+#
+# ── 현실성 감사 패치 (높음 심각도 7개) ──────────────────────────────────────
+# · BUG-1: KN-23 속도 600→1800 m/s (engine.py) — 실제 이스칸데르 Mach 6+ 반영
+# · BUG-2: SM-3 사거리 1200→500 km (engine.py + _select_defense_wpn) — 공식 사거리
+# · BUG-3: 해성-I/II 속도 300→90 m/s — 아음속 순항미사일 (Mach 0.25) 현실화
+# · BUG-4: 하푼 Block II 속도 278→245 m/s — Mach 0.72 반영
+# · BUG-5: INTERCEPT_DIST_M 2000→200 m — SAM 근접 신관 실제 범위
+# · BUG-6: ECM 방향 역전 수정 — 아군 SAM Pk 감소 제거, 적 미사일 타격 Pk 30% 감소로 이동
+#          종말 회피 적용 거리 20km→10km 동시 수정
+# · BUG-7: _AIRCRAFT_V7_SORTIE 데드코드 적용 — P-3C 600초, P-8A 480초 출격
