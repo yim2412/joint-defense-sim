@@ -90,6 +90,10 @@ DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
 SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
 MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
 
+# 다층 방어 레이어 순서: 가장 먼저 교전하는 함정 유형부터
+LAYER_ORDER    = ['KDX-III', 'KDX-II', 'FFX']
+SHIP_LAYER_PRI = {t: i for i, t in enumerate(LAYER_ORDER)}  # KDX-III=0, KDX-II=1, FFX=2
+
 # 포팅 C: v7 시뮬 시간 스케일 맞춤 출격 준비 시간 (전시 긴급 출격 기준)
 # FRIENDLY_AIRCRAFT_DB의 sortie_time_s(평시)를 v7 700초 시뮬에 맞게 단축
 _AIRCRAFT_V7_SORTIE = {
@@ -390,7 +394,8 @@ class FriendlyAircraftObj:
 #  SimFrame
 # ════════════════════════════════════════════════════════════════════════════
 class SimFrame:
-    __slots__ = ('t', 'friendly_ships', 'enemy_ships', 'missiles', 'events')
+    __slots__ = ('t', 'friendly_ships', 'enemy_ships', 'missiles', 'events',
+                 'ship_channels')
 
     def __init__(self, t: float):
         self.t              = t
@@ -398,6 +403,7 @@ class SimFrame:
         self.enemy_ships    = []  # [(uid, preset, x, y, alive, hp)]
         self.missiles       = []  # [(uid, x, y, mtype, name)]
         self.events         = []  # [str]
+        self.ship_channels  = []  # [(name, channels_used, max_channels)]
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -583,14 +589,18 @@ class TimeStepEngine:
         self._tick_events.append(msg)
 
     def _detect_range_m(self, ship: FriendlyShipObj, category: str) -> float:
-        if category == '대함':
-            tactical_km = self.cfg.get('detect_km', 200)
-            base_km = max(ship.sensor_km.get('대함', 45), tactical_km)
-        elif category == '대잠':
+        if category == '대잠':
             base_km = ship.sensor_km.get('대잠', 50)
+            factor  = self.wx.get('sonar_factor', self.wx.get('detect_range_factor', 1.0))
         else:
-            base_km = ship.sensor_km.get(category, 200)
-        return base_km * 1000 * self.wx.get('detect_range_factor', 1.0)
+            # 대공/대함: 데이터링크 적용 — cfg에 사전 계산된 detect_km 사용
+            if category == '대함':
+                base_km = max(ship.sensor_km.get('대함', 45),
+                              self.cfg.get('detect_km', 200))
+            else:
+                base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
+            factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
+        return base_km * 1000 * factor
 
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
 
@@ -682,45 +692,71 @@ class TimeStepEngine:
     # ── 3단계: 아군 방어 TEWA ─────────────────────────────────────────────────
 
     def _friendly_defense(self):
-        for ship in self.friendly_ships:
-            if not ship.alive:
+        """
+        다층 방어 (enable_layered_defense=True, 기본 ON):
+          KDX-III → KDX-II → FFX 순서로 위협당 1발씩 배정.
+          함정 우선순위 정렬 후 첫 번째 가용 함정이 교전.
+
+        CEC 사전 동시 배정 (enable_cec_preassign=True, 기본 OFF):
+          탐지 즉시 1차+2차 함정 동시 발사. 위협당 최대 2발 허용.
+          1차 성공 시 2차 SAM은 표적 소멸로 자동 종료.
+        """
+        cec     = self.cfg.get('enable_cec_preassign', False)
+        max_sams = 2 if cec else 1
+
+        # 다층 방어 우선순위 정렬 (KDX-III=0, KDX-II=1, FFX=2, 나머지=99)
+        sorted_ships = sorted(
+            [s for s in self.friendly_ships if s.alive],
+            key=lambda s: SHIP_LAYER_PRI.get(s.ship_type, 99)
+        )
+
+        # (A) 적 대함 미사일 요격 (MissileObj enemy_strike)
+        for m in self.missiles:
+            if not m.alive or m.mtype != 'enemy_strike':
+                continue
+            sams_on = sum(
+                1 for s in self.missiles
+                if s.alive and s.target is m and s.mtype == 'friendly_sam'
+            )
+            if sams_on >= max_sams:
                 continue
 
-            # (A) 적 대함 미사일 요격 (MissileObj enemy_strike)
-            for m in self.missiles:
-                if not m.alive or m.mtype != 'enemy_strike':
-                    continue
-                already = any(
-                    s.alive and s.target is m and s.mtype == 'friendly_sam'
-                    for s in self.missiles
-                )
-                if already:
-                    continue
+            shots = 0
+            for ship in sorted_ships:
+                if sams_on + shots >= max_sams:
+                    break
                 dist_m = ship.pos.dist_to(m.pos)
-                wpn = self._select_defense_wpn(ship, m, dist_m)
+                wpn    = self._select_defense_wpn(ship, m, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
                 self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False)
+                shots += 1
 
-            # (B) 적 항공기 직접 요격 (EnemyThreatObj is_aircraft)
-            for et in self.enemy_threats:
-                if not et.alive or not et.is_aircraft or et.is_retreating:
-                    continue
-                already = any(
-                    s.alive and s.target is et and s.mtype == 'friendly_sam'
-                    for s in self.missiles
-                )
-                if already:
-                    continue
+        # (B) 적 항공기 직접 요격 (EnemyThreatObj is_aircraft)
+        for et in self.enemy_threats:
+            if not et.alive or not et.is_aircraft or et.is_retreating:
+                continue
+            sams_on = sum(
+                1 for s in self.missiles
+                if s.alive and s.target is et and s.mtype == 'friendly_sam'
+            )
+            if sams_on >= max_sams:
+                continue
+
+            shots = 0
+            for ship in sorted_ships:
+                if sams_on + shots >= max_sams:
+                    break
                 dist_m = ship.pos.dist_to(et.pos)
-                wpn = self._select_aa_wpn(ship, et, dist_m)
+                wpn    = self._select_aa_wpn(ship, et, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
                 self._launch_friendly_sam(ship, wpn, et, dist_m, is_aa=True)
+                shots += 1
 
     def _launch_friendly_sam(self, ship: FriendlyShipObj, wpn: str, target,
                               dist_m: float, is_aa: bool):
@@ -1132,6 +1168,7 @@ class TimeStepEngine:
         frame = SimFrame(self.t)
         for s in self.friendly_ships:
             frame.friendly_ships.append((s.name, s.pos.x, s.pos.y, s.alive, s.hp))
+            frame.ship_channels.append((s.name, s.channels_used, s.max_channels))
         for et in self.enemy_threats:
             frame.enemy_ships.append(
                 (et.uid, et.preset_name, et.pos.x, et.pos.y, et.alive, et.hp))
@@ -1231,10 +1268,63 @@ class TimeStepEngine:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  탐지거리 자동 계산 (함대 편성 + 날씨 + 데이터링크)
+# ════════════════════════════════════════════════════════════════════════════
+
+def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
+    """
+    함대 편성과 날씨를 기반으로 탐지거리를 자동 계산한다.
+
+    데이터링크 원칙:
+      - 한국 해군 Link-16/Link-11 적용 — 편대 내 최고 성능 센서 기준 공유
+      - 대공·대함 : 편대 내 max(sensor_km['대공'/'대함']) × radar_factor
+      - 대잠       : 편대 내 max(sensor_km['대잠']) × sonar_factor
+        (황사는 소나에 영향 없음, 풍랑·폭풍은 해상 소음으로 급감)
+
+    반환 예시:
+      {'대공': 1140, '대함': 41, '대잠': 30,
+       'leading_ship': 'KDX-III', 'radar_factor': 0.95, 'sonar_factor': 0.60}
+    """
+    preset = FLEET_PRESETS.get(fleet_preset_name, [])
+    w = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
+    rf = w.get('radar_factor', w.get('detect_range_factor', 1.0))
+    sf = w.get('sonar_factor', w.get('detect_range_factor', 1.0))
+
+    max_air = 0; max_surface = 0; max_sub = 0
+    leading = '(없음)'
+    for ship in preset:
+        spec = SHIP_DB.get(ship['type'], {})
+        s = spec.get('sensor_km', {})
+        air = s.get('대공', 0)
+        if air > max_air:
+            max_air = air
+            leading = ship.get('name', ship['type'])
+        max_surface = max(max_surface, s.get('대함', 0))
+        max_sub     = max(max_sub,     s.get('대잠', 0))
+
+    return {
+        '대공':         max(1, round(max_air     * rf)),
+        '대함':         max(1, round(max_surface * rf)),
+        '대잠':         max(1, round(max_sub     * sf)),
+        'leading_ship': leading,
+        'radar_factor': rf,
+        'sonar_factor': sf,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  외부 API
 # ════════════════════════════════════════════════════════════════════════════
 
 def run_v7_simulation(cfg: dict) -> dict:
+    # 탐지거리 자동 계산 (함대 + 날씨 기반, 수동 override 없을 때)
+    if not cfg.get('detect_km_manual', False):
+        ranges = calculate_fleet_detect_ranges(
+            cfg.get('fleet_preset', '단독 작전'),
+            cfg.get('weather', '맑음 (주간)'))
+        cfg = dict(cfg)
+        cfg['detect_km']     = ranges['대공']
+        cfg['sub_detect_km'] = ranges['대잠']
     return TimeStepEngine(cfg).run()
 
 
@@ -1908,3 +1998,13 @@ if __name__ == '__main__':
 # · NEW-AM: scenario_comparison_v7() — 날씨 3종 MC 비교
 # · NEW-AN: compare_ab_v7() — A vs B MC 비교 (Δ요격률·Δ비용)
 # · NEW-AO: save_scenario_v7() / load_scenario_v7() — JSON 시나리오 저장/불러오기
+
+# ── v7.0 포팅 E 패치 ──────────────────────────────────────────────────────────
+# · NEW-AP: LAYER_ORDER / SHIP_LAYER_PRI 상수 추가 (KDX-III=0, KDX-II=1, FFX=2)
+# · NEW-AQ: SimFrame.ship_channels 필드 추가 [(name, channels_used, max_channels)]
+# · NEW-AR: _record_frame() — ship_channels 매 tick 기록
+# · NEW-AS: _friendly_defense() 전면 재설계 — 위협 우선 루프 + 함정 우선순위 정렬
+#   - 다층 방어: KDX-III → KDX-II → FFX 순서 고정 (SHIP_LAYER_PRI 정렬)
+#     위협당 가장 고성능 함정이 항상 1차 교전, 부재 시 다음 레이어 자동 인계
+#   - CEC 사전 동시 배정(enable_cec_preassign): 위협당 최대 2발 동시 허용
+#     1차 SAM 성공 시 2차 SAM은 표적 소멸로 자동 종료
