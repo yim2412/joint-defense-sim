@@ -24,6 +24,11 @@
 import sys, os, time, threading, json
 import psutil
 
+def _res(filename: str) -> str:
+    """PyInstaller exe 및 일반 실행 모두에서 리소스 파일 경로 반환."""
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, filename)
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
@@ -1843,7 +1848,11 @@ class MainWindow(QMainWindow):
     # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
 
     def _profiles_dir(self) -> str:
-        base = os.path.dirname(os.path.abspath(__file__))
+        # exe 환경: exe 파일 옆에 저장 / 일반: 소스 파일 옆에 저장
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
         d = os.path.join(base, 'profiles')
         os.makedirs(d, exist_ok=True)
         return d
@@ -2998,7 +3007,7 @@ class SplashWindow(QWidget):
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 8, 8, 8)
         changelog = []
-        cl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'changelog.json')
+        cl_path = _res('changelog.json')
         if os.path.exists(cl_path):
             try:
                 with open(cl_path, encoding='utf-8') as f:
@@ -3051,7 +3060,7 @@ def main():
     app.setStyle('Fusion')
 
     # 앱 아이콘 설정
-    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aegis_icon.ico')
+    _icon_path = _res('aegis_icon.ico')
     if os.path.exists(_icon_path):
         from PyQt6.QtGui import QIcon
         app.setWindowIcon(QIcon(_icon_path))
