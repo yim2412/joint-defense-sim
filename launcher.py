@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QSpinBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
-    QSizePolicy, QCheckBox, QFileDialog,
+    QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
 )
 from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QKeySequence
@@ -1070,6 +1070,55 @@ class MainWindow(QMainWindow):
         mcl.addRow("반복 횟수", self.spn_mc_n)
         layout.addWidget(grp_mc)
 
+        # ── 설정 프로필 저장/불러오기 ─────────────────────────────────────────
+        grp_prof = QGroupBox("📋 설정 프로필")
+        profl = QVBoxLayout(grp_prof)
+        profl.setSpacing(4)
+
+        # 프로필 선택 콤보박스
+        prof_sel_row = QHBoxLayout()
+        lbl_prof = QLabel("프로필:")
+        lbl_prof.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lbl_prof.setFixedWidth(42)
+        self.cmb_profile = NoScrollComboBox()
+        self.cmb_profile.setMinimumWidth(120)
+        prof_sel_row.addWidget(lbl_prof)
+        prof_sel_row.addWidget(self.cmb_profile, stretch=1)
+        profl.addLayout(prof_sel_row)
+
+        # 새 프로필 이름 입력
+        prof_name_row = QHBoxLayout()
+        lbl_pname = QLabel("이름:")
+        lbl_pname.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lbl_pname.setFixedWidth(42)
+        self.edt_profile_name = QLineEdit()
+        self.edt_profile_name.setPlaceholderText("새 프로필 이름 입력")
+        self.edt_profile_name.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; "
+            f"font-size:11px; padding:2px 4px;")
+        prof_name_row.addWidget(lbl_pname)
+        prof_name_row.addWidget(self.edt_profile_name, stretch=1)
+        profl.addLayout(prof_name_row)
+
+        # 버튼 행
+        prof_btn_row = QHBoxLayout()
+        prof_btn_row.setSpacing(4)
+        btn_prof_save = QPushButton("저장")
+        btn_prof_load = QPushButton("불러오기")
+        btn_prof_del  = QPushButton("삭제")
+        for b in [btn_prof_save, btn_prof_load, btn_prof_del]:
+            b.setFixedHeight(26)
+            b.setStyleSheet(
+                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:11px;")
+            prof_btn_row.addWidget(b)
+        btn_prof_save.clicked.connect(self._save_profile)
+        btn_prof_load.clicked.connect(self._load_profile)
+        btn_prof_del.clicked.connect(self._delete_profile)
+        profl.addLayout(prof_btn_row)
+
+        layout.addWidget(grp_prof)
+        self._refresh_profile_list()
+
         # ── 시나리오 저장/불러오기 (포팅 D) ──────────────────────────────────
         grp_sc = QGroupBox("💾 시나리오")
         scl = QHBoxLayout(grp_sc)
@@ -1599,6 +1648,107 @@ class MainWindow(QMainWindow):
         self.btn_ab_run.setEnabled(True)
         self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
         self.tabs.setCurrentWidget(self.tab_ab)
+
+    # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
+
+    def _profiles_dir(self) -> str:
+        base = os.path.dirname(os.path.abspath(__file__))
+        d = os.path.join(base, 'profiles')
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _refresh_profile_list(self):
+        d = self._profiles_dir()
+        names = sorted(
+            os.path.splitext(f)[0]
+            for f in os.listdir(d) if f.endswith('.json')
+        )
+        self.cmb_profile.blockSignals(True)
+        self.cmb_profile.clear()
+        self.cmb_profile.addItems(names)
+        self.cmb_profile.blockSignals(False)
+
+    def _ui_to_profile(self) -> dict:
+        return {
+            'fleet_preset':      self.cmb_fleet.currentText(),
+            'weather':           self.cmb_weather.currentText(),
+            'enemy_mode':        self.cmb_enemy_mode.currentText(),
+            'enemy_fleet_preset': self.cmb_fleet_preset_e.currentText(),
+            'difficulty':        self.cmb_difficulty.currentText(),
+            'enemy_seed':        self.spn_seed.value(),
+            'sim_seed':          self.spn_sim_seed.value(),
+            'cd_time_s':         self.sld_cd.value(),
+            'confirm_time_s':    self.sld_confirm.value(),
+            'mc_n':              self.spn_mc_n.value(),
+        }
+
+    def _profile_to_ui(self, p: dict):
+        def _set_cmb(cmb, val):
+            idx = cmb.findText(val)
+            if idx >= 0:
+                cmb.setCurrentIndex(idx)
+
+        _set_cmb(self.cmb_fleet,          p.get('fleet_preset', ''))
+        _set_cmb(self.cmb_weather,        p.get('weather', ''))
+        _set_cmb(self.cmb_enemy_mode,     p.get('enemy_mode', ''))
+        _set_cmb(self.cmb_fleet_preset_e, p.get('enemy_fleet_preset', ''))
+        _set_cmb(self.cmb_difficulty,     p.get('difficulty', ''))
+        self.spn_seed.setValue(p.get('enemy_seed', 0))
+        self.spn_sim_seed.setValue(p.get('sim_seed', 0))
+        self.sld_cd.setValue(p.get('cd_time_s', 10))
+        self.sld_confirm.setValue(p.get('confirm_time_s', 3))
+        self.spn_mc_n.setValue(p.get('mc_n', 1000))
+
+    def _save_profile(self):
+        name = self.edt_profile_name.text().strip()
+        if not name:
+            name = self.cmb_profile.currentText().strip()
+        if not name:
+            QMessageBox.warning(self, "프로필 저장", "저장할 프로필 이름을 입력하세요.")
+            return
+        import re
+        safe = re.sub(r'[\\/:*?"<>|]', '_', name)
+        path = os.path.join(self._profiles_dir(), f"{safe}.json")
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(self._ui_to_profile(), f, ensure_ascii=False, indent=2)
+        self._refresh_profile_list()
+        idx = self.cmb_profile.findText(safe)
+        if idx >= 0:
+            self.cmb_profile.setCurrentIndex(idx)
+        self.edt_profile_name.clear()
+        self._lbl_status.setText(f"프로필 저장: {safe}")
+
+    def _load_profile(self):
+        name = self.cmb_profile.currentText().strip()
+        if not name:
+            QMessageBox.warning(self, "프로필 불러오기", "불러올 프로필을 선택하세요.")
+            return
+        path = os.path.join(self._profiles_dir(), f"{name}.json")
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "프로필 불러오기", f"파일 없음: {path}")
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                p = json.load(f)
+            self._profile_to_ui(p)
+            self._lbl_status.setText(f"프로필 불러옴: {name}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def _delete_profile(self):
+        name = self.cmb_profile.currentText().strip()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self, "프로필 삭제", f"'{name}' 프로필을 삭제하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        path = os.path.join(self._profiles_dir(), f"{name}.json")
+        if os.path.exists(path):
+            os.remove(path)
+        self._refresh_profile_list()
+        self._lbl_status.setText(f"프로필 삭제: {name}")
 
     def _save_scenario(self):
         """포팅 D: 현재 설정을 JSON으로 저장."""
