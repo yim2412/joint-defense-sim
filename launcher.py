@@ -1172,6 +1172,16 @@ class MainWindow(QMainWindow):
         self.tab_sysmon = SysMonitorTab()
         self.tabs.addTab(self.tab_sysmon,    "🖥️  시스템 모니터")
 
+        # ── 3단계 분석 탭 ──────────────────────────────────────────────────
+        self.tab_cost_eff = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_cost_eff, "💰  비용 효과")
+
+        self.tab_ammo_curve = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_ammo_curve, "🔫  탄약 소모")
+
+        self.tab_ci = MplCanvas(figsize=(12, 5))
+        self.tabs.addTab(self.tab_ci,       "📈  MC 신뢰구간")
+
         return panel
 
     def _build_req_tab(self) -> QWidget:
@@ -1463,6 +1473,9 @@ class MainWindow(QMainWindow):
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
         self._draw_channel_heatmap(result)
+        self._draw_cost_effect(result, mc)
+        self._draw_ammo_curve(mc)
+        self._draw_ci_chart(mc)
 
         self.tabs.setCurrentIndex(0)
 
@@ -1843,6 +1856,151 @@ class MainWindow(QMainWindow):
         cbar.set_label('채널 사용률', color='#aab', fontsize=8)
         fig.tight_layout()
         self.tab_channel.draw()
+
+    def _draw_cost_effect(self, result: dict, mc: dict):
+        """💰 비용 대비 효과: 격추 1건당 평균 비용, 무기별 평균 잔여 재고 막대."""
+        fig = self.tab_cost_eff.fig
+        fig.clear()
+        fig.patch.set_facecolor(C_BG)
+
+        costs     = mc.get('total_costs', [])
+        e_dest    = mc.get('enemy_destroyed', [])
+        mean_cost = float(np.mean(costs)) if costs else 0.0
+        mean_kill = float(np.mean(e_dest)) if e_dest else 0.0
+        cost_per_kill = mean_cost / mean_kill if mean_kill > 0 else float('inf')
+
+        wpn_rem = mc.get('weapon_avg_remaining', {})
+
+        if wpn_rem:
+            gs = fig.add_gridspec(1, 2, wspace=0.35)
+            ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+            ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+        else:
+            ax1 = fig.add_subplot(111, facecolor='#0a0e1a')
+            ax2 = None
+
+        # 왼쪽: 격추당 비용 텍스트 카드
+        ax1.axis('off')
+        lbl = f"${cost_per_kill:,.0f}" if cost_per_kill != float('inf') else "N/A"
+        ax1.text(0.5, 0.6, lbl, ha='center', va='center',
+                 color=C_GREEN, fontsize=26, fontweight='bold',
+                 transform=ax1.transAxes)
+        ax1.text(0.5, 0.35, '격추 1건당 평균 비용', ha='center', va='center',
+                 color=C_TEXT, fontsize=11, transform=ax1.transAxes)
+        ax1.text(0.5, 0.20, f"총 평균 비용 ${mean_cost:,.0f}  |  평균 격침 {mean_kill:.1f}척",
+                 ha='center', va='center', color=C_SUBTEXT, fontsize=9,
+                 transform=ax1.transAxes)
+        ax1.set_facecolor('#0a0e1a')
+
+        # 오른쪽: 무기별 평균 잔여 재고
+        if ax2 and wpn_rem:
+            names = list(wpn_rem.keys())
+            vals  = [wpn_rem[n] for n in names]
+            colors = [C_GREEN if v > 5 else C_ORANGE if v > 0 else C_RED for v in vals]
+            y = range(len(names))
+            ax2.barh(list(y), vals, color=colors, height=0.6)
+            ax2.set_yticks(list(y))
+            ax2.set_yticklabels(names, color=C_TEXT, fontsize=8)
+            ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
+            ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=10)
+            ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+            for sp in ax2.spines.values():
+                sp.set_color('#1e2a3a')
+
+        fig.tight_layout()
+        self.tab_cost_eff.draw()
+
+    def _draw_ammo_curve(self, mc: dict):
+        """🔫 탄약 소모: 무기별 평균 잔여 재고 vs 초기 재고 비교."""
+        fig = self.tab_ammo_curve.fig
+        fig.clear()
+        fig.patch.set_facecolor(C_BG)
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+
+        wpn_rem = mc.get('weapon_avg_remaining', {})
+        if not wpn_rem:
+            ax.text(0.5, 0.5, '데이터 없음\n(시뮬레이션 재실행 필요)',
+                    ha='center', va='center', color=C_SUBTEXT,
+                    fontsize=12, transform=ax.transAxes)
+            fig.tight_layout()
+            self.tab_ammo_curve.draw()
+            return
+
+        names = list(wpn_rem.keys())
+        vals  = [wpn_rem[n] for n in names]
+        y     = np.arange(len(names))
+        bars  = ax.barh(y, vals, color=C_ACCENT, height=0.55, alpha=0.85)
+        for bar, val in zip(bars, vals):
+            ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height()/2,
+                    f'{val:.1f}', va='center', color=C_TEXT, fontsize=8)
+        ax.set_yticks(y)
+        ax.set_yticklabels(names, color=C_TEXT, fontsize=8)
+        ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
+        ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=10)
+        ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+        fig.tight_layout()
+        self.tab_ammo_curve.draw()
+
+    def _draw_ci_chart(self, mc: dict):
+        """📈 MC 95% 신뢰구간: 요격률 분포 히스토그램 + CI 표시."""
+        fig = self.tab_ci.fig
+        fig.clear()
+        fig.patch.set_facecolor(C_BG)
+
+        rates = mc.get('intercept_rates', [])
+        if not rates:
+            ax = fig.add_subplot(111, facecolor='#0a0e1a')
+            ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
+                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+            fig.tight_layout()
+            self.tab_ci.draw()
+            return
+
+        arr   = np.array(rates)
+        mean  = float(arr.mean())
+        std   = float(arr.std())
+        ci_lo = max(0.0, mean - 1.96 * std / np.sqrt(len(arr)))
+        ci_hi = min(1.0, mean + 1.96 * std / np.sqrt(len(arr)))
+
+        gs = fig.add_gridspec(1, 2, wspace=0.35)
+        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+
+        # 히스토그램
+        ax1.hist(arr, bins=20, color=C_ACCENT, alpha=0.75, edgecolor='#1e2a3a')
+        ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}')
+        ax1.axvline(ci_lo, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 하한 {ci_lo:.1%}')
+        ax1.axvline(ci_hi, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 상한 {ci_hi:.1%}')
+        ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=9)
+        ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=9)
+        ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=10)
+        ax1.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+        ax1.tick_params(colors=C_SUBTEXT, labelsize=8)
+        for sp in ax1.spines.values(): sp.set_color('#1e2a3a')
+
+        # 함정별 평균 피격
+        ship_hits = mc.get('ship_avg_hits', {})
+        if ship_hits:
+            snames = list(ship_hits.keys())
+            shvals = [ship_hits[s] for s in snames]
+            y      = np.arange(len(snames))
+            clrs   = [C_RED if v > 1 else C_ORANGE if v > 0 else C_GREEN for v in shvals]
+            ax2.barh(y, shvals, color=clrs, height=0.55)
+            ax2.set_yticks(y)
+            ax2.set_yticklabels(snames, color=C_TEXT, fontsize=8)
+            ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=9)
+            ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=10)
+            ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+            for sp in ax2.spines.values(): sp.set_color('#1e2a3a')
+        else:
+            ax2.axis('off')
+            ax2.text(0.5, 0.5, '피격 데이터 없음', ha='center', va='center',
+                     color=C_SUBTEXT, fontsize=10, transform=ax2.transAxes)
+
+        fig.tight_layout()
+        self.tab_ci.draw()
 
 
 # ════════════════════════════════════════════════════════════════════════════
