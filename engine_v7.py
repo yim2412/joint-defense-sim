@@ -1749,17 +1749,15 @@ _SCENARIO_WEATHERS = [
 
 
 def scenario_comparison_v7(cfg: dict, n: int = 200) -> dict:
-    """날씨 3종 MC 비교. {label: {'mean_intercept', 'full_pass_rate', 'mean_cost', 'n'}} 반환."""
+    """날씨 3종 MC 비교. {label: mc_dict + mean_cost} 반환."""
     results = {}
     for label, weather in _SCENARIO_WEATHERS:
         c = dict(cfg)
         c['weather'] = weather
         mc = monte_carlo_v7(c, n=n, desc=f'시나리오: {label}')
         results[label] = {
-            'mean_intercept': mc['mean_intercept'],
-            'full_pass_rate': mc['full_pass_rate'],
-            'mean_cost':      float(np.mean(mc['total_costs'])),
-            'n':              n,
+            **mc,
+            'mean_cost': float(np.mean(mc['total_costs'])),
         }
     return results
 

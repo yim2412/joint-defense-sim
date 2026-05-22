@@ -1220,13 +1220,16 @@ class MainWindow(QMainWindow):
         btn_layout.addStretch()
         layout.addWidget(btn_row)
 
-        self.weather_table = QTableWidget(0, 4)
+        self.weather_table = QTableWidget(0, 6)
         self.weather_table.setHorizontalHeaderLabels(
-            ["날씨 시나리오", "평균 요격률", "완전 성공률", "평균 비용 ($)"])
+            ["날씨 시나리오", "평균 요격률", "완전 성공률", "평균 비용 ($)",
+             "최다 소모 무기", "가장 많이 피격된 함정"])
         hh = self.weather_table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         for col in [1, 2, 3]:
-            self.weather_table.setColumnWidth(col, 120)
+            self.weather_table.setColumnWidth(col, 110)
         self.weather_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.weather_table.setAlternatingRowColors(True)
         self.weather_table.setStyleSheet(
@@ -1520,10 +1523,29 @@ class MainWindow(QMainWindow):
         for label, res in sc.items():
             row = self.weather_table.rowCount()
             self.weather_table.insertRow(row)
+
+            # 최다 소모 무기 (잔여 재고 가장 적은 것)
+            wpn_rem = res.get('weapon_avg_remaining', {})
+            if wpn_rem:
+                top_wpn = min(wpn_rem, key=lambda k: wpn_rem[k])
+                top_wpn_str = f"{top_wpn} ({wpn_rem[top_wpn]:.1f}발 잔여)"
+            else:
+                top_wpn_str = "—"
+
+            # 가장 많이 피격된 함정
+            ship_h = res.get('ship_avg_hits', {})
+            if ship_h and max(ship_h.values()) > 0:
+                top_ship = max(ship_h, key=lambda k: ship_h[k])
+                top_ship_str = f"{top_ship} ({ship_h[top_ship]:.2f}회)"
+            else:
+                top_ship_str = "없음"
+
             values = [label,
                       f"{res['mean_intercept']:.1%}",
                       f"{res['full_pass_rate']:.1%}",
-                      f"${res['mean_cost']:,.0f}"]
+                      f"${res['mean_cost']:,.0f}",
+                      top_wpn_str,
+                      top_ship_str]
             for col, text in enumerate(values):
                 item = QTableWidgetItem(text)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
