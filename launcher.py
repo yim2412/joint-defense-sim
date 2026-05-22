@@ -988,9 +988,40 @@ class MainWindow(QMainWindow):
             "OFF 시 기본 단일 방향 접근."
         )
 
-        for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing]:
+        self.chk_cec_jammed = QCheckBox("CEC 두절  (재밍 → 함정 독립 교전)")
+        self.chk_cec_jammed.setChecked(False)
+        self.chk_cec_jammed.setToolTip(
+            "적 전자전으로 CEC 네트워크가 차단됩니다.\n"
+            "각 함정이 독립적으로 교전 — 다층 방어 무력화.\n"
+            "CEC 사전 배정이 ON이어도 강제 비활성화됩니다."
+        )
+
+        self.chk_ship_evasion = QCheckBox("함정 회피 기동  (적 미사일 15km 이내 지그재그)")
+        self.chk_ship_evasion.setChecked(False)
+        self.chk_ship_evasion.setToolTip(
+            "적 대함미사일이 15km 이내 접근 시\n"
+            "아군 함정이 지그재그 회피 기동으로 피탄율을 낮춥니다."
+        )
+
+        # 적 편대 전술 기동
+        tactics_row = QHBoxLayout()
+        lbl_tactics = QLabel("적 전술 기동:")
+        lbl_tactics.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self.cmb_enemy_tactics = NoScrollComboBox()
+        self.cmb_enemy_tactics.addItems(['없음', 'V자 대형', '포위 기동'])
+        self.cmb_enemy_tactics.setToolTip(
+            "없음: 기본 분산 접근\n"
+            "V자 대형: 선두 1기 + 양익 전개\n"
+            "포위 기동: 전방위 동시 포위 (다방위 강화)"
+        )
+        tactics_row.addWidget(lbl_tactics)
+        tactics_row.addWidget(self.cmb_enemy_tactics, stretch=1)
+
+        for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
+                    self.chk_cec_jammed, self.chk_ship_evasion]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
             defl.addWidget(chk)
+        defl.addLayout(tactics_row)
 
         # 시뮬 시드
         seed_row = QHBoxLayout()
@@ -1477,10 +1508,16 @@ class MainWindow(QMainWindow):
             'enable_helo': True,
             'enable_p3c':  True,
             'enable_p8a':  True,
-            # 방어 전술 — 항상 ON
+            # 방어 전술 — 항상 ON (UI 체크박스 읽기)
             'enable_layered_defense': True,
             'enable_cec_preassign':   True,
-            'enable_multibearing':    True,
+            'enable_multibearing':    self.chk_multibearing.isChecked(),
+            'enable_cec_jammed':      self.chk_cec_jammed.isChecked(),
+            'enable_ship_evasion':    self.chk_ship_evasion.isChecked(),
+            'enemy_tactics':          {
+                '없음': None, 'V자 대형': 'v_formation',
+                '포위 기동': 'encirclement'
+            }.get(self.cmb_enemy_tactics.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
             # C&D 시간
             'cd_time_s':      self.sld_cd.value(),
@@ -1670,16 +1707,20 @@ class MainWindow(QMainWindow):
 
     def _ui_to_profile(self) -> dict:
         return {
-            'fleet_preset':      self.cmb_fleet.currentText(),
-            'weather':           self.cmb_weather.currentText(),
-            'enemy_mode':        self.cmb_enemy_mode.currentText(),
+            'fleet_preset':       self.cmb_fleet.currentText(),
+            'weather':            self.cmb_weather.currentText(),
+            'enemy_mode':         self.cmb_enemy_mode.currentText(),
             'enemy_fleet_preset': self.cmb_fleet_preset_e.currentText(),
-            'difficulty':        self.cmb_difficulty.currentText(),
-            'enemy_seed':        self.spn_seed.value(),
-            'sim_seed':          self.spn_sim_seed.value(),
-            'cd_time_s':         self.sld_cd.value(),
-            'confirm_time_s':    self.sld_confirm.value(),
-            'mc_n':              self.spn_mc_n.value(),
+            'difficulty':         self.cmb_difficulty.currentText(),
+            'enemy_seed':         self.spn_seed.value(),
+            'sim_seed':           self.spn_sim_seed.value(),
+            'cd_time_s':          self.sld_cd.value(),
+            'confirm_time_s':     self.sld_confirm.value(),
+            'mc_n':               self.spn_mc_n.value(),
+            'multibearing':       self.chk_multibearing.isChecked(),
+            'cec_jammed':         self.chk_cec_jammed.isChecked(),
+            'ship_evasion':       self.chk_ship_evasion.isChecked(),
+            'enemy_tactics':      self.cmb_enemy_tactics.currentText(),
         }
 
     def _profile_to_ui(self, p: dict):
@@ -1693,11 +1734,15 @@ class MainWindow(QMainWindow):
         _set_cmb(self.cmb_enemy_mode,     p.get('enemy_mode', ''))
         _set_cmb(self.cmb_fleet_preset_e, p.get('enemy_fleet_preset', ''))
         _set_cmb(self.cmb_difficulty,     p.get('difficulty', ''))
+        _set_cmb(self.cmb_enemy_tactics,  p.get('enemy_tactics', '없음'))
         self.spn_seed.setValue(p.get('enemy_seed', 0))
         self.spn_sim_seed.setValue(p.get('sim_seed', 0))
         self.sld_cd.setValue(p.get('cd_time_s', 10))
         self.sld_confirm.setValue(p.get('confirm_time_s', 3))
         self.spn_mc_n.setValue(p.get('mc_n', 1000))
+        self.chk_multibearing.setChecked(p.get('multibearing', False))
+        self.chk_cec_jammed.setChecked(p.get('cec_jammed', False))
+        self.chk_ship_evasion.setChecked(p.get('ship_evasion', False))
 
     def _save_profile(self):
         name = self.edt_profile_name.text().strip()

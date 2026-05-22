@@ -602,6 +602,24 @@ class TimeStepEngine:
         total = sum(s.get('count', 1) for s in fleet_cfg)
         idx = 0
 
+        # enable_multibearing: ON → 2~4개 방위 섹터로 분산 접근
+        #                       OFF → 모두 단일 방향(기본 0°)
+        _multibearing = self.cfg.get('enable_multibearing', False)
+        if _multibearing:
+            _n_sectors = min(4, max(2, total))
+            _sector_bases = [
+                math.radians(i * (360 / _n_sectors))
+                for i in range(_n_sectors)
+            ]
+        else:
+            _single_bearing = math.radians(random.uniform(0, 360))
+
+        # 적 편대 전술 기동 — 초기 배치 오프셋
+        # 'v_formation': V자 대형 (선두 1기 + 양익)
+        # 'encirclement': 포위 기동 (원형 배치)
+        # None / 기타: 기본 (bearing 분산)
+        _tactics = self.cfg.get('enemy_tactics', None)
+
         for spec in fleet_cfg:
             name  = spec['preset']
             count = spec.get('count', 1)
@@ -611,7 +629,12 @@ class TimeStepEngine:
             ttype = info.get('type', '')
 
             for _ in range(count):
-                bearing_rad = math.radians((idx / max(total, 1)) * 360)
+                if _multibearing:
+                    sector = idx % _n_sectors
+                    bearing_rad = _sector_bases[sector] + math.radians(
+                        random.uniform(-15, 15))
+                else:
+                    bearing_rad = _single_bearing
 
                 # BUG-3 연계: 수상함은 대함 레이더 탐지거리(45km)에서 시작
                 # 항공·독립미사일은 대공 탐지거리, 잠수함은 소나 탐지거리 유지
@@ -651,7 +674,27 @@ class TimeStepEngine:
                     self.missiles.append(m)
                     self.stats['total_threats'] += 1
                 else:
-                    threats.append(EnemyThreatObj(name, pos))
+                    et = EnemyThreatObj(name, pos)
+                    # 전술 기동 대형: V자 or 포위 초기 배치 오프셋
+                    if _tactics == 'v_formation':
+                        # 선두(idx=0)는 앞쪽, 나머지는 V자 양익
+                        if idx == 0:
+                            et.pos.x += math.cos(bearing_rad) * (-5_000)
+                            et.pos.y += math.sin(bearing_rad) * (-5_000)
+                        else:
+                            wing_side = 1 if (idx % 2 == 0) else -1
+                            perp = bearing_rad + math.pi / 2
+                            wing_dist = (idx // 2 + 1) * 3_000
+                            et.pos.x += math.cos(perp) * wing_dist * wing_side
+                            et.pos.y += math.sin(perp) * wing_dist * wing_side
+                            et.pos.x += math.cos(bearing_rad) * 3_000
+                            et.pos.y += math.sin(bearing_rad) * 3_000
+                    elif _tactics == 'encirclement':
+                        # 포위: 전체가 원형으로 배치 (다방향 동시 접근 강화)
+                        enc_bearing = math.radians((idx / max(total, 1)) * 360)
+                        et.pos.x = math.cos(enc_bearing) * (detect_km * 1000)
+                        et.pos.y = math.sin(enc_bearing) * (detect_km * 1000)
+                    threats.append(et)
 
                 idx += 1
 
@@ -731,6 +774,23 @@ class TimeStepEngine:
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
 
     def _update_positions(self):
+        # 아군 함정 회피 기동: 적 미사일이 15km 이내 접근 시 지그재그 위치 보정
+        if self.cfg.get('enable_ship_evasion', False):
+            _evade_r = 15_000  # 15km 이내 = 회피 기동 개시
+            for ship in self.friendly_ships:
+                if not ship.alive:
+                    continue
+                close = any(
+                    m.alive and m.mtype == 'enemy_strike'
+                    and m.pos.dist_to(ship.pos) < _evade_r
+                    for m in self.missiles
+                )
+                if close:
+                    angle = random.uniform(0, 2 * math.pi)
+                    evade_m = random.uniform(300, 800)  # 300~800m 순간 회피
+                    ship.pos.x += math.cos(angle) * evade_m
+                    ship.pos.y += math.sin(angle) * evade_m
+
         primary_pos = self._primary().pos
         for et in self.enemy_threats:
             if not et.alive:
@@ -869,7 +929,13 @@ class TimeStepEngine:
         NEW-AW: 위협 긴급도 정렬 — 속도/잔여거리 내림차순 (빠르고 가까운 위협 먼저)
         NEW-AW: Shoot-Look-Shoot — 탄도/초음속/HGV/QBM 위협은 CEC 없이도 2발 배정
         """
-        cec = self.cfg.get('enable_cec_preassign', False)
+        # CEC 두절 시나리오: enable_cec_jammed=True 이면 CEC 강제 해제 + 독립 교전
+        cec_jammed = self.cfg.get('enable_cec_jammed', False)
+        cec = self.cfg.get('enable_cec_preassign', False) and not cec_jammed
+
+        # CEC 두절 시 각 함정이 독립적으로 교전 (다층 방어 비활성화, 1함정=1교전)
+        layered = self.cfg.get('enable_layered_defense', True) and not cec_jammed
+
         primary_pos = self._primary().pos
 
         def _urgency(obj):
@@ -877,10 +943,17 @@ class TimeStepEngine:
             return getattr(obj, 'speed_ms', 300) / d
 
         # 다층 방어 우선순위 정렬 (KDX-III=0, KDX-II=1, FFX=2, 나머지=99)
-        sorted_ships = sorted(
-            [s for s in self.friendly_ships if s.alive],
-            key=lambda s: SHIP_LAYER_PRI.get(s.ship_type, 99)
-        )
+        if layered:
+            sorted_ships = sorted(
+                [s for s in self.friendly_ships if s.alive],
+                key=lambda s: SHIP_LAYER_PRI.get(s.ship_type, 99)
+            )
+        else:
+            # CEC 두절: 함정별로 독립 교전 — 처리 순서는 무작위
+            import random as _rnd
+            _ships = [s for s in self.friendly_ships if s.alive]
+            _rnd.shuffle(_ships)
+            sorted_ships = _ships
 
         # (A) 적 대함 미사일 요격 — 긴급도 순 정렬
         sorted_missiles = sorted(
@@ -896,8 +969,9 @@ class TimeStepEngine:
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
             )
             # 탄도/극초음속/초음속(≥1000m/s) 고위협은 Shoot-Look-Shoot: 2발 배정
+            # CEC 두절 시 고위협도 1발로 제한 (독립 교전)
             is_high = m.is_ballistic or m.is_hgv or m.is_qbm or m.speed_ms >= 1000
-            max_sams = 2 if (cec or is_high) else 1
+            max_sams = 1 if cec_jammed else (2 if (cec or is_high) else 1)
             if sams_on >= max_sams:
                 continue
 
@@ -931,9 +1005,9 @@ class TimeStepEngine:
                 1 for s in self.missiles
                 if s.alive and s.target is et and s.mtype == 'friendly_sam'
             )
-            # 초음속 항공기(≥600m/s, 약 Mach 1.8+)는 2발 배정
+            # 초음속 항공기(≥600m/s, 약 Mach 1.8+)는 2발 배정 (CEC 두절 시 1발)
             is_high_ac = et.speed_ms >= 600
-            max_sams = 2 if (cec or is_high_ac) else 1
+            max_sams = 1 if cec_jammed else (2 if (cec or is_high_ac) else 1)
             if sams_on >= max_sams:
                 continue
 
