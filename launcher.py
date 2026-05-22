@@ -21,7 +21,8 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, time, threading, json
+import sys, os, time, threading, json, multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 def _res(filename: str) -> str:
@@ -60,10 +61,11 @@ try:
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
         evaluate_req_v7, REQ_ITEMS_V7,
-        scenario_comparison_v7, compare_ab_v7,
+        scenario_comparison_v7,
         save_scenario_v7, load_scenario_v7,
         calculate_fleet_detect_ranges,
         save_json_report_v7,
+        _mc_batch_worker,
     )
     _V7_OK = True
 except ImportError as e:
@@ -211,8 +213,196 @@ QToolTip {{
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  플로팅 모니터 창 (시뮬 중 팝업)
+# ════════════════════════════════════════════════════════════════════════════
+class FloatingMonitor(QWidget):
+    """시뮬레이션 실행 중 팝업 — MC 진행률 + CPU/RAM/GPU."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent,
+                         Qt.WindowType.Window |
+                         Qt.WindowType.FramelessWindowHint |
+                         Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(360, 220)
+        self._drag_pos = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(800)
+        self._timer.timeout.connect(self._refresh_sys)
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget(self)
+        card.setObjectName('fmon_card')
+        card.setStyleSheet(f"""
+            #fmon_card {{
+                background: rgba(13,17,23,230);
+                border: 1px solid {C_ACCENT};
+                border-radius: 10px;
+            }}
+        """)
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(16, 12, 16, 14)
+        inner.setSpacing(6)
+
+        # 제목 행
+        title_row = QHBoxLayout()
+        lbl_title = QLabel("⚙  시뮬레이션 실행 중…")
+        lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:14px; font-weight:bold;")
+        title_row.addWidget(lbl_title)
+        title_row.addStretch()
+        inner.addLayout(title_row)
+
+        # MC 진행률
+        self._lbl_mc = QLabel("MC  0 / 0")
+        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        self._prog_mc = QProgressBar()
+        self._prog_mc.setRange(0, 100)
+        self._prog_mc.setValue(0)
+        self._prog_mc.setFixedHeight(10)
+        self._prog_mc.setStyleSheet(f"""
+            QProgressBar {{ background:{C_PANEL}; border-radius:4px; border:1px solid {C_BORDER}; }}
+            QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}
+        """)
+        self._lbl_eta = QLabel("잔여 약 —초")
+        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        inner.addWidget(self._lbl_mc)
+        inner.addWidget(self._prog_mc)
+        inner.addWidget(self._lbl_eta)
+
+        # 구분선
+        sep = QLabel()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background:{C_BORDER};")
+        inner.addWidget(sep)
+
+        # 시스템 자원
+        grid = QWidget()
+        gl = QHBoxLayout(grid)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.setSpacing(20)
+
+        self._lbl_cpu = self._make_stat_lbl("CPU", "—%")
+        self._lbl_ram = self._make_stat_lbl("RAM", "— GB")
+        self._lbl_gpu = self._make_stat_lbl("GPU", "—%")
+
+        for w in (self._lbl_cpu, self._lbl_ram, self._lbl_gpu):
+            gl.addWidget(w)
+        inner.addWidget(grid)
+
+        # 드래그 안내
+        tip = QLabel("드래그로 이동")
+        tip.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+        tip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(tip)
+
+        outer.addWidget(card)
+
+    def _make_stat_lbl(self, title: str, init: str) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(2)
+        t = QLabel(title)
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+        val = QLabel(init)
+        val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        val.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold;")
+        val.setObjectName(f'stat_{title}')
+        v.addWidget(t)
+        v.addWidget(val)
+        return w
+
+    def _refresh_sys(self):
+        cpu = psutil.cpu_percent(interval=None)
+        ram = psutil.virtual_memory()
+        ram_gb = ram.used / 1024**3
+        gpu_str = "—%"
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ['nvidia-smi', '--query-gpu=utilization.gpu',
+                 '--format=csv,noheader,nounits'],
+                timeout=1, stderr=subprocess.DEVNULL)
+            gpu_str = f"{out.decode().strip()}%"
+        except Exception:
+            pass
+
+        def _find(parent, name):
+            return parent.findChild(QLabel, f'stat_{name}')
+
+        _find(self._lbl_cpu, 'CPU').setText(f"{cpu:.0f}%")
+        _find(self._lbl_ram, 'RAM').setText(f"{ram_gb:.1f} GB")
+        _find(self._lbl_gpu, 'GPU').setText(gpu_str)
+
+    def update_mc(self, done: int, total: int, eta: float):
+        self._lbl_mc.setText(f"MC  {done} / {total}")
+        pct = int(done * 100 / total) if total > 0 else 0
+        self._prog_mc.setValue(pct)
+        self._lbl_eta.setText(f"잔여 약 {eta:.0f}초" if eta > 0 else "잔여 계산 중…")
+
+    def show(self):
+        super().show()
+        self._timer.start()
+        self._refresh_sys()
+
+    def close(self):
+        self._timer.stop()
+        super().close()
+
+    # ── 드래그 이동 ──────────────────────────────────────────────────────────
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  백그라운드 시뮬레이션 워커
 # ════════════════════════════════════════════════════════════════════════════
+class SensitivityWorker(QThread):
+    """감도 분석 MC를 백그라운드에서 실행 후 결과 전달."""
+    finished = pyqtSignal(list, list, list, float)  # (labels, lows, highs, base_rate)
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg: dict, mc_n: int):
+        super().__init__()
+        self.cfg  = cfg
+        self.mc_n = max(50, mc_n // 5)
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            params = [
+                ('C&D 시간',  'cd_time_s',      5, 20),
+                ('확인 시간', 'confirm_time_s',  1, 10),
+                ('시뮬 시드', 'sim_seed',         1, 42),
+            ]
+            base_mc   = monte_carlo_v7(self.cfg, self.mc_n)
+            base_rate = base_mc['mean_intercept']
+            labels, lows, highs = [], [], []
+            for name, key, lo_val, hi_val in params:
+                r_lo = monte_carlo_v7({**self.cfg, key: lo_val}, self.mc_n)['mean_intercept']
+                r_hi = monte_carlo_v7({**self.cfg, key: hi_val}, self.mc_n)['mean_intercept']
+                labels.append(f"{name}\n({lo_val}→{hi_val})")
+                lows.append(r_lo - base_rate)
+                highs.append(r_hi - base_rate)
+            self.finished.emit(labels, lows, highs, base_rate)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class SimWorker(QThread):
     progress        = pyqtSignal(str)           # 진행 메시지
     progress_detail = pyqtSignal(int, int, float) # (현재, 전체, ETA초)
@@ -233,16 +423,62 @@ class SimWorker(QThread):
             result = run_v7_simulation(self.cfg)
             self.progress.emit(f"MC {self.mc_n}회 분석 중...")
             t0 = time.time()
-            # MC 진행률 콜백 지원 (monte_carlo_v7가 progress_cb를 지원할 경우)
+
             def _cb(done, total):
                 elapsed = time.time() - t0
                 eta = (elapsed / done * (total - done)) if done > 0 else 0.0
                 self.progress_detail.emit(done, total, eta)
                 self.progress.emit(f"MC {done}/{total}회 | 잔여 약 {eta:.0f}초")
-            try:
-                mc = monte_carlo_v7(self.cfg, n=self.mc_n, progress_cb=_cb)
-            except TypeError:
-                mc = monte_carlo_v7(self.cfg, n=self.mc_n)
+
+            n_cores = min(os.cpu_count() or 1, 8)
+            if not _V7_OK or self.mc_n < 100 or n_cores <= 1:
+                # 소규모 or 단일코어 — 순차 실행
+                try:
+                    mc = monte_carlo_v7(self.cfg, n=self.mc_n, progress_cb=_cb)
+                except TypeError:
+                    mc = monte_carlo_v7(self.cfg, n=self.mc_n)
+            else:
+                # 멀티프로세싱 병렬 MC
+                batch_size = max(10, self.mc_n // n_cores)
+                batches, seed_offset = [], 0
+                while seed_offset < self.mc_n:
+                    actual = min(batch_size, self.mc_n - seed_offset)
+                    batches.append((self.cfg, actual, seed_offset))
+                    seed_offset += actual
+
+                all_rates, all_f_hits, all_e_dest = [], [], []
+                all_f_lost, all_costs = [], []
+                all_weapon: dict = {}
+                all_ship: dict = {}
+                done_count = 0
+
+                with ProcessPoolExecutor(max_workers=n_cores) as pool:
+                    futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
+                    for fut in as_completed(futs):
+                        rates, fh, ed, fl, cs, wu, sh = fut.result()
+                        all_rates.extend(rates);  all_f_hits.extend(fh)
+                        all_e_dest.extend(ed);    all_f_lost.extend(fl)
+                        all_costs.extend(cs)
+                        for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
+                        for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
+                        done_count += len(rates)
+                        _cb(done_count, self.mc_n)
+
+                arr = np.array(all_rates)
+                mc = {
+                    'intercept_rates':      all_rates,
+                    'friendly_hits':        all_f_hits,
+                    'enemy_destroyed':      all_e_dest,
+                    'friendly_lost':        all_f_lost,
+                    'total_costs':          all_costs,
+                    'weapon_avg_remaining': {k: float(np.mean(v)) for k, v in all_weapon.items()},
+                    'ship_avg_hits':        {k: float(np.mean(v)) for k, v in all_ship.items()},
+                    'mean_intercept':       float(arr.mean()),
+                    'std_intercept':        float(arr.std()),
+                    'full_pass_rate':       float((arr == 1.0).mean()),
+                    'n':                    len(all_rates),
+                }
+
             self.sim_ended.emit()
             self.finished.emit(result, mc)
         except Exception as e:
@@ -782,6 +1018,7 @@ class MainWindow(QMainWindow):
         self._mc     = None
         self._t0     = 0.0
         self._history: list = []  # 이전 실행 결과 히스토리 (최대 5개)
+        self._float_mon = FloatingMonitor()
 
         self._build_ui()
         self._apply_style()
@@ -1162,16 +1399,12 @@ class MainWindow(QMainWindow):
         scl.setSpacing(6)
         btn_save = QPushButton("저장")
         btn_load = QPushButton("불러오기")
-        btn_save_a = QPushButton("A로 저장")
-        btn_save_b = QPushButton("B로 저장")
-        for b in [btn_save, btn_load, btn_save_a, btn_save_b]:
+        for b in [btn_save, btn_load]:
             b.setFixedHeight(28)
             b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:11px;")
             scl.addWidget(b)
         btn_save.clicked.connect(self._save_scenario)
         btn_load.clicked.connect(self._load_scenario)
-        btn_save_a.clicked.connect(lambda: self._save_ab('A'))
-        btn_save_b.clicked.connect(lambda: self._save_ab('B'))
         layout.addWidget(grp_sc)
 
         # ── 실행 버튼 ─────────────────────────────────────────────────────
@@ -1265,8 +1498,6 @@ class MainWindow(QMainWindow):
         self.tab_weather = self._build_weather_tab()
         self.tabs.addTab(self.tab_weather,   "🌤️  날씨 비교")
 
-        self.tab_ab = self._build_ab_tab()
-        self.tabs.addTab(self.tab_ab,        "🆚  A vs B")
 
         self.tab_log = self._build_log_tab()
         self.tabs.addTab(self.tab_log,       "📜  교전 로그")
@@ -1361,53 +1592,6 @@ class MainWindow(QMainWindow):
         self.weather_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
         layout.addWidget(self.weather_table)
-        return w
-
-    def _build_ab_tab(self) -> QWidget:
-        """포팅 D: A vs B 시나리오 비교 탭."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        self._cfg_a: dict = {}
-        self._cfg_b: dict = {}
-
-        info_row = QWidget()
-        info_layout = QHBoxLayout(info_row)
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        self.lbl_ab_a = QLabel("A: 미설정")
-        self.lbl_ab_b = QLabel("B: 미설정")
-        for lbl in [self.lbl_ab_a, self.lbl_ab_b]:
-            lbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px; padding:4px;")
-        info_layout.addWidget(self.lbl_ab_a)
-        info_layout.addStretch()
-        info_layout.addWidget(self.lbl_ab_b)
-        layout.addWidget(info_row)
-
-        ab_btn_row = QHBoxLayout()
-        self.btn_ab_run = QPushButton("🆚  A vs B 비교 실행 (각 200회 MC)")
-        self.btn_ab_run.setFixedHeight(36)
-        self.btn_ab_run.clicked.connect(self._run_ab_compare)
-        self.btn_ab_pdf = QPushButton("📄 통합 보고서 PDF")
-        self.btn_ab_pdf.setFixedHeight(36)
-        self.btn_ab_pdf.setStyleSheet(
-            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:11px;")
-        self.btn_ab_pdf.clicked.connect(self._export_ab_pdf)
-        ab_btn_row.addWidget(self.btn_ab_run, stretch=3)
-        ab_btn_row.addWidget(self.btn_ab_pdf, stretch=1)
-        layout.addLayout(ab_btn_row)
-
-        self.ab_table = QTableWidget(0, 3)
-        self.ab_table.setHorizontalHeaderLabels(["항목", "시나리오 A", "시나리오 B"])
-        hh = self.ab_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in [1, 2]:
-            self.ab_table.setColumnWidth(col, 150)
-        self.ab_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.ab_table.setAlternatingRowColors(True)
-        self.ab_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self.ab_table)
         return w
 
     def _build_log_tab(self) -> QWidget:
@@ -1588,7 +1772,20 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(self._on_error)
         self._worker.sim_started.connect(self.tab_sysmon.mark_sim_start)
         self._worker.sim_ended.connect(self.tab_sysmon.mark_sim_end)
+        # 플로팅 모니터 연결
+        self._worker.sim_started.connect(self._show_float_mon)
+        self._worker.sim_ended.connect(self._float_mon.close)
+        self._worker.progress_detail.connect(self._float_mon.update_mc)
         self._worker.start()
+
+    def _show_float_mon(self):
+        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시."""
+        geo = self.geometry()
+        mon = self._float_mon
+        x = geo.right()  - mon.width()  - 20
+        y = geo.bottom() - mon.height() - 60
+        mon.move(x, y)
+        mon.show()
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -1625,10 +1822,14 @@ class MainWindow(QMainWindow):
         self._draw_threat_type(result, mc)
         self._draw_vuln_time(result)
         self._draw_history_compare(result, mc)
-        # 감도 분석은 백그라운드 MC가 필요하므로 현재 cfg 저장 후 별도 실행
-        cfg = self._worker.cfg if self._worker else {}
+        # 감도 분석 — 백그라운드 SensitivityWorker로 비차단 실행
+        cfg  = self._worker.cfg  if self._worker else {}
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
-        QTimer.singleShot(500, lambda: self._draw_sensitivity(cfg, mc_n))
+        self._sensitivity_placeholder()
+        self._sens_worker = SensitivityWorker(cfg, mc_n)
+        self._sens_worker.finished.connect(self._on_sensitivity_done)
+        self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
+        self._sens_worker.start()
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -1716,134 +1917,6 @@ class MainWindow(QMainWindow):
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
         self.tabs.setCurrentWidget(self.tab_weather)
-
-    def _run_ab_compare(self):
-        """포팅 D: A vs B 비교 실행."""
-        if not _V7_OK:
-            return
-        if not self._cfg_a or not self._cfg_b:
-            QMessageBox.information(self, "안내",
-                                    "설정 패널에서 'A로 저장'과 'B로 저장'을 먼저 눌러주세요.")
-            return
-        self.btn_ab_run.setEnabled(False)
-        self.btn_ab_run.setText("실행 중...")
-        QApplication.processEvents()
-        try:
-            ab = compare_ab_v7(self._cfg_a, self._cfg_b, n=200)
-        except Exception as e:
-            QMessageBox.critical(self, "오류", str(e))
-            self.btn_ab_run.setEnabled(True)
-            self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
-            return
-        mc_a, mc_b = ab['a'], ab['b']
-        self.ab_table.setRowCount(0)
-        rows = [
-            ("평균 요격률",    f"{mc_a['mean_intercept']:.1%}", f"{mc_b['mean_intercept']:.1%}"),
-            ("완전 성공률",    f"{mc_a['full_pass_rate']:.1%}", f"{mc_b['full_pass_rate']:.1%}"),
-            ("평균 비용 ($)",  f"${sum(mc_a['total_costs'])/len(mc_a['total_costs']):,.0f}",
-                               f"${sum(mc_b['total_costs'])/len(mc_b['total_costs']):,.0f}"),
-            ("Δ 요격률",       "—", f"{ab['delta_intercept']:+.1%}"),
-            ("Δ 비용 ($)",     "—", f"${ab['delta_cost']:+,.0f}"),
-        ]
-        for label, val_a, val_b in rows:
-            row = self.ab_table.rowCount()
-            self.ab_table.insertRow(row)
-            for col, text in enumerate([label, val_a, val_b]):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.ab_table.setItem(row, col, item)
-        self._ab_result = ab  # PDF 내보내기용 저장
-        self.btn_ab_run.setEnabled(True)
-        self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
-        self.tabs.setCurrentWidget(self.tab_ab)
-
-    def _export_ab_pdf(self):
-        """A vs B 통합 비교 보고서 PDF 생성."""
-        ab = getattr(self, '_ab_result', None)
-        if not ab:
-            QMessageBox.information(self, "안내", "먼저 A vs B 비교를 실행하세요.")
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "A vs B 통합 보고서", "report_ab.pdf", "PDF (*.pdf)")
-        if not path:
-            return
-        try:
-            self._generate_ab_pdf(path, ab)
-            QMessageBox.information(self, "저장 완료", f"A vs B 통합 보고서:\n{path}")
-        except Exception as e:
-            QMessageBox.critical(self, "오류", str(e))
-
-    def _generate_ab_pdf(self, path: str, ab: dict):
-        """matplotlib PdfPages — A vs B 통합 비교 보고서."""
-        from matplotlib.backends.backend_pdf import PdfPages
-        mc_a = ab['a']
-        mc_b = ab['b']
-        label_a = (self._cfg_a.get('weather', '?') + ' / ' +
-                   self._cfg_a.get('enemy_fleet_preset',
-                                   self._cfg_a.get('enemy_fleet_mode', '?')))
-        label_b = (self._cfg_b.get('weather', '?') + ' / ' +
-                   self._cfg_b.get('enemy_fleet_preset',
-                                   self._cfg_b.get('enemy_fleet_mode', '?')))
-
-        with PdfPages(path) as pdf:
-            # 1페이지: 커버 + 수치 비교 표
-            fig, ax = plt.subplots(figsize=(11.7, 8.3))
-            fig.patch.set_facecolor('#0a0e1a')
-            ax.set_facecolor('#0a0e1a')
-            ax.axis('off')
-            ax.text(0.5, 0.95, 'A vs B 시나리오 비교 보고서',
-                    ha='center', va='top', color=C_ACCENT, fontsize=24,
-                    fontweight='bold', transform=ax.transAxes)
-            ax.text(0.5, 0.87, f'A: {label_a}   ↔   B: {label_b}',
-                    ha='center', va='top', color=C_TEXT, fontsize=12,
-                    transform=ax.transAxes)
-            table_data = [
-                ['항목', f'A: {label_a[:30]}', f'B: {label_b[:30]}', 'Δ (B-A)'],
-                ['평균 요격률',
-                 f"{mc_a['mean_intercept']:.1%}",
-                 f"{mc_b['mean_intercept']:.1%}",
-                 f"{ab['delta_intercept']:+.1%}"],
-                ['완전 성공률',
-                 f"{mc_a['full_pass_rate']:.1%}",
-                 f"{mc_b['full_pass_rate']:.1%}",
-                 f"{mc_b['full_pass_rate']-mc_a['full_pass_rate']:+.1%}"],
-                ['평균 비용',
-                 f"${sum(mc_a['total_costs'])/len(mc_a['total_costs']):,.0f}",
-                 f"${sum(mc_b['total_costs'])/len(mc_b['total_costs']):,.0f}",
-                 f"${ab['delta_cost']:+,.0f}"],
-            ]
-            tbl = ax.table(cellText=table_data[1:], colLabels=table_data[0],
-                           loc='center', cellLoc='center')
-            tbl.auto_set_font_size(False)
-            tbl.set_fontsize(11)
-            tbl.scale(1.2, 2.0)
-            for (r, c), cell in tbl.get_celld().items():
-                cell.set_facecolor('#0d1b2a' if r % 2 == 0 else '#0a0e1a')
-                cell.set_edgecolor('#1e2a3a')
-                cell.set_text_props(color=C_TEXT)
-            pdf.savefig(fig, facecolor='#0a0e1a')
-            plt.close(fig)
-
-            # 2페이지: 요격률 분포 히스토그램 비교
-            fig2, ax2 = plt.subplots(figsize=(11.7, 8.3))
-            fig2.patch.set_facecolor('#0a0e1a')
-            ax2.set_facecolor('#0a0e1a')
-            rates_a = mc_a.get('intercept_rates', [])
-            rates_b = mc_b.get('intercept_rates', [])
-            if rates_a:
-                ax2.hist(rates_a, bins=20, alpha=0.6, color='#3498db', label=f'A ({label_a[:20]})')
-            if rates_b:
-                ax2.hist(rates_b, bins=20, alpha=0.6, color='#e74c3c', label=f'B ({label_b[:20]})')
-            ax2.set_xlabel('요격률', color=C_SUBTEXT, fontsize=11)
-            ax2.set_ylabel('빈도', color=C_SUBTEXT, fontsize=11)
-            ax2.set_title('요격률 분포 비교', color=C_TEXT, fontsize=14)
-            ax2.tick_params(colors=C_SUBTEXT)
-            for sp in ax2.spines.values(): sp.set_color('#1e2a3a')
-            ax2.legend(fontsize=10, facecolor='#0a0e1a', labelcolor=C_TEXT,
-                       edgecolor='#1e2a3a')
-            fig2.tight_layout()
-            pdf.savefig(fig2, facecolor='#0a0e1a')
-            plt.close(fig2)
 
     # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
 
@@ -1992,22 +2065,6 @@ class MainWindow(QMainWindow):
                 f"날씨: {cfg.get('weather','—')} | MC: {cfg.get('mc_n','—')}회")
         except Exception as e:
             QMessageBox.critical(self, "오류", str(e))
-
-    def _save_ab(self, slot: str):
-        """포팅 D: 현재 cfg를 A 또는 B 슬롯에 저장."""
-        cfg = self._worker.cfg if (self._worker and hasattr(self._worker, 'cfg')) else {}
-        if not cfg:
-            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
-            return
-        if slot == 'A':
-            self._cfg_a = dict(cfg)
-            self.lbl_ab_a.setText(
-                f"A: {cfg.get('weather','—')} | {cfg.get('enemy_fleet_mode','—')}")
-        else:
-            self._cfg_b = dict(cfg)
-            self.lbl_ab_b.setText(
-                f"B: {cfg.get('weather','—')} | {cfg.get('enemy_fleet_mode','—')}")
-        self.tabs.setCurrentWidget(self.tab_ab)
 
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
@@ -2448,41 +2505,49 @@ class MainWindow(QMainWindow):
         fig.tight_layout()
         self.tab_timeline.draw()
 
-    def _draw_sensitivity(self, base_cfg: dict, mc_n: int):
-        """감도 분석 — 파라미터별 요격률 변화 Tornado chart."""
-        if not _V7_OK:
-            return
+    def _sensitivity_placeholder(self):
+        """감도 분석 탭에 '계산 중' 안내 텍스트 표시."""
+        fig = self.tab_sensitivity.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+        ax.text(0.5, 0.5, '감도 분석 계산 중… ⏳\n(백그라운드 실행 중)',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
+                transform=ax.transAxes)
+        ax.axis('off')
+        fig.tight_layout()
+        self.tab_sensitivity.draw()
+
+    def _sensitivity_error(self, msg: str):
+        """감도 분석 오류 시 탭에 에러 메시지 표시."""
+        fig = self.tab_sensitivity.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+        ax.text(0.5, 0.5, f'감도 분석 오류\n{msg}',
+                ha='center', va='center', color='#e74c3c', fontsize=11,
+                transform=ax.transAxes)
+        ax.axis('off')
+        fig.tight_layout()
+        self.tab_sensitivity.draw()
+
+    def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
+        """SensitivityWorker 완료 시 Tornado chart 렌더링."""
+        self._draw_sensitivity(labels, lows, highs, base_rate)
+
+    def _draw_sensitivity(self, labels: list, lows: list, highs: list, base_rate: float):
+        """감도 분석 — 파라미터별 요격률 변화 Tornado chart (사전 계산된 데이터 사용)."""
         fig = self.tab_sensitivity.fig
         fig.clear()
         ax = fig.add_subplot(111)
         ax.set_facecolor('#0a0e1a')
         fig.patch.set_facecolor('#0a0e1a')
 
-        params = [
-            ('C&D 시간',   'cd_time_s',      5, 20, 10),
-            ('확인 시간',  'confirm_time_s',  1, 10,  3),
-            ('MC 시드',    'sim_seed',         1, 42,  0),
-        ]
-
-        base_mc = monte_carlo_v7(base_cfg, mc_n // 5 or 50)
-        base_rate = base_mc['mean_intercept']
-
-        labels, lows, highs = [], [], []
-        for name, key, lo_val, hi_val, _ in params:
-            cfg_lo = {**base_cfg, key: lo_val}
-            cfg_hi = {**base_cfg, key: hi_val}
-            try:
-                r_lo = monte_carlo_v7(cfg_lo, mc_n // 5 or 50)['mean_intercept']
-                r_hi = monte_carlo_v7(cfg_hi, mc_n // 5 or 50)['mean_intercept']
-            except Exception:
-                r_lo = r_hi = base_rate
-            labels.append(f"{name}\n({lo_val}→{hi_val})")
-            lows.append(r_lo - base_rate)
-            highs.append(r_hi - base_rate)
-
         y = range(len(labels))
-        bars_lo = ax.barh(list(y), lows,  color='#e74c3c', alpha=0.8, label='낮은값')
-        bars_hi = ax.barh(list(y), highs, color='#2ecc71', alpha=0.8, label='높은값')
+        ax.barh(list(y), lows,  color='#e74c3c', alpha=0.8, label='낮은값')
+        ax.barh(list(y), highs, color='#2ecc71', alpha=0.8, label='높은값')
         ax.axvline(0, color=C_TEXT, lw=1)
         ax.set_yticks(list(y))
         ax.set_yticklabels(labels, color=C_TEXT, fontsize=9)
@@ -3093,6 +3158,7 @@ def main():
 
 
 if __name__ == '__main__':
+    multiprocessing.freeze_support()   # PyInstaller exe 멀티프로세싱 필수
     main()
 
 

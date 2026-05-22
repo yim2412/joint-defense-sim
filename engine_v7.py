@@ -1763,6 +1763,31 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     }
 
 
+def _mc_batch_worker(args: tuple) -> tuple:
+    """ProcessPoolExecutor 배치 워커 — PyQt6 의존성 없는 순수 엔진 함수."""
+    cfg, n, seed_offset = args
+    rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    weapon_usage: dict = {}
+    ship_hits_mc: dict = {}
+    base_seed = cfg.get('sim_seed', None)
+    for i in range(n):
+        run_cfg = dict(cfg)
+        if base_seed:
+            run_cfg['sim_seed'] = int(base_seed) + seed_offset + i
+        r = run_v7_simulation(run_cfg)
+        rates.append(r['intercept_rate'])
+        f_hits.append(r['friendly_hits'])
+        e_dest.append(r['enemy_ships_destroyed'])
+        f_lost.append(r['friendly_ships_lost'])
+        costs.append(r['total_cost'])
+        for wpn, remaining in r.get('remaining_inventory', {}).items():
+            weapon_usage.setdefault(wpn, []).append(remaining)
+        for ship in r.get('friendly_ships', []):
+            ship_hits_mc.setdefault(ship.name, []).append(
+                getattr(ship, 'hits_taken', 0))
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  포팅 D: REQ 요구조건 판정
 # ════════════════════════════════════════════════════════════════════════════

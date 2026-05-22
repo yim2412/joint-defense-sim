@@ -114,5 +114,18 @@
       "NEW-BN A vs B 통합 PDF 비교 보고서",
       "NEW-BO 앱 아이콘 (aegis_icon.ico) + spec 적용"
     ]
+  },
+  {
+    "version": "v7.2",
+    "date": "2026-05-23",
+    "title": "성능·UX 패치 — 감도 분석 비차단 + MC 멀티프로세싱 + 플로팅 모니터",
+    "changes": [
+      "FIX-1  A vs B 탭 완전 제거 (탭·버튼·메서드 모두 삭제)",
+      "FIX-2  감도 분석 freeze 수정 — SensitivityWorker(QThread) 백그라운드 실행",
+      "NEW-BP FloatingMonitor 팝업 창 — 시뮬 중 MC 진행률 + CPU/RAM/GPU 표시, 드래그 이동",
+      "NEW-BQ MC 멀티프로세싱 — ProcessPoolExecutor 최대 8코어 자동 배치 분산",
+      "NEW-BR _mc_batch_worker 엔진 함수 — PyQt6 의존성 없는 서브프로세스 안전 워커",
+      "NEW-BS freeze_support() 추가 — PyInstaller exe 멀티프로세싱 정상 동작"
+    ]
   }
 ]
