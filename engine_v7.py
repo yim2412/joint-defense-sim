@@ -43,6 +43,12 @@ v7.0 패치 이력:
     - AW-159 와일드캣: 함재 헬기, 청상어 2발, 사거리 140km, 폭풍/태풍/농무 불가
     - P-3C 오라이온: 포항기지 출격(+300km), Mk.46 4발, 소노부이 탐지+15km
     - P-8A 포세이돈: 포항기지 출격(+300km), Mk.46 5발, 소노부이 탐지+18km
+  · 포팅 D: 분석 기능 — REQ 판정 + 날씨 비교 + A vs B + 저장/불러오기
+    - evaluate_req_v7(): REQ-01~08 8항목 시간스텝 기반 판정
+    - scenario_comparison_v7(): 날씨 3종(맑음/흐림/폭풍) MC 비교
+    - compare_ab_v7(): 두 cfg MC 결과 대비 (Δ요격률·Δ비용)
+    - save_scenario_v7() / load_scenario_v7(): JSON 시나리오 저장/불러오기
+    - _compile(): remaining_inventory·total_channels·peak_concurrent_threats·t_first_fire 추가
 """
 
 import math, random, os
@@ -82,6 +88,7 @@ INTERCEPT_DIST_M = 2000   # SAM 요격 판정 거리 (m)
 ECM_REF_RANGE_M  = 50_000 # 포팅 B: ECM 재밍 기준 거리 (m)
 DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
 SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
+MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
 
 # 포팅 C: v7 시뮬 시간 스케일 맞춤 출격 준비 시간 (전시 긴급 출격 기준)
 # FRIENDLY_AIRCRAFT_DB의 sortie_time_s(평시)를 v7 700초 시뮬에 맞게 단축
@@ -419,14 +426,18 @@ class TimeStepEngine:
 
         # stats / wx 먼저 초기화 (build 함수에서 참조 가능)
         self.stats = {
-            'total_threats':         0,
-            'intercepted_threats':   0,
-            'friendly_hits':         0,
-            'enemy_hits':            0,
-            'friendly_ships_lost':   0,
-            'enemy_ships_destroyed': 0,
-            'total_cost':            0.0,
-            'aircraft_sorties':      0,
+            'total_threats':           0,
+            'intercepted_threats':     0,
+            'friendly_hits':           0,
+            'enemy_hits':              0,
+            'friendly_ships_lost':     0,
+            'enemy_ships_destroyed':   0,
+            'total_cost':              0.0,
+            'aircraft_sorties':        0,
+            # 포팅 D: REQ 판정용
+            'peak_concurrent_threats': 0,
+            't_first_fire':            -1.0,
+            'total_missiles_fired':    0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
@@ -717,6 +728,10 @@ class TimeStepEngine:
         ship.inventory[wpn]   -= 1
         ship.channels_used    += 1
         ship.total_cost       += wpn_info['cost_usd']
+        # 포팅 D: 발사 통계
+        self.stats['total_missiles_fired'] += 1
+        if self.stats['t_first_fire'] < 0:
+            self.stats['t_first_fire'] = self.t
         sam = MissileObj(
             mtype    = 'friendly_sam',
             name     = wpn,
@@ -1161,6 +1176,14 @@ class TimeStepEngine:
 
             self._record_frame()
 
+            # 포팅 D: 동시 위협 수 peak 추적
+            alive_count = sum(
+                1 for et in self.enemy_threats
+                if et.alive and not (et.is_aircraft and et.is_retreating)
+            )
+            if alive_count > self.stats['peak_concurrent_threats']:
+                self.stats['peak_concurrent_threats'] = alive_count
+
             if self._is_over():
                 break
 
@@ -1187,14 +1210,23 @@ class TimeStepEngine:
             if self.stats['total_threats'] > 0 else 1.0
         )
 
+        # 포팅 D: 잔여 재고 합산 (REQ-07), 총 채널 수 (REQ-08)
+        remaining_inv: dict = {}
+        for s in self.friendly_ships:
+            for wpn, cnt in s.inventory.items():
+                remaining_inv[wpn] = remaining_inv.get(wpn, 0) + cnt
+        total_channels = sum(s.max_channels for s in self.friendly_ships)
+
         return {
             **self.stats,
-            'intercept_rate':  intercept_rate,
-            'sim_time':        self.t,
-            'frames':          self.frames,
-            'log':             self._log_entries,
-            'friendly_ships':  self.friendly_ships,
-            'enemy_ships':     self.enemy_threats,   # 하위 호환 키 유지
+            'intercept_rate':    intercept_rate,
+            'sim_time':          self.t,
+            'frames':            self.frames,
+            'log':               self._log_entries,
+            'friendly_ships':    self.friendly_ships,
+            'enemy_ships':       self.enemy_threats,   # 하위 호환 키 유지
+            'remaining_inventory': remaining_inv,
+            'total_channels':      total_channels,
         }
 
 
@@ -1255,6 +1287,128 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '') -> dict:
         'full_pass_rate':   float((arr == 1.0).mean()),
         'n':                n,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  포팅 D: REQ 요구조건 판정
+# ════════════════════════════════════════════════════════════════════════════
+
+REQ_ITEMS_V7 = [
+    {'id': 'REQ-01', 'name': '전탄 요격 (단일)',   'desc': '단일 시뮬에서 모든 위협 요격'},
+    {'id': 'REQ-02', 'name': '응답시간 충족',      'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'},
+    {'id': 'REQ-03', 'name': '요격 가능성 확인',   'desc': 'MC 평균 요격률 > 0%'},
+    {'id': 'REQ-04', 'name': '생존율 ≥ 90%',       'desc': 'MC 완전 요격 성공률 ≥ 90%'},
+    {'id': 'REQ-05', 'name': '아군 무피격 (단일)', 'desc': '단일 시뮬에서 아군 피격 0회'},
+    {'id': 'REQ-06', 'name': '다층 방어 확인',     'desc': '발사 미사일 수 ≥ 위협 수 (재교전 여력)'},
+    {'id': 'REQ-07', 'name': '재고 충분',          'desc': '교전 후 주요 무기 잔여 ≥ 1발'},
+    {'id': 'REQ-08', 'name': '채널 한계 미초과',   'desc': '최대 동시 위협 ≤ 편대 총 채널'},
+]
+
+
+def evaluate_req_v7(result: dict, mc: dict) -> tuple:
+    """REQ_ITEMS_V7 8항목 판정. (verdicts: list[bool], details: list[str]) 반환."""
+    ir       = result['intercept_rate']
+    tfirst   = result.get('t_first_fire', -1.0)
+    fired    = result.get('total_missiles_fired', 0)
+    threats  = result['total_threats']
+    f_hits   = result['friendly_hits']
+    peak_et  = result.get('peak_concurrent_threats', 0)
+    tot_ch   = result.get('total_channels', 16)
+    rem_inv  = result.get('remaining_inventory', {})
+
+    req1 = ir >= 1.0
+    req2 = 0 <= tfirst <= MAX_RESPONSE_TIME_S
+    req3 = mc['mean_intercept'] > 0.0
+    req4 = mc['full_pass_rate'] >= 0.90
+    req5 = f_hits == 0
+    req6 = (fired >= threats) if threats > 0 else True
+    req7 = any(v > 0 for v in rem_inv.values())
+    req8 = peak_et <= tot_ch
+
+    verdicts = [req1, req2, req3, req4, req5, req6, req7, req8]
+    details  = [
+        f"요격률 {ir:.1%} {'≥' if req1 else '<'} 100%",
+        f"첫 발사 {tfirst:.0f}s ≤ {MAX_RESPONSE_TIME_S}s" if tfirst >= 0 else "발사 없음",
+        f"MC 평균 요격률 {mc['mean_intercept']:.1%}",
+        f"MC 완전 성공률 {mc['full_pass_rate']:.1%} {'≥' if req4 else '<'} 90%",
+        f"아군 피격 {f_hits}회",
+        f"발사 {fired}발 / 위협 {threats}개",
+        f"잔여 {'확보됨' if req7 else '전량 소진!'} ({sum(rem_inv.values())}발)",
+        f"최대 동시 위협 {peak_et} ≤ 채널 {tot_ch}",
+    ]
+    return verdicts, details
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  포팅 D: 날씨별 시나리오 비교
+# ════════════════════════════════════════════════════════════════════════════
+
+_SCENARIO_WEATHERS = [
+    ('최선 (맑음)',  '맑음 (주간)'),
+    ('평균 (흐림)',  '흐림 (박무)'),
+    ('최악 (폭풍)',  '폭풍 (해상 악화)'),
+]
+
+
+def scenario_comparison_v7(cfg: dict, n: int = 200) -> dict:
+    """날씨 3종 MC 비교. {label: {'mean_intercept', 'full_pass_rate', 'mean_cost', 'n'}} 반환."""
+    results = {}
+    for label, weather in _SCENARIO_WEATHERS:
+        c = dict(cfg)
+        c['weather'] = weather
+        mc = monte_carlo_v7(c, n=n, desc=f'시나리오: {label}')
+        results[label] = {
+            'mean_intercept': mc['mean_intercept'],
+            'full_pass_rate': mc['full_pass_rate'],
+            'mean_cost':      float(np.mean(mc['total_costs'])),
+            'n':              n,
+        }
+    return results
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  포팅 D: A vs B 시나리오 비교
+# ════════════════════════════════════════════════════════════════════════════
+
+def compare_ab_v7(cfg_a: dict, cfg_b: dict, n: int = 200) -> dict:
+    """
+    두 cfg로 MC를 각각 실행해 비교 dict를 반환.
+    반환: {'a': mc_dict, 'b': mc_dict, 'delta_intercept': float, 'delta_cost': float}
+    """
+    mc_a = monte_carlo_v7(cfg_a, n=n, desc='A 시나리오')
+    mc_b = monte_carlo_v7(cfg_b, n=n, desc='B 시나리오')
+    return {
+        'a':               mc_a,
+        'b':               mc_b,
+        'delta_intercept': mc_b['mean_intercept'] - mc_a['mean_intercept'],
+        'delta_cost':      float(np.mean(mc_b['total_costs'])) - float(np.mean(mc_a['total_costs'])),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  포팅 D: 시나리오 저장 / 불러오기
+# ════════════════════════════════════════════════════════════════════════════
+
+import json as _json
+
+
+def save_scenario_v7(cfg: dict, path: str):
+    """cfg를 JSON으로 저장. 직렬화 불가능한 값은 제외."""
+    serializable = {}
+    for k, v in cfg.items():
+        try:
+            _json.dumps(v)
+            serializable[k] = v
+        except (TypeError, ValueError):
+            pass
+    with open(path, 'w', encoding='utf-8') as f:
+        _json.dump(serializable, f, ensure_ascii=False, indent=2)
+
+
+def load_scenario_v7(path: str) -> dict:
+    """JSON 파일에서 cfg를 불러온다."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return _json.load(f)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1742,3 +1896,15 @@ if __name__ == '__main__':
 #           어뢰는 목표 근방(±300m) 스폰 — 항공기 직접 투하 방식
 #           소노부이: 탐지거리 + sonobuoy_detect_bonus_km (P-3C +15km, P-8A +18km)
 # · NEW-AE: _compile() — aircraft_sorties 집계 + 항공 비용 total_cost 합산
+
+# ── v7.0 포팅 D 패치 ──────────────────────────────────────────────────────────
+# · NEW-AF: MAX_RESPONSE_TIME_S=120s 상수 추가
+# · NEW-AG: stats — peak_concurrent_threats / t_first_fire / total_missiles_fired 추가
+# · NEW-AH: _launch_friendly_sam() — total_missiles_fired / t_first_fire 추적
+# · NEW-AI: run() 루프 — peak_concurrent_threats 매 tick 갱신
+# · NEW-AJ: _compile() — remaining_inventory / total_channels 반환
+# · NEW-AK: REQ_ITEMS_V7 — 8항목 정의 (시간스텝 기반 재설계)
+# · NEW-AL: evaluate_req_v7() — (verdicts, details) 반환
+# · NEW-AM: scenario_comparison_v7() — 날씨 3종 MC 비교
+# · NEW-AN: compare_ab_v7() — A vs B MC 비교 (Δ요격률·Δ비용)
+# · NEW-AO: save_scenario_v7() / load_scenario_v7() — JSON 시나리오 저장/불러오기

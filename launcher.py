@@ -52,6 +52,9 @@ try:
         WEATHER_DB,
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
+        evaluate_req_v7, REQ_ITEMS_V7,
+        scenario_comparison_v7, compare_ab_v7,
+        save_scenario_v7, load_scenario_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -659,6 +662,24 @@ class MainWindow(QMainWindow):
         mcl.addRow("반복 횟수", self.spn_mc_n)
         layout.addWidget(grp_mc)
 
+        # ── 시나리오 저장/불러오기 (포팅 D) ──────────────────────────────────
+        grp_sc = QGroupBox("💾 시나리오")
+        scl = QHBoxLayout(grp_sc)
+        scl.setSpacing(6)
+        btn_save = QPushButton("저장")
+        btn_load = QPushButton("불러오기")
+        btn_save_a = QPushButton("A로 저장")
+        btn_save_b = QPushButton("B로 저장")
+        for b in [btn_save, btn_load, btn_save_a, btn_save_b]:
+            b.setFixedHeight(28)
+            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:11px;")
+            scl.addWidget(b)
+        btn_save.clicked.connect(self._save_scenario)
+        btn_load.clicked.connect(self._load_scenario)
+        btn_save_a.clicked.connect(lambda: self._save_ab('A'))
+        btn_save_b.clicked.connect(lambda: self._save_ab('B'))
+        layout.addWidget(grp_sc)
+
         # ── 실행 버튼 ─────────────────────────────────────────────────────
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
         self.btn_run.setFixedHeight(44)
@@ -720,6 +741,15 @@ class MainWindow(QMainWindow):
         self.tab_mc_canvas = MplCanvas(figsize=(12, 7))
         self.tabs.addTab(self.tab_mc_canvas, "📊  MC 통계")
 
+        self.tab_req = self._build_req_tab()
+        self.tabs.addTab(self.tab_req,       "✅  REQ 판정")
+
+        self.tab_weather = self._build_weather_tab()
+        self.tabs.addTab(self.tab_weather,   "🌤️  날씨 비교")
+
+        self.tab_ab = self._build_ab_tab()
+        self.tabs.addTab(self.tab_ab,        "🆚  A vs B")
+
         self.tab_log = self._build_log_tab()
         self.tabs.addTab(self.tab_log,       "📜  교전 로그")
 
@@ -727,6 +757,95 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tab_sysmon,    "🖥️  시스템 모니터")
 
         return panel
+
+    def _build_req_tab(self) -> QWidget:
+        """포팅 D: REQ 판정 결과 테이블."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.req_table = QTableWidget(0, 4)
+        self.req_table.setHorizontalHeaderLabels(["ID", "요구조건", "판정", "상세"])
+        hh = self.req_table.horizontalHeader()
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.req_table.setColumnWidth(0, 70)
+        self.req_table.setColumnWidth(1, 150)
+        self.req_table.setColumnWidth(2, 60)
+        self.req_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.req_table.setAlternatingRowColors(True)
+        self.req_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(QLabel("  ※ 시뮬레이션 실행 후 결과가 표시됩니다."))
+        layout.addWidget(self.req_table)
+        return w
+
+    def _build_weather_tab(self) -> QWidget:
+        """포팅 D: 날씨별 3종 비교 탭."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        btn_row = QWidget()
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        self.btn_weather_run = QPushButton("🌤️  날씨별 비교 실행 (각 200회 MC)")
+        self.btn_weather_run.setFixedHeight(36)
+        self.btn_weather_run.clicked.connect(self._run_weather_compare)
+        btn_layout.addWidget(self.btn_weather_run)
+        btn_layout.addStretch()
+        layout.addWidget(btn_row)
+
+        self.weather_table = QTableWidget(0, 4)
+        self.weather_table.setHorizontalHeaderLabels(
+            ["날씨 시나리오", "평균 요격률", "완전 성공률", "평균 비용 ($)"])
+        hh = self.weather_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in [1, 2, 3]:
+            self.weather_table.setColumnWidth(col, 120)
+        self.weather_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.weather_table.setAlternatingRowColors(True)
+        self.weather_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self.weather_table)
+        return w
+
+    def _build_ab_tab(self) -> QWidget:
+        """포팅 D: A vs B 시나리오 비교 탭."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        self._cfg_a: dict = {}
+        self._cfg_b: dict = {}
+
+        info_row = QWidget()
+        info_layout = QHBoxLayout(info_row)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        self.lbl_ab_a = QLabel("A: 미설정")
+        self.lbl_ab_b = QLabel("B: 미설정")
+        for lbl in [self.lbl_ab_a, self.lbl_ab_b]:
+            lbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px; padding:4px;")
+        info_layout.addWidget(self.lbl_ab_a)
+        info_layout.addStretch()
+        info_layout.addWidget(self.lbl_ab_b)
+        layout.addWidget(info_row)
+
+        self.btn_ab_run = QPushButton("🆚  A vs B 비교 실행 (각 200회 MC)")
+        self.btn_ab_run.setFixedHeight(36)
+        self.btn_ab_run.clicked.connect(self._run_ab_compare)
+        layout.addWidget(self.btn_ab_run)
+
+        self.ab_table = QTableWidget(0, 3)
+        self.ab_table.setHorizontalHeaderLabels(["항목", "시나리오 A", "시나리오 B"])
+        hh = self.ab_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in [1, 2]:
+            self.ab_table.setColumnWidth(col, 150)
+        self.ab_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.ab_table.setAlternatingRowColors(True)
+        self.ab_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self.ab_table)
+        return w
 
     def _build_log_tab(self) -> QWidget:
         w = QWidget()
@@ -834,9 +953,156 @@ class MainWindow(QMainWindow):
         self.tab_anim.load_frames(result.get('frames', []))
         self._draw_mc_chart(result, mc,
                             self._worker.cfg if self._worker else {})
+        self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
 
         self.tabs.setCurrentIndex(0)
+
+    def _fill_req(self, result: dict, mc: dict):
+        """포팅 D: REQ 판정 테이블 채우기."""
+        if not _V7_OK:
+            return
+        verdicts, details = evaluate_req_v7(result, mc)
+        self.req_table.setRowCount(0)
+        for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
+            row = self.req_table.rowCount()
+            self.req_table.insertRow(row)
+            for col, text in enumerate([req['id'], req['name'],
+                                        'PASS' if v else 'FAIL', d]):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter
+                                      if col != 3 else Qt.AlignmentFlag.AlignLeft
+                                      | Qt.AlignmentFlag.AlignVCenter)
+                if col == 2:
+                    item.setForeground(QColor('#2ecc71' if v else '#e74c3c'))
+                self.req_table.setItem(row, col, item)
+
+    def _run_weather_compare(self):
+        """포팅 D: 날씨별 3종 비교 실행."""
+        if not _V7_OK or not hasattr(self, '_result'):
+            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
+            return
+        cfg = self._worker.cfg if self._worker else {}
+        if not cfg:
+            return
+        self.btn_weather_run.setEnabled(False)
+        self.btn_weather_run.setText("실행 중...")
+        QApplication.processEvents()
+        try:
+            sc = scenario_comparison_v7(cfg, n=200)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+            self.btn_weather_run.setEnabled(True)
+            self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 200회 MC)")
+            return
+        self.weather_table.setRowCount(0)
+        for label, res in sc.items():
+            row = self.weather_table.rowCount()
+            self.weather_table.insertRow(row)
+            values = [label,
+                      f"{res['mean_intercept']:.1%}",
+                      f"{res['full_pass_rate']:.1%}",
+                      f"${res['mean_cost']:,.0f}"]
+            for col, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if col == 1:
+                    item.setForeground(
+                        QColor('#2ecc71' if res['mean_intercept'] >= 0.9 else '#e74c3c'))
+                self.weather_table.setItem(row, col, item)
+        self.btn_weather_run.setEnabled(True)
+        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 200회 MC)")
+        self.tabs.setCurrentWidget(self.tab_weather)
+
+    def _run_ab_compare(self):
+        """포팅 D: A vs B 비교 실행."""
+        if not _V7_OK:
+            return
+        if not self._cfg_a or not self._cfg_b:
+            QMessageBox.information(self, "안내",
+                                    "설정 패널에서 'A로 저장'과 'B로 저장'을 먼저 눌러주세요.")
+            return
+        self.btn_ab_run.setEnabled(False)
+        self.btn_ab_run.setText("실행 중...")
+        QApplication.processEvents()
+        try:
+            ab = compare_ab_v7(self._cfg_a, self._cfg_b, n=200)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+            self.btn_ab_run.setEnabled(True)
+            self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
+            return
+        mc_a, mc_b = ab['a'], ab['b']
+        self.ab_table.setRowCount(0)
+        rows = [
+            ("평균 요격률",    f"{mc_a['mean_intercept']:.1%}", f"{mc_b['mean_intercept']:.1%}"),
+            ("완전 성공률",    f"{mc_a['full_pass_rate']:.1%}", f"{mc_b['full_pass_rate']:.1%}"),
+            ("평균 비용 ($)",  f"${sum(mc_a['total_costs'])/len(mc_a['total_costs']):,.0f}",
+                               f"${sum(mc_b['total_costs'])/len(mc_b['total_costs']):,.0f}"),
+            ("Δ 요격률",       "—", f"{ab['delta_intercept']:+.1%}"),
+            ("Δ 비용 ($)",     "—", f"${ab['delta_cost']:+,.0f}"),
+        ]
+        for label, val_a, val_b in rows:
+            row = self.ab_table.rowCount()
+            self.ab_table.insertRow(row)
+            for col, text in enumerate([label, val_a, val_b]):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.ab_table.setItem(row, col, item)
+        self.btn_ab_run.setEnabled(True)
+        self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
+        self.tabs.setCurrentWidget(self.tab_ab)
+
+    def _save_scenario(self):
+        """포팅 D: 현재 설정을 JSON으로 저장."""
+        if not _V7_OK:
+            return
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, "시나리오 저장", "scenario.json", "JSON (*.json)")
+        if not path:
+            return
+        cfg = self._worker.cfg if (self._worker and hasattr(self._worker, 'cfg')) else {}
+        if not cfg:
+            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
+            return
+        save_scenario_v7(cfg, path)
+        QMessageBox.information(self, "저장 완료", f"저장됨: {path}")
+
+    def _load_scenario(self):
+        """포팅 D: JSON에서 설정 불러오기 (알림만, 실제 UI 반영은 수동)."""
+        if not _V7_OK:
+            return
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "시나리오 불러오기", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            cfg = load_scenario_v7(path)
+            QMessageBox.information(
+                self, "불러오기 완료",
+                f"불러온 시나리오: {path}\n\n"
+                "※ UI 수동 설정이 필요합니다.\n"
+                f"날씨: {cfg.get('weather','—')} | MC: {cfg.get('mc_n','—')}회")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def _save_ab(self, slot: str):
+        """포팅 D: 현재 cfg를 A 또는 B 슬롯에 저장."""
+        cfg = self._worker.cfg if (self._worker and hasattr(self._worker, 'cfg')) else {}
+        if not cfg:
+            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
+            return
+        if slot == 'A':
+            self._cfg_a = dict(cfg)
+            self.lbl_ab_a.setText(
+                f"A: {cfg.get('weather','—')} | {cfg.get('enemy_fleet_mode','—')}")
+        else:
+            self._cfg_b = dict(cfg)
+            self.lbl_ab_b.setText(
+                f"B: {cfg.get('weather','—')} | {cfg.get('enemy_fleet_mode','—')}")
+        self.tabs.setCurrentWidget(self.tab_ab)
 
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
@@ -940,3 +1206,12 @@ if __name__ == '__main__':
 # · NEW-K: 항공 자산 QGroupBox — AW-159/P-3C/P-8A QCheckBox 3개 (기본 OFF)
 # · NEW-L: _run_sim() — enable_helo / enable_p3c / enable_p8a cfg 전달
 # · NEW-M: card_defs 'aircraft' 카드 추가 — _update_cards에서 aircraft_sorties 표시
+
+# ── 포팅 D 패치 (launcher.py) ─────────────────────────────────────────────────
+# · NEW-N: evaluate_req_v7 / REQ_ITEMS_V7 / scenario_comparison_v7 / compare_ab_v7 / save·load import
+# · NEW-O: 시나리오 저장/불러오기 버튼 (QGroupBox) + A·B 슬롯 저장 버튼
+# · NEW-P: _build_req_tab() — REQ 판정 QTableWidget 탭
+# · NEW-Q: _build_weather_tab() — 날씨 3종 비교 탭 (실행 버튼 + 결과 테이블)
+# · NEW-R: _build_ab_tab() — A vs B 비교 탭 (슬롯 레이블 + 실행 버튼 + 결과 테이블)
+# · NEW-S: _fill_req() — _on_finished에서 REQ 결과 자동 채움
+# · NEW-T: _run_weather_compare() / _run_ab_compare() / _save_scenario() / _load_scenario() / _save_ab()

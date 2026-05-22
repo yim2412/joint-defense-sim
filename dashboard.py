@@ -47,6 +47,9 @@ try:
         ENEMY_DB as V7_ENEMY_DB,
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
+        evaluate_req_v7, REQ_ITEMS_V7,
+        scenario_comparison_v7, compare_ab_v7,
+        save_scenario_v7, load_scenario_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -742,8 +745,9 @@ if 'v7_sim_data' in st.session_state and use_v7:
                f"실행시간: {_velapsed:.1f}s")
 
     # ── 탭 구성 ─────────────────────────────────────────────────────────────
-    _vt1, _vt2, _vt3, _vt4 = st.tabs(
-        ["🗺️ 전장 애니메이션", "📊 MC 통계", "📜 교전 로그", "⬇️ 다운로드"])
+    _vt1, _vt2, _vt3, _vt4, _vt5, _vt6 = st.tabs(
+        ["🗺️ 전장 애니메이션", "📊 MC 통계", "✅ REQ 판정",
+         "🌤️ 날씨 비교", "📜 교전 로그", "⬇️ 다운로드"])
 
     # ── Tab 1: 전장 애니메이션 ──────────────────────────────────────────────
     with _vt1:
@@ -862,7 +866,54 @@ if 'v7_sim_data' in st.session_state and use_v7:
         st.dataframe(_mc_df, use_container_width=True, height=300)
 
     # ── Tab 3: 교전 로그 ────────────────────────────────────────────────────
+    # ── Tab 3: REQ 판정 (포팅 D) ────────────────────────────────────────────
     with _vt3:
+        if _V7_OK:
+            _verdicts, _details = evaluate_req_v7(_vr, _vm)
+            _req_rows = [
+                {'ID': r['id'], '요구조건': r['name'],
+                 '판정': '✅ PASS' if v else '❌ FAIL', '상세': d}
+                for r, v, d in zip(REQ_ITEMS_V7, _verdicts, _details)
+            ]
+            _req_pass = sum(_verdicts)
+            st.metric("REQ 충족", f"{_req_pass} / {len(_verdicts)}")
+            st.dataframe(_pd.DataFrame(_req_rows), use_container_width=True,
+                         hide_index=True)
+
+    # ── Tab 4: 날씨별 비교 (포팅 D) ─────────────────────────────────────────
+    with _vt4:
+        if _V7_OK:
+            if st.button("🌤️ 날씨별 3종 비교 실행 (각 200회 MC)",
+                         key="v7_weather_run"):
+                with st.spinner("날씨별 시나리오 비교 중..."):
+                    _sc = scenario_comparison_v7(_vcfg, n=200)
+                st.session_state['v7_scenario_cmp'] = _sc
+            if 'v7_scenario_cmp' in st.session_state:
+                _sc = st.session_state['v7_scenario_cmp']
+                _sc_rows = [
+                    {'날씨': lbl,
+                     '평균 요격률': f"{res['mean_intercept']:.1%}",
+                     '완전 성공률': f"{res['full_pass_rate']:.1%}",
+                     '평균 비용 ($)': f"${res['mean_cost']:,.0f}"}
+                    for lbl, res in _sc.items()
+                ]
+                st.dataframe(_pd.DataFrame(_sc_rows), use_container_width=True,
+                             hide_index=True)
+
+            # 시나리오 저장/불러오기 (Streamlit: JSON 다운로드)
+            st.divider()
+            st.markdown("**💾 시나리오 저장/불러오기**")
+            import json as _json_mod
+            _sc_json = _json_mod.dumps(
+                {k: v for k, v in _vcfg.items()
+                 if isinstance(v, (str, int, float, bool, list, dict, type(None)))},
+                ensure_ascii=False, indent=2)
+            st.download_button("⬇️ 현재 설정 JSON 저장", _sc_json,
+                               file_name="v7_scenario.json", mime="application/json",
+                               use_container_width=True)
+
+    # ── Tab 5: 교전 로그 ─────────────────────────────────────────────────────
+    with _vt5:
         _log_df = _pd.DataFrame(
             [(f"{t:.0f}s", msg) for t, msg in _vr.get('log', [])],
             columns=['시각', '이벤트'],
@@ -870,8 +921,8 @@ if 'v7_sim_data' in st.session_state and use_v7:
         st.dataframe(_log_df, use_container_width=True,
                      height=500)
 
-    # ── Tab 4: 다운로드 ─────────────────────────────────────────────────────
-    with _vt4:
+    # ── Tab 6: 다운로드 ─────────────────────────────────────────────────────
+    with _vt6:
         _dc1, _dc2 = st.columns(2)
         with _dc1:
             if st.button("📄 v7 Excel 보고서 생성", use_container_width=True):
@@ -1838,3 +1889,9 @@ elif 'v7_sim_data' not in st.session_state:
 # · NEW-K: v7 항공 자산 섹션 — AW-159/P-3C/P-8A 체크박스 (기본 OFF, 대잠 전용)
 # · NEW-L: _v7_cfg에 enable_helo / enable_p3c / enable_p8a 추가
 # · NEW-M: v7 결과 캡션에 aircraft_sorties 항공 출격 횟수 표시 (출격 있을 때만)
+# ── 포팅 D 패치 (dashboard.py) ────────────────────────────────────────────────
+# · NEW-N: evaluate_req_v7 / REQ_ITEMS_V7 / scenario_comparison_v7 / compare_ab_v7 / save·load import
+# · NEW-O: 탭 6개로 확장 (_vt3=REQ / _vt4=날씨비교 / _vt5=교전로그 / _vt6=다운로드)
+# · NEW-P: _vt3 REQ 판정 테이블 — evaluate_req_v7() 결과 8행 dataframe
+# · NEW-Q: _vt4 날씨 비교 — 버튼 클릭 시 scenario_comparison_v7() 실행, session_state 캐시
+# · NEW-R: _vt4 시나리오 JSON 저장 — st.download_button 직렬화 다운로드
