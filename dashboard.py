@@ -197,6 +197,19 @@ with st.sidebar:
             v7_sd   = st.checkbox("적 자체방어", value=True, key="v7_sd",
                                   help="CIWS 요격 → 채프/플레어 Pk 감소")
 
+        # ── 포팅 C: 항공 자산 ────────────────────────────────────────────
+        st.divider()
+        st.markdown("### 🚁 [v7] 항공 자산 (대잠 전용)")
+        _ac1, _ac2 = st.columns(2)
+        with _ac1:
+            v7_helo = st.checkbox("AW-159 헬기", value=False, key="v7_helo",
+                                  help="함재 헬기 | 청상어 2발 | 140km | 폭풍·태풍·농무 불가")
+            v7_p8a  = st.checkbox("P-8A 포세이돈", value=False, key="v7_p8a",
+                                  help="포항기지 출격 | Mk.46 5발 | 소노부이 탐지+18km | 태풍만 불가")
+        with _ac2:
+            v7_p3c  = st.checkbox("P-3C 오라이온", value=False, key="v7_p3c",
+                                  help="포항기지 출격 | Mk.46 4발 | 소노부이 탐지+15km | 태풍만 불가")
+
         st.divider()
         st.markdown("### 📊 [v7] 몬테카를로")
         v7_mc_n = int(st.number_input("MC 반복 횟수", 50, 1000, 200, step=50, key="v7_mcn"))
@@ -573,6 +586,10 @@ if run_btn and use_v7:
         'enable_evasion':     v7_eva,
         'enable_decoy':       v7_dcoy_en,
         'enable_selfdefense': v7_sd,
+        # 항공 자산 (포팅 C)
+        'enable_helo': v7_helo,
+        'enable_p3c':  v7_p3c,
+        'enable_p8a':  v7_p8a,
     }
     with st.spinner("⚙️ v7 시뮬레이션 실행 중..."):
         try:
@@ -717,9 +734,11 @@ if 'v7_sim_data' in st.session_state and use_v7:
     _vcard(_vc5, "총 비용 (단일)", f"${_vr['total_cost']:,.0f}")
 
     st.divider()
+    _ac_sorties = _vr.get('aircraft_sorties', 0)
+    _ac_str = f" | 항공 출격: {_ac_sorties}회" if _ac_sorties else ""
     st.caption(f"v7 시뮬 종료: {_vr['sim_time']:.0f}s | "
                f"총 위협: {_vr['total_threats']}발/기 | "
-               f"요격: {_vr['intercepted_threats']}발/기 | "
+               f"요격: {_vr['intercepted_threats']}발/기{_ac_str} | "
                f"실행시간: {_velapsed:.1f}s")
 
     # ── 탭 구성 ─────────────────────────────────────────────────────────────
@@ -1814,3 +1833,8 @@ elif 'v7_sim_data' not in st.session_state:
 # ── 포팅 B 패치 (dashboard.py) ────────────────────────────────────────────────
 # · NEW-I: v7 전술 옵션 체크박스 — ECM·회피·기만기·자체방어
 # · NEW-J: _v7_cfg에 방어재고·편대모드·전술플래그 포함하여 엔진 전달
+
+# ── 포팅 C 패치 (dashboard.py) ────────────────────────────────────────────────
+# · NEW-K: v7 항공 자산 섹션 — AW-159/P-3C/P-8A 체크박스 (기본 OFF, 대잠 전용)
+# · NEW-L: _v7_cfg에 enable_helo / enable_p3c / enable_p8a 추가
+# · NEW-M: v7 결과 캡션에 aircraft_sorties 항공 출격 횟수 표시 (출격 있을 때만)

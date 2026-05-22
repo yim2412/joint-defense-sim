@@ -39,6 +39,10 @@ v7.0 패치 이력:
     - 음향 기만기: DECOY_PK=0.60, 어뢰 전용, decoy_stock 소모
     - 함정 회피 기동: SHIP_EVASION_PK=0.30, 어뢰 전용
     - 적 자체방어: CIWS(enemy_ciws_pk) 요격 → 채프/플레어(self_defense_pk) Pk 감소
+  · 포팅 C: 항공 자산 대잠 운용 (FriendlyAircraftObj + _aircraft_asw())
+    - AW-159 와일드캣: 함재 헬기, 청상어 2발, 사거리 140km, 폭풍/태풍/농무 불가
+    - P-3C 오라이온: 포항기지 출격(+300km), Mk.46 4발, 소노부이 탐지+15km
+    - P-8A 포세이돈: 포항기지 출격(+300km), Mk.46 5발, 소노부이 탐지+18km
 """
 
 import math, random, os
@@ -65,7 +69,7 @@ matplotlib.rcParams['font.family'] = 'Malgun Gothic'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 from engine import (
-    ENEMY_DB, FRIENDLY_DB, WEATHER_DB,
+    ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
     SHIP_DB, FLEET_PRESETS,
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
@@ -78,6 +82,14 @@ INTERCEPT_DIST_M = 2000   # SAM 요격 판정 거리 (m)
 ECM_REF_RANGE_M  = 50_000 # 포팅 B: ECM 재밍 기준 거리 (m)
 DECOY_PK         = 0.60   # 포팅 B: 음향 기만기 유인 성공률
 SHIP_EVASION_PK  = 0.30   # 포팅 B: 함정 회피 기동 성공률
+
+# 포팅 C: v7 시뮬 시간 스케일 맞춤 출격 준비 시간 (전시 긴급 출격 기준)
+# FRIENDLY_AIRCRAFT_DB의 sortie_time_s(평시)를 v7 700초 시뮬에 맞게 단축
+_AIRCRAFT_V7_SORTIE = {
+    'AW-159 와일드캣': 300,   # 5분 (평시 동일)
+    'P-3C 오라이온':   600,   # 10분 (평시 40분 → 전시 긴급 출격)
+    'P-8A 포세이돈':   480,   # 8분 (평시 30분 → 전시 긴급 출격)
+}
 
 # ════════════════════════════════════════════════════════════════════════════
 #  새 DB: 아군 대함 공격 무기
@@ -350,6 +362,24 @@ class FriendlyShipObj:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  포팅 C: FriendlyAircraftObj — 항공 자산 (헬기 / 해상초계기)
+# ════════════════════════════════════════════════════════════════════════════
+class FriendlyAircraftObj:
+    """
+    함재 헬기(base_type='ship') / 육상초계기(base_type='land') 통합 클래스.
+    매 tick _aircraft_asw()에서 잠수함 표적 확인 후 어뢰 투하.
+    """
+    def __init__(self, name: str, home_pos: 'Vec2'):
+        self.name              = name
+        self.info              = FRIENDLY_AIRCRAFT_DB[name]
+        self.home_pos          = home_pos.copy()
+        self.t_available       = float(self.info['sortie_time_s'])  # 초기 출격 준비 시간
+        self.payload_remaining = self.info['payload_cnt']
+        self.sorties           = 0
+        self.total_cost        = 0.0
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  SimFrame
 # ════════════════════════════════════════════════════════════════════════════
 class SimFrame:
@@ -396,14 +426,16 @@ class TimeStepEngine:
             'friendly_ships_lost':   0,
             'enemy_ships_destroyed': 0,
             'total_cost':            0.0,
+            'aircraft_sorties':      0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
 
-        self.friendly_ships: List[FriendlyShipObj] = self._build_friendly()
-        self.missiles:       List[MissileObj]       = []
-        self.enemy_threats:  List[EnemyThreatObj]   = self._build_enemies()
-        self.frames:         List[SimFrame]          = []
+        self.friendly_ships: List[FriendlyShipObj]    = self._build_friendly()
+        self.missiles:       List[MissileObj]         = []
+        self.enemy_threats:  List[EnemyThreatObj]     = self._build_enemies()
+        self.aircraft:       List[FriendlyAircraftObj] = self._build_aircraft()
+        self.frames:         List[SimFrame]            = []
 
     # ── 편대 구성 ─────────────────────────────────────────────────────────────
 
@@ -509,6 +541,23 @@ class TimeStepEngine:
                 idx += 1
 
         return threats
+
+    def _build_aircraft(self) -> List[FriendlyAircraftObj]:
+        """포팅 C: enable_helo / enable_p3c / enable_p8a cfg 키로 항공 자산 등록."""
+        aircraft = []
+        primary_pos = self._primary().pos
+        for en_key, preset_key, default in [
+            ('enable_helo', 'helo_preset', 'AW-159 와일드캣'),
+            ('enable_p3c',  'p3c_preset',  'P-3C 오라이온'),
+            ('enable_p8a',  'p8a_preset',  'P-8A 포세이돈'),
+        ]:
+            if not self.cfg.get(en_key, False):
+                continue
+            name = self.cfg.get(preset_key, default)
+            if name not in FRIENDLY_AIRCRAFT_DB:
+                continue
+            aircraft.append(FriendlyAircraftObj(name, primary_pos))
+        return aircraft
 
     # ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
@@ -803,6 +852,89 @@ class TimeStepEngine:
                         f"(거리 {dist_m/1000:.1f}km)"
                     )
 
+    # ── 4.5단계: 항공 자산 대잠 (포팅 C) ─────────────────────────────────────
+
+    def _aircraft_asw(self):
+        """
+        등록된 항공 자산(헬기/초계기)이 잠수함 탐지 범위 내 목표를 확인하고
+        sortie 준비 완료 시 어뢰를 투하한다.
+        - 날씨·사거리·탑재량·쿨다운 체크
+        - 어뢰는 목표 근방(±300m)에서 스폰 (항공기가 직접 투하하는 방식)
+        - 소노부이: 탐지 거리에 sonobuoy_detect_bonus_km 추가
+        """
+        primary = self._primary()
+        for ac in self.aircraft:
+            if ac.payload_remaining <= 0:
+                continue
+            if self.t < ac.t_available:
+                continue
+            wx_limits = ac.info.get('weather_limits', {})
+            if not wx_limits.get(self.cfg.get('weather', '맑음 (주간)'), True):
+                continue
+
+            for et in self.enemy_threats:
+                if not et.alive or not et.is_sub:
+                    continue
+                # 이미 어뢰가 이 잠수함으로 향하고 있으면 패스
+                already = any(
+                    m.alive and m.target is et and m.mtype == 'friendly_strike'
+                    for m in self.missiles
+                )
+                if already:
+                    continue
+
+                # 사거리 체크 (육상기지: 기지→작전해역 거리 추가)
+                dist_to_sub = primary.pos.dist_to(et.pos)
+                total_dist  = dist_to_sub
+                if ac.info.get('base_type') == 'land':
+                    total_dist += ac.info.get('base_dist_km', 0) * 1000
+                if total_dist > ac.info['range_km'] * 1000:
+                    continue
+
+                # 소나 탐지 + 소노부이 보너스
+                detect_m = self._detect_range_m(primary, '대잠')
+                bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
+                if dist_to_sub > detect_m + bonus_m:
+                    continue
+
+                # 어뢰 투하 (목표 근방 스폰 — 항공기 직접 투하)
+                wpn_name = ac.info['payload_wpn']
+                wpn_info = FRIENDLY_DB[wpn_name]
+                pk       = min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98)
+
+                ac.payload_remaining -= 1
+                ac.sorties           += 1
+                ac.total_cost        += ac.info['cost_usd']
+
+                drop_pos = Vec2(
+                    et.pos.x + random.uniform(-300, 300),
+                    et.pos.y + random.uniform(-300, 300),
+                )
+                m = MissileObj(
+                    mtype    = 'friendly_strike',
+                    name     = f"{wpn_name}({ac.name})",
+                    pos      = drop_pos,
+                    target   = et,
+                    speed_ms = wpn_info['speed_ms'],
+                    pk_base  = pk,
+                    owner_id = id(ac),
+                    t_spawn  = self.t,
+                )
+                m.is_torpedo = True
+                self.missiles.append(m)
+
+                # 다음 출격 가능 시각 = 지금 + 준비시간 + 비행시간
+                fly_s            = total_dist / max(ac.info['speed_ms'], 1)
+                ac.t_available   = self.t + ac.info['sortie_time_s'] + fly_s
+
+                craft_type = '초계기' if ac.info.get('base_type') == 'land' else '헬기'
+                self._log(
+                    f"[항공 대잠] {ac.name}({craft_type}) 출격 → {et.preset_name} "
+                    f"(거리 {dist_to_sub/1000:.0f}km) | {wpn_name} Pk={pk:.2f} 투하 "
+                    f"| 잔여 {ac.payload_remaining}발"
+                )
+                break  # 한 tick당 한 표적만 공격
+
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
         for wpn in ['해성-II', '해성-I', '하푼 Block II']:
             if ship.strike_inventory.get(wpn, 0) <= 0:
@@ -1019,6 +1151,7 @@ class TimeStepEngine:
             self._enemy_fire()
             self._friendly_defense()
             self._friendly_strike()
+            self._aircraft_asw()        # 포팅 C: 항공 대잠
             self._enemy_defense()
             self._check_intercepts()
             self._check_hits()
@@ -1042,7 +1175,12 @@ class TimeStepEngine:
             1 for et in self.enemy_threats
             if not et.alive and (et.intercepted or not et.is_aircraft)
         )
-        self.stats['total_cost']            = sum(s.total_cost for s in self.friendly_ships)
+        # 포팅 C: 항공 자산 출격 횟수 + 비용 합산
+        self.stats['aircraft_sorties'] = sum(ac.sorties for ac in self.aircraft)
+        self.stats['total_cost']       = (
+            sum(s.total_cost for s in self.friendly_ships)
+            + sum(ac.total_cost for ac in self.aircraft)
+        )
 
         intercept_rate = (
             self.stats['intercepted_threats'] / self.stats['total_threats']
@@ -1595,3 +1733,12 @@ if __name__ == '__main__':
 # · NEW-X: _check_hits() — 음향 기만기 AN/SLQ-25 (어뢰 전용, DECOY_PK=0.60)
 # · NEW-Y: _check_hits() — 함정 회피 기동 (어뢰 전용, SHIP_EVASION_PK=0.30)
 # · NEW-Z: _check_hits() — 적 자체방어 (CIWS 요격 → 채프/플레어 eff_pk 감소)
+
+# ── v7.0 포팅 C 패치 ──────────────────────────────────────────────────────────
+# · NEW-AA: FRIENDLY_AIRCRAFT_DB 임포트 추가 (engine.py)
+# · NEW-AB: FriendlyAircraftObj 클래스 — 항공 자산 상태 (t_available, payload_remaining)
+# · NEW-AC: _build_aircraft() — enable_helo/p3c/p8a cfg 키로 항공 자산 등록
+# · NEW-AD: _aircraft_asw() — 매 tick 잠수함 탐지 후 어뢰 투하 (날씨·사거리·소노부이·쿨다운)
+#           어뢰는 목표 근방(±300m) 스폰 — 항공기 직접 투하 방식
+#           소노부이: 탐지거리 + sonobuoy_detect_bonus_km (P-3C +15km, P-8A +18km)
+# · NEW-AE: _compile() — aircraft_sorties 집계 + 항공 비용 total_cost 합산

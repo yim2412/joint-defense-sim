@@ -14,6 +14,7 @@
 ║  NEW-H  포팅 A — 방어 무기 재고 UI (SM-3~Mk.46·기만기)                     ║
 ║  NEW-I  포팅 A — 적군 모드 선택 (커스텀/프리셋/랜덤) + 프리셋·난이도 UI    ║
 ║  NEW-J  포팅 B — 전술 옵션 토글 (ECM·회피·기만기·자체방어 QCheckBox)       ║
+║  NEW-K  포팅 C — 항공 자산 토글 (AW-159·P-3C·P-8A QCheckBox, 대잠 전용)   ║
 ║                                                                              ║
 ║  실행: python launcher.py                                                    ║
 ║  패키지: pip install PyQt6 psutil matplotlib numpy openpyxl                 ║
@@ -632,6 +633,22 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(grp_t)
 
+        # ── 항공 자산 (포팅 C) ────────────────────────────────────────────
+        grp_ac = QGroupBox("🚁 항공 자산 (대잠 전용)")
+        acl = QVBoxLayout(grp_ac)
+        acl.setSpacing(4)
+
+        self.chk_helo = QCheckBox("AW-159 와일드캣  (함재 헬기, 청상어 2발, 140km)")
+        self.chk_p3c  = QCheckBox("P-3C 오라이온  (포항기지, Mk.46 4발, 소노부이+15km)")
+        self.chk_p8a  = QCheckBox("P-8A 포세이돈  (포항기지, Mk.46 5발, 소노부이+18km)")
+
+        for chk in [self.chk_helo, self.chk_p3c, self.chk_p8a]:
+            chk.setChecked(False)
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            acl.addWidget(chk)
+
+        layout.addWidget(grp_ac)
+
         # ── MC 설정 ────────────────────────────────────────────────────────
         grp_mc = QGroupBox("📊 몬테카를로")
         mcl = QFormLayout(grp_mc)
@@ -677,6 +694,7 @@ class MainWindow(QMainWindow):
             ('아군 피격',        'friendly_hit'),
             ('적 격침',          'enemy_dest'),
             ('총 비용',          'cost'),
+            ('항공 출격',        'aircraft'),
         ]
         for label, key in card_defs:
             card = QGroupBox(label)
@@ -779,6 +797,10 @@ class MainWindow(QMainWindow):
             'enable_evasion':     self.chk_eva.isChecked(),
             'enable_decoy':       self.chk_dcoy.isChecked(),
             'enable_selfdefense': self.chk_sd.isChecked(),
+            # 항공 자산 (포팅 C)
+            'enable_helo': self.chk_helo.isChecked(),
+            'enable_p3c':  self.chk_p3c.isChecked(),
+            'enable_p8a':  self.chk_p8a.isChecked(),
         }
         mc_n = self.spn_mc_n.value()
 
@@ -834,6 +856,8 @@ class MainWindow(QMainWindow):
             f"color:{'#2ecc71' if result['friendly_hits'] == 0 else '#e74c3c'};")
         self._cards['enemy_dest'].setText(str(result['enemy_ships_destroyed']))
         self._cards['cost'].setText(f"${result['total_cost']:,.0f}")
+        sorties = result.get('aircraft_sorties', 0)
+        self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
 
     def _draw_mc_chart(self, result: dict, mc: dict, cfg: dict):
         img_path = '_launcher_mc_tmp.png'
@@ -911,3 +935,8 @@ if __name__ == '__main__':
 # ── 포팅 B 패치 (launcher.py) ─────────────────────────────────────────────────
 # · NEW-M: 전술 옵션 QGroupBox — ECM·회피·기만기·자체방어 QCheckBox 4개
 # · NEW-N: _run_sim() — defense_inventory / enemy_fleet_mode / 전술 플래그 cfg 전달
+
+# ── 포팅 C 패치 (launcher.py) ─────────────────────────────────────────────────
+# · NEW-K: 항공 자산 QGroupBox — AW-159/P-3C/P-8A QCheckBox 3개 (기본 OFF)
+# · NEW-L: _run_sim() — enable_helo / enable_p3c / enable_p8a cfg 전달
+# · NEW-M: card_defs 'aircraft' 카드 추가 — _update_cards에서 aircraft_sorties 표시
