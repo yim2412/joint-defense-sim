@@ -1379,10 +1379,18 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(self.lbl_ab_b)
         layout.addWidget(info_row)
 
+        ab_btn_row = QHBoxLayout()
         self.btn_ab_run = QPushButton("🆚  A vs B 비교 실행 (각 200회 MC)")
         self.btn_ab_run.setFixedHeight(36)
         self.btn_ab_run.clicked.connect(self._run_ab_compare)
-        layout.addWidget(self.btn_ab_run)
+        self.btn_ab_pdf = QPushButton("📄 통합 보고서 PDF")
+        self.btn_ab_pdf.setFixedHeight(36)
+        self.btn_ab_pdf.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; font-size:11px;")
+        self.btn_ab_pdf.clicked.connect(self._export_ab_pdf)
+        ab_btn_row.addWidget(self.btn_ab_run, stretch=3)
+        ab_btn_row.addWidget(self.btn_ab_pdf, stretch=1)
+        layout.addLayout(ab_btn_row)
 
         self.ab_table = QTableWidget(0, 3)
         self.ab_table.setHorizontalHeaderLabels(["항목", "시나리오 A", "시나리오 B"])
@@ -1739,9 +1747,98 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(text)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.ab_table.setItem(row, col, item)
+        self._ab_result = ab  # PDF 내보내기용 저장
         self.btn_ab_run.setEnabled(True)
         self.btn_ab_run.setText("🆚  A vs B 비교 실행 (각 200회 MC)")
         self.tabs.setCurrentWidget(self.tab_ab)
+
+    def _export_ab_pdf(self):
+        """A vs B 통합 비교 보고서 PDF 생성."""
+        ab = getattr(self, '_ab_result', None)
+        if not ab:
+            QMessageBox.information(self, "안내", "먼저 A vs B 비교를 실행하세요.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "A vs B 통합 보고서", "report_ab.pdf", "PDF (*.pdf)")
+        if not path:
+            return
+        try:
+            self._generate_ab_pdf(path, ab)
+            QMessageBox.information(self, "저장 완료", f"A vs B 통합 보고서:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def _generate_ab_pdf(self, path: str, ab: dict):
+        """matplotlib PdfPages — A vs B 통합 비교 보고서."""
+        from matplotlib.backends.backend_pdf import PdfPages
+        mc_a = ab['a']
+        mc_b = ab['b']
+        label_a = (self._cfg_a.get('weather', '?') + ' / ' +
+                   self._cfg_a.get('enemy_fleet_preset',
+                                   self._cfg_a.get('enemy_fleet_mode', '?')))
+        label_b = (self._cfg_b.get('weather', '?') + ' / ' +
+                   self._cfg_b.get('enemy_fleet_preset',
+                                   self._cfg_b.get('enemy_fleet_mode', '?')))
+
+        with PdfPages(path) as pdf:
+            # 1페이지: 커버 + 수치 비교 표
+            fig, ax = plt.subplots(figsize=(11.7, 8.3))
+            fig.patch.set_facecolor('#0a0e1a')
+            ax.set_facecolor('#0a0e1a')
+            ax.axis('off')
+            ax.text(0.5, 0.95, 'A vs B 시나리오 비교 보고서',
+                    ha='center', va='top', color=C_ACCENT, fontsize=24,
+                    fontweight='bold', transform=ax.transAxes)
+            ax.text(0.5, 0.87, f'A: {label_a}   ↔   B: {label_b}',
+                    ha='center', va='top', color=C_TEXT, fontsize=12,
+                    transform=ax.transAxes)
+            table_data = [
+                ['항목', f'A: {label_a[:30]}', f'B: {label_b[:30]}', 'Δ (B-A)'],
+                ['평균 요격률',
+                 f"{mc_a['mean_intercept']:.1%}",
+                 f"{mc_b['mean_intercept']:.1%}",
+                 f"{ab['delta_intercept']:+.1%}"],
+                ['완전 성공률',
+                 f"{mc_a['full_pass_rate']:.1%}",
+                 f"{mc_b['full_pass_rate']:.1%}",
+                 f"{mc_b['full_pass_rate']-mc_a['full_pass_rate']:+.1%}"],
+                ['평균 비용',
+                 f"${sum(mc_a['total_costs'])/len(mc_a['total_costs']):,.0f}",
+                 f"${sum(mc_b['total_costs'])/len(mc_b['total_costs']):,.0f}",
+                 f"${ab['delta_cost']:+,.0f}"],
+            ]
+            tbl = ax.table(cellText=table_data[1:], colLabels=table_data[0],
+                           loc='center', cellLoc='center')
+            tbl.auto_set_font_size(False)
+            tbl.set_fontsize(11)
+            tbl.scale(1.2, 2.0)
+            for (r, c), cell in tbl.get_celld().items():
+                cell.set_facecolor('#0d1b2a' if r % 2 == 0 else '#0a0e1a')
+                cell.set_edgecolor('#1e2a3a')
+                cell.set_text_props(color=C_TEXT)
+            pdf.savefig(fig, facecolor='#0a0e1a')
+            plt.close(fig)
+
+            # 2페이지: 요격률 분포 히스토그램 비교
+            fig2, ax2 = plt.subplots(figsize=(11.7, 8.3))
+            fig2.patch.set_facecolor('#0a0e1a')
+            ax2.set_facecolor('#0a0e1a')
+            rates_a = mc_a.get('intercept_rates', [])
+            rates_b = mc_b.get('intercept_rates', [])
+            if rates_a:
+                ax2.hist(rates_a, bins=20, alpha=0.6, color='#3498db', label=f'A ({label_a[:20]})')
+            if rates_b:
+                ax2.hist(rates_b, bins=20, alpha=0.6, color='#e74c3c', label=f'B ({label_b[:20]})')
+            ax2.set_xlabel('요격률', color=C_SUBTEXT, fontsize=11)
+            ax2.set_ylabel('빈도', color=C_SUBTEXT, fontsize=11)
+            ax2.set_title('요격률 분포 비교', color=C_TEXT, fontsize=14)
+            ax2.tick_params(colors=C_SUBTEXT)
+            for sp in ax2.spines.values(): sp.set_color('#1e2a3a')
+            ax2.legend(fontsize=10, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                       edgecolor='#1e2a3a')
+            fig2.tight_layout()
+            pdf.savefig(fig2, facecolor='#0a0e1a')
+            plt.close(fig2)
 
     # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
 
