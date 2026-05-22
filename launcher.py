@@ -3040,6 +3040,12 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
+    # 앱 아이콘 설정
+    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aegis_icon.ico')
+    if os.path.exists(_icon_path):
+        from PyQt6.QtGui import QIcon
+        app.setWindowIcon(QIcon(_icon_path))
+
     # 다크 팔레트 기본 적용
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window,        QColor(C_BG))

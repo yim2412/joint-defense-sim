@@ -13,6 +13,7 @@ a = Analysis(
         ('engine.py',      '.'),
         ('engine_v7.py',   '.'),
         ('changelog.json', '.'),
+        ('aegis_icon.ico', '.'),
     ],
     hiddenimports=[
         # PyQt6 core
@@ -80,5 +81,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon=None,            # 아이콘 없을 경우 주석 유지
+    icon='aegis_icon.ico',
 )
