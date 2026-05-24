@@ -2067,6 +2067,128 @@ def find_all_min_stocks_v7(
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  자동 취약점 진단
+# ════════════════════════════════════════════════════════════════════════════
+
+def diagnose_vulnerabilities_v7(result: dict, mc: dict, cfg: dict) -> list:
+    """
+    MC 결과를 자동 분석하여 취약점 진단 카드 목록을 반환.
+    각 카드: {'severity': 'HIGH'|'MED'|'LOW'|'OK', 'title', 'detail', 'suggestion'}
+    """
+    cards = []
+
+    mean_ir   = mc['mean_intercept']
+    full_pass = mc['full_pass_rate']
+    std_ir    = mc['std_intercept']
+    mean_hits = float(np.mean(mc['friendly_hits'])) if mc['friendly_hits'] else 0.0
+    peak_et   = result.get('peak_concurrent_threats', 0)
+    tot_ch    = result.get('total_channels', 16)
+    rem_inv   = result.get('remaining_inventory', {})
+    t_first   = result.get('t_first_fire', -1.0)
+    w_avg_rem = mc.get('weapon_avg_remaining', {})
+
+    # ── 1. 완전 요격 성공률 미달 ──────────────────────────────────────────
+    if full_pass < 0.90:
+        sev = 'HIGH' if full_pass < 0.70 else 'MED'
+        # 가장 많이 소진된 무기 파악 → 구체적 개선 제안
+        most_depleted = min(w_avg_rem, key=lambda k: w_avg_rem[k], default=None)
+        if most_depleted and most_depleted in _STOCK_CFG_KEY:
+            key     = _STOCK_CFG_KEY[most_depleted]
+            cur_stk = cfg.get(key, FRIENDLY_DB.get(most_depleted, {}).get('stock', 0))
+            sugg    = f'• {most_depleted} 재고를 {cur_stk}→{cur_stk + 12}발로 증가 검토\n• MC 횟수 증가로 정밀도 향상'
+        else:
+            sugg = '• 주요 SAM 재고 증가\n• CEC 활성화 또는 함정 증원 검토'
+        cards.append({
+            'severity':   sev,
+            'title':      f'완전 요격 성공률 미달  ({full_pass:.0%} < REQ 90%)',
+            'detail':     (f'MC {mc["n"]}회 중 {full_pass:.0%}만 모든 위협 요격. '
+                           f'평균 요격률 {mean_ir:.1%} (편차 ±{std_ir:.1%}).'),
+            'suggestion': sugg,
+        })
+
+    # ── 2. 아군 피격 빈발 ─────────────────────────────────────────────────
+    if mean_hits > 0.3:
+        sev = 'HIGH' if mean_hits >= 1.5 else 'MED'
+        most_hit_ship = ''
+        ship_avg = mc.get('ship_avg_hits', {})
+        if ship_avg:
+            sh = max(ship_avg, key=ship_avg.get)
+            most_hit_ship = f'  가장 많이 피격: {sh} (평균 {ship_avg[sh]:.1f}회)'
+        cards.append({
+            'severity':   sev,
+            'title':      f'아군 함정 피격 빈발  (MC 평균 {mean_hits:.1f}회)',
+            'detail':     f'종말 방어 단계(RAM/CIWS) 취약 또는 ECM·회피 기동 효과 부족.{most_hit_ship}',
+            'suggestion': '• RIM-116 RAM 재고 증가\n• 함정 회피 기동 활성화\n• ECM(AN/SLQ-32) 옵션 활성화',
+        })
+
+    # ── 3. 채널 포화 ──────────────────────────────────────────────────────
+    if peak_et > 0 and tot_ch > 0:
+        ratio = peak_et / tot_ch
+        if ratio >= 1.0:
+            cards.append({
+                'severity':   'HIGH',
+                'title':      f'채널 포화 발생  (동시 위협 {peak_et} > 채널 {tot_ch})',
+                'detail':     f'최대 {peak_et}개 위협이 동시 접근 — 교전 채널 {tot_ch}개 초과. 일부 위협 무대응.',
+                'suggestion': '• CEC(협동교전능력) 활성화로 채널 공유\n• 추가 함정 편입\n• 발사 간격(launch_interval_s) 단축',
+            })
+        elif ratio >= 0.80:
+            cards.append({
+                'severity':   'MED',
+                'title':      f'채널 포화 근접  ({peak_et}/{tot_ch} = {ratio:.0%})',
+                'detail':     f'채널 사용률 {ratio:.0%} — 위협 추가 시 포화 임박.',
+                'suggestion': '• CEC 활성화 또는 함정 증원 검토',
+            })
+
+    # ── 4. 주요 무기 소진 ─────────────────────────────────────────────────
+    key_weapons = list(_STOCK_CFG_KEY.keys())
+    for wpn in key_weapons:
+        avg_rem = w_avg_rem.get(wpn, -1.0)
+        if avg_rem < 0:
+            continue  # 해당 무기 미사용 시나리오
+        if avg_rem < 2.0:
+            sev     = 'HIGH' if avg_rem < 0.5 else 'MED'
+            cfg_key = _STOCK_CFG_KEY[wpn]
+            cur_stk = cfg.get(cfg_key, FRIENDLY_DB.get(wpn, {}).get('stock', 0))
+            cards.append({
+                'severity':   sev,
+                'title':      f'{wpn} 재고 고갈 위험  (MC 평균 잔여 {avg_rem:.1f}발)',
+                'detail':     f'평균적으로 {wpn}이 거의 소진됨 (현재 재고: 함정당 {cur_stk}발).',
+                'suggestion': f'• {wpn} 재고를 {cur_stk}→{cur_stk + 12}발로 증가 검토',
+            })
+
+    # ── 5. 응답시간 초과 ──────────────────────────────────────────────────
+    if 0 <= t_first > MAX_RESPONSE_TIME_S:
+        cards.append({
+            'severity':   'MED',
+            'title':      f'응답시간 초과  (첫 SAM 발사 {t_first:.0f}s > REQ {MAX_RESPONSE_TIME_S}s)',
+            'detail':     'C&D + 확인 절차 후 첫 발사까지 지나치게 오래 소요. REQ-02 불충족.',
+            'suggestion': '• C&D 시간(cd_time_s) 단축\n• 탐지거리 확대로 사전 추적 가능',
+        })
+
+    # ── 6. 높은 변동성 ────────────────────────────────────────────────────
+    if std_ir > 0.15 and mean_ir < 0.98:
+        cards.append({
+            'severity':   'LOW',
+            'title':      f'요격률 불안정  (표준편차 {std_ir:.1%})',
+            'detail':     f'MC 결과 편차 큼 — {mean_ir:.0%}±{std_ir:.0%}. 특정 조건에서 방어 붕괴 가능.',
+            'suggestion': '• MC 횟수 증가(200회 이상)로 신뢰도 향상\n• CEC 활성화로 일관성 확보',
+        })
+
+    # ── 이상 없음 ─────────────────────────────────────────────────────────
+    if not cards:
+        cards.append({
+            'severity':   'OK',
+            'title':      '취약점 없음 — 방어 태세 양호',
+            'detail':     (f'완전 요격 성공률 {full_pass:.0%} · '
+                           f'MC 평균 요격률 {mean_ir:.1%} · '
+                           f'아군 평균 피격 {mean_hits:.1f}회'),
+            'suggestion': '더 어려운 시나리오(전방위 포화·혼합 공격)로 한계 탐색 권장.',
+        })
+
+    return cards
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  포팅 D: 날씨별 시나리오 비교
 # ════════════════════════════════════════════════════════════════════════════
 

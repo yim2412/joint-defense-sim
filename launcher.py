@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.14 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.15 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.15 — 자동 취약점 진단 카드]                                            ║
+║  NEW-A  diagnose_vulnerabilities_v7(): 6종 규칙 기반 취약점 자동 탐지      ║
+║  NEW-B  REQ 판정 탭 상단에 진단 카드 패널 (HIGH/MED/LOW/OK 색상 구분)      ║
+║  NEW-C  개선 제안 자동 생성: 소진 무기→재고 증량, 채널 포화→CEC 활성화 등  ║
+║                                                                              ║
 ║  [v7.14 — REQ 달성 최소 재고 역산 + '🔬 최소 재고' 탭 신설]               ║
 ║  NEW-A  find_min_stock_v7(): 이진 탐색으로 무기별 최소 함정당 재고 계산    ║
 ║  NEW-B  MinStockWorker: 백그라운드 역산 + 진행상황 상태바 표시             ║
@@ -216,6 +221,7 @@ try:
         MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
         evaluate_req_v7, REQ_ITEMS_V7,
         find_all_min_stocks_v7,
+        diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
         save_scenario_v7, load_scenario_v7,
         calculate_fleet_detect_ranges,
@@ -2223,7 +2229,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.14")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.15")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -2887,10 +2893,41 @@ class MainWindow(QMainWindow):
             self._page_render_cache[idx] = result_id
 
     def _build_req_tab(self) -> QWidget:
-        """포팅 D: REQ 판정 결과 테이블."""
+        """포팅 D: REQ 판정 결과 테이블 + 자동 취약점 진단 카드."""
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        # ── 자동 취약점 진단 카드 영역 ───────────────────────────────────
+        diag_header = QLabel("  🩺  자동 취약점 진단")
+        diag_header.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(diag_header)
+
+        # 카드가 들어갈 스크롤 영역 (최대 높이 200px)
+        self._diag_scroll = QScrollArea()
+        self._diag_scroll.setWidgetResizable(True)
+        self._diag_scroll.setFixedHeight(210)
+        self._diag_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {C_BG}; border: 1px solid #30363d; border-radius: 6px; }}"
+        )
+        self._diag_inner = QWidget()
+        self._diag_inner.setStyleSheet(f"background: {C_BG};")
+        self._diag_layout = QVBoxLayout(self._diag_inner)
+        self._diag_layout.setContentsMargins(6, 6, 6, 6)
+        self._diag_layout.setSpacing(5)
+        _ph = QLabel("  시뮬레이션 실행 후 진단 결과가 표시됩니다.")
+        _ph.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._diag_layout.addWidget(_ph)
+        self._diag_layout.addStretch()
+        self._diag_scroll.setWidget(self._diag_inner)
+        layout.addWidget(self._diag_scroll)
+
+        # ── REQ 판정 테이블 ───────────────────────────────────────────────
+        req_lbl = QLabel("  ✅  REQ 요구조건 판정")
+        req_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(req_lbl)
+
         self.req_table = QTableWidget(0, 4)
         self.req_table.setHorizontalHeaderLabels(["ID", "요구조건", "판정", "상세"])
         hh = self.req_table.horizontalHeader()
@@ -2902,8 +2939,7 @@ class MainWindow(QMainWindow):
         self.req_table.setAlternatingRowColors(True)
         self.req_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(QLabel("  ※ 시뮬레이션 실행 후 결과가 표시됩니다."))
-        layout.addWidget(self.req_table)
+        layout.addWidget(self.req_table, stretch=1)
         return w
 
     def _build_weather_tab(self) -> QWidget:
@@ -3181,8 +3217,9 @@ class MainWindow(QMainWindow):
         self.tab_anim.load_frames(result.get('frames', []))
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
-        # 감도 분석 — 백그라운드 SensitivityWorker로 비차단 실행
         cfg  = self._worker.cfg  if self._worker else {}
+        self._fill_diagnosis(result, mc, cfg)
+        # 감도 분석 — 백그라운드 SensitivityWorker로 비차단 실행
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
         self._sensitivity_placeholder()
         self._sens_worker = SensitivityWorker(cfg, mc_n)
@@ -3232,6 +3269,61 @@ class MainWindow(QMainWindow):
                 if col == 2:
                     item.setForeground(QColor('#2ecc71' if v else '#e74c3c'))
                 self.req_table.setItem(row, col, item)
+
+    def _fill_diagnosis(self, result: dict, mc: dict, cfg: dict):
+        """자동 취약점 진단 카드를 REQ 탭 상단 패널에 채운다."""
+        if not _V7_OK:
+            return
+        # 기존 카드 초기화
+        while self._diag_layout.count():
+            item = self._diag_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        cards = diagnose_vulnerabilities_v7(result, mc, cfg)
+
+        _SEV_COLOR = {
+            'HIGH': ('#e74c3c', '🔴 위험'),
+            'MED':  ('#e67e22', '🟡 경고'),
+            'LOW':  ('#3498db', '🔵 주의'),
+            'OK':   ('#2ecc71', '🟢 양호'),
+        }
+
+        for card in cards:
+            sev   = card['severity']
+            color, badge = _SEV_COLOR.get(sev, ('#95a5a6', sev))
+
+            frame = QFrame()
+            frame.setStyleSheet(
+                f"QFrame {{ background: #161b22; border-left: 4px solid {color};"
+                f" border-radius: 4px; padding: 4px; }}"
+            )
+            fl = QVBoxLayout(frame)
+            fl.setContentsMargins(8, 4, 8, 4)
+            fl.setSpacing(2)
+
+            # 제목줄
+            title_lbl = QLabel(f"{badge}  {card['title']}")
+            title_lbl.setStyleSheet(f"color:{color}; font-size:11px; font-weight:bold; border:none;")
+            fl.addWidget(title_lbl)
+
+            # 상세
+            if card.get('detail'):
+                det = QLabel(card['detail'])
+                det.setStyleSheet(f"color:{C_TEXT}; font-size:10px; border:none;")
+                det.setWordWrap(True)
+                fl.addWidget(det)
+
+            # 개선 제안
+            if card.get('suggestion'):
+                sugg = QLabel(card['suggestion'])
+                sugg.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px; border:none;")
+                sugg.setWordWrap(True)
+                fl.addWidget(sugg)
+
+            self._diag_layout.addWidget(frame)
+
+        self._diag_layout.addStretch()
 
     def _run_weather_compare(self):
         """포팅 D: 날씨별 3종 비교 실행 (WeatherWorker 비차단)."""
@@ -3976,7 +4068,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.14  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.15  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -4109,6 +4201,11 @@ class SplashWindow(QWidget):
              "매 시뮬레이션마다 아군 함정을 지정한 해역 안에서 무작위로 배치. "
              "배치 범위(위도·경도 구역)를 설정 화면에서 지정할 수 있고, "
              "애니메이션 탭에서 배치 결과를 직접 확인 가능."),
+            ("v7.15", "중간", "자동 취약점 진단 카드",
+             "시뮬레이션 완료 후 MC 결과를 6종 규칙으로 자동 분석. "
+             "완전 요격 성공률 미달·아군 피격 빈발·채널 포화·무기 소진·응답시간 초과·요격률 불안정 탐지. "
+             "REQ 판정 탭 상단에 HIGH/MED/LOW/OK 색상 구분 카드로 표시, "
+             "무기별 개선 제안(재고 증량·CEC 활성화 등) 자동 생성."),
             ("v7.14", "중간", "REQ 달성 최소 재고 역산 + 최소 재고 탭",
              "시뮬레이션 완료 후 백그라운드에서 SM-3·SM-6·SM-2·RAM·홍상어·청상어 6종 무기별 "
              "'완전 요격 성공률 90% 달성에 필요한 최소 함정당 재고'를 이진 탐색으로 역산. "
