@@ -110,6 +110,25 @@ v6.8.5 patch: HeloEvent.xxx 오류 수정
 
 작업 중간 상태는 커밋하지 않는다. 기능 단위로 완성 후 커밋한다.
 
+### exe 빌드 규칙
+
+패치 완료 후 **항상** exe를 갱신한다. 파일 종류에 따라 방법이 다르다.
+
+| 변경 파일 | 처리 방법 |
+|-----------|-----------|
+| `.py` 파일 변경 | `pyinstaller launcher.spec --noconfirm` (전체 빌드) |
+| `changelog.json`만 변경 | dist 폴더에 파일 복사만 (빌드 불필요) |
+
+```powershell
+# .py 변경 시
+pyinstaller launcher.spec --noconfirm
+
+# changelog.json만 변경 시
+Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\" -Force
+```
+
+빌드 후 git 커밋은 소스 파일만 한다. `dist/`, `build/` 폴더는 커밋하지 않는다.
+
 ---
 
 ## 코드 규칙
