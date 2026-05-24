@@ -329,5 +329,29 @@
       "NEW-BT 사전 렌더 진행률 바 + 휠 줌 (QPixmap.scaled SmoothTransformation)",
       "BUILD  launcher.spec anim_render.py 추가, multiprocessing hiddenimports 보강"
     ]
+  },
+  {
+    "version": "15-1",
+    "date": "2026-05-24",
+    "title": "onedir 패키징 + 글로벌 풀 예열 + 시스템 모니터 확장",
+    "changes": [
+      "FIX-3  onedir 패키징 전환 — PyInstaller onefile → onedir (subprocess 재압축 해제 제거, _MEI 오류 완전 해결)",
+      "NEW-BU 글로벌 ProcessPoolExecutor 앱 시작 시 예열 (_init_global_pool, anim_render._warmup_task)",
+      "NEW-BV 시스템 모니터 확장 — 코어별 진행률 바, 워커 프로세스 탭, GPU 탭, 성능 기록 탭",
+      "NEW-BW 시스템 모니터 카드 행 2 — VRAM·GPU온도·물리RAM·가상메모리·프로세스RAM",
+      "NEW-BX 배치 진행 바 — 멀티프로세싱 배치 단위 진행률 표시 (batch_done 시그널)",
+      "NEW-BY FloatingMonitor 확장 — VRAM·GPU온도·처리속도(회/s) 추가 행"
+    ]
+  },
+  {
+    "version": "15-2",
+    "date": "2026-05-24",
+    "title": "시뮬 중 UI freeze 완전 수정 — 블로킹 I/O 백그라운드 분리",
+    "changes": [
+      "FIX-4  SysDataWorker(QThread) — nvidia-smi·WMI·psutil 자식프로세스 수집을 백그라운드 스레드로 분리",
+      "FIX-4  SysMonitorTab._update() — _SYS_CACHE 읽기 전용으로 교체 (메인 스레드 블로킹 제거)",
+      "FIX-4  FloatingMonitor._refresh_sys() — _SYS_CACHE 읽기 전용으로 교체",
+      "FIX-4  근본 원인: QTimer 1초 콜백에서 nvidia-smi subprocess(1s 타임아웃)·WMI(500ms) 호출 → 클릭 시 멈춤"
+    ]
   }
 ]

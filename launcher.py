@@ -21,9 +21,73 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, time, threading, json, multiprocessing
+import sys, os, time, threading, json, multiprocessing, subprocess as _sp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
+
+# ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
+_wmi_inst = None   # lazy-init
+
+def _get_gpu_info() -> dict:
+    """nvidia-smi로 GPU 정보 수집. 실패 시 빈 dict 반환."""
+    try:
+        out = _sp.check_output(
+            ['nvidia-smi',
+             '--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu',
+             '--format=csv,noheader,nounits'],
+            timeout=1, stderr=_sp.DEVNULL)
+        p = [x.strip() for x in out.decode().strip().split(',')]
+        return {'util': int(p[0]), 'mem_used': int(p[1]),
+                'mem_total': int(p[2]), 'temp': int(p[3])}
+    except Exception:
+        return {}
+
+def _get_cpu_temp() -> float:
+    """CPU 온도(°C). WMI 사용. 실패 시 -1 반환."""
+    global _wmi_inst
+    if _wmi_inst is None:
+        try:
+            import wmi
+            _wmi_inst = wmi.WMI(namespace="root\\wmi")
+        except Exception:
+            _wmi_inst = False
+    if not _wmi_inst:
+        return -1.0
+    try:
+        zones = _wmi_inst.MSAcpi_ThermalZoneTemperature()
+        if zones:
+            return zones[0].CurrentTemperature / 10.0 - 273.15
+    except Exception:
+        _wmi_inst = None
+    return -1.0
+
+# ── 글로벌 프로세스 풀 (앱 시작 시 예열, 시뮬 내내 재사용) ──────────────────
+_GLOBAL_POOL: 'ProcessPoolExecutor | None' = None
+_PERF_HISTORY: list = []   # 최근 시뮬 성능 기록 (최대 10개)
+
+# 시스템 모니터 캐시 — 백그라운드 워커가 채움, 메인 스레드는 읽기만
+_SYS_CACHE: dict = {
+    'cpu': 0.0, 'mem_pct': 0.0, 'mem_used': 0, 'mem_total': 1,
+    'gpu': {}, 'cpu_temp': -1.0, 'cores': [], 'proc_ram': 0.0,
+    'worker_stats': [], 'swap_used': 0, 'thread_cnt': 0,
+}
+
+def _init_global_pool():
+    """앱 시작 시 백그라운드 스레드에서 호출 — 워커 프로세스 예열."""
+    global _GLOBAL_POOL
+    from anim_render import _warmup_task
+    n = min(os.cpu_count() or 4, 8)
+    _GLOBAL_POOL = ProcessPoolExecutor(max_workers=n)
+    try:
+        list(_GLOBAL_POOL.map(_warmup_task, range(n), timeout=60))
+    except Exception:
+        pass   # 예열 실패해도 풀 자체는 사용 가능
+
+def _shutdown_global_pool():
+    global _GLOBAL_POOL
+    if _GLOBAL_POOL is not None:
+        _GLOBAL_POOL.shutdown(wait=False)
+        _GLOBAL_POOL = None
 
 def _res(filename: str) -> str:
     """PyInstaller exe 및 일반 실행 모두에서 리소스 파일 경로 반환."""
@@ -232,7 +296,8 @@ class FloatingMonitor(QWidget):
                          Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(360, 220)
+        self.setFixedSize(380, 270)
+        self._mc_t0: float = 0.0
         self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._drag_pos = None
         self._timer = QTimer(self)
@@ -294,13 +359,22 @@ class FloatingMonitor(QWidget):
         gl.setContentsMargins(0, 0, 0, 0)
         gl.setSpacing(20)
 
-        self._lbl_cpu = self._make_stat_lbl("CPU", "—%")
-        self._lbl_ram = self._make_stat_lbl("RAM", "— GB")
-        self._lbl_gpu = self._make_stat_lbl("GPU", "—%")
-
+        self._lbl_cpu  = self._make_stat_lbl("CPU",  "—%")
+        self._lbl_ram  = self._make_stat_lbl("RAM",  "— GB")
+        self._lbl_gpu  = self._make_stat_lbl("GPU",  "—%")
         for w in (self._lbl_cpu, self._lbl_ram, self._lbl_gpu):
             gl.addWidget(w)
         inner.addWidget(grid)
+
+        # 두 번째 자원 행: VRAM / GPU온도 / 처리속도
+        grid2 = QWidget(); gl2 = QHBoxLayout(grid2)
+        gl2.setContentsMargins(0, 0, 0, 0); gl2.setSpacing(20)
+        self._lbl_vram  = self._make_stat_lbl("VRAM",  "— MB")
+        self._lbl_gtemp = self._make_stat_lbl("GPU°C", "—")
+        self._lbl_rate  = self._make_stat_lbl("속도",  "— 회/s")
+        for w in (self._lbl_vram, self._lbl_gtemp, self._lbl_rate):
+            gl2.addWidget(w)
+        inner.addWidget(grid2)
 
         # 드래그 안내
         tip = QLabel("드래그로 이동")
@@ -327,32 +401,31 @@ class FloatingMonitor(QWidget):
         return w
 
     def _refresh_sys(self):
-        cpu = psutil.cpu_percent(interval=None)
-        ram = psutil.virtual_memory()
-        ram_gb = ram.used / 1024**3
-        gpu_str = "—%"
-        try:
-            import subprocess
-            out = subprocess.check_output(
-                ['nvidia-smi', '--query-gpu=utilization.gpu',
-                 '--format=csv,noheader,nounits'],
-                timeout=1, stderr=subprocess.DEVNULL)
-            gpu_str = f"{out.decode().strip()}%"
-        except Exception:
-            pass
-
+        # 블로킹 호출 없음 — _SYS_CACHE 읽기만
         def _find(parent, name):
             return parent.findChild(QLabel, f'stat_{name}')
-
-        _find(self._lbl_cpu, 'CPU').setText(f"{cpu:.0f}%")
-        _find(self._lbl_ram, 'RAM').setText(f"{ram_gb:.1f} GB")
-        _find(self._lbl_gpu, 'GPU').setText(gpu_str)
+        c   = _SYS_CACHE
+        gpu = c['gpu']
+        _find(self._lbl_cpu, 'CPU').setText(f"{c['cpu']:.0f}%")
+        _find(self._lbl_ram, 'RAM').setText(f"{c.get('mem_used', 0)/1024**3:.1f} GB")
+        _find(self._lbl_gpu, 'GPU').setText(f"{gpu['util']}%" if 'util' in gpu else "—%")
+        mu, mt = gpu.get('mem_used'), gpu.get('mem_total')
+        _find(self._lbl_vram,  'VRAM').setText(f"{mu}/{mt}MB" if mu is not None else "— MB")
+        _find(self._lbl_gtemp, 'GPU°C').setText(f"{gpu['temp']}°C" if 'temp' in gpu else "—")
 
     def update_mc(self, done: int, total: int, eta: float):
+        if done == 1:
+            self._mc_t0 = time.time()
         self._lbl_mc.setText(f"MC  {done} / {total}")
         pct = int(done * 100 / total) if total > 0 else 0
         self._prog_mc.setValue(pct)
         self._lbl_eta.setText(f"잔여 약 {eta:.0f}초" if eta > 0 else "잔여 계산 중…")
+        if done > 0 and self._mc_t0:
+            elapsed = time.time() - self._mc_t0
+            rate = done / elapsed if elapsed > 0 else 0.0
+            def _find(parent, name):
+                return parent.findChild(QLabel, f'stat_{name}')
+            _find(self._lbl_rate, '속도').setText(f"{rate:.0f} 회/s")
 
     def show(self):
         super().show()
@@ -413,12 +486,13 @@ class SensitivityWorker(QThread):
 
 
 class SimWorker(QThread):
-    progress        = pyqtSignal(str)           # 진행 메시지
-    progress_detail = pyqtSignal(int, int, float) # (현재, 전체, ETA초)
-    finished        = pyqtSignal(dict, dict)    # (result, mc)
+    progress        = pyqtSignal(str)
+    progress_detail = pyqtSignal(int, int, float)  # (현재, 전체, ETA초)
+    finished        = pyqtSignal(dict, dict)
     error           = pyqtSignal(str)
     sim_started     = pyqtSignal()
     sim_ended       = pyqtSignal()
+    batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
 
     def __init__(self, cfg: dict, mc_n: int):
         super().__init__()
@@ -461,17 +535,23 @@ class SimWorker(QThread):
                 all_ship: dict = {}
                 done_count = 0
 
-                with ProcessPoolExecutor(max_workers=n_cores) as pool:
-                    futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
-                    for fut in as_completed(futs):
-                        rates, fh, ed, fl, cs, wu, sh = fut.result()
-                        all_rates.extend(rates);  all_f_hits.extend(fh)
-                        all_e_dest.extend(ed);    all_f_lost.extend(fl)
-                        all_costs.extend(cs)
-                        for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
-                        for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
-                        done_count += len(rates)
-                        _cb(done_count, self.mc_n)
+                pool = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_cores)
+                _own = _GLOBAL_POOL is None
+                batch_done_n = 0
+                futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
+                for fut in as_completed(futs):
+                    rates, fh, ed, fl, cs, wu, sh = fut.result()
+                    all_rates.extend(rates);  all_f_hits.extend(fh)
+                    all_e_dest.extend(ed);    all_f_lost.extend(fl)
+                    all_costs.extend(cs)
+                    for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
+                    for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
+                    done_count += len(rates)
+                    batch_done_n += 1
+                    self.batch_done.emit(batch_done_n, len(batches))
+                    _cb(done_count, self.mc_n)
+                if _own:
+                    pool.shutdown(wait=False)
 
                 arr = np.array(all_rates)
                 mc = {
@@ -488,11 +568,82 @@ class SimWorker(QThread):
                     'n':                    len(all_rates),
                 }
 
+            elapsed = time.time() - t0
+            rate    = self.mc_n / elapsed if elapsed > 0 else 0.0
+            _PERF_HISTORY.append({
+                'time':     time.time(),
+                'mc_n':     self.mc_n,
+                'duration': elapsed,
+                'rate':     rate,
+            })
+            if len(_PERF_HISTORY) > 10:
+                _PERF_HISTORY.pop(0)
             self.sim_ended.emit()
             self.finished.emit(result, mc)
         except Exception as e:
             self.sim_ended.emit()
             self.error.emit(str(e))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  시스템 데이터 백그라운드 워커 (블로킹 I/O를 메인 스레드에서 분리)
+# ════════════════════════════════════════════════════════════════════════════
+class _SysDataWorker(QThread):
+    """nvidia-smi·WMI 등 블로킹 I/O를 1초마다 백그라운드에서 수집, _SYS_CACHE 갱신."""
+
+    def run(self):
+        while not self.isInterruptionRequested():
+            try:
+                cpu   = psutil.cpu_percent(interval=None)
+                cores = psutil.cpu_percent(percpu=True, interval=None) or []
+                mem   = psutil.virtual_memory()
+                swap  = psutil.swap_memory()
+                gpu   = _get_gpu_info()      # subprocess — 메인 스레드 블로킹 제거
+                ctemp = _get_cpu_temp()      # WMI — 메인 스레드 블로킹 제거
+                proc  = psutil.Process()
+                proc_ram = proc.memory_info().rss / 1024**2
+                stats: list = []
+                try:
+                    for c in proc.children(recursive=True):
+                        try:
+                            stats.append({
+                                'pid':    c.pid,
+                                'cpu':    c.cpu_percent(interval=None),
+                                'ram':    c.memory_info().rss / 1024**2,
+                                'status': c.status(),
+                            })
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                except Exception:
+                    pass
+                _SYS_CACHE.update({
+                    'cpu': cpu, 'mem_pct': mem.percent,
+                    'mem_used': mem.used, 'mem_total': mem.total,
+                    'gpu': gpu, 'cpu_temp': ctemp,
+                    'cores': list(cores), 'proc_ram': proc_ram,
+                    'worker_stats': stats, 'swap_used': swap.used,
+                    'thread_cnt': threading.active_count(),
+                })
+            except Exception:
+                pass
+            self.msleep(1000)
+
+
+_SYS_DATA_WORKER: '_SysDataWorker | None' = None
+
+
+def _start_sys_data_worker():
+    global _SYS_DATA_WORKER
+    _SYS_DATA_WORKER = _SysDataWorker()
+    _SYS_DATA_WORKER.start()
+
+
+def _stop_sys_data_worker():
+    global _SYS_DATA_WORKER
+    if _SYS_DATA_WORKER is not None:
+        _SYS_DATA_WORKER.requestInterruption()
+        _SYS_DATA_WORKER.wait(2000)
+        _SYS_DATA_WORKER = None
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -540,17 +691,23 @@ class FrameRenderWorker(QThread):
              self._display_range, self._show_labels, self._show_alt)
             for i, fd in enumerate(self._frame_data)
         ]
-        with ProcessPoolExecutor(max_workers=n_workers) as ex:
-            futs = {ex.submit(_render_anim_frame, a): a[0] for a in args_list}
-            for fut in as_completed(futs):
-                if self._cancelled:
-                    ex.shutdown(wait=False, cancel_futures=True)
-                    return
-                try:
-                    idx, png = fut.result()
-                    self.frame_ready.emit(idx, png)
-                except Exception:
-                    pass
+        ex   = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_workers)
+        _own = _GLOBAL_POOL is None
+        futs = {ex.submit(_render_anim_frame, a): a[0] for a in args_list}
+        for fut in as_completed(futs):
+            if self._cancelled:
+                for f in futs:
+                    f.cancel()
+                if _own:
+                    ex.shutdown(wait=False)
+                return
+            try:
+                idx, png = fut.result()
+                self.frame_ready.emit(idx, png)
+            except Exception:
+                pass
+        if _own:
+            ex.shutdown(wait=False)
         if not self._cancelled:
             self.all_done.emit()
 
@@ -873,99 +1030,316 @@ class AnimationTab(QWidget):
 #  시스템 모니터 탭
 # ════════════════════════════════════════════════════════════════════════════
 class SysMonitorTab(QWidget):
+    """실시간 시스템 모니터 — CPU/RAM/GPU/프로세스/코어/성능 기록."""
+
     def __init__(self):
         super().__init__()
+        self._cpu_hist      = [0.0] * 60
+        self._ram_hist      = [0.0] * 60
+        self._gpu_hist      = [0.0] * 60
+        self._core_pcts     = [0.0] * (os.cpu_count() or 4)
+        self._worker_stats  = []
+        self._sim_ranges    = []
+        self._sim_start_idx = None
+        self._batch_done    = 0
+        self._batch_total   = 0
+        self._sim_speed     = 0.0
+        self._sim_t0        = None
+        self._sim_done      = 0
         self._build_ui()
-        self._timer = QTimer()
+        self._timer = QTimer(self)
         self._timer.timeout.connect(self._update)
         self._timer.start(1000)
-        self._cpu_hist  = [0.0] * 60
-        self._ram_hist  = [0.0] * 60
-        self._sim_ranges = []   # [(start_idx, end_idx)] 시뮬 구간
-        self._sim_start_idx = None
 
+    # ── 외부 슬롯 ────────────────────────────────────────────────────────────
     def mark_sim_start(self):
         self._sim_start_idx = len(self._cpu_hist) - 1
+        self._sim_t0   = time.time()
+        self._sim_done = 0
+        self._sim_speed = 0.0
 
     def mark_sim_end(self):
         if self._sim_start_idx is not None:
-            end = len(self._cpu_hist) - 1
-            self._sim_ranges.append((self._sim_start_idx, end))
-            self._sim_start_idx = None
-            # 최근 3구간만 유지
+            self._sim_ranges.append((self._sim_start_idx, len(self._cpu_hist) - 1))
             self._sim_ranges = self._sim_ranges[-3:]
+            self._sim_start_idx = None
+        self._batch_done = 0
+        self._batch_total = 0
+        self._prog_batch.setValue(0)
+        self._lbl_batch.setText("배치 진행  대기 중")
 
+    def on_batch_done(self, done: int, total: int):
+        self._batch_done  = done
+        self._batch_total = total
+        self._prog_batch.setMaximum(max(total, 1))
+        self._prog_batch.setValue(done)
+        self._lbl_batch.setText(f"배치 진행  {done} / {total}")
+
+    def on_progress_detail(self, done: int, total: int, eta: float):
+        if self._sim_t0 and done > 0:
+            elapsed = time.time() - self._sim_t0
+            self._sim_speed = done / elapsed if elapsed > 0 else 0.0
+            self._sim_done  = done
+
+    # ── UI 빌더 ──────────────────────────────────────────────────────────────
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(6)
 
-        # 수치 레이블
-        row = QHBoxLayout()
-        self.lbl_cpu = self._metric_card("CPU", "0%")
-        self.lbl_ram = self._metric_card("RAM", "0%")
-        self.lbl_thr = self._metric_card("스레드", "0")
-        self.lbl_pid = self._metric_card("PID", str(os.getpid()))
-        row.addWidget(self.lbl_cpu[0])
-        row.addWidget(self.lbl_ram[0])
-        row.addWidget(self.lbl_thr[0])
-        row.addWidget(self.lbl_pid[0])
-        layout.addLayout(row)
+        # 카드 행 1: 핵심 지표
+        r1 = QHBoxLayout()
+        self._c_cpu   = self._card("CPU 전체",  "0 %")
+        self._c_ram   = self._card("RAM",       "0 %")
+        self._c_thr   = self._card("스레드",     "0")
+        self._c_gpu   = self._card("GPU",       "— %")
+        self._c_ctemp = self._card("CPU 온도",   "— °C")
+        self._c_speed = self._card("처리 속도",  "— 회/s")
+        for c in (self._c_cpu, self._c_ram, self._c_thr,
+                  self._c_gpu, self._c_ctemp, self._c_speed):
+            r1.addWidget(c[0])
+        root.addLayout(r1)
 
-        # 차트
-        self.canvas = MplCanvas(figsize=(8, 4))
-        layout.addWidget(self.canvas)
-        layout.addStretch()
+        # 카드 행 2: 메모리/GPU 상세
+        r2 = QHBoxLayout()
+        self._c_vram  = self._card("VRAM",      "— MB")
+        self._c_gtemp = self._card("GPU 온도",   "— °C")
+        self._c_phram = self._card("물리 RAM",   "— GB")
+        self._c_vtram = self._card("가상 메모리", "— GB")
+        self._c_prram = self._card("프로세스",   "— MB")
+        for c in (self._c_vram, self._c_gtemp, self._c_phram,
+                  self._c_vtram, self._c_prram):
+            r2.addWidget(c[0])
+        root.addLayout(r2)
 
-    def _metric_card(self, title, initial):
-        card = QGroupBox(title)
-        card.setFixedHeight(80)
-        inner = QVBoxLayout(card)
-        lbl = QLabel(initial)
+        # 배치 진행 바
+        br = QHBoxLayout()
+        self._lbl_batch = QLabel("배치 진행  대기 중")
+        self._lbl_batch.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        self._prog_batch = QProgressBar()
+        self._prog_batch.setRange(0, 1); self._prog_batch.setValue(0)
+        self._prog_batch.setFixedHeight(12)
+        self._prog_batch.setStyleSheet(f"""
+            QProgressBar {{ background:{C_PANEL}; border-radius:4px; border:1px solid {C_BORDER}; }}
+            QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}
+        """)
+        br.addWidget(self._lbl_batch)
+        br.addWidget(self._prog_batch, 1)
+        root.addLayout(br)
+
+        # 내부 탭
+        self._inner = QTabWidget()
+        self._inner.addTab(self._build_sys_tab(),  "📊  시스템")
+        self._inner.addTab(self._build_proc_tab(), "⚙️  프로세스")
+        self._inner.addTab(self._build_gpu_tab(),  "🎮  GPU")
+        self._inner.addTab(self._build_hist_tab(), "📈  성능 기록")
+        root.addWidget(self._inner)
+
+    def _card(self, title: str, init: str):
+        box = QGroupBox(title)
+        box.setFixedHeight(68)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lbl = QLabel(init)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setFont(QFont('Malgun Gothic', 20, QFont.Weight.Bold))
+        lbl.setFont(QFont('Malgun Gothic', 14, QFont.Weight.Bold))
         lbl.setStyleSheet(f"color:{C_ACCENT};")
-        inner.addWidget(lbl)
-        return card, lbl
+        lay.addWidget(lbl)
+        return box, lbl
 
+    def _build_sys_tab(self) -> QWidget:
+        w = QWidget(); lay = QHBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
+        self._sys_canvas = MplCanvas(figsize=(6, 3))
+        lay.addWidget(self._sys_canvas, 3)
+        # 코어별 바
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        inner = QWidget(); inner.setStyleSheet(f"background:{C_BG};")
+        cl = QVBoxLayout(inner); cl.setSpacing(2); cl.setContentsMargins(6, 6, 6, 6)
+        self._core_bars = []
+        for i in range(os.cpu_count() or 4):
+            row = QHBoxLayout()
+            lbl = QLabel(f"C{i:02d}"); lbl.setFixedWidth(28)
+            lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            bar = QProgressBar(); bar.setRange(0, 100); bar.setValue(0)
+            bar.setFixedHeight(12); bar.setTextVisible(False)
+            bar.setStyleSheet(f"""
+                QProgressBar {{ background:{C_PANEL}; border-radius:3px; border:none; }}
+                QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:2px; }}
+            """)
+            plbl = QLabel("0%"); plbl.setFixedWidth(32)
+            plbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            plbl.setStyleSheet(f"color:{C_TEXT}; font-size:10px;")
+            row.addWidget(lbl); row.addWidget(bar, 1); row.addWidget(plbl)
+            cl.addLayout(row)
+            self._core_bars.append((bar, plbl))
+        cl.addStretch(); scroll.setWidget(inner)
+        lay.addWidget(scroll, 2)
+        return w
+
+    def _build_proc_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
+        lbl = QLabel("워커 프로세스 (ProcessPoolExecutor 자식 프로세스)")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lay.addWidget(lbl)
+        self._proc_tbl = QTableWidget(0, 4)
+        self._proc_tbl.setHorizontalHeaderLabels(["PID", "CPU %", "RAM (MB)", "상태"])
+        hh = self._proc_tbl.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._proc_tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._proc_tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._proc_tbl.verticalHeader().setVisible(False)
+        self._proc_tbl.setStyleSheet(f"background:{C_BG};")
+        lay.addWidget(self._proc_tbl)
+        return w
+
+    def _build_gpu_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
+        self._gpu_canvas = MplCanvas(figsize=(8, 3))
+        lay.addWidget(self._gpu_canvas)
+        return w
+
+    def _build_hist_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
+        lbl = QLabel("최근 시뮬레이션 실행 기록 (최대 10회)")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lay.addWidget(lbl)
+        self._hist_tbl = QTableWidget(0, 4)
+        self._hist_tbl.setHorizontalHeaderLabels(["실행 시각", "MC 횟수", "소요 시간", "처리 속도"])
+        hh = self._hist_tbl.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._hist_tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._hist_tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._hist_tbl.verticalHeader().setVisible(False)
+        self._hist_tbl.setStyleSheet(f"background:{C_BG};")
+        lay.addWidget(self._hist_tbl)
+        self._hist_canvas = MplCanvas(figsize=(8, 2))
+        lay.addWidget(self._hist_canvas)
+        return w
+
+    # ── 업데이트 루프 ─────────────────────────────────────────────────────────
     def _update(self):
-        cpu = psutil.cpu_percent(interval=None)
-        ram = psutil.virtual_memory().percent
-        thr = threading.active_count()
-
-        self.lbl_cpu[1].setText(f"{cpu:.0f}%")
-        self.lbl_ram[1].setText(f"{ram:.0f}%")
-        self.lbl_thr[1].setText(str(thr))
+        # 블로킹 호출 없음 — _SysDataWorker가 채운 캐시만 읽음
+        c        = _SYS_CACHE
+        cpu      = c['cpu']
+        cores    = c.get('cores', [])
+        mem_pct  = c['mem_pct']
+        gpu      = c['gpu']
+        ctemp    = c['cpu_temp']
+        proc_ram = c['proc_ram']
+        self._worker_stats = c.get('worker_stats', [])
 
         self._cpu_hist = self._cpu_hist[1:] + [cpu]
-        self._ram_hist = self._ram_hist[1:] + [ram]
+        self._ram_hist = self._ram_hist[1:] + [mem_pct]
+        self._gpu_hist = self._gpu_hist[1:] + [float(gpu.get('util', 0))]
+        if cores:
+            self._core_pcts = list(cores)
 
-        fig = self.canvas.fig
-        fig.clear()
+        # 카드 행 1
+        self._c_cpu[1].setText(f"{cpu:.0f} %")
+        self._c_ram[1].setText(f"{mem_pct:.0f} %")
+        self._c_thr[1].setText(str(c.get('thread_cnt', threading.active_count())))
+        self._c_gpu[1].setText(f"{gpu['util']} %" if 'util' in gpu else "— %")
+        self._c_ctemp[1].setText(f"{ctemp:.0f} °C" if ctemp >= 0 else "— °C")
+        self._c_speed[1].setText(f"{self._sim_speed:.0f} 회/s" if self._sim_speed > 0 else "— 회/s")
+
+        # 카드 행 2
+        mu, mt = gpu.get('mem_used'), gpu.get('mem_total')
+        self._c_vram[1].setText(f"{mu}/{mt} MB" if mu is not None else "— MB")
+        self._c_gtemp[1].setText(f"{gpu['temp']} °C" if 'temp' in gpu else "— °C")
+        mem_used_gb  = c.get('mem_used', 0) / 1024**3
+        mem_total_gb = c.get('mem_total', 1) / 1024**3
+        self._c_phram[1].setText(f"{mem_used_gb:.1f}/{mem_total_gb:.0f} GB")
+        self._c_vtram[1].setText(f"{c.get('swap_used', 0)/1024**3:.1f} GB")
+        self._c_prram[1].setText(f"{proc_ram:.0f} MB")
+
+        # 코어별 바
+        for i, (bar, plbl) in enumerate(self._core_bars):
+            pct = int(self._core_pcts[i]) if i < len(self._core_pcts) else 0
+            bar.setValue(pct); plbl.setText(f"{pct}%")
+
+        # 탭별 차트 갱신
+        idx = self._inner.currentIndex()
+        if idx == 0:
+            self._draw_sys_chart()
+        elif idx == 1:
+            self._update_proc_table()
+        elif idx == 2:
+            self._draw_gpu_chart()
+        elif idx == 3:
+            self._draw_hist_tab()
+
+    def _draw_sys_chart(self):
+        fig = self._sys_canvas.fig; fig.clear()
+        fig.patch.set_facecolor(C_BG)
         ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.set_facecolor('#0a0e1a')
         ax.tick_params(colors='#aab', labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        ax.set_ylim(0, 100)
-        ax.set_xlim(0, 59)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.set_ylim(0, 100); ax.set_xlim(0, 59)
         ax.set_xlabel('경과 (초)', color='#aab', fontsize=8)
         ax.set_ylabel('사용률 (%)', color='#aab', fontsize=8)
-        ax.set_title('CPU / RAM 사용률 (최근 60초)',
-                     color='#dde', fontsize=9, fontweight='bold')
+        ax.set_title('CPU / RAM (최근 60초)', color='#dde', fontsize=9, fontweight='bold')
         ax.grid(color='#1e2a3a', linewidth=0.5)
         ax.plot(self._cpu_hist, color=C_ACCENT, lw=1.5, label='CPU')
         ax.plot(self._ram_hist, color=C_ORANGE, lw=1.5, label='RAM')
-        # 시뮬 실행 구간 하이라이트
         for s, e in self._sim_ranges:
             ax.axvspan(s, min(e, 59), color='#f1c40f', alpha=0.12, zorder=0)
         if self._sim_start_idx is not None:
-            ax.axvspan(self._sim_start_idx, 59,
-                       color='#f1c40f', alpha=0.18, zorder=0,
-                       label='시뮬 실행 중')
-        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white',
-                  edgecolor='#1e2a3a')
-        self.canvas.draw()
+            ax.axvspan(self._sim_start_idx, 59, color='#f1c40f',
+                       alpha=0.18, zorder=0, label='시뮬 실행 중')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
+        self._sys_canvas.draw()
+
+    def _draw_gpu_chart(self):
+        fig = self._gpu_canvas.fig; fig.clear()
+        fig.patch.set_facecolor(C_BG)
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.tick_params(colors='#aab', labelsize=8)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.set_ylim(0, 100); ax.set_xlim(0, 59)
+        ax.set_xlabel('경과 (초)', color='#aab', fontsize=8)
+        ax.set_ylabel('GPU 사용률 (%)', color='#aab', fontsize=8)
+        ax.set_title('GPU 사용률 (최근 60초)', color='#dde', fontsize=9, fontweight='bold')
+        ax.grid(color='#1e2a3a', linewidth=0.5)
+        ax.plot(self._gpu_hist, color='#2ecc71', lw=1.5, label='GPU')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
+        self._gpu_canvas.draw()
+
+    def _update_proc_table(self):
+        self._proc_tbl.setRowCount(0)
+        for w in self._worker_stats:
+            r = self._proc_tbl.rowCount(); self._proc_tbl.insertRow(r)
+            vals = [str(w['pid']), f"{w['cpu']:.1f}%",
+                    f"{w['ram']:.0f} MB", w['status']]
+            for col, txt in enumerate(vals):
+                item = QTableWidgetItem(txt)
+                if col == 1 and w['cpu'] > 50:
+                    item.setForeground(QColor(C_ACCENT))
+                self._proc_tbl.setItem(r, col, item)
+
+    def _draw_hist_tab(self):
+        from datetime import datetime
+        self._hist_tbl.setRowCount(0)
+        for rec in _PERF_HISTORY:
+            r = self._hist_tbl.rowCount(); self._hist_tbl.insertRow(r)
+            ts = datetime.fromtimestamp(rec['time']).strftime('%H:%M:%S')
+            for col, txt in enumerate([
+                ts, str(rec.get('mc_n', '—')),
+                f"{rec.get('duration', 0):.1f}초",
+                f"{rec.get('rate', 0):.1f} 회/s"
+            ]):
+                self._hist_tbl.setItem(r, col, QTableWidgetItem(txt))
+        if _PERF_HISTORY:
+            fig = self._hist_canvas.fig; fig.clear()
+            fig.patch.set_facecolor(C_BG)
+            ax = fig.add_subplot(111, facecolor='#0a0e1a')
+            rates = [rec.get('rate', 0) for rec in _PERF_HISTORY]
+            ax.bar(range(len(rates)), rates, color=C_ACCENT, alpha=0.8)
+            ax.set_ylabel('회/초', color='#aab', fontsize=8)
+            ax.set_title('처리 속도 추이', color='#dde', fontsize=9, fontweight='bold')
+            ax.tick_params(colors='#aab', labelsize=8)
+            for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+            ax.grid(color='#1e2a3a', linewidth=0.5, axis='y')
+            self._hist_canvas.draw()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1804,6 +2178,8 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(self._on_error)
         self._worker.sim_started.connect(self.tab_sysmon.mark_sim_start)
         self._worker.sim_ended.connect(self.tab_sysmon.mark_sim_end)
+        self._worker.batch_done.connect(self.tab_sysmon.on_batch_done)
+        self._worker.progress_detail.connect(self.tab_sysmon.on_progress_detail)
         # 플로팅 모니터 연결
         self._worker.sim_started.connect(self._show_float_mon)
         self._worker.sim_ended.connect(self._float_mon.close)
@@ -3008,9 +3384,9 @@ _FEATURES = [
     ("🔄  이전 비교",           "최대 5회 실행 히스토리 요격률/비용 자동 비교"),
     ("📋  설정 프로필",         "시나리오 설정을 이름 붙여 저장/불러오기"),
     ("📄  보고서 출력",         "Excel + PDF (4페이지) 보고서 내보내기"),
-    ("🖥️  시스템 모니터",       "CPU·RAM 실시간 + 시뮬 구간 하이라이트"),
-    ("📺  플로팅 모니터",        "시뮬 중 팝업 — MC 진행률 + CPU/RAM/GPU, 드래그 이동"),
-    ("⚡  MC 멀티프로세싱",      "ProcessPoolExecutor 최대 8코어 자동 병렬 배치 (≥100회)"),
+    ("🖥️  시스템 모니터",       "CPU·RAM·GPU·코어별·워커 프로세스·성능 기록 실시간 (비차단 백그라운드)"),
+    ("📺  플로팅 모니터",        "시뮬 중 팝업 — MC 진행률 + CPU/RAM/GPU/VRAM/처리속도, 드래그 이동"),
+    ("⚡  MC 멀티프로세싱",      "글로벌 풀 앱 시작 시 예열 + ProcessPoolExecutor 최대 8코어 배치 병렬"),
     ("⚙️  엔진 전술 기동",      "CEC두절·함정회피·V자/포위 기동·다방위 공격"),
     ("🌊  적군 DB",            "32종 위협 (북한·러시아·드론떼·수중드론 포함)"),
 ]
@@ -3189,6 +3565,11 @@ def main():
         _main_win.append(win)
         win.show()
 
+    app.aboutToQuit.connect(_shutdown_global_pool)
+    app.aboutToQuit.connect(_stop_sys_data_worker)
+
+    _start_sys_data_worker()   # 블로킹 I/O 백그라운드 수집 시작
+
     splash = SplashWindow()
     splash.launch_requested.connect(_launch)
     splash.show()
@@ -3197,6 +3578,8 @@ def main():
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()   # PyInstaller exe 멀티프로세싱 필수
+    # 글로벌 풀 백그라운드 예열 (스플래시 표시 중에 완료됨)
+    threading.Thread(target=_init_global_pool, daemon=True).start()
     main()
 
 

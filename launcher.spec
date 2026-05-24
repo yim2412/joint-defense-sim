@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # launcher.spec — 이지스 기동전단 시뮬레이터 PyInstaller 빌드 설정
+# onedir 모드: subprocess 워커가 번들 재압축해제 없이 즉시 import 가능
 
 import os
 
@@ -27,7 +28,7 @@ a = Analysis(
         'matplotlib.backends.backend_qtagg',
         'matplotlib.backends.backend_qt',
         'matplotlib.backends.backend_agg',
-        # matplotlib internals (자동 감지 실패 방지)
+        # matplotlib internals
         'matplotlib.figure',
         'matplotlib.lines',
         'matplotlib.patches',
@@ -40,9 +41,10 @@ a = Analysis(
         'openpyxl',
         'openpyxl.styles',
         'openpyxl.drawing.image',
-        # psutil
+        # psutil / wmi
         'psutil',
-        # 멀티프로세싱 (FrameRenderWorker + MC 배치 워커)
+        'wmi',
+        # 멀티프로세싱
         'multiprocessing',
         'multiprocessing.pool',
         'multiprocessing.spawn',
@@ -51,7 +53,7 @@ a = Analysis(
         'concurrent.futures.process',
         # 기타 stdlib
         'json', 'io', 'math', 'random', 'copy', 'dataclasses',
-        'collections', 'itertools', 'threading', 'time',
+        'collections', 'itertools', 'threading', 'time', 'subprocess',
     ],
     hookspath=[],
     hooksconfig={},
@@ -73,21 +75,29 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,          # onedir: 바이너리/데이터 EXE에 포함 안 함
     name='이지스_기동전단_시뮬레이터',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,          # GUI 앱 — 콘솔 창 숨김
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon='aegis_icon.ico',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='이지스_기동전단_시뮬레이터',
 )
