@@ -963,7 +963,22 @@ class AnimationTab(QWidget):
         btn_shot.setToolTip("현재 프레임 PNG 저장")
         btn_shot.clicked.connect(self._save_screenshot)
 
-        lbl_hint = QLabel("  휠:줌  2.5D 등각투영")
+        lbl_zoom = QLabel("  줌:")
+        lbl_zoom.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        self._btn_zout  = QPushButton("−")
+        self._btn_zin   = QPushButton("+")
+        self._btn_zreset = QPushButton("1:1")
+        for b, tip, fn in [
+            (self._btn_zout,  "줌 아웃 (휠 아래)", lambda: self._zoom_step(1.15)),
+            (self._btn_zin,   "줌 인 (휠 위)",     lambda: self._zoom_step(0.85)),
+            (self._btn_zreset,"줌 초기화",          self._reset_zoom),
+        ]:
+            b.setFixedHeight(24); b.setFixedWidth(36)
+            b.setStyleSheet(_bs)
+            b.setToolTip(tip)
+            b.clicked.connect(fn)
+
+        lbl_hint = QLabel("  2.5D 등각투영")
         lbl_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
 
         opt_row.addWidget(self.chk_labels)
@@ -972,6 +987,10 @@ class AnimationTab(QWidget):
         for b in self._spd_btns:
             opt_row.addWidget(b)
         opt_row.addWidget(btn_shot)
+        opt_row.addWidget(lbl_zoom)
+        opt_row.addWidget(self._btn_zout)
+        opt_row.addWidget(self._btn_zin)
+        opt_row.addWidget(self._btn_zreset)
         opt_row.addWidget(lbl_hint)
         opt_row.addStretch()
         layout.addLayout(opt_row)
@@ -1018,11 +1037,18 @@ class AnimationTab(QWidget):
         from PyQt6.QtCore import QEvent
         if obj is self._lbl_canvas and event.type() == QEvent.Type.Wheel:
             delta = event.angleDelta().y()
-            self._zoom *= (0.85 if delta > 0 else 1.15)
-            self._zoom = max(0.2, min(5.0, self._zoom))
-            self._draw_frame(self._cur_idx)
+            self._zoom_step(0.85 if delta > 0 else 1.15)
             return True
         return super().eventFilter(obj, event)
+
+    def _zoom_step(self, factor: float):
+        self._zoom *= factor
+        self._zoom = max(0.2, min(5.0, self._zoom))
+        self._draw_frame(self._cur_idx)
+
+    def _reset_zoom(self):
+        self._zoom = 1.0
+        self._draw_frame(self._cur_idx)
 
     # ── 공개 API ──────────────────────────────────────────────────────────
     def load_frames(self, frames):
