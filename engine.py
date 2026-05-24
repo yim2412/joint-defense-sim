@@ -1021,6 +1021,74 @@ ENEMY_FLEET_PRESETS = {
     ],
 }
 
+# ── 혼합 공격 시나리오 (NEW-A: v7.12) ────────────────────────────────────────
+# 각 시나리오는 파도(wave)별로 위협을 정의한다.
+# delay_s: 시뮬레이션 시작 후 해당 파도가 출현하는 시각 (초)
+MIXED_ATTACK_SCENARIOS = {
+    '순항미사일 + 탄도탄 + 드론 복합': {
+        'description': '1파: 순항미사일 4발로 SM-2 재고 소모 → 2파: 탄도탄으로 SM-3 강요 → 3파: 드론 떼로 CIWS/RAM 포화',
+        'waves': [
+            {'delay_s':   0, 'threats': [{'preset': 'CJ-10 (순항미사일)', 'count': 4}]},
+            {'delay_s':  60, 'threats': [{'preset': 'DF-21D (대함 탄도)', 'count': 2}]},
+            {'delay_s':  90, 'threats': [{'preset': '소형 자폭 드론 (UAV)', 'count': 12}]},
+        ],
+    },
+    '잠수함 어뢰 + 대함미사일 병행': {
+        'description': '잠수함 어뢰로 대잠 전력 분산 + 수상함 대함미사일 동시 공격 — 채널 양분 강요',
+        'waves': [
+            {'delay_s':  0, 'threats': [{'preset': '039형 잠수함 (송급)', 'count': 2}]},
+            {'delay_s':  0, 'threats': [{'preset': '022형 미사일 고속정', 'count': 4}]},
+        ],
+    },
+    '항모 킬 체인 (스텔스→HGV→초음속)': {
+        'description': 'J-20 스텔스로 방공망 혼란 → DF-17 극초음속으로 방어 돌파 → CM-302 초음속 마무리',
+        'waves': [
+            {'delay_s':  0, 'threats': [{'preset': 'J-20 (위룡)', 'count': 2}]},
+            {'delay_s': 30, 'threats': [{'preset': 'DF-17 (극초음속 활공)', 'count': 1}]},
+            {'delay_s': 50, 'threats': [{'preset': 'CM-302 (초음속 순항)', 'count': 3}]},
+        ],
+    },
+    '전방위 포화 공격 (채널 포화)': {
+        'description': '전투기·탄도탄·순항미사일·드론이 동시 출현 — 모든 교전 채널 동시 포화 테스트',
+        'waves': [
+            {'delay_s':  0, 'threats': [
+                {'preset': 'J-16 (플랭커-D)',     'count': 3},
+                {'preset': 'DF-21D (대함 탄도)',  'count': 2},
+                {'preset': 'CJ-10 (순항미사일)',  'count': 4},
+                {'preset': '소형 자폭 드론 (UAV)','count': 8},
+            ]},
+        ],
+    },
+    '러시아 살라미 공격': {
+        'description': '킨잘로 BMD 재고 소모 → 지르콘 마하 9 돌파 → Kh-101 스텔스 잔여 목표 타격',
+        'waves': [
+            {'delay_s':  0, 'threats': [{'preset': '킨잘 (극초음속 탄도)', 'count': 2}]},
+            {'delay_s': 40, 'threats': [{'preset': '지르콘 (극초음속 순항)', 'count': 2}]},
+            {'delay_s': 70, 'threats': [{'preset': 'Kh-101 (스텔스 순항)', 'count': 3}]},
+        ],
+    },
+    '북한 전면 도발': {
+        'description': 'KN-23 + 화성-15 탄도탄으로 BMD 강요 → 화살-2 순항미사일 후속 타격',
+        'waves': [
+            {'delay_s':  0, 'threats': [
+                {'preset': 'KN-23 (북한 이스칸데르)', 'count': 3},
+                {'preset': '화성-15 (북한 ICBM급)',   'count': 1},
+            ]},
+            {'delay_s': 30, 'threats': [{'preset': '북한 순항미사일 (화살-2)', 'count': 4}]},
+        ],
+    },
+    '대잠·대공 동시 압박': {
+        'description': '잠수함·전투기 동시 접근으로 대잠/대공 채널 분리 강요, 초음속 대함 마무리',
+        'waves': [
+            {'delay_s':  0, 'threats': [
+                {'preset': '093형 잠수함 (상급)', 'count': 1},
+                {'preset': 'J-15 (비상어)',       'count': 3},
+            ]},
+            {'delay_s': 45, 'threats': [{'preset': 'YJ-12 (초음속 순항)', 'count': 4}]},
+        ],
+    },
+}
+
 # 랜덤 적군 편대 난이도 설정
 ENEMY_FLEET_RANDOM_CFG = {
     '쉬움':   {
@@ -1786,8 +1854,12 @@ def run_single_sim(cfg, dm_eff, weather_delta, cd_eff, silent=False):
         threat_list,
         enable_multibearing=cfg.get('enable_multibearing', False),
         seed=cfg.get('bearing_seed', None))
+    # NEW-A: wave_offset_s per 파도, 파도 내부는 launch_interval_s로 순차 스폰
+    _wave_ctrs: dict = {}
     for i,(ep,ei) in enumerate(threat_list):
-        spawn_t=i*cfg['launch_interval_s']
+        wo = ei.get('wave_offset_s', 0)
+        wc = _wave_ctrs.get(wo, 0); _wave_ctrs[wo] = wc + 1
+        spawn_t = wo + wc * cfg['launch_interval_s']
         t1=ThreatEvent(f"{ep} #{i+1}",spawn_t,dm_eff,ei,
                        cfg,weather_delta,cd_eff,global_inv,ch_mgr,ill_mgr,
                        ship_status=ship_status,is_missile=False,silent=silent)
@@ -1938,6 +2010,25 @@ def build_enemy_threat_list(cfg):
         fleet_spec = generate_random_enemy_fleet(
             difficulty=cfg.get('enemy_fleet_difficulty', '보통'),
             seed=cfg.get('enemy_fleet_seed', None))
+
+    elif mode == 'mixed':
+        # NEW-A: 혼합 공격 시나리오 — 파도별 위협 + wave_offset_s 부착
+        scenario_name = cfg.get('mixed_scenario', '')
+        scenario = MIXED_ATTACK_SCENARIOS.get(scenario_name, {})
+        threats = []
+        for wave in scenario.get('waves', []):
+            wave_delay = wave.get('delay_s', 0)
+            for spec in wave.get('threats', []):
+                p = spec['preset']
+                cnt = spec.get('count', 1)
+                if p not in ENEMY_DB:
+                    continue
+                for _ in range(cnt):
+                    ei = ENEMY_DB[p].copy()
+                    ei['wave_offset_s'] = wave_delay
+                    threats.append((p, ei))
+        return threats[:24]
+
     else:
         fleet_spec = []
 

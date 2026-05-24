@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.11 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.12 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.12 — 혼합 공격 시나리오 7종 + 파도별 지연 스폰]                       ║
+║  NEW-A  MIXED_ATTACK_SCENARIOS 7종: 순항+탄도+드론, 러시아 살라미, 북한 등 ║
+║  NEW-B  파도 타이밍(wave_offset_s): 위협이 delay_s 시점에 순차 출현        ║
+║  NEW-C  launcher 혼합 시나리오 모드 UI: 드롭다운 + 파도 구성 미리보기      ║
+║                                                                              ║
 ║  [v7.11 — 한국 해군 함정 8종 추가 + 현실 기반 편대 프리셋 5종 신설]       ║
 ║                                                                              ║
 ║  NEW-1  시뮬 seed numpy 동시 고정 (random + np.random.seed) — 완전 재현    ║
@@ -198,6 +203,7 @@ try:
         WEATHER_DB,
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
+        MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
         evaluate_req_v7, REQ_ITEMS_V7,
         scenario_comparison_v7,
         save_scenario_v7, load_scenario_v7,
@@ -213,7 +219,8 @@ except ImportError as e:
     _V7_OK = False
     _V7_ERR = str(e)
     V7_ENEMY_FLEET_PRESETS = {}
-    V7_RANDOM_CFG = {}
+    V7_RANDOM_CFG          = {}
+    V7_MIXED_SCENARIOS     = {}
 
 # ── 색상 팔레트 ──────────────────────────────────────────────────────────────
 C_BG      = '#0d1117'
@@ -2180,7 +2187,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.11")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.12")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -2328,7 +2335,7 @@ class MainWindow(QMainWindow):
         mode_rl.setContentsMargins(0, 0, 0, 0)
         mode_rl.addWidget(QLabel("모드:"))
         self.cmb_enemy_mode = NoScrollComboBox()
-        self.cmb_enemy_mode.addItems(['프리셋', '랜덤'])
+        self.cmb_enemy_mode.addItems(['프리셋', '혼합 시나리오', '랜덤'])
         mode_rl.addWidget(self.cmb_enemy_mode, stretch=1)
         el.addWidget(mode_row)
 
@@ -2337,6 +2344,20 @@ class MainWindow(QMainWindow):
         self.cmb_fleet_preset_e.addItems(list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else [])
         self.cmb_fleet_preset_e.currentTextChanged.connect(self._update_enemy_preset_detail)
         el.addWidget(self.cmb_fleet_preset_e)
+
+        # NEW-A: 혼합 시나리오 선택 (혼합 모드용)
+        self._mixed_row = QWidget(); mixed_rl = QVBoxLayout(self._mixed_row)
+        mixed_rl.setContentsMargins(0, 0, 0, 0); mixed_rl.setSpacing(3)
+        self.cmb_mixed_scenario = NoScrollComboBox()
+        self.cmb_mixed_scenario.addItems(list(V7_MIXED_SCENARIOS.keys()) if _V7_OK else [])
+        self.cmb_mixed_scenario.currentTextChanged.connect(self._update_mixed_scenario_detail)
+        mixed_rl.addWidget(self.cmb_mixed_scenario)
+        self.lbl_mixed_detail = QLabel()
+        self.lbl_mixed_detail.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
+        self.lbl_mixed_detail.setWordWrap(True)
+        mixed_rl.addWidget(self.lbl_mixed_detail)
+        el.addWidget(self._mixed_row)
 
         self.lbl_enemy_preset_detail = QLabel()
         self.lbl_enemy_preset_detail.setStyleSheet(
@@ -2364,6 +2385,8 @@ class MainWindow(QMainWindow):
                 self._update_enemy_preset_detail(self.cmb_fleet_preset_e.currentText())
             if self.cmb_difficulty.count():
                 self._update_difficulty_tooltip(self.cmb_difficulty.currentText())
+            if self.cmb_mixed_scenario.count():
+                self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
         layout.addWidget(grp_e)
 
         # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
@@ -2990,11 +3013,29 @@ class MainWindow(QMainWindow):
         """적군 편대 모드 전환 시 관련 위젯 show/hide."""
         mode = self.cmb_enemy_mode.currentText()
         is_preset = mode == '프리셋'
+        is_mixed  = mode == '혼합 시나리오'
         self.cmb_fleet_preset_e.setVisible(is_preset)
         self.lbl_enemy_preset_detail.setVisible(is_preset)
+        self._mixed_row.setVisible(is_mixed)
         self._rand_row.setVisible(mode == '랜덤')
         if is_preset and self.cmb_fleet_preset_e.count():
             self._update_enemy_preset_detail(self.cmb_fleet_preset_e.currentText())
+        if is_mixed and self.cmb_mixed_scenario.count():
+            self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
+
+    def _update_mixed_scenario_detail(self, scenario_name: str):
+        """NEW-A: 혼합 시나리오 설명 업데이트."""
+        if not _V7_OK or scenario_name not in V7_MIXED_SCENARIOS:
+            self.lbl_mixed_detail.setText('')
+            return
+        sc = V7_MIXED_SCENARIOS[scenario_name]
+        desc = sc.get('description', '')
+        wave_lines = []
+        for w in sc.get('waves', []):
+            d = w['delay_s']
+            parts = ', '.join(f"{s['preset']} ×{s['count']}" for s in w['threats'])
+            wave_lines.append(f"  +{d:>3}s  {parts}")
+        self.lbl_mixed_detail.setText(desc + '\n' + '\n'.join(wave_lines))
 
     def _apply_style(self):
         self.setStyleSheet(STYLE_MAIN)
@@ -3004,7 +3045,7 @@ class MainWindow(QMainWindow):
     def _run_sim(self):
         # 적군 모드 및 편대 구성 (포팅 A)
         mode_label = self.cmb_enemy_mode.currentText()
-        mode_map   = {'프리셋': 'preset', '랜덤': 'random'}
+        mode_map   = {'프리셋': 'preset', '혼합 시나리오': 'mixed', '랜덤': 'random'}
         enemy_mode = mode_map.get(mode_label, 'preset')
 
         cfg = {
@@ -3015,6 +3056,7 @@ class MainWindow(QMainWindow):
             # 적군 (포팅 A)
             'enemy_fleet_mode':       enemy_mode,
             'enemy_fleet_preset':     self.cmb_fleet_preset_e.currentText(),
+            'mixed_scenario':         self.cmb_mixed_scenario.currentText(),
             'enemy_fleet_difficulty': self.cmb_difficulty.currentText(),
             'enemy_fleet_seed':       self.spn_seed.value() or None,
             # 전술 옵션 — 항상 ON
@@ -3117,7 +3159,8 @@ class MainWindow(QMainWindow):
             'mean_intercept': mc['mean_intercept'],
             'full_pass_rate': mc.get('full_pass_rate', 0),
             'mean_cost':      mc.get('mean_cost', result.get('total_cost', 0)),
-            'label': f"#{len(self._history)+1}  {cfg.get('weather','?')} / {cfg.get('enemy_fleet_preset', cfg.get('enemy_fleet_mode','?'))}",
+            'label': f"#{len(self._history)+1}  {cfg.get('weather','?')} / "
+                     f"{cfg.get('mixed_scenario') or cfg.get('enemy_fleet_preset') or cfg.get('enemy_fleet_mode','?')}",
         })
         if len(self._history) > 5:
             self._history.pop(0)
@@ -3231,6 +3274,7 @@ class MainWindow(QMainWindow):
             'weather':            self.cmb_weather.currentText(),
             'enemy_mode':         self.cmb_enemy_mode.currentText(),
             'enemy_fleet_preset': self.cmb_fleet_preset_e.currentText(),
+            'mixed_scenario':     self.cmb_mixed_scenario.currentText(),
             'difficulty':         self.cmb_difficulty.currentText(),
             'enemy_seed':         self.spn_seed.value(),
             'sim_seed':           self.spn_sim_seed.value(),
@@ -3254,8 +3298,9 @@ class MainWindow(QMainWindow):
         _set_cmb(self.cmb_fleet,          p.get('fleet_preset', ''))
         _set_cmb(self.cmb_weather,        p.get('weather', ''))
         _set_cmb(self.cmb_enemy_mode,     p.get('enemy_mode', ''))
-        _set_cmb(self.cmb_fleet_preset_e, p.get('enemy_fleet_preset', ''))
-        _set_cmb(self.cmb_difficulty,     p.get('difficulty', ''))
+        _set_cmb(self.cmb_fleet_preset_e,  p.get('enemy_fleet_preset', ''))
+        _set_cmb(self.cmb_mixed_scenario,  p.get('mixed_scenario', ''))
+        _set_cmb(self.cmb_difficulty,      p.get('difficulty', ''))
         _set_cmb(self.cmb_enemy_tactics,  p.get('enemy_tactics', '없음'))
         self.spn_seed.setValue(p.get('enemy_seed', 0))
         self.spn_sim_seed.setValue(p.get('sim_seed', 0))
@@ -3772,7 +3817,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.11  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.12  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3905,6 +3950,10 @@ class SplashWindow(QWidget):
              "매 시뮬레이션마다 아군 함정을 지정한 해역 안에서 무작위로 배치. "
              "배치 범위(위도·경도 구역)를 설정 화면에서 지정할 수 있고, "
              "애니메이션 탭에서 배치 결과를 직접 확인 가능."),
+            ("v7.12", "중간", "혼합 공격 시나리오 7종 + 파도별 지연 스폰",
+             "순항미사일+탄도탄+드론, 잠수함+대함미사일, 항모 킬 체인(스텔스→HGV→초음속), "
+             "전방위 포화, 러시아 살라미, 북한 전면 도발, 대잠·대공 동시 압박 등 7종 시나리오 추가. "
+             "파도 타이밍(delay_s) 구현으로 위협이 지정 시각에 순차 출현."),
             ("v7.11", "낮음", "적군 DB / 아군 DB 탭 신설",
              "스플래시 화면에 적군 DB, 아군 DB 탭 2개 추가. "
              "적군 43종을 대공·대함·대잠 분류별 색상으로 구분해 표시. "
@@ -3915,6 +3964,14 @@ class SplashWindow(QWidget):
              "아군 대함 무기 2종 추가: 해성-I(대함순항), 하푼 Block II. "
              "실제 한국 해군 편성 기반 프리셋 5종 신설: 이지스 기동전단 / 이지스 기동전단(강화) / "
              "독도함 상륙전단 / 동해 해역방어(1함대) / 서해 해역방어(2함대)."),
+            ("v7.x", "중간", "DB 대규모 확장 1차 — 적군 20종 + 한미 함정·무기 + 한미 프리셋",
+             "적군 63종으로 확장 (현재 43종): 중국 J-35·J-10C·H-6N·Type 052C/D·054A·071·039C·YJ-18 (9종), "
+             "러시아 Su-57·Tu-22M3·Udaloy·Slava·Kilo·Oscar II·Yasen·Kalibr (8종), "
+             "북한 화성-12/18·KN-24·신포급 (4종). "
+             "아군 확장: 미 해군 DDG-51 Flight III·CG-47·CVN Nimitz·LPD San Antonio·SSN Virginia (함정 5종) "
+             "+ SM-3 IIA·ESSM Block II·SM-6 Block IB·Tomahawk Block V (무기 4종). "
+             "한국 LST 천왕봉급·AO 천지함 추가. "
+             "한미 연합 프리셋 3종 신설: 기본 기동전단 / 강화 기동전단 / 항모전단 지원."),
             ("v7.x", "중간", "DB 탭 상세 스펙시트 패널",
              "적군 DB / 아군 DB 탭에서 항목을 클릭하면 하단에 상세 제원표가 펼쳐지는 기능. "
              "미사일·전투기·함정·잠수함 유형별로 다른 양식 적용 (기본 정보 / 물리적 제원 / 성능 / 추진 기관 / 무장 등). "

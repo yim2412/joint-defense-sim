@@ -77,7 +77,8 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 from engine import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
     SHIP_DB, FLEET_PRESETS,
-    ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, generate_random_enemy_fleet,
+    ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
+    generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
 )
 
@@ -534,6 +535,9 @@ class TimeStepEngine:
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
 
+        # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
+        self._pending_threats: list = []
+
         self.friendly_ships: List[FriendlyShipObj]    = self._build_friendly()
         self.missiles:       List[MissileObj]         = []
         self.enemy_threats:  List[EnemyThreatObj]     = self._build_enemies()
@@ -591,7 +595,7 @@ class TimeStepEngine:
         플랫폼(항공기/수상함/잠수함) → EnemyThreatObj
         독립 미사일(탄도/순항/HGV/QBM) → MissileObj (self.missiles에 직접 추가)
         """
-        # 포팅 A: 적군 편대 모드 (단일/프리셋/커스텀/랜덤)
+        # 포팅 A: 적군 편대 모드 (단일/프리셋/커스텀/랜덤/혼합)
         mode = self.cfg.get('enemy_fleet_mode', 'custom')
         if mode == 'preset':
             fleet_cfg = ENEMY_FLEET_PRESETS.get(
@@ -600,6 +604,18 @@ class TimeStepEngine:
             fleet_cfg = generate_random_enemy_fleet(
                 difficulty=self.cfg.get('enemy_fleet_difficulty', '보통'),
                 seed=self.cfg.get('enemy_fleet_seed', None))
+        elif mode == 'mixed':
+            # NEW-A: 혼합 시나리오 — 1파(delay=0)만 즉시 spawn, 나머지는 _pending_threats
+            scenario_name = self.cfg.get('mixed_scenario', '')
+            scenario = MIXED_ATTACK_SCENARIOS.get(scenario_name, {})
+            fleet_cfg = []
+            for wave in scenario.get('waves', []):
+                delay = wave.get('delay_s', 0)
+                if delay == 0:
+                    fleet_cfg.extend(wave.get('threats', []))
+                else:
+                    for spec in wave.get('threats', []):
+                        self._pending_threats.append((float(delay), dict(spec)))
         else:
             fleet_cfg = self.cfg.get('enemy_fleet', [])
 
@@ -734,6 +750,51 @@ class TimeStepEngine:
             if s.alive and s.ship_type == 'KDX-III':
                 return s
         return next((s for s in self.friendly_ships if s.alive), self.friendly_ships[0])
+
+    def _spawn_pending_threat(self, spec: dict):
+        """NEW-A: 혼합 시나리오 파도 지연 스폰 — spec={'preset':name,'count':n}"""
+        name  = spec.get('preset', '')
+        count = spec.get('count', 1)
+        if name not in ENEMY_DB:
+            return
+        info  = ENEMY_DB[name]
+        ttype = info.get('type', '')
+        detect_km      = self.cfg.get('detect_km', 200)
+        surface_det_km = self.cfg.get('surface_detect_km', detect_km)
+        sub_det_km     = self.cfg.get('sub_detect_km', 50)
+        primary = self._primary()
+
+        for _ in range(count):
+            bearing_rad = math.radians(random.uniform(0, 360))
+            if info.get('category') == '대잠':
+                start_m = sub_det_km * 1000
+            elif info.get('category') == '대함':
+                start_m = surface_det_km * 1000
+            else:
+                start_m = detect_km * 1000
+            pos = Vec2(math.cos(bearing_rad) * start_m, math.sin(bearing_rad) * start_m)
+
+            if ttype in _STANDALONE_MISSILE_TYPES:
+                m = MissileObj(
+                    mtype='enemy_strike', name=name, pos=pos,
+                    target=primary, speed_ms=info['speed_ms'],
+                    pk_base=_MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),
+                    owner_id=-1, t_spawn=self.t,
+                )
+                m.altitude_m              = float(info.get('altitude_m', 0))
+                m.is_hgv                  = bool(info.get('is_hgv', False))
+                m.is_qbm                  = bool(info.get('is_qbm', False))
+                m.is_ballistic            = (ttype == '탄도미사일')
+                m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
+                m.is_torpedo              = False
+                m._init_dist              = m.pos.dist_to(primary.pos)
+                m._peak_alt_m             = m.altitude_m
+                self.missiles.append(m)
+            else:
+                et = EnemyThreatObj(name, pos)
+                self.enemy_threats.append(et)
+            self.stats['total_threats'] += 1
+            self._log(f"[{name}] {self.t:.0f}s 파도 스폰")
 
     def _log(self, msg: str):
         self._log_entries.append((self.t, msg))
@@ -1568,6 +1629,14 @@ class TimeStepEngine:
 
     def run(self) -> dict:
         while self.t <= MAX_SIM_TIME:
+            # NEW-A: 혼합 시나리오 파도 지연 스폰
+            if self._pending_threats:
+                due = [s for (spawn_t, s) in self._pending_threats if spawn_t <= self.t]
+                self._pending_threats = [(spawn_t, s) for (spawn_t, s) in self._pending_threats
+                                         if spawn_t > self.t]
+                for spec in due:
+                    self._spawn_pending_threat(spec)
+
             self._update_positions()
             self._enemy_fire()
             self._friendly_defense()
