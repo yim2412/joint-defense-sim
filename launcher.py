@@ -713,6 +713,12 @@ class SimWorker(QThread):
                 batch_done_n = 0
                 futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
                 for fut in as_completed(futs):
+                    if self.isInterruptionRequested():
+                        for f in futs:
+                            f.cancel()
+                        if _own:
+                            pool.shutdown(wait=False)
+                        return
                     rates, fh, ed, fl, cs, wu, sh = fut.result()
                     all_rates.extend(rates);  all_f_hits.extend(fh)
                     all_e_dest.extend(ed);    all_f_lost.extend(fl)
@@ -2700,6 +2706,33 @@ class MainWindow(QMainWindow):
         self._prog.setVisible(False)
         self._lbl_status.setText("오류 발생")
         QMessageBox.critical(self, "시뮬레이션 오류", msg)
+
+    def closeEvent(self, event):
+        # SimWorker 중단 (MC 분석 실행 중이면 배치 루프에서 중단 신호 감지)
+        if self._worker and self._worker.isRunning():
+            self._worker.requestInterruption()
+            self._worker.quit()
+            if not self._worker.wait(2000):
+                self._worker.terminate()
+                self._worker.wait(500)
+        # SensitivityWorker 중단
+        sens = getattr(self, '_sens_worker', None)
+        if sens and sens.isRunning():
+            sens.requestInterruption()
+            sens.quit()
+            if not sens.wait(1000):
+                sens.terminate()
+                sens.wait(500)
+        # 애니메이션 렌더 워커 중단
+        rw = getattr(self.tab_anim, '_render_worker', None)
+        if rw and rw.isRunning():
+            rw.cancel()
+            if not rw.wait(1000):
+                rw.terminate()
+                rw.wait(500)
+        # 글로벌 프로세스 풀 종료
+        _shutdown_global_pool()
+        event.accept()
 
     # ── 결과 렌더링 ──────────────────────────────────────────────────────────
 
