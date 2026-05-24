@@ -866,7 +866,7 @@ class TimeStepEngine:
 
             if et.is_aircraft:
                 et.is_retreating = True
-                # MED-12: 이탈 방향 현재 위치 기준 200km 후퇴 (기존 함대 반대 500km → 재공격 불가)
+                # 발사 후 200km 후퇴 이탈 (MED-12 재공격 패턴 도입으로 기존 500km에서 단축)
                 angle = et.pos.bearing_to(primary.pos) + math.pi
                 et.retreat_pos = Vec2(
                     et.pos.x + math.cos(angle) * 200_000,
@@ -1277,7 +1277,7 @@ class TimeStepEngine:
                 # 어뢰 투하 (목표 근방 스폰 — 항공기 직접 투하)
                 wpn_name = ac.info['payload_wpn']
                 wpn_info = FRIENDLY_DB[wpn_name]
-                pk       = min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98)
+                pk       = max(0.0, min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98))
 
                 ac.payload_remaining -= 1
                 ac.sorties           += 1
@@ -1320,8 +1320,7 @@ class TimeStepEngine:
             if dist_m <= FRIENDLY_STRIKE_DB[wpn]['range_km'] * 1000:
                 return wpn
         # SM-6 대함 모드: 해성/하푼 소진 후 OTH 사거리 내 수상함 공격
-        if (self.cfg.get('enable_sm6_surface', True)
-                and ship.inventory.get('SM-6', 0) > 0
+        if (ship.inventory.get('SM-6', 0) > 0  # SM-6 대함 모드 항상 활성 (cfg 키 제거)
                 and dist_m <= FRIENDLY_STRIKE_DB['SM-6 대함 모드']['range_km'] * 1000):
             return 'SM-6 대함 모드'
         # Mk.45 함포: 근거리 최후 수단
@@ -1394,7 +1393,16 @@ class TimeStepEngine:
 
             tgt = sam.target
             if not tgt.alive:
+                # 타겟이 이미 격추됐어도 채널 해제 (누수 방지)
                 sam.alive = False
+                if sam.mtype == 'friendly_sam':
+                    for ship in self.friendly_ships:
+                        if id(ship) == sam.owner_id:
+                            ship.channels_used = max(0, ship.channels_used - 1)
+                else:
+                    for et in self.enemy_threats:
+                        if id(et) == sam.owner_id:
+                            et.sam_channels_used = max(0, et.sam_channels_used - 1)
                 continue
 
             in_range = sam.hit or (sam.pos.dist_to(tgt.pos) <= INTERCEPT_DIST_M)
@@ -1456,7 +1464,7 @@ class TimeStepEngine:
                     # BUG-6: 아군 ECM(AN/SLQ-32) — 적 미사일 유도부 교란, Pk 30% 감소
                     # 탄도/HGV는 레이더 유도가 아니므로 ECM 무효
                     if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
-                        m.pk_base *= 0.70
+                        m.pk_base = max(0.0, m.pk_base * 0.70)
                     # 포팅 B: 음향 기만기 AN/SLQ-25 — 어뢰 전용
                     if m.is_torpedo and self.cfg.get('enable_decoy', True):
                         if tgt.decoy_stock > 0:
@@ -2538,3 +2546,11 @@ if __name__ == '__main__':
 # · NEW-BR: _mc_batch_worker(args) 추가 — ProcessPoolExecutor 배치 워커
 #           PyQt6 미포함, subprocess 안전, seed_offset으로 회차별 시드 분리
 #           반환: (rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc)
+
+# ── 코드 감사 패치 (engine_v7.py) ────────────────────────────────────────────
+# · BUG-1: 어뢰 Pk 범위 검증 — max(0.0, min(pk+bonus, 0.98)) 로 0~1 보장
+# · BUG-2: SAM 채널 누수 수정 — 타겟 이미 격추 시에도 channels_used 감소 처리
+#           기존: tgt.alive=False면 그냥 continue → 채널 영구 점유
+# · BUG-3: ECM 적용 후 Pk 범위 보장 — m.pk_base = max(0.0, pk_base*0.70)
+# · MED-1: 항공기 이탈 주석 수정 — "500km→재공격 불가" 오기 제거, 실제 200km 반영
+# · MED-2: enable_sm6_surface cfg 키 제거 — 항상 활성이므로 조건 단순화

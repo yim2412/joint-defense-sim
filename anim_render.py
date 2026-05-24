@@ -26,7 +26,7 @@ def _render_anim_frame(args):
     _ISO_COS   = math.cos(math.radians(30))
     _ISO_SIN   = math.sin(math.radians(30))
     _ALT_SCALE = 0.50
-    _MAX_ALT   = 200.0
+    _MAX_ALT   = 300.0   # DF-26 등 탄도미사일 최대 고도 반영 (기존 200km → 300km)
     _ENT_CFG   = {
         'friendly': ('^', 140, '#2ecc71',  8),
         'aircraft': ('*', 170, '#ff6b6b',  7),
@@ -165,3 +165,9 @@ def _warmup_task(_):
     except Exception:
         pass
     return True
+
+# ── 코드 감사 패치 (anim_render.py) ──────────────────────────────────────────
+# · MED-3: _MAX_ALT 200→300 km — DF-26 등 탄도미사일 최대 고도 표현 정확화
+#          y_top 계산에도 반영되어 고고도 탄도미사일 시각화 범위 확장
+# · BUG(하단잘림): y_bot -cy_gnd*0.40 → -cy_gnd*1.05 — 남쪽 적 잘림 수정
+# · figsize (8,6) → (10,7) — 확장된 뷰 범위에 맞춰 해상도 증가

@@ -117,10 +117,15 @@ def _shutdown_global_pool():
 
 def _set_pool_priority(pool):
     """워커 프로세스 우선순위를 BELOW_NORMAL로 낮춤 — 시뮬 중 UI·다른 앱 응답성 유지."""
-    # Windows: BELOW_NORMAL_PRIORITY_CLASS 상수 사용 / Unix: nice=5 (낮은 우선순위)
+    # Windows: BELOW_NORMAL_PRIORITY_CLASS / Unix: nice=5
     _nice = getattr(psutil, 'BELOW_NORMAL_PRIORITY_CLASS', 5)
     try:
-        for pid in list(getattr(pool, '_processes', {}).keys()):
+        # _processes는 ProcessPoolExecutor 내부 속성 — 없으면 자식 프로세스로 폴백
+        procs = getattr(pool, '_processes', None) or {}
+        pids  = list(procs.keys()) if isinstance(procs, dict) else []
+        if not pids:
+            pids = [c.pid for c in psutil.Process().children()]
+        for pid in pids:
             try:
                 psutil.Process(pid).nice(_nice)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -549,7 +554,9 @@ class FloatingMonitor(QWidget):
 
     def update_mc(self, done: int, total: int, eta: float):
         if done == 1:
-            self._mc_t0 = time.time()
+            # 첫 배치 완료 시점 기준으로 경과 시간 역산하여 실제 시작 시각 보정
+            per_batch = eta / max(total - done, 1)
+            self._mc_t0 = time.time() - per_batch
         self._mc_done = done
         self._lbl_mc.setText(f"MC  {done} / {total}")
         pct = int(done * 100 / total) if total > 0 else 0
@@ -3929,6 +3936,12 @@ if __name__ == '__main__':
 #           SimWorker.run() 인라인 풀 생성 시(_own=True) 즉시 적용
 # · BUG-2: SimWorker / SensitivityWorker / FrameRenderWorker
 #           .start(QThread.Priority.LowPriority) — UI 스레드 응답성 우선
+
+# ── 코드 감사 패치 (launcher.py) ─────────────────────────────────────────────
+# · LOW-2: _set_pool_priority() — pool._processes 없을 때 자식 프로세스 폴백 추가
+#           psutil.Process().children() 로 안정성 향상
+# · MED-4: FloatingMonitor.update_mc() — done=1 시 _mc_t0 역산 보정
+#           per_batch 시간으로 실제 MC 시작 시각 추정 (경과 표시 정확도 향상)
 
 # ── v7.6 패치 ────────────────────────────────────────────────────────────────
 # · NEW-1: FloatingMonitor 전면 개선 (380×270 → 400×370)
