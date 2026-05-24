@@ -86,14 +86,14 @@ TACTICAL_LAYERS = [
     {'name':'CIWS (2km)',   'km':2,  'color':'#B03030','lw':2.6},
     {'name':'RAM (9km)',    'km':9,  'color':'#CA6F1E','lw':2.2},
     {'name':'SM-2 (170km)','km':170,'color':'#1A5FA0','lw':1.9},
-    {'name':'SM-6 (240km)','km':240,'color':'#7D3C98','lw':1.8},
+    {'name':'SM-6 (370km)','km':370,'color':'#7D3C98','lw':1.8},
     {'name':'SM-3 (500km)','km':500,'color':'#1A7A3C','lw':1.8},
 ]
 SURFACE_LAYERS = [
     {'name':'CIWS (2km)',   'km':2,  'color':'#B03030'},
     {'name':'RAM (9km)',    'km':9,  'color':'#CA6F1E'},
     {'name':'SM-2 (170km)','km':170,'color':'#1A5FA0'},
-    {'name':'SM-6 (240km)','km':240,'color':'#7D3C98'},
+    {'name':'SM-6 (370km)','km':370,'color':'#7D3C98'},
 ]
 SUB_LAYERS = [
     {'name':'청상어 (9km)', 'km':9, 'color':'#17A589'},
@@ -134,8 +134,8 @@ ENEMY_DB = {
     'MiG-23 (플로거)':
         {'category':'대공','type':'전투기','speed_ms':797,'altitude_m':7000,
          # 전술 고도 7km (구형 4세대, 중고도)
-         # MED-8: MiG-23는 대함 미사일 운용 능력 없음 (YJ-83K 탑재 불가)
-         'missile_name':'YJ-83K 주력 대함미사일','missile_speed_ms':300,'missile_range_km':180,
+         # MiG-23는 소련/북한 계열 기체 — 중국제 YJ-83K 탑재 불가. 대함 임무 없음(can_fire_missile=False).
+         'missile_name':'Kh-23 (AS-7) 공대지 미사일','missile_speed_ms':300,'missile_range_km':10,
          'can_fire_missile':False,'rcs_m2':6.0,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.88,
@@ -414,9 +414,9 @@ ENEMY_DB = {
 
     '094형 잠수함 (진급)':
         {'category':'대잠','type':'잠수함','speed_ms':12.0,'altitude_m':-200,
-         # Jin급 SSBN: 미사일 발사는 50m 이내, 순항 작전 수심 200m
-         # MED-1: JL-2 SLBM은 전략 핵무기 → 전술 교전에서는 Yu-6 어뢰 사용
-         'missile_name':'Yu-6 중어뢰','missile_speed_ms':21.0,'missile_range_km':18,
+         # Jin급 SSBN: 전략 핵잠수함. JL-2 SLBM은 전술 교전에서 사용하지 않음.
+         # 아군 대잠전 목표: SLBM 발사 전 격침. 교전 중 자기방어용 어뢰만 사용.
+         'missile_name':'Yu-6 중어뢰 (자기방어)','missile_speed_ms':21.0,'missile_range_km':18,
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':1,'missile_salvo_max':2,
          'missile_terminal_evasion':0.85,
@@ -511,14 +511,14 @@ FRIENDLY_DB = {
          'category':['대공','탄도미사일'],
          'pk_dist':{'alpha':18,'beta':2,'mean':0.900},'requires_illuminator':False},
     'SM-6':
-        {'speed_ms':1000,'range_km':240,'cost_usd':4200000,'stock':32,  # LOW-15: 1360→1000 m/s (Block I 실제 순항속도)
+        {'speed_ms':1000,'range_km':370,'cost_usd':4200000,'stock':32,  # 370 km (RIM-174 ERAM Block IB 공개 사거리)
          'category':['대공','탄도미사일'],
          # LOW-6: Pk mean 0.905→0.75 (SM-6 실전 교전 Pk 과대 평가 수정)
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     'SM-2 Block IIIB':
         {'speed_ms':1190,'range_km':170,'cost_usd':400000,'stock':48,
          'category':['대공','대함'],
-         'pk_dist':{'alpha':18,'beta':2,'mean':0.900},'requires_illuminator':True},
+         'pk_dist':{'alpha':16,'beta':4,'mean':0.800},'requires_illuminator':True},
     'RIM-116 RAM':
         {'speed_ms':680,'range_km':9,'cost_usd':150000,'stock':21,
          'category':['대공','대함','근접'],
@@ -1235,21 +1235,21 @@ def select_weapon(threat_info, dist_m, global_inv, mode, manual_wpn=None):
         # v6.8: SM-3는 고고도(50km↑) 미드코스 단계에서만 교전
         alt_ok = (alt >= 50000)
         if alt_ok and global_inv.get('SM-3 Block IIA',0)>0: return 'SM-3 Block IIA'
-        if dist_m<=240000 and global_inv.get('SM-6',0)>0: return 'SM-6'
+        if dist_m<=370000 and global_inv.get('SM-6',0)>0: return 'SM-6'
         return None
     if etype=='저고도기동탄도':
-        if dist_m<=240000 and global_inv.get('SM-6',0)>0: return 'SM-6'
+        if dist_m<=370000 and global_inv.get('SM-6',0)>0: return 'SM-6'
         if dist_m<=170000 and global_inv.get('SM-2 Block IIIB',0)>0: return 'SM-2 Block IIIB'
         return None
     if etype=='탄도미사일':
         # v6.8: SM-3는 미드코스(dist>200km + alt>40km) 조건 추가
         midcourse = (dist_m > 200000 and alt >= 40000)
         if midcourse and global_inv.get('SM-3 Block IIA',0)>0: return 'SM-3 Block IIA'
-        if dist_m<=240000 and global_inv.get('SM-6',0)>0: return 'SM-6'
+        if dist_m<=370000 and global_inv.get('SM-6',0)>0: return 'SM-6'
         if dist_m<=170000 and global_inv.get('SM-2 Block IIIB',0)>0: return 'SM-2 Block IIIB'
         return None
     if dist_m<=170000 and global_inv.get('SM-2 Block IIIB',0)>0: return 'SM-2 Block IIIB'
-    if dist_m<=240000 and global_inv.get('SM-6',0)>0: return 'SM-6'
+    if dist_m<=370000 and global_inv.get('SM-6',0)>0: return 'SM-6'
     return None
 
 
@@ -3503,7 +3503,7 @@ if __name__ == "__main__":
     # ║  │'SM-3 Block IIA'  │4,500  │1,200 │$25,000,000│외기권·HGV 요격  │
     # ║  │                  │ m/s   │ km   │(약 337억) │탄도미사일 전용  │
     # ║  ├──────────────────┼───────┼──────┼──────────┼──────────────────┤
-    # ║  │'SM-6'            │1,360  │ 240  │$4,200,000 │장거리·QBM 우선  │
+    # ║  │'SM-6'            │1,000  │ 370  │$4,200,000 │장거리·QBM 우선  │
     # ║  │                  │ m/s   │ km   │(약 57억)  │탄도+대공 겸용   │
     # ║  ├──────────────────┼───────┼──────┼──────────┼──────────────────┤
     # ║  │'SM-2 Block IIIB' │1,190  │ 170  │$400,000   │주력 함대공 미사일│
