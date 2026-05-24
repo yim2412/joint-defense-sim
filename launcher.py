@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.12 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.13 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.13 — 드론 떼(Swarm) 전술 세부화 + 자폭 피격 수정]                     ║
+║  NEW-A  '드론 떼 (Swarm-12)' DB 추가: 12기 그룹, RAM 1발 = 2~5기 제압     ║
+║  NEW-B  자폭 드론 피격 수정: 200m 이내 도달 시 함정 피격 처리              ║
+║  NEW-C  스웜 전용 무기 선택: RAM/CIWS 우선, SAM 낭비 금지                  ║
+║                                                                              ║
 ║  [v7.12 — 혼합 공격 시나리오 7종 + 파도별 지연 스폰]                       ║
 ║  NEW-A  MIXED_ATTACK_SCENARIOS 7종: 순항+탄도+드론, 러시아 살라미, 북한 등 ║
 ║  NEW-B  파도 타이밍(wave_offset_s): 위협이 delay_s 시점에 순차 출현        ║
@@ -2187,7 +2192,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.12")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.13")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -3817,7 +3822,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.12  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.13  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3950,6 +3955,11 @@ class SplashWindow(QWidget):
              "매 시뮬레이션마다 아군 함정을 지정한 해역 안에서 무작위로 배치. "
              "배치 범위(위도·경도 구역)를 설정 화면에서 지정할 수 있고, "
              "애니메이션 탭에서 배치 결과를 직접 확인 가능."),
+            ("v7.13", "중간", "드론 떼(Swarm) 전술 세부화 + 자폭 피격 수정",
+             "'드론 떼 (Swarm-12)' DB 추가: 12기 그룹 단위로 채널 1개만 소모. "
+             "RAM 1발로 2~5기, CIWS 1버스트로 1~3기 제압하는 부분 격추 로직 구현. "
+             "스웜 전용 무기 선택(RAM/CIWS 우선, SAM 낭비 금지) 및 "
+             "자폭 드론이 200m 이내 도달 시 함정을 실제로 피격하는 버그 수정."),
             ("v7.12", "중간", "혼합 공격 시나리오 7종 + 파도별 지연 스폰",
              "순항미사일+탄도탄+드론, 잠수함+대함미사일, 항모 킬 체인(스텔스→HGV→초음속), "
              "전방위 포화, 러시아 살라미, 북한 전면 도발, 대잠·대공 동시 압박 등 7종 시나리오 추가. "

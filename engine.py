@@ -528,6 +528,22 @@ ENEMY_DB = {
         'missile_range_km':0,
         'missile_terminal_evasion':0.60,
         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
+    # 드론 떼 (Swarm) — RAM/CIWS 포화 전술: 1채널당 12기 그룹, RAM 1발로 2~5기 제압
+    '드론 떼 (Swarm-12)': {
+        'type':'전투기','category':'대공','altitude_m':150,
+        'speed_ms':55,    # ~200km/h
+        'range_km':300,
+        'rcs_m2':0.08,    # 개별 드론은 작지만 떼 전체 RCS
+        'cost_usd':120_000,  # 그룹당 단가
+        'missile_salvo_min':1,'missile_salvo_max':1,
+        'can_fire_missile':False,
+        'missile_name':'드론 자폭',
+        'missile_speed_ms':55,
+        'missile_range_km':0,
+        'missile_terminal_evasion':0.50,
+        'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+        'is_swarm':True,'swarm_size':12},
 }
 
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
@@ -1010,9 +1026,9 @@ ENEMY_FLEET_PRESETS = {
         {'preset': '지르콘 (극초음속 순항)', 'count': 2},
         {'preset': 'Kh-101 (스텔스 순항)', 'count': 2},
     ],
-    # 드론 떼 포화 — CIWS/RAM 전용 위협
+    # 드론 떼 포화 — CIWS/RAM 전용 위협 (Swarm-12 그룹 × 4 = 실질 48기)
     '드론 떼 포화': [
-        {'preset': '소형 자폭 드론 (UAV)', 'count': 20},
+        {'preset': '드론 떼 (Swarm-12)', 'count': 4},
     ],
     # 수중 드론 혼합 — 대잠 전력 압박
     '수중 드론 포화': [
@@ -1030,7 +1046,7 @@ MIXED_ATTACK_SCENARIOS = {
         'waves': [
             {'delay_s':   0, 'threats': [{'preset': 'CJ-10 (순항미사일)', 'count': 4}]},
             {'delay_s':  60, 'threats': [{'preset': 'DF-21D (대함 탄도)', 'count': 2}]},
-            {'delay_s':  90, 'threats': [{'preset': '소형 자폭 드론 (UAV)', 'count': 12}]},
+            {'delay_s':  90, 'threats': [{'preset': '드론 떼 (Swarm-12)', 'count': 3}]},
         ],
     },
     '잠수함 어뢰 + 대함미사일 병행': {
@@ -1055,7 +1071,7 @@ MIXED_ATTACK_SCENARIOS = {
                 {'preset': 'J-16 (플랭커-D)',     'count': 3},
                 {'preset': 'DF-21D (대함 탄도)',  'count': 2},
                 {'preset': 'CJ-10 (순항미사일)',  'count': 4},
-                {'preset': '소형 자폭 드론 (UAV)','count': 8},
+                {'preset': '드론 떼 (Swarm-12)',   'count': 2},
             ]},
         ],
     },
