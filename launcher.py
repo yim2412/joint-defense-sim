@@ -3819,10 +3819,14 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v8.0", "높음", "양방향 교전 엔진",
-             "적 함정/항공기가 아군 미사일을 HHQ-9 등으로 요격. 엔진 전면 재설계 필요."),
-            ("v8.x", "중간", "지형·해상 환경 모델",
-             "DEM 고도 데이터 + 수온층 연동으로 레이더 음영·소나 탐지 현실화."),
+            ("v8.0", "매우 높음", "완전 양방향 교전",
+             "현재는 아군만 미사일을 요격하지만, 앞으로는 적 함정·항공기도 "
+             "아군 미사일을 자체 방공 시스템(HHQ-9 등)으로 맞받아 요격. "
+             "공격·방어가 동시에 이뤄지는 진짜 해전 구현. 시뮬레이션 엔진 전면 재설계 필요."),
+            ("v8.x", "높음", "지형·해상 환경 반영",
+             "실제 지형 고도 데이터를 적용해 산이나 섬 뒤에 있으면 레이더가 탐지 못하는 "
+             "'레이더 음영 지역'을 구현. 바닷속 수온층 데이터를 연동해 수온에 따라 "
+             "소나 탐지 거리가 달라지는 현실적인 대잠 환경 구현."),
         ]
 
         tbl = QTableWidget(len(_PLANS), 4)
@@ -3831,15 +3835,15 @@ class SplashWindow(QWidget):
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         tbl.setColumnWidth(0, 55)
-        tbl.setColumnWidth(1, 60)
-        tbl.verticalHeader().setDefaultSectionSize(36)
+        tbl.setColumnWidth(1, 70)
         tbl.verticalHeader().setVisible(False)
+        tbl.setWordWrap(True)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.setShowGrid(False)
         tbl.setStyleSheet(f"background-color: {C_BG}; gridline-color: {C_PANEL};")
 
-        diff_color = {'높음': '#e74c3c', '중간': C_ORANGE, '낮음': '#2ecc71'}
+        diff_color = {'매우 높음': '#c0392b', '높음': '#e74c3c', '중간': C_ORANGE, '낮음': '#2ecc71'}
         for r, (ver, diff, title, desc) in enumerate(_PLANS):
             vi = QTableWidgetItem(ver)
             vi.setForeground(QColor(C_ACCENT))
@@ -3847,10 +3851,14 @@ class SplashWindow(QWidget):
             di = QTableWidgetItem(diff)
             di.setForeground(QColor(diff_color.get(diff, C_TEXT)))
             di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            desc_item = QTableWidgetItem(f"  {desc}")
+            desc_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(r, 0, vi)
             tbl.setItem(r, 1, di)
             tbl.setItem(r, 2, QTableWidgetItem(f"  {title}"))
-            tbl.setItem(r, 3, QTableWidgetItem(f"  {desc}"))
+            tbl.setItem(r, 3, desc_item)
+        tbl.resizeRowsToContents()
 
         layout.addWidget(tbl)
         layout.addStretch()
