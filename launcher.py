@@ -2295,6 +2295,23 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.lbl_fleet_detail)
         fl.addRow("날씨",        self.cmb_weather)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
+
+        # 랜덤 배치 옵션
+        rp_row = QHBoxLayout()
+        self.chk_random_placement = QCheckBox("함정 위치 랜덤 배치")
+        self.chk_random_placement.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
+        self.spn_spread_km = NoScrollSpinBox()
+        self.spn_spread_km.setRange(1, 50)
+        self.spn_spread_km.setValue(5)
+        self.spn_spread_km.setSuffix(" km")
+        self.spn_spread_km.setFixedWidth(72)
+        self.spn_spread_km.setEnabled(False)
+        self.chk_random_placement.toggled.connect(self.spn_spread_km.setEnabled)
+        rp_row.addWidget(self.chk_random_placement)
+        rp_row.addStretch()
+        rp_row.addWidget(QLabel("반경:"))
+        rp_row.addWidget(self.spn_spread_km)
+        fl.addRow("", rp_row)
         layout.addWidget(grp_f)
 
 
@@ -3009,9 +3026,11 @@ class MainWindow(QMainWindow):
             # 방어 전술 — 항상 ON (UI 체크박스 읽기)
             'enable_layered_defense': True,
             'enable_cec_preassign':   True,
-            'enable_multibearing':    self.chk_multibearing.isChecked(),
-            'enable_cec_jammed':      self.chk_cec_jammed.isChecked(),
-            'enable_ship_evasion':    self.chk_ship_evasion.isChecked(),
+            'enable_multibearing':       self.chk_multibearing.isChecked(),
+            'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
+            'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
+            'enable_random_placement':   self.chk_random_placement.isChecked(),
+            'random_spread_km':          self.spn_spread_km.value(),
             'enemy_tactics':          {
                 '없음': None, 'V자 대형': 'v_formation',
                 '포위 기동': 'encirclement'
@@ -3215,10 +3234,12 @@ class MainWindow(QMainWindow):
             'cd_time_s':          self.sld_cd.value(),
             'confirm_time_s':     self.sld_confirm.value(),
             'mc_n':               self.spn_mc_n.value(),
-            'multibearing':       self.chk_multibearing.isChecked(),
-            'cec_jammed':         self.chk_cec_jammed.isChecked(),
-            'ship_evasion':       self.chk_ship_evasion.isChecked(),
-            'enemy_tactics':      self.cmb_enemy_tactics.currentText(),
+            'multibearing':         self.chk_multibearing.isChecked(),
+            'cec_jammed':           self.chk_cec_jammed.isChecked(),
+            'ship_evasion':         self.chk_ship_evasion.isChecked(),
+            'random_placement':     self.chk_random_placement.isChecked(),
+            'random_spread_km':     self.spn_spread_km.value(),
+            'enemy_tactics':        self.cmb_enemy_tactics.currentText(),
         }
 
     def _profile_to_ui(self, p: dict):
@@ -3241,6 +3262,8 @@ class MainWindow(QMainWindow):
         self.chk_multibearing.setChecked(p.get('multibearing', False))
         self.chk_cec_jammed.setChecked(p.get('cec_jammed', False))
         self.chk_ship_evasion.setChecked(p.get('ship_evasion', False))
+        self.chk_random_placement.setChecked(p.get('random_placement', False))
+        self.spn_spread_km.setValue(p.get('random_spread_km', 5))
 
     def _save_profile(self):
         name = self.edt_profile_name.text().strip()

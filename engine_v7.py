@@ -574,6 +574,15 @@ class TimeStepEngine:
             if radius > 0:
                 angle = math.radians(len(ships) * (360.0 / max(len(preset), 1)))
                 s.pos = Vec2(math.cos(angle) * radius, math.sin(angle) * radius)
+            # NEW-XX: 랜덤 배치 옵션 — 각 함정에 임의 오프셋 추가
+            if self.cfg.get('enable_random_placement', False):
+                spread_m = self.cfg.get('random_spread_km', 5.0) * 1000.0
+                rnd_angle = random.uniform(0, 2 * math.pi)
+                rnd_r     = random.uniform(0, spread_m)
+                s.pos = Vec2(
+                    s.pos.x + math.cos(rnd_angle) * rnd_r,
+                    s.pos.y + math.sin(rnd_angle) * rnd_r,
+                )
             ships.append(s)
         return ships
 
