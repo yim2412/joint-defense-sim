@@ -353,5 +353,13 @@
       "FIX-4  FloatingMonitor._refresh_sys() — _SYS_CACHE 읽기 전용으로 교체",
       "FIX-4  근본 원인: QTimer 1초 콜백에서 nvidia-smi subprocess(1s 타임아웃)·WMI(500ms) 호출 → 클릭 시 멈춤"
     ]
+  },
+  {
+    "version": "15-3",
+    "date": "2026-05-24",
+    "title": "exe 실행 시 터미널 창 제거",
+    "changes": [
+      "BUG-1  nvidia-smi subprocess에 CREATE_NO_WINDOW 플래그 추가 — exe 실행 중 cmd 창 반복 팝업 수정"
+    ]
   }
 ]

@@ -3441,6 +3441,7 @@ class SplashWindow(QWidget):
         layout.addWidget(tabs, stretch=1)
         tabs.addTab(self._build_feature_tab(),   "📋  탑재 기능")
         tabs.addTab(self._build_changelog_tab(), "📝  패치 내역")
+        tabs.addTab(self._build_plan_tab(),      "🗓️  향후 계획")
 
         btn = QPushButton("🚀  시뮬레이터 시작")
         btn.setFixedHeight(46)
@@ -3529,6 +3530,50 @@ class SplashWindow(QWidget):
                     tbl.setItem(row, 0, QTableWidgetItem(""))
                 tbl.setItem(row, 1, QTableWidgetItem(f"  {item}"))
         layout.addWidget(tbl)
+        return w
+
+    def _build_plan_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        _PLANS = [
+            ("v8.0", "높음", "양방향 교전 엔진",
+             "적 함정/항공기가 아군 미사일을 HHQ-9 등으로 요격. 엔진 전면 재설계 필요."),
+            ("v8.x", "중간", "지형·해상 환경 모델",
+             "DEM 고도 데이터 + 수온층 연동으로 레이더 음영·소나 탐지 현실화."),
+        ]
+
+        tbl = QTableWidget(len(_PLANS), 4)
+        tbl.setHorizontalHeaderLabels(["버전", "난이도", "항목", "설명"])
+        hh = tbl.horizontalHeader()
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        tbl.setColumnWidth(0, 55)
+        tbl.setColumnWidth(1, 60)
+        tbl.verticalHeader().setDefaultSectionSize(36)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        tbl.setShowGrid(False)
+        tbl.setStyleSheet(f"background-color: {C_BG}; gridline-color: {C_PANEL};")
+
+        diff_color = {'높음': '#e74c3c', '중간': C_ORANGE, '낮음': '#2ecc71'}
+        for r, (ver, diff, title, desc) in enumerate(_PLANS):
+            vi = QTableWidgetItem(ver)
+            vi.setForeground(QColor(C_ACCENT))
+            vi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            di = QTableWidgetItem(diff)
+            di.setForeground(QColor(diff_color.get(diff, C_TEXT)))
+            di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            tbl.setItem(r, 0, vi)
+            tbl.setItem(r, 1, di)
+            tbl.setItem(r, 2, QTableWidgetItem(f"  {title}"))
+            tbl.setItem(r, 3, QTableWidgetItem(f"  {desc}"))
+
+        layout.addWidget(tbl)
+        layout.addStretch()
         return w
 
 
