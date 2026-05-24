@@ -1,9 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.4 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.5 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v7.4 — Freeze/응답없음 수정]                                              ║
+║  [v7.5 — CPU 우선순위 조정]                                                 ║
 ║                                                                              ║
+║  BUG-1  _set_pool_priority(): 워커 프로세스 BELOW_NORMAL (psutil)           ║
+║         글로벌 풀 예열 후 + 인라인 풀 생성 시 즉시 적용                    ║
+║  BUG-2  SimWorker / SensitivityWorker / FrameRenderWorker                   ║
+║         QThread.Priority.LowPriority 로 시작                                ║
+║                                                                              ║
+║  [v7.4 — Freeze/응답없음 수정]                                              ║
 ║  BUG-1  canvas.draw() → draw_idle() 전체 교체 (UI 스레드 블로킹 제거)      ║
 ║  BUG-2  로그 테이블 최대 300행 제한 + setUpdatesEnabled + processEvents     ║
 ║  BUG-3  탭 전환 200ms 디바운스 (QTimer, 빠른 연속 클릭 시 마지막만 렌더)   ║
@@ -90,12 +96,26 @@ def _init_global_pool():
         list(_GLOBAL_POOL.map(_warmup_task, range(n), timeout=60))
     except Exception:
         pass   # 예열 실패해도 풀 자체는 사용 가능
+    _set_pool_priority(_GLOBAL_POOL)  # BUG-1: 워커 프로세스 BELOW_NORMAL
 
 def _shutdown_global_pool():
     global _GLOBAL_POOL
     if _GLOBAL_POOL is not None:
         _GLOBAL_POOL.shutdown(wait=False)
         _GLOBAL_POOL = None
+
+def _set_pool_priority(pool):
+    """워커 프로세스 우선순위를 BELOW_NORMAL로 낮춤 — 시뮬 중 UI·다른 앱 응답성 유지."""
+    # Windows: BELOW_NORMAL_PRIORITY_CLASS 상수 사용 / Unix: nice=5 (낮은 우선순위)
+    _nice = getattr(psutil, 'BELOW_NORMAL_PRIORITY_CLASS', 5)
+    try:
+        for pid in list(getattr(pool, '_processes', {}).keys()):
+            try:
+                psutil.Process(pid).nice(_nice)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception:
+        pass
 
 def _res(filename: str) -> str:
     """PyInstaller exe 및 일반 실행 모두에서 리소스 파일 경로 반환."""
@@ -545,6 +565,8 @@ class SimWorker(QThread):
 
                 pool = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_cores)
                 _own = _GLOBAL_POOL is None
+                if _own:
+                    _set_pool_priority(pool)  # BUG-1: 인라인 풀도 BELOW_NORMAL
                 batch_done_n = 0
                 futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
                 for fut in as_completed(futs):
@@ -918,7 +940,7 @@ class AnimationTab(QWidget):
             self.chk_labels.isChecked(), self.chk_altitude.isChecked())
         self._render_worker.frame_ready.connect(self._on_frame_ready)
         self._render_worker.all_done.connect(self._on_all_done)
-        self._render_worker.start()
+        self._render_worker.start(QThread.Priority.LowPriority)  # BUG-1
 
     def _restart_render(self):
         if self.frames:
@@ -1356,7 +1378,7 @@ class SysMonitorTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.4")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.5")
         self.resize(1800, 1060)
         self._worker = None
         self._result = None
@@ -2214,7 +2236,7 @@ class MainWindow(QMainWindow):
         self._worker.sim_started.connect(self._show_float_mon)
         self._worker.sim_ended.connect(self._float_mon.close)
         self._worker.progress_detail.connect(self._float_mon.update_mc)
-        self._worker.start()
+        self._worker.start(QThread.Priority.LowPriority)  # BUG-1
 
     def _show_float_mon(self):
         """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시."""
@@ -2255,7 +2277,7 @@ class MainWindow(QMainWindow):
         self._sens_worker = SensitivityWorker(cfg, mc_n)
         self._sens_worker.finished.connect(self._on_sensitivity_done)
         self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
-        self._sens_worker.start()
+        self._sens_worker.start(QThread.Priority.LowPriority)  # BUG-1
 
         # 모든 차트 페이지를 dirty로 표시 (지연 렌더링)
         self._page_dirty = {1, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17}
@@ -3466,7 +3488,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.4  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.5  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3573,9 +3595,7 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v7.5", "낮음", "CPU 우선순위 조정",
-             "워커 프로세스 BELOW_NORMAL 우선순위 — 다른 앱 실행 시 자동 양보"),
-            ("v7.5", "중간", "FloatingMonitor 개선",
+            ("v7.6", "중간", "FloatingMonitor 개선",
              "단계 표시·경과 시간·요격률 게이지·배치 스파크라인·격추/피격 카운터·시스템 모니터 수치"),
             ("v8.0", "높음", "양방향 교전 엔진",
              "적 함정/항공기가 아군 미사일을 HHQ-9 등으로 요격. 엔진 전면 재설계 필요."),
@@ -3732,3 +3752,11 @@ if __name__ == '__main__':
 #           self._page_debounce_timer, self._page_pending_idx 추가
 #           _render_current_page() 분리 (실제 렌더 로직)
 # · BUG-4: _page_render_cache {page_idx: id(result)} — 동일 result 재렌더 스킵
+
+# ── v7.5 패치 ────────────────────────────────────────────────────────────────
+# · BUG-1: _set_pool_priority(pool) 헬퍼 추가
+#           psutil.BELOW_NORMAL_PRIORITY_CLASS (Win) / nice=5 (Unix) 크로스플랫폼
+#           _init_global_pool() 예열 후 즉시 적용
+#           SimWorker.run() 인라인 풀 생성 시(_own=True) 즉시 적용
+# · BUG-2: SimWorker / SensitivityWorker / FrameRenderWorker
+#           .start(QThread.Priority.LowPriority) — UI 스레드 응답성 우선

@@ -372,5 +372,16 @@
       "BUG-3  탭 전환 200ms QTimer 디바운스 — 빠른 연속 클릭 시 마지막 탭만 렌더, _render_current_page() 분리",
       "BUG-4  차트 캐시 _page_render_cache — 동일 result 객체 재렌더 스킵 (id(result) 기반)"
     ]
+  },
+  {
+    "version": "15-5",
+    "date": "2026-05-24",
+    "title": "CPU 우선순위 조정 — 시뮬 중 UI·다른 앱 응답성 유지",
+    "changes": [
+      "BUG-1  _set_pool_priority(): psutil.BELOW_NORMAL_PRIORITY_CLASS로 워커 프로세스 우선순위 낮춤 (Win/Unix 크로스플랫폼)",
+      "BUG-1  글로벌 풀(_init_global_pool) 예열 완료 후 즉시 적용",
+      "BUG-1  SimWorker 인라인 풀 생성 시(_own=True) 즉시 적용",
+      "BUG-2  SimWorker / SensitivityWorker / FrameRenderWorker .start(QThread.Priority.LowPriority) 전환"
+    ]
   }
 ]
