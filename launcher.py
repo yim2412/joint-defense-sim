@@ -204,6 +204,9 @@ try:
         calculate_fleet_detect_ranges,
         save_json_report_v7,
         _mc_batch_worker,
+        FRIENDLY_DB as V7_FRIENDLY_DB,
+        SHIP_DB as V7_SHIP_DB,
+        normalize_enemy_db as _normalize_enemy_db,
     )
     _V7_OK = True
 except ImportError as e:
@@ -3768,9 +3771,11 @@ class SplashWindow(QWidget):
 
         tabs = QTabWidget()
         layout.addWidget(tabs, stretch=1)
-        tabs.addTab(self._build_feature_tab(),   "📋  탑재 기능")
-        tabs.addTab(self._build_changelog_tab(), "📝  패치 내역")
-        tabs.addTab(self._build_plan_tab(),      "🗓️  향후 계획")
+        tabs.addTab(self._build_feature_tab(),      "📋  탑재 기능")
+        tabs.addTab(self._build_changelog_tab(),   "📝  패치 내역")
+        tabs.addTab(self._build_plan_tab(),        "🗓️  향후 계획")
+        tabs.addTab(self._build_enemy_db_tab(),    "🔴  적군 DB")
+        tabs.addTab(self._build_friendly_db_tab(), "🔵  아군 DB")
 
         btn = QPushButton("🚀  시뮬레이터 시작")
         btn.setFixedHeight(46)
@@ -3986,6 +3991,264 @@ class SplashWindow(QWidget):
         tbl.verticalHeader().setDefaultSectionSize(68)
 
         layout.addWidget(tbl)
+        return w
+
+    # ── 적군 DB 탭 ─────────────────────────────────────────────────────────
+    def _build_enemy_db_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        if not _V7_OK:
+            layout.addWidget(QLabel("엔진 로드 실패 — 적군 DB를 표시할 수 없습니다."))
+            return w
+
+        _normalize_enemy_db()
+        db = V7_ENEMY_DB
+
+        # 범례
+        legend_row = QHBoxLayout()
+        legend_row.setSpacing(16)
+        for label, color in [("🔴 대공", "#5c1a1a"), ("🟠 대함", "#5c3a1a"), ("🔵 대잠", "#1a2a5c")]:
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"background:{color}; color:{C_TEXT}; padding:2px 8px;"
+                              f" border-radius:4px; font-size:12px;")
+            legend_row.addWidget(lbl)
+        legend_row.addStretch()
+        lbl_count = QLabel(f"총 {len(db)}종")
+        lbl_count.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        legend_row.addWidget(lbl_count)
+        layout.addLayout(legend_row)
+
+        cols = ["이름", "분류", "유형", "속도 (마하)", "사거리 (km)", "고도/수심 (m)", "특성"]
+        tbl = QTableWidget(len(db), len(cols))
+        tbl.setHorizontalHeaderLabels(cols)
+        hh = tbl.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        tbl.setShowGrid(False)
+        tbl.setWordWrap(False)
+        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
+
+        _cat_bg = {'대공': '#2a1010', '대함': '#2a1a08', '대잠': '#0a1228'}
+        _cat_fg = {'대공': '#ff8080', '대함': '#ffaa55', '대잠': '#6699ff'}
+
+        sorted_entries = sorted(db.items(), key=lambda kv: kv[1].get('category', '대공'))
+
+        for r, (name, info) in enumerate(sorted_entries):
+            cat  = info.get('category', '대공')
+            typ  = info.get('type', '-')
+            spd  = info.get('speed_ms', 0)
+            mach = spd / 343
+            rng  = info.get('missile_range_km') or info.get('range_km', 0)
+            alt  = info.get('altitude_m', 0)
+            bg   = QColor(_cat_bg.get(cat, '#1a1a1a'))
+            fg   = QColor(_cat_fg.get(cat, C_TEXT))
+
+            # 특성 태그
+            tags = []
+            if info.get('is_hgv'):        tags.append('HGV')
+            if info.get('is_qbm'):        tags.append('QBM')
+            if info.get('can_fire_missile') and info.get('missile_name'):
+                tags.append(f"미사일: {info['missile_name']}")
+            if info.get('ecm_power', 0) > 0.15:
+                tags.append(f"ECM {info['ecm_power']:.0%}")
+            if cat == '대잠':
+                tags.append(f"수심 {abs(alt)}m")
+            spec = "  |  ".join(tags) if tags else "-"
+
+            alt_txt = f"{alt:,}" if cat != '대잠' else f"{alt:,} (수심)"
+
+            def _item(txt, align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter):
+                it = QTableWidgetItem(str(txt))
+                it.setBackground(bg)
+                it.setForeground(QColor(C_TEXT))
+                it.setTextAlignment(align)
+                return it
+
+            name_it = QTableWidgetItem(f"  {name}")
+            name_it.setBackground(bg)
+            name_it.setForeground(fg)
+            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            tbl.setItem(r, 0, name_it)
+            cat_it = _item(cat, Qt.AlignmentFlag.AlignCenter)
+            cat_it.setForeground(fg)
+            tbl.setItem(r, 1, cat_it)
+            tbl.setItem(r, 2, _item(f"  {typ}"))
+            mach_it = _item(f"  Mach {mach:.1f}", Qt.AlignmentFlag.AlignCenter)
+            tbl.setItem(r, 3, mach_it)
+            rng_it = _item(f"  {rng:,}", Qt.AlignmentFlag.AlignCenter)
+            tbl.setItem(r, 4, rng_it)
+            tbl.setItem(r, 5, _item(f"  {alt_txt}", Qt.AlignmentFlag.AlignCenter))
+            tbl.setItem(r, 6, _item(f"  {spec}"))
+
+        tbl.verticalHeader().setDefaultSectionSize(26)
+        layout.addWidget(tbl, stretch=1)
+        return w
+
+    # ── 아군 DB 탭 ─────────────────────────────────────────────────────────
+    def _build_friendly_db_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        if not _V7_OK:
+            layout.addWidget(QLabel("엔진 로드 실패 — 아군 DB를 표시할 수 없습니다."))
+            return w
+
+        inner_tabs = QTabWidget()
+        inner_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border:none; }}
+            QTabBar::tab {{ background:{C_PANEL}; color:{C_TEXT}; padding:4px 14px; }}
+            QTabBar::tab:selected {{ background:{C_ACCENT}; color:#000; }}
+        """)
+        inner_tabs.addTab(self._build_weapon_sub_tab(),  "🚀  무기 DB")
+        inner_tabs.addTab(self._build_ship_sub_tab(),    "⚓  함정 DB")
+        layout.addWidget(inner_tabs, stretch=1)
+        return w
+
+    def _build_weapon_sub_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        db = V7_FRIENDLY_DB
+        cols = ["무기명", "분류", "속도 (m/s)", "사거리 (km)", "평균 Pk (%)", "기본 재고", "단가 (USD)"]
+        tbl = QTableWidget(len(db), len(cols))
+        tbl.setHorizontalHeaderLabels(cols)
+        hh = tbl.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for c in range(2, len(cols)):
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        tbl.setShowGrid(False)
+        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
+
+        _cat_color = {
+            '대공':  '#4a90d9', '탄도미사일': '#e74c3c',
+            '대함':  '#f39c12', '대잠': '#2ecc71', '근접': '#9b59b6',
+        }
+
+        for r, (name, info) in enumerate(db.items()):
+            cats   = info.get('category', [])
+            speed  = info.get('speed_ms', 0)
+            rng    = info.get('range_km', 0)
+            pk_m   = info.get('pk_dist', {}).get('mean', 0) * 100
+            stock  = info.get('stock', 0)
+            cost   = info.get('cost_usd', 0)
+            cat_str = " / ".join(cats)
+            stock_txt = "무한" if stock >= 9999 else f"{stock:,}"
+            cost_txt  = f"${cost:,.0f}" if cost else "-"
+
+            bg = QColor(C_BG)
+            def _item(txt, align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter):
+                it = QTableWidgetItem(str(txt))
+                it.setBackground(bg)
+                it.setForeground(QColor(C_TEXT))
+                it.setTextAlignment(align)
+                return it
+
+            name_it = QTableWidgetItem(f"  {name}")
+            name_it.setBackground(bg)
+            name_it.setForeground(QColor(C_ACCENT))
+            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            tbl.setItem(r, 0, name_it)
+            tbl.setItem(r, 1, _item(f"  {cat_str}"))
+            tbl.setItem(r, 2, _item(f"  {speed:,.0f}", Qt.AlignmentFlag.AlignCenter))
+            tbl.setItem(r, 3, _item(f"  {rng:,.0f}", Qt.AlignmentFlag.AlignCenter))
+            pk_it = _item(f"  {pk_m:.1f}%", Qt.AlignmentFlag.AlignCenter)
+            if pk_m >= 80:   pk_it.setForeground(QColor('#2ecc71'))
+            elif pk_m >= 60: pk_it.setForeground(QColor(C_ORANGE))
+            else:            pk_it.setForeground(QColor('#e74c3c'))
+            tbl.setItem(r, 4, pk_it)
+            tbl.setItem(r, 5, _item(f"  {stock_txt}", Qt.AlignmentFlag.AlignCenter))
+            tbl.setItem(r, 6, _item(f"  {cost_txt}", Qt.AlignmentFlag.AlignCenter))
+
+        tbl.verticalHeader().setDefaultSectionSize(28)
+        layout.addWidget(tbl, stretch=1)
+        return w
+
+    def _build_ship_sub_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        db = V7_SHIP_DB
+        cols = ["함정", "대공 탐지 (km)", "대함 탐지 (km)", "대잠 탐지 (km)", "교전 채널", "주요 역할"]
+        tbl = QTableWidget(len(db), len(cols))
+        tbl.setHorizontalHeaderLabels(cols)
+        hh = tbl.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        for c in range(1, 5):
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        tbl.setShowGrid(False)
+        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
+
+        _ship_bg = ['#0d1a2a', '#0a1a14', '#1a0d2a']
+
+        for r, (key, info) in enumerate(db.items()):
+            display  = info.get('display', key)
+            sensor   = info.get('sensor_km', {})
+            channels = info.get('max_channels', 0)
+            roles    = " / ".join(info.get('role', []))
+            bg       = QColor(_ship_bg[r % len(_ship_bg)])
+
+            def _item(txt, align=Qt.AlignmentFlag.AlignCenter):
+                it = QTableWidgetItem(str(txt))
+                it.setBackground(bg)
+                it.setForeground(QColor(C_TEXT))
+                it.setTextAlignment(align)
+                return it
+
+            name_it = QTableWidgetItem(f"  {display}")
+            name_it.setBackground(bg)
+            name_it.setForeground(QColor(C_ACCENT))
+            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            tbl.setItem(r, 0, name_it)
+            tbl.setItem(r, 1, _item(f"{sensor.get('대공', '-'):,}"))
+            tbl.setItem(r, 2, _item(f"{sensor.get('대함', '-'):,}"))
+            tbl.setItem(r, 3, _item(f"{sensor.get('대잠', '-'):,}"))
+            ch_it = _item(f"{channels}")
+            ch_it.setForeground(QColor(C_ACCENT))
+            tbl.setItem(r, 4, ch_it)
+            tbl.setItem(r, 5, _item(f"  {roles}",
+                                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
+
+            # 탑재 무기 목록을 툴팁으로
+            inv = info.get('default_inventory', {})
+            tip_lines = [f"【{display} 기본 탑재】"]
+            for wname, cnt in inv.items():
+                cnt_str = "무한" if cnt >= 9999 else str(cnt)
+                tip_lines.append(f"  • {wname}: {cnt_str}발")
+            for c in range(len(cols)):
+                item = tbl.item(r, c)
+                if item:
+                    item.setToolTip("\n".join(tip_lines))
+
+        tbl.verticalHeader().setDefaultSectionSize(32)
+        layout.addWidget(tbl, stretch=1)
         return w
 
 
