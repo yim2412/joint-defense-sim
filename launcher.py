@@ -1,7 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.5 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.6 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.6 — FloatingMonitor 개선]                                              ║
+║                                                                              ║
+║  NEW-1  단계 표시: "1/2 단일 시뮬 실행 중…" → "2/2 MC 분석 중…"            ║
+║  NEW-2  경과 시간 타이머 (show() 시점 기준 실시간 카운트업)                 ║
+║  NEW-3  라이브 요격률 게이지 — 배치마다 색상 변화 (빨강↔주황↔초록)         ║
+║  NEW-4  격추/피격 평균 카운터 실시간 표시                                   ║
+║  NEW-5  배치 스파크라인 — 12칸 컬러 사각형 수렴 추이                        ║
+║  NEW-6  워커 프로세스 수 표시 (_SYS_CACHE 기반)                             ║
+║  NEW-7  시뮬 시작 시 시스템 모니터 탭 자동 전환                             ║
+║  NEW-8  rate_update 시그널 (SimWorker → FloatingMonitor) 연결               ║
+║                                                                              ║
 ║  [v7.5 — CPU 우선순위 조정]                                                 ║
 ║                                                                              ║
 ║  BUG-1  _set_pool_priority(): 워커 프로세스 BELOW_NORMAL (psutil)           ║
@@ -316,7 +327,9 @@ QToolTip {{
 #  플로팅 모니터 창 (시뮬 중 팝업)
 # ════════════════════════════════════════════════════════════════════════════
 class FloatingMonitor(QWidget):
-    """시뮬레이션 실행 중 팝업 — MC 진행률 + CPU/RAM/GPU."""
+    """시뮬레이션 실행 중 팝업 — 단계·경과·MC 진행·요격률 게이지·스파크라인·시스템 자원."""
+
+    _SPARK_N = 12   # 스파크라인 칸 수
 
     def __init__(self, parent=None):
         super().__init__(parent,
@@ -324,8 +337,10 @@ class FloatingMonitor(QWidget):
                          Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(380, 270)
-        self._mc_t0: float = 0.0
+        self.setFixedSize(400, 370)
+        self._mc_t0: float    = 0.0
+        self._show_time: float = 0.0
+        self._batch_rates: list = []
         self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._drag_pos = None
         self._timer = QTimer(self)
@@ -341,70 +356,118 @@ class FloatingMonitor(QWidget):
         card.setObjectName('fmon_card')
         card.setStyleSheet(f"""
             #fmon_card {{
-                background: rgba(13,17,23,230);
+                background: rgba(13,17,23,235);
                 border: 1px solid {C_ACCENT};
                 border-radius: 10px;
             }}
         """)
         inner = QVBoxLayout(card)
-        inner.setContentsMargins(16, 12, 16, 14)
-        inner.setSpacing(6)
+        inner.setContentsMargins(16, 12, 16, 12)
+        inner.setSpacing(5)
 
-        # 제목 행
+        # ── 제목 + 경과 시간 ────────────────────────────────────────────────
         title_row = QHBoxLayout()
-        lbl_title = QLabel("⚙  시뮬레이션 실행 중…")
-        lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:16px; font-weight:bold;")
-        title_row.addWidget(lbl_title)
+        self._lbl_title = QLabel("⚙  1/2  단일 시뮬 실행 중…")
+        self._lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
+        self._lbl_elapsed = QLabel("경과  0:00")
+        self._lbl_elapsed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        title_row.addWidget(self._lbl_title)
         title_row.addStretch()
+        title_row.addWidget(self._lbl_elapsed)
         inner.addLayout(title_row)
 
-        # MC 진행률
-        self._lbl_mc = QLabel("MC  0 / 0")
-        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+        # ── MC 진행률 ────────────────────────────────────────────────────────
+        mc_row = QHBoxLayout()
+        self._lbl_mc  = QLabel("MC  0 / 0")
+        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
+        self._lbl_eta = QLabel("잔여 —초")
+        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        mc_row.addWidget(self._lbl_mc)
+        mc_row.addStretch()
+        mc_row.addWidget(self._lbl_eta)
+        inner.addLayout(mc_row)
+
         self._prog_mc = QProgressBar()
         self._prog_mc.setRange(0, 100)
         self._prog_mc.setValue(0)
-        self._prog_mc.setFixedHeight(10)
+        self._prog_mc.setFixedHeight(8)
         self._prog_mc.setStyleSheet(f"""
-            QProgressBar {{ background:{C_PANEL}; border-radius:4px; border:1px solid {C_BORDER}; }}
-            QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}
+            QProgressBar {{ background:{C_PANEL}; border-radius:3px; border:1px solid {C_BORDER}; }}
+            QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:2px; }}
         """)
-        self._lbl_eta = QLabel("잔여 약 —초")
-        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        inner.addWidget(self._lbl_mc)
         inner.addWidget(self._prog_mc)
-        inner.addWidget(self._lbl_eta)
 
-        # 구분선
-        sep = QLabel()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background:{C_BORDER};")
-        inner.addWidget(sep)
+        # ── 구분선 ───────────────────────────────────────────────────────────
+        inner.addWidget(self._make_sep())
 
-        # 시스템 자원
-        grid = QWidget()
-        gl = QHBoxLayout(grid)
-        gl.setContentsMargins(0, 0, 0, 0)
-        gl.setSpacing(20)
+        # ── 요격률 게이지 ────────────────────────────────────────────────────
+        rate_row = QHBoxLayout()
+        lbl_rt = QLabel("요격률")
+        lbl_rt.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        lbl_rt.setFixedWidth(40)
+        self._prog_rate = QProgressBar()
+        self._prog_rate.setRange(0, 100)
+        self._prog_rate.setValue(0)
+        self._prog_rate.setFixedHeight(10)
+        self._prog_rate.setTextVisible(False)
+        self._prog_rate.setStyleSheet(self._rate_bar_css(0.0))
+        self._lbl_rate_val = QLabel("  —%")
+        self._lbl_rate_val.setStyleSheet(f"color:{C_TEXT}; font-size:15px; font-weight:bold;")
+        self._lbl_rate_val.setFixedWidth(52)
+        rate_row.addWidget(lbl_rt)
+        rate_row.addWidget(self._prog_rate, 1)
+        rate_row.addWidget(self._lbl_rate_val)
+        inner.addLayout(rate_row)
 
-        self._lbl_cpu  = self._make_stat_lbl("CPU",  "—%")
-        self._lbl_ram  = self._make_stat_lbl("RAM",  "— GB")
-        self._lbl_gpu  = self._make_stat_lbl("GPU",  "—%")
+        # ── 격추/피격 카운터 + 스파크라인 ────────────────────────────────────
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(8)
+        self._lbl_ed = QLabel("격추  —")
+        self._lbl_fh = QLabel("피격  —")
+        for lbl in (self._lbl_ed, self._lbl_fh):
+            lbl.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+        stats_row.addWidget(self._lbl_ed)
+        stats_row.addWidget(self._lbl_fh)
+        stats_row.addStretch()
+
+        # 스파크라인 (12칸 컬러 사각형)
+        lbl_sp = QLabel("추이")
+        lbl_sp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        stats_row.addWidget(lbl_sp)
+        self._spark_boxes = []
+        for _ in range(self._SPARK_N):
+            sq = QLabel()
+            sq.setFixedSize(11, 14)
+            sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
+            stats_row.addWidget(sq)
+            self._spark_boxes.append(sq)
+        inner.addLayout(stats_row)
+
+        # ── 구분선 ───────────────────────────────────────────────────────────
+        inner.addWidget(self._make_sep())
+
+        # ── 시스템 자원 행 1: CPU / RAM / GPU ────────────────────────────────
+        grid1 = QWidget(); gl1 = QHBoxLayout(grid1)
+        gl1.setContentsMargins(0, 0, 0, 0); gl1.setSpacing(0)
+        self._lbl_cpu = self._make_stat_lbl("CPU",  "—%")
+        self._lbl_ram = self._make_stat_lbl("RAM",  "— GB")
+        self._lbl_gpu = self._make_stat_lbl("GPU",  "—%")
         for w in (self._lbl_cpu, self._lbl_ram, self._lbl_gpu):
-            gl.addWidget(w)
-        inner.addWidget(grid)
+            gl1.addWidget(w, 1)
+        inner.addWidget(grid1)
 
-        # 두 번째 자원 행: VRAM / GPU온도 / 처리속도
+        # ── 시스템 자원 행 2: VRAM / GPU°C / 속도 / 워커 ────────────────────
         grid2 = QWidget(); gl2 = QHBoxLayout(grid2)
-        gl2.setContentsMargins(0, 0, 0, 0); gl2.setSpacing(20)
-        self._lbl_vram  = self._make_stat_lbl("VRAM",  "— MB")
-        self._lbl_gtemp = self._make_stat_lbl("GPU°C", "—")
-        self._lbl_rate  = self._make_stat_lbl("속도",  "— 회/s")
-        for w in (self._lbl_vram, self._lbl_gtemp, self._lbl_rate):
-            gl2.addWidget(w)
+        gl2.setContentsMargins(0, 0, 0, 0); gl2.setSpacing(0)
+        self._lbl_vram    = self._make_stat_lbl("VRAM",  "— MB")
+        self._lbl_gtemp   = self._make_stat_lbl("GPU°C", "—")
+        self._lbl_spd     = self._make_stat_lbl("속도",  "— 회/s")
+        self._lbl_workers = self._make_stat_lbl("워커",  "—")
+        for w in (self._lbl_vram, self._lbl_gtemp, self._lbl_spd, self._lbl_workers):
+            gl2.addWidget(w, 1)
         inner.addWidget(grid2)
 
-        # 드래그 안내
+        # ── 드래그 안내 ──────────────────────────────────────────────────────
         tip = QLabel("드래그로 이동")
         tip.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
         tip.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -412,51 +475,123 @@ class FloatingMonitor(QWidget):
 
         outer.addWidget(card)
 
+    # ── 헬퍼 ────────────────────────────────────────────────────────────────
+    def _make_sep(self) -> QLabel:
+        sep = QLabel()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background:{C_BORDER};")
+        return sep
+
     def _make_stat_lbl(self, title: str, init: str) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
+        v.setContentsMargins(0, 2, 0, 2)
+        v.setSpacing(1)
         t = QLabel(title)
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
         val = QLabel(init)
         val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        val.setStyleSheet(f"color:{C_TEXT}; font-size:15px; font-weight:bold;")
+        val.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:bold;")
         val.setObjectName(f'stat_{title}')
         v.addWidget(t)
         v.addWidget(val)
         return w
 
+    @staticmethod
+    def _rate_bar_css(rate: float) -> str:
+        if rate >= 0.80:
+            color = '#2ecc71'   # 초록
+        elif rate >= 0.60:
+            color = '#f39c12'   # 주황
+        else:
+            color = '#e74c3c'   # 빨강
+        bg = '#161b22'
+        return (f"QProgressBar {{ background:{bg}; border-radius:4px; border:1px solid #30363d; }}"
+                f"QProgressBar::chunk {{ background:{color}; border-radius:3px; }}")
+
+    # ── 시스템 새로고침 ──────────────────────────────────────────────────────
     def _refresh_sys(self):
-        # 블로킹 호출 없음 — _SYS_CACHE 읽기만
         def _find(parent, name):
             return parent.findChild(QLabel, f'stat_{name}')
         c   = _SYS_CACHE
         gpu = c['gpu']
-        _find(self._lbl_cpu, 'CPU').setText(f"{c['cpu']:.0f}%")
-        _find(self._lbl_ram, 'RAM').setText(f"{c.get('mem_used', 0)/1024**3:.1f} GB")
-        _find(self._lbl_gpu, 'GPU').setText(f"{gpu['util']}%" if 'util' in gpu else "—%")
+
+        # 경과 시간
+        if self._show_time:
+            el = int(time.time() - self._show_time)
+            m, s = divmod(el, 60)
+            self._lbl_elapsed.setText(f"경과  {m}:{s:02d}")
+
+        # 처리 속도
+        if self._mc_t0 and hasattr(self, '_mc_done'):
+            elapsed = time.time() - self._mc_t0
+            rate = self._mc_done / elapsed if elapsed > 0 else 0.0
+            _find(self._lbl_spd, '속도').setText(f"{rate:.0f} 회/s")
+
+        _find(self._lbl_cpu,  'CPU' ).setText(f"{c['cpu']:.0f}%")
+        _find(self._lbl_ram,  'RAM' ).setText(f"{c.get('mem_used', 0)/1024**3:.1f} GB")
+        _find(self._lbl_gpu,  'GPU' ).setText(f"{gpu['util']}%" if 'util' in gpu else "—%")
         mu, mt = gpu.get('mem_used'), gpu.get('mem_total')
-        _find(self._lbl_vram,  'VRAM').setText(f"{mu}/{mt}MB" if mu is not None else "— MB")
+        _find(self._lbl_vram,  'VRAM' ).setText(f"{mu}MB" if mu is not None else "— MB")
         _find(self._lbl_gtemp, 'GPU°C').setText(f"{gpu['temp']}°C" if 'temp' in gpu else "—")
+        # 워커 프로세스 수
+        wn = len(c.get('worker_stats', []))
+        _find(self._lbl_workers, '워커').setText(str(wn) if wn else "—")
+
+    # ── 외부 시그널 핸들러 ───────────────────────────────────────────────────
+    def update_status(self, msg: str):
+        """progress 시그널 텍스트로 단계 표시 갱신."""
+        if "MC" in msg and ("분석" in msg or "/"):
+            self._lbl_title.setText("⚙  2/2  MC 분석 중…")
+        elif "시뮬레이션 실행" in msg or "실행 중" in msg:
+            self._lbl_title.setText("⚙  1/2  단일 시뮬 실행 중…")
 
     def update_mc(self, done: int, total: int, eta: float):
         if done == 1:
             self._mc_t0 = time.time()
+        self._mc_done = done
         self._lbl_mc.setText(f"MC  {done} / {total}")
         pct = int(done * 100 / total) if total > 0 else 0
         self._prog_mc.setValue(pct)
         self._lbl_eta.setText(f"잔여 약 {eta:.0f}초" if eta > 0 else "잔여 계산 중…")
-        if done > 0 and self._mc_t0:
-            elapsed = time.time() - self._mc_t0
-            rate = done / elapsed if elapsed > 0 else 0.0
-            def _find(parent, name):
-                return parent.findChild(QLabel, f'stat_{name}')
-            _find(self._lbl_rate, '속도').setText(f"{rate:.0f} 회/s")
+
+    def update_rate(self, mean_rate: float, avg_ed: float, avg_fh: float):
+        """배치 완료마다 호출 — 요격률 게이지·격추/피격·스파크라인 갱신."""
+        pct = int(mean_rate * 100)
+        self._prog_rate.setValue(pct)
+        self._prog_rate.setStyleSheet(self._rate_bar_css(mean_rate))
+        self._lbl_rate_val.setText(f"  {mean_rate:.1%}")
+        color = '#2ecc71' if mean_rate >= 0.80 else ('#f39c12' if mean_rate >= 0.60 else '#e74c3c')
+        self._lbl_rate_val.setStyleSheet(f"color:{color}; font-size:15px; font-weight:bold;")
+
+        self._lbl_ed.setText(f"격추  {avg_ed:.1f}")
+        self._lbl_fh.setText(f"피격  {avg_fh:.2f}")
+
+        # 스파크라인 갱신
+        self._batch_rates.append(mean_rate)
+        recent = self._batch_rates[-self._SPARK_N:]
+        for i, sq in enumerate(self._spark_boxes):
+            if i < len(recent):
+                r = recent[i]
+                if r >= 0.80:
+                    c = '#2ecc71'
+                elif r >= 0.60:
+                    c = '#f39c12'
+                else:
+                    c = '#e74c3c'
+                sq.setStyleSheet(f"background:{c}; border-radius:2px;")
+            else:
+                sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
 
     def show(self):
         super().show()
+        self._show_time = time.time()
+        self._batch_rates.clear()
+        self._mc_done = 0
+        # 스파크라인 초기화
+        for sq in self._spark_boxes:
+            sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
         self._timer.start()
         self._refresh_sys()
 
@@ -521,6 +656,7 @@ class SimWorker(QThread):
     sim_started     = pyqtSignal()
     sim_ended       = pyqtSignal()
     batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
+    rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
 
     def __init__(self, cfg: dict, mc_n: int):
         super().__init__()
@@ -580,6 +716,12 @@ class SimWorker(QThread):
                     batch_done_n += 1
                     self.batch_done.emit(batch_done_n, len(batches))
                     _cb(done_count, self.mc_n)
+                    if all_rates:
+                        self.rate_update.emit(
+                            float(np.mean(all_rates)),
+                            float(np.mean(all_e_dest)) if all_e_dest else 0.0,
+                            float(np.mean(all_f_hits)) if all_f_hits else 0.0,
+                        )
                 if _own:
                     pool.shutdown(wait=False)
 
@@ -1378,7 +1520,7 @@ class SysMonitorTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.5")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.6")
         self.resize(1800, 1060)
         self._worker = None
         self._result = None
@@ -2236,16 +2378,19 @@ class MainWindow(QMainWindow):
         self._worker.sim_started.connect(self._show_float_mon)
         self._worker.sim_ended.connect(self._float_mon.close)
         self._worker.progress_detail.connect(self._float_mon.update_mc)
+        self._worker.progress.connect(self._float_mon.update_status)
+        self._worker.rate_update.connect(self._float_mon.update_rate)
         self._worker.start(QThread.Priority.LowPriority)  # BUG-1
 
     def _show_float_mon(self):
-        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시."""
+        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시. sysmon 탭 자동 전환."""
         geo = self.geometry()
         mon = self._float_mon
         x = geo.right()  - mon.width()  - 20
         y = geo.bottom() - mon.height() - 60
         mon.move(x, y)
         mon.show()
+        self._sidebar.setCurrentRow(6)  # 시스템 모니터 탭으로 자동 전환
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -3488,7 +3633,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.5  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.6  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3595,8 +3740,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v7.6", "중간", "FloatingMonitor 개선",
-             "단계 표시·경과 시간·요격률 게이지·배치 스파크라인·격추/피격 카운터·시스템 모니터 수치"),
             ("v8.0", "높음", "양방향 교전 엔진",
              "적 함정/항공기가 아군 미사일을 HHQ-9 등으로 요격. 엔진 전면 재설계 필요."),
             ("v8.x", "중간", "지형·해상 환경 모델",
@@ -3760,3 +3903,16 @@ if __name__ == '__main__':
 #           SimWorker.run() 인라인 풀 생성 시(_own=True) 즉시 적용
 # · BUG-2: SimWorker / SensitivityWorker / FrameRenderWorker
 #           .start(QThread.Priority.LowPriority) — UI 스레드 응답성 우선
+
+# ── v7.6 패치 ────────────────────────────────────────────────────────────────
+# · NEW-1: FloatingMonitor 전면 개선 (380×270 → 400×370)
+#           단계 표시: _lbl_title "1/2 단일 시뮬" / "2/2 MC 분석" — progress 시그널 연결
+#           경과 시간: _lbl_elapsed, _refresh_sys() 매 0.8s 갱신
+#           요격률 게이지: _prog_rate + _rate_bar_css() 동적 색상 (빨강/주황/초록)
+#           격추/피격: _lbl_ed / _lbl_fh — avg_e_dest / avg_f_hits 표시
+#           스파크라인: _spark_boxes[12] — 배치별 컬러 사각형
+#           워커 수: _lbl_workers — _SYS_CACHE['worker_stats'] 기반
+# · NEW-2: SimWorker.rate_update 시그널 추가 (float, float, float)
+#           MC 배치 완료마다 (mean_rate, avg_e_dest, avg_f_hits) emit
+# · NEW-3: MainWindow progress / rate_update → FloatingMonitor 연결
+# · NEW-4: 시뮬 시작 시 _sidebar.setCurrentRow(6) — 시스템 모니터 자동 전환
