@@ -1,4 +1,4 @@
-"""
+﻿"""
 anim_render.py — 전장 애니메이션 프레임 렌더러
 ProcessPoolExecutor 서브프로세스용. PyQt6 미사용, matplotlib Agg 백엔드만 사용.
 launcher.py에서 직접 임포트하여 FrameRenderWorker가 제출한다.
@@ -166,8 +166,3 @@ def _warmup_task(_):
         pass
     return True
 
-# ── 코드 감사 패치 (anim_render.py) ──────────────────────────────────────────
-# · MED-3: _MAX_ALT 200→300 km — DF-26 등 탄도미사일 최대 고도 표현 정확화
-#          y_top 계산에도 반영되어 고고도 탄도미사일 시각화 범위 확장
-# · BUG(하단잘림): y_bot -cy_gnd*0.40 → -cy_gnd*1.05 — 남쪽 적 잘림 수정
-# · figsize (8,6) → (10,7) — 확장된 뷰 범위에 맞춰 해상도 증가
