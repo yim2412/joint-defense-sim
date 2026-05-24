@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.13 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.14 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.14 — REQ 달성 최소 재고 역산 + '🔬 최소 재고' 탭 신설]               ║
+║  NEW-A  find_min_stock_v7(): 이진 탐색으로 무기별 최소 함정당 재고 계산    ║
+║  NEW-B  MinStockWorker: 백그라운드 역산 + 진행상황 상태바 표시             ║
+║  NEW-C  '🔬 최소 재고' 탭: 현재/최소 비교 수평 막대 차트 (절약·부족 구분) ║
+║                                                                              ║
 ║  [v7.13 — 드론 떼(Swarm) 전술 세부화 + 자폭 피격 수정]                     ║
 ║  NEW-A  '드론 떼 (Swarm-12)' DB 추가: 12기 그룹, RAM 1발 = 2~5기 제압     ║
 ║  NEW-B  자폭 드론 피격 수정: 200m 이내 도달 시 함정 피격 처리              ║
@@ -210,6 +215,7 @@ try:
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
         MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
         evaluate_req_v7, REQ_ITEMS_V7,
+        find_all_min_stocks_v7,
         scenario_comparison_v7,
         save_scenario_v7, load_scenario_v7,
         calculate_fleet_detect_ranges,
@@ -695,6 +701,31 @@ class SensitivityWorker(QThread):
                 lows.append(r_lo - base_rate)
                 highs.append(r_hi - base_rate)
             self.finished.emit(labels, lows, highs, base_rate)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class MinStockWorker(QThread):
+    """REQ 달성 최소 재고 역산을 백그라운드에서 실행."""
+    progress = pyqtSignal(int, int, str)    # (i, total, weapon_name)
+    finished = pyqtSignal(dict, float)      # (results_dict, target_rate)
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg: dict, mc_n: int, target_rate: float = 0.90):
+        super().__init__()
+        self.cfg         = cfg
+        self.mc_n        = max(20, mc_n // 8)  # 속도 우선 — 근사치 허용
+        self.target_rate = target_rate
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            def _cb(i, total, name):
+                self.progress.emit(i, total, name)
+            results = find_all_min_stocks_v7(
+                self.cfg, self.target_rate, self.mc_n, _cb)
+            self.finished.emit(results, self.target_rate)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -2192,7 +2223,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.13")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.14")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -2730,6 +2761,7 @@ class MainWindow(QMainWindow):
         self.tab_ci          = ChartPageWidget()
         self.tab_timeline    = ChartPageWidget()
         self.tab_sensitivity = MplCanvas(figsize=(12, 6))  # SensitivityWorker 연동 — MplCanvas 유지
+        self.tab_min_stock   = MplCanvas(figsize=(13, 6))  # MinStockWorker 연동
         self.tab_bearing     = ChartPageWidget()
         self.tab_req_radar   = ChartPageWidget()
         self.tab_threat_type = ChartPageWidget()
@@ -2768,6 +2800,7 @@ class MainWindow(QMainWindow):
             "🌤  날씨 비교", "📜  교전 로그", "📡  채널 포화도",
             "🖥  시스템 모니터", "💰  비용 효과", "🔫  탄약 소모",
             "📈  MC 신뢰구간", "⏱  교전 타임라인", "🌪  감도 분석",
+            "🔬  최소 재고",
             "🧭  방위각 취약점", "🎯  REQ 충족률", "📊  위협 유형별",
             "⏰  취약 시간대", "🔄  이전 비교",
         ]:
@@ -2789,11 +2822,12 @@ class MainWindow(QMainWindow):
             self.tab_ci,          # 9
             self.tab_timeline,    # 10
             self.tab_sensitivity, # 11
-            self.tab_bearing,     # 12
-            self.tab_req_radar,   # 13
-            self.tab_threat_type, # 14
-            self.tab_vuln_time,   # 15
-            self.tab_history,     # 16
+            self.tab_min_stock,   # 12
+            self.tab_bearing,     # 13
+            self.tab_req_radar,   # 14
+            self.tab_threat_type, # 15
+            self.tab_vuln_time,   # 16
+            self.tab_history,     # 17
         ]:
             self._stack.addWidget(w)
 
@@ -2841,11 +2875,11 @@ class MainWindow(QMainWindow):
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
             10: lambda: self._draw_timeline(self._result),
-            12: lambda: self._draw_bearing_vulnerability(self._result),
-            13: lambda: self._draw_req_radar(self._result, self._mc),
-            14: lambda: self._draw_threat_type(self._result, self._mc),
-            15: lambda: self._draw_vuln_time(self._result),
-            16: lambda: self._draw_history_compare(self._result, self._mc),
+            13: lambda: self._draw_bearing_vulnerability(self._result),
+            14: lambda: self._draw_req_radar(self._result, self._mc),
+            15: lambda: self._draw_threat_type(self._result, self._mc),
+            16: lambda: self._draw_vuln_time(self._result),
+            17: lambda: self._draw_history_compare(self._result, self._mc),
         }
         if idx in render_map:
             render_map[idx]()
@@ -3156,8 +3190,16 @@ class MainWindow(QMainWindow):
         self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
         self._sens_worker.start(QThread.Priority.LowPriority)  # BUG-1
 
+        # 최소 재고 역산 — 백그라운드 MinStockWorker로 비차단 실행
+        self._min_stock_placeholder()
+        self._ms_worker = MinStockWorker(cfg, mc_n)
+        self._ms_worker.progress.connect(self._on_min_stock_progress)
+        self._ms_worker.finished.connect(self._on_min_stock_done)
+        self._ms_worker.error.connect(lambda e: self._min_stock_error(e))
+        self._ms_worker.start(QThread.Priority.LowPriority)
+
         # 모든 차트 페이지를 dirty로 표시 (지연 렌더링)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 13, 14, 15, 16, 17}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -3426,6 +3468,14 @@ class MainWindow(QMainWindow):
             if not sens.wait(1000):
                 sens.terminate()
                 sens.wait(500)
+        # MinStockWorker 중단
+        ms = getattr(self, '_ms_worker', None)
+        if ms and ms.isRunning():
+            ms.requestInterruption()
+            ms.quit()
+            if not ms.wait(1000):
+                ms.terminate()
+                ms.wait(500)
         # 애니메이션 렌더 워커 중단
         rw = getattr(self.tab_anim, '_render_worker', None)
         if rw and rw.isRunning():
@@ -3518,6 +3568,110 @@ class MainWindow(QMainWindow):
         ax.axis('off')
         fig.tight_layout()
         self.tab_sensitivity.draw_idle()
+
+    def _min_stock_placeholder(self):
+        fig = self.tab_min_stock.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+        ax.text(0.5, 0.5, '최소 재고 역산 계산 중… ⏳\n(백그라운드 이진 탐색 실행 중)',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
+                transform=ax.transAxes)
+        ax.axis('off')
+        fig.tight_layout()
+        self.tab_min_stock.draw_idle()
+
+    def _min_stock_error(self, msg: str):
+        fig = self.tab_min_stock.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+        ax.text(0.5, 0.5, f'최소 재고 계산 오류\n{msg}',
+                ha='center', va='center', color='#e74c3c', fontsize=11,
+                transform=ax.transAxes)
+        ax.axis('off')
+        fig.tight_layout()
+        self.tab_min_stock.draw_idle()
+
+    def _on_min_stock_progress(self, i: int, total: int, name: str):
+        if i < total:
+            self._lbl_status.setText(f"최소 재고 계산 중 ({i}/{total}) — {name}")
+
+    def _on_min_stock_done(self, results: dict, target_rate: float):
+        self._draw_min_stock(results, target_rate)
+
+    def _draw_min_stock(self, results: dict, target_rate: float):
+        """REQ 달성 최소 재고 수평 막대 차트."""
+        fig = self.tab_min_stock.fig
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#0a0e1a')
+        fig.patch.set_facecolor('#0a0e1a')
+
+        wpn_names = list(results.keys())
+        short_names = {
+            'SM-3 Block IIA':   'SM-3 IIA',
+            'SM-6':             'SM-6',
+            'SM-2 Block IIIB':  'SM-2 IIIB',
+            'RIM-116 RAM':      'RIM-116 RAM',
+            '홍상어 (대잠)':    '홍상어',
+            '청상어 (경어뢰)':  '청상어',
+        }
+        labels   = [short_names.get(w, w) for w in wpn_names]
+        currents = [results[w]['current_stock'] for w in wpn_names]
+        mins     = [results[w]['min_stock']     for w in wpn_names]
+        achieves = [results[w]['achievable']    for w in wpn_names]
+        y = list(range(len(wpn_names)))
+
+        # 현재 재고 — 회색 배경 막대
+        ax.barh(y, currents, color='#2a3545', height=0.55, label='현재 재고')
+
+        # 최소 필요 재고 — 색상 구분 (달성 가능 녹색, 불가 적색, 미필요 하늘색)
+        for i, (mn, cur, ach) in enumerate(zip(mins, currents, achieves)):
+            if not ach:
+                color = '#e74c3c'  # 달성 불가
+                bar_val = cur
+            elif mn == 0:
+                color = '#3498db'  # 해당 위협에 불필요
+                bar_val = 0
+            elif mn <= cur:
+                color = '#2ecc71'  # 절약 가능
+                bar_val = mn
+            else:
+                color = '#e67e22'  # 부족 (현재 < 최소)
+                bar_val = mn
+            ax.barh(i, bar_val, color=color, height=0.55, alpha=0.9)
+
+            # 라벨
+            if not ach:
+                txt = '달성 불가'
+            elif mn == 0:
+                txt = '불필요'
+            else:
+                saving = cur - mn
+                sign   = f'▼ {saving}발 절약' if saving > 0 else (f'▲ {-saving}발 부족' if saving < 0 else '현재 최적')
+                txt = f'최소 {mn}발  ({sign})'
+            ax.text(max(cur, mn) + 0.5, i, txt,
+                    va='center', color=C_TEXT, fontsize=8.5)
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels, color=C_TEXT, fontsize=10)
+        ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=9)
+        ax.set_title(
+            f'REQ 달성 최소 재고 역산  (목표: 완전 요격 성공률 ≥ {target_rate:.0%})\n'
+            f'■ 현재 재고  ■ 최소 필요  (녹색=절약 가능 / 주황=부족 / 파랑=불필요)',
+            color=C_TEXT, fontsize=10, pad=10,
+        )
+        max_x = max(currents + [m for m in mins if m >= 0], default=50)
+        ax.set_xlim(0, max_x * 1.35)
+        ax.tick_params(colors=C_SUBTEXT)
+        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a', loc='lower right')
+        fig.tight_layout()
+        self.tab_min_stock.draw_idle()
 
     def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
         """SensitivityWorker 완료 시 Tornado chart 렌더링."""
@@ -3822,7 +3976,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.13  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.14  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3955,6 +4109,11 @@ class SplashWindow(QWidget):
              "매 시뮬레이션마다 아군 함정을 지정한 해역 안에서 무작위로 배치. "
              "배치 범위(위도·경도 구역)를 설정 화면에서 지정할 수 있고, "
              "애니메이션 탭에서 배치 결과를 직접 확인 가능."),
+            ("v7.14", "중간", "REQ 달성 최소 재고 역산 + 최소 재고 탭",
+             "시뮬레이션 완료 후 백그라운드에서 SM-3·SM-6·SM-2·RAM·홍상어·청상어 6종 무기별 "
+             "'완전 요격 성공률 90% 달성에 필요한 최소 함정당 재고'를 이진 탐색으로 역산. "
+             "'🔬 최소 재고' 탭 신설 — 현재 재고(회색)와 최소 필요(색상 구분) 수평 막대 차트로 "
+             "절약 가능 발수 또는 재고 부족 경고를 직관적으로 표시."),
             ("v7.13", "중간", "드론 떼(Swarm) 전술 세부화 + 자폭 피격 수정",
              "'드론 떼 (Swarm-12)' DB 추가: 12기 그룹 단위로 채널 1개만 소모. "
              "RAM 1발로 2~5기, CIWS 1버스트로 1~3기 제압하는 부분 격추 로직 구현. "

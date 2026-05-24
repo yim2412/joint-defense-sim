@@ -1991,6 +1991,82 @@ def evaluate_req_v7(result: dict, mc: dict) -> tuple:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  REQ 달성 최소 재고 역산
+# ════════════════════════════════════════════════════════════════════════════
+
+# cfg 키 ↔ 무기명 매핑 (포팅 A _def_map과 동일 구조)
+_STOCK_CFG_KEY: dict = {
+    'SM-3 Block IIA':   'sm3_stock',
+    'SM-6':             'sm6_stock',
+    'SM-2 Block IIIB':  'sm2_stock',
+    'RIM-116 RAM':      'ram_stock',
+    '홍상어 (대잠)':    'hongsango_stock',
+    '청상어 (경어뢰)':  'cheongsango_stock',
+}
+
+
+def find_min_stock_v7(
+    cfg: dict,
+    weapon_name: str,
+    target_rate: float = 0.90,
+    mc_n: int = 40,
+) -> int:
+    """
+    이진 탐색으로 REQ-04(MC 완전 요격 성공률 ≥ target_rate) 달성에 필요한
+    weapon_name 의 최소 함정당 재고를 반환.
+      ≥ 0 : 달성 가능한 최소 재고
+      -1  : 최대값(SHIP_DB 기본)에서도 달성 불가
+    """
+    stock_key = _STOCK_CFG_KEY.get(weapon_name)
+    if stock_key is None:
+        return -1
+
+    max_val = FRIENDLY_DB.get(weapon_name, {}).get('stock', 48)
+
+    # 상한에서도 미달성이면 불가
+    if monte_carlo_v7({**cfg, stock_key: max_val}, mc_n)['full_pass_rate'] < target_rate:
+        return -1
+
+    lo, hi = 0, max_val
+    while lo < hi:
+        mid = (lo + hi) // 2
+        rate = monte_carlo_v7({**cfg, stock_key: mid}, mc_n)['full_pass_rate']
+        if rate >= target_rate:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def find_all_min_stocks_v7(
+    cfg: dict,
+    target_rate: float = 0.90,
+    mc_n: int = 40,
+    progress_cb=None,
+) -> dict:
+    """
+    주요 무기 6종의 최소 함정당 재고를 순서대로 탐색.
+    반환: {weapon_name: {'min_stock': int, 'current_stock': int, 'achievable': bool}}
+    """
+    weapons = list(_STOCK_CFG_KEY.keys())
+    results = {}
+    for i, wpn in enumerate(weapons):
+        if progress_cb:
+            progress_cb(i, len(weapons), wpn)
+        key     = _STOCK_CFG_KEY[wpn]
+        current = cfg.get(key, FRIENDLY_DB.get(wpn, {}).get('stock', 0))
+        min_s   = find_min_stock_v7(cfg, wpn, target_rate, mc_n)
+        results[wpn] = {
+            'min_stock':     min_s,
+            'current_stock': current,
+            'achievable':    min_s >= 0,
+        }
+    if progress_cb:
+        progress_cb(len(weapons), len(weapons), '완료')
+    return results
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  포팅 D: 날씨별 시나리오 비교
 # ════════════════════════════════════════════════════════════════════════════
 
