@@ -3793,7 +3793,7 @@ class SplashWindow(QWidget):
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, ni)
             tbl.setItem(row, 1, desc_item)
-        tbl.resizeRowsToContents()
+        tbl.verticalHeader().setDefaultSectionSize(68)
         layout.addWidget(tbl)
         return w
 
@@ -3976,10 +3976,9 @@ class SplashWindow(QWidget):
             tbl.setItem(r, 1, di)
             tbl.setItem(r, 2, QTableWidgetItem(f"  {title}"))
             tbl.setItem(r, 3, desc_item)
-        tbl.resizeRowsToContents()
+        tbl.verticalHeader().setDefaultSectionSize(68)
 
         layout.addWidget(tbl)
-        layout.addStretch()
         return w
 
 
