@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.7 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.8 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.8 — 결과 차트 UI 프리즈 완전 해결]                                    ║
+║                                                                              ║
+║  NEW-1  ChartRenderWorker(QThread): 차트 13개를 백그라운드에서 PNG 렌더     ║
+║  NEW-2  ChartPageWidget: 로딩 → 이미지 전환, 리사이즈 자동 스케일          ║
+║  BUG-1  render_map 인덱스 오류 수정 (12~17 → 12~16, 방위각~이전비교)       ║
+║  BUG-2  _page_dirty에서 없는 인덱스 17 제거                                ║
+║  BUG-3  감도 분석 draw() → draw_idle() 전환                                ║
+║                                                                              ║
 ║  [v7.7 — 향후 계획 탭 전면 업데이트 (20개 항목)]                           ║
 ║                                                                              ║
 ║  NEW-1  향후 계획 탭: 2개 → 20개 항목으로 확장                             ║
@@ -54,7 +62,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, time, threading, json, multiprocessing, subprocess as _sp
+import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
@@ -851,6 +859,114 @@ class MplCanvas(FigureCanvas):
                            QSizePolicy.Policy.Expanding)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+#  차트 백그라운드 렌더 워커 + 위젯 (UI 프리즈 방지)
+# ════════════════════════════════════════════════════════════════════════════
+class ChartRenderWorker(QThread):
+    """matplotlib Figure를 백그라운드 스레드에서 PNG bytes로 렌더링."""
+    finished = pyqtSignal(bytes)
+    error    = pyqtSignal(str)
+
+    def __init__(self, fn, args, kwargs):
+        super().__init__()
+        self._fn     = fn
+        self._args   = args
+        self._kwargs = kwargs
+
+    def run(self):
+        try:
+            fig = self._fn(*self._args, **self._kwargs)
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight',
+                        facecolor=fig.get_facecolor(), dpi=96)
+            from matplotlib import pyplot as _plt
+            _plt.close(fig)
+            self.finished.emit(buf.getvalue())
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ChartPageWidget(QWidget):
+    """결과 차트 탭: 로딩 안내 → 렌더 완료 이미지 전환."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._worker: 'ChartRenderWorker | None' = None
+        self._raw_pix: 'QPixmap | None' = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._pane = QStackedWidget()
+
+        # 0 — 로딩
+        loading = QWidget()
+        loading.setStyleSheet(f"background:{C_BG};")
+        ll = QVBoxLayout(loading)
+        ll.addStretch()
+        self._loading_lbl = QLabel("  차트 렌더링 중…")
+        self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_lbl.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:15px; font-family:'Malgun Gothic';")
+        ll.addWidget(self._loading_lbl)
+        ll.addStretch()
+        self._pane.addWidget(loading)
+
+        # 1 — 이미지 (비율 유지 스케일)
+        self._img_lbl = QLabel()
+        self._img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._img_lbl.setStyleSheet(f"background:{C_BG};")
+        self._img_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                    QSizePolicy.Policy.Expanding)
+        self._pane.addWidget(self._img_lbl)
+
+        layout.addWidget(self._pane)
+        self._pane.setCurrentIndex(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Expanding)
+
+    def start_render(self, fn, *args, **kwargs):
+        if self._worker and self._worker.isRunning():
+            try:
+                self._worker.finished.disconnect()
+                self._worker.error.disconnect()
+            except Exception:
+                pass
+            self._worker.requestInterruption()
+            self._worker.quit()
+        self._raw_pix = None
+        self._loading_lbl.setText("  차트 렌더링 중…")
+        self._pane.setCurrentIndex(0)
+        self._worker = ChartRenderWorker(fn, args, kwargs)
+        self._worker.finished.connect(self._on_done)
+        self._worker.error.connect(self._on_error)
+        self._worker.start(QThread.Priority.LowPriority)
+
+    def _on_done(self, png_bytes: bytes):
+        pix = QPixmap()
+        pix.loadFromData(png_bytes)
+        self._raw_pix = pix
+        self._update_display()
+        self._pane.setCurrentIndex(1)
+
+    def _on_error(self, msg: str):
+        self._loading_lbl.setText(f"  렌더링 실패: {msg}")
+
+    def _update_display(self):
+        if not self._raw_pix or self._raw_pix.isNull():
+            return
+        w, h = self.width(), self.height()
+        if w > 10 and h > 10:
+            self._img_lbl.setPixmap(
+                self._raw_pix.scaled(w, h,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_display()
+
+
 # 서브프로세스 안전 렌더 함수: anim_render.py에서 임포트 (launcher.py는 QtAgg 백엔드 사용)
 from anim_render import _render_anim_frame
 
@@ -1563,12 +1679,473 @@ class SysMonitorTab(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  차트 순수 렌더 함수 (백그라운드 스레드에서 호출, Figure 반환)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> Figure:
+    """MC 통계: plot_v7 생성 PNG → Figure에 임베드."""
+    import tempfile, uuid as _uuid
+    img_path = os.path.join(tempfile.gettempdir(),
+                            f'mc_chart_{_uuid.uuid4().hex}.png')
+    fig = Figure(figsize=(12, 7), facecolor=C_BG)
+    try:
+        plot_v7(result, mc, cfg, img_path=img_path)
+        if os.path.exists(img_path):
+            from matplotlib.image import imread
+            img = imread(img_path)
+            ax = fig.add_subplot(111)
+            ax.imshow(img)
+            ax.axis('off')
+            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    finally:
+        try:
+            os.remove(img_path)
+        except Exception:
+            pass
+    return fig
+
+
+def _render_channel_heatmap(result: dict) -> Figure:
+    frames = result.get('frames', [])
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    if not frames or not getattr(frames[0], 'ship_channels', None):
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '채널 데이터 없음\n(시뮬레이션 재실행 필요)',
+                ha='center', va='center', color='#7d8590',
+                fontsize=12, transform=ax.transAxes)
+        return fig
+    ship_names = [sc[0] for sc in frames[0].ship_channels]
+    times = [f.t for f in frames]
+    usage = np.zeros((len(ship_names), len(frames)))
+    for fi, frame in enumerate(frames):
+        for si, sc in enumerate(frame.ship_channels):
+            _, ch_used, ch_max = sc
+            usage[si, fi] = ch_used / ch_max if ch_max > 0 else 0.0
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    im = ax.imshow(usage, aspect='auto',
+                   extent=[times[0], times[-1], -0.5, len(ship_names) - 0.5],
+                   origin='lower', cmap='RdYlGn_r', vmin=0, vmax=1,
+                   interpolation='nearest')
+    ax.set_yticks(range(len(ship_names)))
+    ax.set_yticklabels(ship_names, color='#aab', fontsize=9)
+    ax.set_xlabel('시간 (s)', color='#aab', fontsize=9)
+    ax.set_title('채널 포화도  (빨강=포화, 초록=여유)', color='#dde', fontsize=11)
+    ax.tick_params(colors='#aab', labelsize=8)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.ax.tick_params(colors='#aab', labelsize=7)
+    cbar.set_label('채널 사용률', color='#aab', fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
+def _render_cost_effect(result: dict, mc: dict) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    costs     = mc.get('total_costs', [])
+    e_dest    = mc.get('enemy_destroyed', [])
+    mean_cost = float(np.mean(costs)) if costs else 0.0
+    mean_kill = float(np.mean(e_dest)) if e_dest else 0.0
+    cost_per_kill = mean_cost / mean_kill if mean_kill > 0 else float('inf')
+    wpn_rem = mc.get('weapon_avg_remaining', {})
+    if wpn_rem:
+        gs = fig.add_gridspec(1, 2, wspace=0.35)
+        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+    else:
+        ax1 = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax2 = None
+    ax1.axis('off')
+    lbl = f"${cost_per_kill:,.0f}" if cost_per_kill != float('inf') else "N/A"
+    ax1.text(0.5, 0.6, lbl, ha='center', va='center',
+             color=C_GREEN, fontsize=26, fontweight='bold',
+             transform=ax1.transAxes)
+    ax1.text(0.5, 0.35, '격추 1건당 평균 비용', ha='center', va='center',
+             color=C_TEXT, fontsize=11, transform=ax1.transAxes)
+    ax1.text(0.5, 0.20, f"총 평균 비용 ${mean_cost:,.0f}  |  평균 격침 {mean_kill:.1f}척",
+             ha='center', va='center', color=C_SUBTEXT, fontsize=9,
+             transform=ax1.transAxes)
+    ax1.set_facecolor('#0a0e1a')
+    if ax2 and wpn_rem:
+        names = list(wpn_rem.keys())
+        vals  = [wpn_rem[n] for n in names]
+        colors = [C_GREEN if v > 5 else C_ORANGE if v > 0 else C_RED for v in vals]
+        y = range(len(names))
+        ax2.barh(list(y), vals, color=colors, height=0.6)
+        ax2.set_yticks(list(y))
+        ax2.set_yticklabels(names, color=C_TEXT, fontsize=8)
+        ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
+        ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=10)
+        ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+        for sp in ax2.spines.values():
+            sp.set_color('#1e2a3a')
+    fig.tight_layout()
+    return fig
+
+
+def _render_ammo_curve(mc: dict) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    wpn_rem = mc.get('weapon_avg_remaining', {})
+    if not wpn_rem:
+        ax.text(0.5, 0.5, '데이터 없음\n(시뮬레이션 재실행 필요)',
+                ha='center', va='center', color=C_SUBTEXT,
+                fontsize=12, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+    names = list(wpn_rem.keys())
+    vals  = [wpn_rem[n] for n in names]
+    y     = np.arange(len(names))
+    bars  = ax.barh(y, vals, color=C_ACCENT, height=0.55, alpha=0.85)
+    for bar, val in zip(bars, vals):
+        ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
+                f'{val:.1f}', va='center', color=C_TEXT, fontsize=8)
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, color=C_TEXT, fontsize=8)
+    ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
+    ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=10)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    fig.tight_layout()
+    return fig
+
+
+def _render_ci_chart(mc: dict) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    rates = mc.get('intercept_rates', [])
+    if not rates:
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+    arr   = np.array(rates)
+    mean  = float(arr.mean())
+    std   = float(arr.std())
+    ci_lo = max(0.0, mean - 1.96 * std / np.sqrt(len(arr)))
+    ci_hi = min(1.0, mean + 1.96 * std / np.sqrt(len(arr)))
+    gs = fig.add_gridspec(1, 2, wspace=0.35)
+    ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+    ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+    ax1.hist(arr, bins=20, color=C_ACCENT, alpha=0.75, edgecolor='#1e2a3a')
+    ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}')
+    ax1.axvline(ci_lo, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 하한 {ci_lo:.1%}')
+    ax1.axvline(ci_hi, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 상한 {ci_hi:.1%}')
+    ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=9)
+    ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=9)
+    ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=10)
+    ax1.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax1.tick_params(colors=C_SUBTEXT, labelsize=8)
+    for sp in ax1.spines.values():
+        sp.set_color('#1e2a3a')
+    ship_hits = mc.get('ship_avg_hits', {})
+    if ship_hits:
+        snames = list(ship_hits.keys())
+        shvals = [ship_hits[s] for s in snames]
+        y      = np.arange(len(snames))
+        clrs   = [C_RED if v > 1 else C_ORANGE if v > 0 else C_GREEN for v in shvals]
+        ax2.barh(y, shvals, color=clrs, height=0.55)
+        ax2.set_yticks(y)
+        ax2.set_yticklabels(snames, color=C_TEXT, fontsize=8)
+        ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=9)
+        ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=10)
+        ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+        for sp in ax2.spines.values():
+            sp.set_color('#1e2a3a')
+    else:
+        ax2.axis('off')
+        ax2.text(0.5, 0.5, '피격 데이터 없음', ha='center', va='center',
+                 color=C_SUBTEXT, fontsize=10, transform=ax2.transAxes)
+    fig.tight_layout()
+    return fig
+
+
+def _render_timeline(result: dict) -> Figure:
+    fig = Figure(figsize=(14, 5), facecolor=C_BG)
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    log = result.get('log', [])
+    if not log:
+        ax.text(0.5, 0.5, '로그 데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+    _CAT = [
+        ('[방어]',     C_GREEN,  '방어 발사',  0),
+        ('[대공 방어]', C_ACCENT, '대공 발사',  1),
+        ('[공격]',     '#e67e22','대함 공격',  2),
+        ('[대잠 공격]', '#9b59b6','대잠 공격',  3),
+        ('[피격]',     C_RED,    '피격',       4),
+        ('[경고]',     C_ORANGE, '경고',       5),
+        ('[적 발사]',  '#c0392b','적 발사',    6),
+    ]
+    events = []
+    for t, msg in log:
+        for tag, color, label, yi in _CAT:
+            if tag in msg:
+                events.append((t, yi, color, label, msg[:60]))
+                break
+    if not events:
+        ax.text(0.5, 0.5, '분류 가능한 이벤트 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+    y_labels = ['방어 발사', '대공 발사', '대함 공격', '대잠 공격', '피격', '경고', '적 발사']
+    for t, yi, color, label, msg in events:
+        ax.scatter(t, yi, c=color, s=30, zorder=3, alpha=0.8)
+    ax.set_yticks(range(len(y_labels)))
+    ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=9)
+    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
+    ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=11)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+    ax.set_ylim(-0.8, len(y_labels) - 0.2)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.grid(axis='x', color='#1e2a3a', lw=0.5)
+    handles = [plt.Line2D([0], [0], marker='o', color='w',
+                           markerfacecolor=c, markersize=7, label=l)
+               for _, c, l, _ in _CAT]
+    ax.legend(handles=handles, fontsize=7, facecolor='#0a0e1a',
+              labelcolor=C_TEXT, edgecolor='#1e2a3a',
+              loc='upper right', ncol=4)
+    fig.tight_layout()
+    return fig
+
+
+def _render_bearing_vulnerability(result: dict) -> Figure:
+    fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
+    ax = fig.add_subplot(111, polar=True)
+    ax.set_facecolor('#0a0e1a')
+    log = result.get('log', [])
+    N = 8
+    hit_counts  = [0] * N
+    kill_counts = [0] * N
+    for _, msg in log:
+        bearing_deg = None
+        if '방위' in msg:
+            try:
+                bearing_deg = float(msg.split('방위')[1].split('°')[0])
+            except Exception:
+                pass
+        if bearing_deg is None:
+            bearing_deg = hash(msg) % 360
+        sector = int((bearing_deg % 360) / (360 / N))
+        if '[피격]' in msg:
+            hit_counts[sector]  += 1
+        elif '[격추]' in msg or '[요격]' in msg:
+            kill_counts[sector] += 1
+    angles   = np.linspace(0, 2 * np.pi, N, endpoint=False)
+    hit_arr  = np.array(hit_counts,  dtype=float)
+    kill_arr = np.array(kill_counts, dtype=float)
+    max_val  = max(hit_arr.max(), kill_arr.max(), 1)
+    hit_arr  /= max_val
+    kill_arr /= max_val
+    angles_c = np.concatenate([angles, [angles[0]]])
+    hit_c    = np.concatenate([hit_arr,  [hit_arr[0]]])
+    kill_c   = np.concatenate([kill_arr, [kill_arr[0]]])
+    sector_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    ax.plot(angles_c, kill_c, 'o-', color='#2ecc71', lw=1.5, label='요격')
+    ax.fill(angles_c, kill_c, alpha=0.2, color='#2ecc71')
+    ax.plot(angles_c, hit_c,  'o-', color='#e74c3c', lw=1.5, label='피격')
+    ax.fill(angles_c, hit_c,  alpha=0.2, color='#e74c3c')
+    ax.set_xticks(angles)
+    ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=9)
+    ax.set_yticklabels([])
+    ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=11, pad=15)
+    ax.tick_params(colors=C_SUBTEXT)
+    ax.spines['polar'].set_color('#1e2a3a')
+    ax.grid(color='#1e2a3a')
+    ax.legend(loc='upper right', fontsize=8, facecolor='#0a0e1a',
+              labelcolor=C_TEXT, edgecolor='#1e2a3a',
+              bbox_to_anchor=(1.25, 1.1))
+    fig.tight_layout()
+    return fig
+
+
+def _render_req_radar(result: dict, mc: dict) -> Figure:
+    fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
+    if not _V7_OK:
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, 'v7 엔진 미로드', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        return fig
+    try:
+        verdicts, _ = evaluate_req_v7(result, mc)
+    except Exception:
+        return fig
+    ax = fig.add_subplot(111, polar=True)
+    ax.set_facecolor('#0a0e1a')
+    labels = [r['id'] for r in REQ_ITEMS_V7]
+    N = len(labels)
+    if N == 0:
+        return fig
+    vals     = [1.0 if v else 0.0 for v in verdicts]
+    angles   = np.linspace(0, 2 * np.pi, N, endpoint=False)
+    vals_c   = np.concatenate([vals,   [vals[0]]])
+    angles_c = np.concatenate([angles, [angles[0]]])
+    ax.plot(angles_c, vals_c, 'o-', color=C_ACCENT, lw=2)
+    ax.fill(angles_c, vals_c, alpha=0.3, color=C_ACCENT)
+    ax.set_xticks(angles)
+    ax.set_xticklabels(labels, color=C_TEXT, fontsize=9)
+    ax.set_yticks([0, 0.5, 1.0])
+    ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=7)
+    ax.set_ylim(0, 1.2)
+    pass_cnt = sum(verdicts)
+    ax.set_title(f'REQ 충족률  {pass_cnt}/{N}  ({pass_cnt/N:.0%})',
+                 color=C_TEXT, fontsize=11, pad=15)
+    ax.spines['polar'].set_color('#1e2a3a')
+    ax.grid(color='#1e2a3a')
+    fig.tight_layout()
+    return fig
+
+
+def _render_threat_type(result: dict, mc: dict) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    if not _V7_OK:
+        ax.text(0.5, 0.5, 'v7 엔진 미로드', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        return fig
+    log = result.get('log', [])
+    categories = {
+        '항공기':     {'intercept': 0, 'total': 0},
+        '탄도탄':     {'intercept': 0, 'total': 0},
+        '순항미사일': {'intercept': 0, 'total': 0},
+        '잠수함':     {'intercept': 0, 'total': 0},
+        '기타':       {'intercept': 0, 'total': 0},
+    }
+    def _classify(msg: str) -> str:
+        for kw, cat in [
+            ('항공', '항공기'), ('KH-', '항공기'), ('Su-', '항공기'),
+            ('화성', '탄도탄'), ('SM-3', '탄도탄'), ('탄도', '탄도탄'),
+            ('순항', '순항미사일'), ('Kh-', '순항미사일'), ('화살', '순항미사일'),
+            ('지르콘', '순항미사일'), ('킨잘', '순항미사일'),
+            ('잠수함', '잠수함'), ('어뢰', '잠수함'), ('수중', '잠수함'),
+        ]:
+            if kw in msg:
+                return cat
+        return '기타'
+    for _, msg in log:
+        if '[요격]' in msg or '[격추]' in msg:
+            cat = _classify(msg)
+            categories[cat]['total']     += 1
+            categories[cat]['intercept'] += 1
+        elif '[피격]' in msg or '[통과]' in msg:
+            cat = _classify(msg)
+            categories[cat]['total'] += 1
+    labels = [k for k, v in categories.items() if v['total'] > 0]
+    if not labels:
+        ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        return fig
+    rates  = [categories[l]['intercept'] / max(categories[l]['total'], 1)
+              for l in labels]
+    totals = [categories[l]['total'] for l in labels]
+    colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6']
+    bars = ax.bar(labels, rates,
+                  color=colors[:len(labels)], alpha=0.85, edgecolor='#1e2a3a')
+    for bar, t, r in zip(bars, totals, rates):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.02,
+                f'{r:.0%}\n(n={t})',
+                ha='center', va='bottom', color=C_TEXT, fontsize=9)
+    ax.set_ylim(0, 1.2)
+    ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=9)
+    ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=11)
+    ax.tick_params(colors=C_SUBTEXT)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.axhline(0.9, color='#2ecc71', lw=1, ls='--', alpha=0.5, label='목표 90%')
+    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    fig.tight_layout()
+    return fig
+
+
+def _render_vuln_time(result: dict) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    log = result.get('log', [])
+    hit_times  = [t for t, msg in log if '[피격]' in msg]
+    kill_times = [t for t, msg in log if '[요격]' in msg or '[격추]' in msg]
+    max_t = max((result.get('sim_time', 300),
+                 max(hit_times or [0]),
+                 max(kill_times or [0]))) + 10
+    bins = np.arange(0, max_t + 10, 10)
+    if kill_times:
+        ax.hist(kill_times, bins=bins, color='#2ecc71', alpha=0.7,
+                label='요격/격추', edgecolor='#0a0e1a')
+    if hit_times:
+        ax.hist(hit_times, bins=bins, color='#e74c3c', alpha=0.7,
+                label='피격', edgecolor='#0a0e1a')
+    if hit_times:
+        h, b = np.histogram(hit_times, bins=bins)
+        peak_start = b[np.argmax(h)]
+        ax.axvspan(peak_start, peak_start + 10, alpha=0.25, color='#e74c3c',
+                   label=f'최다 피격 구간 ({peak_start:.0f}~{peak_start+10:.0f}s)')
+    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
+    ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=9)
+    ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=11)
+    ax.tick_params(colors=C_SUBTEXT)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax.grid(axis='y', color='#1e2a3a', lw=0.5)
+    fig.tight_layout()
+    return fig
+
+
+def _render_history_compare(history: list) -> Figure:
+    fig = Figure(figsize=(12, 5), facecolor='#0a0e1a')
+    if not history:
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '이전 실행 결과 없음\n(2회 이상 실행 후 비교 표시)',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=11,
+                transform=ax.transAxes)
+        return fig
+    axes = fig.subplots(1, 3, facecolor='#0a0e1a')
+    metrics = [
+        ('요격률',         'mean_intercept', True,  '%'),
+        ('완전 요격 비율', 'full_pass_rate',  True,  '%'),
+        ('평균 비용',      'mean_cost',       False, '$'),
+    ]
+    cmap = ['#3498db', '#2ecc71', '#f39c12', '#e74c3c', '#9b59b6']
+    for ax, (title, key, higher_better, unit) in zip(axes, metrics):
+        ax.set_facecolor('#0a0e1a')
+        vals = [h.get(key, 0) for h in history]
+        cols = [cmap[i % len(cmap)] for i in range(len(history))]
+        bars = ax.bar(range(len(history)), vals, color=cols, alpha=0.85,
+                      edgecolor='#1e2a3a')
+        for bar, v in zip(bars, vals):
+            label = f"{v:.1%}" if unit == '%' else f"${v:,.0f}"
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + max(vals) * 0.02,
+                    label, ha='center', va='bottom',
+                    color=C_TEXT, fontsize=8)
+        ax.set_title(title, color=C_TEXT, fontsize=10)
+        ax.set_xticks(range(len(history)))
+        ax.set_xticklabels([f'#{i+1}' for i in range(len(history))],
+                           color=C_SUBTEXT, fontsize=8)
+        ax.tick_params(colors=C_SUBTEXT)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+        ax.yaxis.set_major_formatter(
+            plt.FuncFormatter(lambda v, _: f"{v:.0%}" if unit == '%'
+                              else f"${v/1e6:.1f}M"))
+    fig.text(0.5, 0.01,
+             '  |  '.join(f'#{i+1}: {h["label"]}' for i, h in enumerate(history)),
+             ha='center', va='bottom', color=C_SUBTEXT, fontsize=7)
+    fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=11)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    return fig
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  메인 윈도우
 # ════════════════════════════════════════════════════════════════════════════
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.7")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.8")
         self.resize(1800, 1060)
         self._worker = None
         self._result = None
@@ -2055,22 +2632,22 @@ class MainWindow(QMainWindow):
 
         # ── 사이드바 + QStackedWidget ─────────────────────────────────────
         self.tab_anim        = AnimationTab()
-        self.tab_mc_canvas   = MplCanvas(figsize=(12, 7))
+        self.tab_mc_canvas   = ChartPageWidget()
         self.tab_req         = self._build_req_tab()
         self.tab_weather     = self._build_weather_tab()
         self.tab_log         = self._build_log_tab()
-        self.tab_channel     = MplCanvas(figsize=(12, 5))
+        self.tab_channel     = ChartPageWidget()
         self.tab_sysmon      = SysMonitorTab()
-        self.tab_cost_eff    = MplCanvas(figsize=(12, 5))
-        self.tab_ammo_curve  = MplCanvas(figsize=(12, 5))
-        self.tab_ci          = MplCanvas(figsize=(12, 5))
-        self.tab_timeline    = MplCanvas(figsize=(14, 5))
-        self.tab_sensitivity = MplCanvas(figsize=(12, 6))
-        self.tab_bearing     = MplCanvas(figsize=(8, 8))
-        self.tab_req_radar   = MplCanvas(figsize=(8, 8))
-        self.tab_threat_type = MplCanvas(figsize=(12, 5))
-        self.tab_vuln_time   = MplCanvas(figsize=(12, 5))
-        self.tab_history     = MplCanvas(figsize=(12, 5))
+        self.tab_cost_eff    = ChartPageWidget()
+        self.tab_ammo_curve  = ChartPageWidget()
+        self.tab_ci          = ChartPageWidget()
+        self.tab_timeline    = ChartPageWidget()
+        self.tab_sensitivity = MplCanvas(figsize=(12, 6))  # SensitivityWorker 연동 — MplCanvas 유지
+        self.tab_bearing     = ChartPageWidget()
+        self.tab_req_radar   = ChartPageWidget()
+        self.tab_threat_type = ChartPageWidget()
+        self.tab_vuln_time   = ChartPageWidget()
+        self.tab_history     = ChartPageWidget()
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -2177,12 +2754,11 @@ class MainWindow(QMainWindow):
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
             10: lambda: self._draw_timeline(self._result),
-            12: lambda: None,
-            13: lambda: self._draw_bearing_vulnerability(self._result),
-            14: lambda: self._draw_req_radar(self._result, self._mc),
-            15: lambda: self._draw_threat_type(self._result, self._mc),
-            16: lambda: self._draw_vuln_time(self._result),
-            17: lambda: self._draw_history_compare(self._result, self._mc),
+            12: lambda: self._draw_bearing_vulnerability(self._result),
+            13: lambda: self._draw_req_radar(self._result, self._mc),
+            14: lambda: self._draw_threat_type(self._result, self._mc),
+            15: lambda: self._draw_vuln_time(self._result),
+            16: lambda: self._draw_history_compare(self._result, self._mc),
         }
         if idx in render_map:
             render_map[idx]()
@@ -2473,7 +3049,7 @@ class MainWindow(QMainWindow):
         self._sens_worker.start(QThread.Priority.LowPriority)  # BUG-1
 
         # 모든 차트 페이지를 dirty로 표시 (지연 렌더링)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -2759,21 +3335,7 @@ class MainWindow(QMainWindow):
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
 
     def _draw_mc_chart(self, result: dict, mc: dict, cfg: dict):
-        img_path = '_launcher_mc_tmp.png'
-        plot_v7(result, mc, cfg, img_path=img_path)
-
-        fig = self.tab_mc_canvas.fig
-        fig.clear()
-
-        if os.path.exists(img_path):
-            from matplotlib.image import imread
-            img = imread(img_path)
-            ax = fig.add_subplot(111)
-            ax.imshow(img)
-            ax.axis('off')
-            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-
-        self.tab_mc_canvas.draw_idle()   # BUG-1
+        self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
 
     def _fill_log(self, log: list):
         # BUG-1: 최대 300행 제한 + 배치 삽입 (UI 블로킹 방지)
@@ -2925,261 +3487,19 @@ class MainWindow(QMainWindow):
         self.tab_topdown.draw()
 
     def _draw_channel_heatmap(self, result: dict):
-        """채널 포화도 히트맵: 함정별 채널 사용률 시계열."""
-        frames = result.get('frames', [])
-        if not frames or not getattr(frames[0], 'ship_channels', None):
-            fig = self.tab_channel.fig
-            fig.clear()
-            fig.patch.set_facecolor(C_BG)
-            ax = fig.add_subplot(111, facecolor='#0a0e1a')
-            ax.text(0.5, 0.5, '채널 데이터 없음\n(시뮬레이션 재실행 필요)',
-                    ha='center', va='center', color='#7d8590',
-                    fontsize=12, transform=ax.transAxes)
-            self.tab_channel.draw()
-            return
-
-        ship_names = [sc[0] for sc in frames[0].ship_channels]
-        times = [f.t for f in frames]
-
-        usage = np.zeros((len(ship_names), len(frames)))
-        for fi, frame in enumerate(frames):
-            for si, sc in enumerate(frame.ship_channels):
-                sname, ch_used, ch_max = sc
-                usage[si, fi] = ch_used / ch_max if ch_max > 0 else 0.0
-
-        fig = self.tab_channel.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-
-        im = ax.imshow(
-            usage,
-            aspect='auto',
-            extent=[times[0], times[-1], -0.5, len(ship_names) - 0.5],
-            origin='lower',
-            cmap='RdYlGn_r',
-            vmin=0, vmax=1,
-            interpolation='nearest',
-        )
-        ax.set_yticks(range(len(ship_names)))
-        ax.set_yticklabels(ship_names, color='#aab', fontsize=9)
-        ax.set_xlabel('시간 (s)', color='#aab', fontsize=9)
-        ax.set_title('채널 포화도  (빨강=포화, 초록=여유)', color='#dde', fontsize=11)
-        ax.tick_params(colors='#aab', labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-        cbar.ax.tick_params(colors='#aab', labelsize=7)
-        cbar.set_label('채널 사용률', color='#aab', fontsize=8)
-        fig.tight_layout()
-        self.tab_channel.draw()
+        self.tab_channel.start_render(_render_channel_heatmap, result)
 
     def _draw_cost_effect(self, result: dict, mc: dict):
-        """💰 비용 대비 효과: 격추 1건당 평균 비용, 무기별 평균 잔여 재고 막대."""
-        fig = self.tab_cost_eff.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-
-        costs     = mc.get('total_costs', [])
-        e_dest    = mc.get('enemy_destroyed', [])
-        mean_cost = float(np.mean(costs)) if costs else 0.0
-        mean_kill = float(np.mean(e_dest)) if e_dest else 0.0
-        cost_per_kill = mean_cost / mean_kill if mean_kill > 0 else float('inf')
-
-        wpn_rem = mc.get('weapon_avg_remaining', {})
-
-        if wpn_rem:
-            gs = fig.add_gridspec(1, 2, wspace=0.35)
-            ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-            ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
-        else:
-            ax1 = fig.add_subplot(111, facecolor='#0a0e1a')
-            ax2 = None
-
-        # 왼쪽: 격추당 비용 텍스트 카드
-        ax1.axis('off')
-        lbl = f"${cost_per_kill:,.0f}" if cost_per_kill != float('inf') else "N/A"
-        ax1.text(0.5, 0.6, lbl, ha='center', va='center',
-                 color=C_GREEN, fontsize=26, fontweight='bold',
-                 transform=ax1.transAxes)
-        ax1.text(0.5, 0.35, '격추 1건당 평균 비용', ha='center', va='center',
-                 color=C_TEXT, fontsize=11, transform=ax1.transAxes)
-        ax1.text(0.5, 0.20, f"총 평균 비용 ${mean_cost:,.0f}  |  평균 격침 {mean_kill:.1f}척",
-                 ha='center', va='center', color=C_SUBTEXT, fontsize=9,
-                 transform=ax1.transAxes)
-        ax1.set_facecolor('#0a0e1a')
-
-        # 오른쪽: 무기별 평균 잔여 재고
-        if ax2 and wpn_rem:
-            names = list(wpn_rem.keys())
-            vals  = [wpn_rem[n] for n in names]
-            colors = [C_GREEN if v > 5 else C_ORANGE if v > 0 else C_RED for v in vals]
-            y = range(len(names))
-            ax2.barh(list(y), vals, color=colors, height=0.6)
-            ax2.set_yticks(list(y))
-            ax2.set_yticklabels(names, color=C_TEXT, fontsize=8)
-            ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
-            ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=10)
-            ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
-            for sp in ax2.spines.values():
-                sp.set_color('#1e2a3a')
-
-        fig.tight_layout()
-        self.tab_cost_eff.draw()
+        self.tab_cost_eff.start_render(_render_cost_effect, result, mc)
 
     def _draw_ammo_curve(self, mc: dict):
-        """🔫 탄약 소모: 무기별 평균 잔여 재고 vs 초기 재고 비교."""
-        fig = self.tab_ammo_curve.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-
-        wpn_rem = mc.get('weapon_avg_remaining', {})
-        if not wpn_rem:
-            ax.text(0.5, 0.5, '데이터 없음\n(시뮬레이션 재실행 필요)',
-                    ha='center', va='center', color=C_SUBTEXT,
-                    fontsize=12, transform=ax.transAxes)
-            fig.tight_layout()
-            self.tab_ammo_curve.draw()
-            return
-
-        names = list(wpn_rem.keys())
-        vals  = [wpn_rem[n] for n in names]
-        y     = np.arange(len(names))
-        bars  = ax.barh(y, vals, color=C_ACCENT, height=0.55, alpha=0.85)
-        for bar, val in zip(bars, vals):
-            ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height()/2,
-                    f'{val:.1f}', va='center', color=C_TEXT, fontsize=8)
-        ax.set_yticks(y)
-        ax.set_yticklabels(names, color=C_TEXT, fontsize=8)
-        ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
-        ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=10)
-        ax.tick_params(colors=C_SUBTEXT, labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        fig.tight_layout()
-        self.tab_ammo_curve.draw()
+        self.tab_ammo_curve.start_render(_render_ammo_curve, mc)
 
     def _draw_ci_chart(self, mc: dict):
-        """📈 MC 95% 신뢰구간: 요격률 분포 히스토그램 + CI 표시."""
-        fig = self.tab_ci.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-
-        rates = mc.get('intercept_rates', [])
-        if not rates:
-            ax = fig.add_subplot(111, facecolor='#0a0e1a')
-            ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-            fig.tight_layout()
-            self.tab_ci.draw()
-            return
-
-        arr   = np.array(rates)
-        mean  = float(arr.mean())
-        std   = float(arr.std())
-        ci_lo = max(0.0, mean - 1.96 * std / np.sqrt(len(arr)))
-        ci_hi = min(1.0, mean + 1.96 * std / np.sqrt(len(arr)))
-
-        gs = fig.add_gridspec(1, 2, wspace=0.35)
-        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
-
-        # 히스토그램
-        ax1.hist(arr, bins=20, color=C_ACCENT, alpha=0.75, edgecolor='#1e2a3a')
-        ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}')
-        ax1.axvline(ci_lo, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 하한 {ci_lo:.1%}')
-        ax1.axvline(ci_hi, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 상한 {ci_hi:.1%}')
-        ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=9)
-        ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=9)
-        ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=10)
-        ax1.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-        ax1.tick_params(colors=C_SUBTEXT, labelsize=8)
-        for sp in ax1.spines.values(): sp.set_color('#1e2a3a')
-
-        # 함정별 평균 피격
-        ship_hits = mc.get('ship_avg_hits', {})
-        if ship_hits:
-            snames = list(ship_hits.keys())
-            shvals = [ship_hits[s] for s in snames]
-            y      = np.arange(len(snames))
-            clrs   = [C_RED if v > 1 else C_ORANGE if v > 0 else C_GREEN for v in shvals]
-            ax2.barh(y, shvals, color=clrs, height=0.55)
-            ax2.set_yticks(y)
-            ax2.set_yticklabels(snames, color=C_TEXT, fontsize=8)
-            ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=9)
-            ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=10)
-            ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
-            for sp in ax2.spines.values(): sp.set_color('#1e2a3a')
-        else:
-            ax2.axis('off')
-            ax2.text(0.5, 0.5, '피격 데이터 없음', ha='center', va='center',
-                     color=C_SUBTEXT, fontsize=10, transform=ax2.transAxes)
-
-        fig.tight_layout()
-        self.tab_ci.draw()
+        self.tab_ci.start_render(_render_ci_chart, mc)
 
     def _draw_timeline(self, result: dict):
-        """⏱️ 교전 타임라인: 무기 발사/요격/피격 이벤트 Gantt형 시각화."""
-        log = result.get('log', [])
-        fig = self.tab_timeline.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-
-        if not log:
-            ax.text(0.5, 0.5, '로그 데이터 없음', ha='center', va='center',
-                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-            fig.tight_layout()
-            self.tab_timeline.draw()
-            return
-
-        # 이벤트 분류: (시각, 카테고리, 텍스트)
-        _CAT = [
-            ('[방어]',     C_GREEN,  '방어 발사',   0),
-            ('[대공 방어]', C_ACCENT, '대공 발사',   1),
-            ('[공격]',     '#e67e22','대함 공격',   2),
-            ('[대잠 공격]', '#9b59b6','대잠 공격',   3),
-            ('[피격]',     C_RED,    '피격',        4),
-            ('[경고]',     C_ORANGE, '경고',        5),
-            ('[적 발사]',  '#c0392b','적 발사',     6),
-        ]
-        events = []
-        for t, msg in log:
-            for tag, color, label, yi in _CAT:
-                if tag in msg:
-                    events.append((t, yi, color, label, msg[:60]))
-                    break
-
-        if not events:
-            ax.text(0.5, 0.5, '분류 가능한 이벤트 없음', ha='center', va='center',
-                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-            fig.tight_layout()
-            self.tab_timeline.draw()
-            return
-
-        y_labels = ['방어 발사', '대공 발사', '대함 공격', '대잠 공격', '피격', '경고', '적 발사']
-        for t, yi, color, label, msg in events:
-            ax.scatter(t, yi, c=color, s=30, zorder=3, alpha=0.8)
-
-        ax.set_yticks(range(len(y_labels)))
-        ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=9)
-        ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
-        ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=11)
-        ax.tick_params(colors=C_SUBTEXT, labelsize=8)
-        ax.set_ylim(-0.8, len(y_labels) - 0.2)
-        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-        ax.grid(axis='x', color='#1e2a3a', lw=0.5)
-
-        # 범례
-        handles = [plt.Line2D([0], [0], marker='o', color='w',
-                               markerfacecolor=c, markersize=7, label=l)
-                   for _, c, l, _ in _CAT]
-        ax.legend(handles=handles, fontsize=7, facecolor='#0a0e1a',
-                  labelcolor=C_TEXT, edgecolor='#1e2a3a',
-                  loc='upper right', ncol=4)
-        fig.tight_layout()
-        self.tab_timeline.draw()
+        self.tab_timeline.start_render(_render_timeline, result)
 
     def _sensitivity_placeholder(self):
         """감도 분석 탭에 '계산 중' 안내 텍스트 표시."""
@@ -3193,7 +3513,7 @@ class MainWindow(QMainWindow):
                 transform=ax.transAxes)
         ax.axis('off')
         fig.tight_layout()
-        self.tab_sensitivity.draw()
+        self.tab_sensitivity.draw_idle()
 
     def _sensitivity_error(self, msg: str):
         """감도 분석 오류 시 탭에 에러 메시지 표시."""
@@ -3207,7 +3527,7 @@ class MainWindow(QMainWindow):
                 transform=ax.transAxes)
         ax.axis('off')
         fig.tight_layout()
-        self.tab_sensitivity.draw()
+        self.tab_sensitivity.draw_idle()
 
     def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
         """SensitivityWorker 완료 시 Tornado chart 렌더링."""
@@ -3236,272 +3556,22 @@ class MainWindow(QMainWindow):
         ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
                   edgecolor='#1e2a3a')
         fig.tight_layout()
-        self.tab_sensitivity.draw()
+        self.tab_sensitivity.draw_idle()
 
     def _draw_bearing_vulnerability(self, result: dict):
-        """방위각 취약점 — 방향별 피격/요격률 레이더차트."""
-        if not _V7_OK:
-            return
-        fig = self.tab_bearing.fig
-        fig.clear()
-        ax = fig.add_subplot(111, polar=True)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        log = result.get('log', [])
-        N = 8
-        hit_counts  = [0] * N
-        kill_counts = [0] * N
-        for _, msg in log:
-            bearing_deg = None
-            if '방위' in msg:
-                try:
-                    bearing_deg = float(msg.split('방위')[1].split('°')[0])
-                except Exception:
-                    pass
-            if bearing_deg is None:
-                bearing_deg = hash(msg) % 360
-            sector = int((bearing_deg % 360) / (360 / N))
-            if '[피격]' in msg:
-                hit_counts[sector]  += 1
-            elif '[격추]' in msg or '[요격]' in msg:
-                kill_counts[sector] += 1
-
-        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
-        hit_arr  = np.array(hit_counts,  dtype=float)
-        kill_arr = np.array(kill_counts, dtype=float)
-        max_val  = max(hit_arr.max(), kill_arr.max(), 1)
-        hit_arr  /= max_val
-        kill_arr /= max_val
-        angles_c = np.concatenate([angles, [angles[0]]])
-        hit_c    = np.concatenate([hit_arr, [hit_arr[0]]])
-        kill_c   = np.concatenate([kill_arr,[kill_arr[0]]])
-        sector_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-
-        ax.plot(angles_c, kill_c, 'o-', color='#2ecc71', lw=1.5, label='요격')
-        ax.fill(angles_c, kill_c, alpha=0.2, color='#2ecc71')
-        ax.plot(angles_c, hit_c,  'o-', color='#e74c3c', lw=1.5, label='피격')
-        ax.fill(angles_c, hit_c,  alpha=0.2, color='#e74c3c')
-        ax.set_xticks(angles)
-        ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=9)
-        ax.set_yticklabels([])
-        ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=11, pad=15)
-        ax.tick_params(colors=C_SUBTEXT)
-        ax.spines['polar'].set_color('#1e2a3a')
-        ax.grid(color='#1e2a3a')
-        ax.legend(loc='upper right', fontsize=8, facecolor='#0a0e1a',
-                  labelcolor=C_TEXT, edgecolor='#1e2a3a',
-                  bbox_to_anchor=(1.25, 1.1))
-        fig.tight_layout()
-        self.tab_bearing.draw()
+        self.tab_bearing.start_render(_render_bearing_vulnerability, result)
 
     def _draw_req_radar(self, result: dict, mc: dict):
-        """REQ 충족률 레이더 차트 — 요구조건별 충족도 방사형."""
-        if not _V7_OK:
-            return
-        try:
-            verdicts, _ = evaluate_req_v7(result, mc)
-        except Exception:
-            return
-
-        fig = self.tab_req_radar.fig
-        fig.clear()
-        ax = fig.add_subplot(111, polar=True)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        labels = [r['id'] for r in REQ_ITEMS_V7]
-        N = len(labels)
-        if N == 0:
-            return
-        vals = [1.0 if v else 0.0 for v in verdicts]
-        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
-        vals_c   = np.concatenate([vals,   [vals[0]]])
-        angles_c = np.concatenate([angles, [angles[0]]])
-
-        ax.plot(angles_c, vals_c, 'o-', color=C_ACCENT, lw=2)
-        ax.fill(angles_c, vals_c, alpha=0.3, color=C_ACCENT)
-        ax.set_xticks(angles)
-        ax.set_xticklabels(labels, color=C_TEXT, fontsize=9)
-        ax.set_yticks([0, 0.5, 1.0])
-        ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=7)
-        ax.set_ylim(0, 1.2)
-        pass_cnt = sum(verdicts)
-        ax.set_title(f'REQ 충족률  {pass_cnt}/{N}  ({pass_cnt/N:.0%})',
-                     color=C_TEXT, fontsize=11, pad=15)
-        ax.spines['polar'].set_color('#1e2a3a')
-        ax.grid(color='#1e2a3a')
-        fig.tight_layout()
-        self.tab_req_radar.draw()
+        self.tab_req_radar.start_render(_render_req_radar, result, mc)
 
     def _draw_threat_type(self, result: dict, mc: dict):
-        """위협 유형별 요격률 — 항공기·탄도탄·순항미사일·잠수함 분류."""
-        if not _V7_OK:
-            return
-        fig = self.tab_threat_type.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        log = result.get('log', [])
-        categories = {
-            '항공기':     {'intercept': 0, 'total': 0},
-            '탄도탄':     {'intercept': 0, 'total': 0},
-            '순항미사일': {'intercept': 0, 'total': 0},
-            '잠수함':     {'intercept': 0, 'total': 0},
-            '기타':       {'intercept': 0, 'total': 0},
-        }
-
-        def _classify(msg: str) -> str:
-            for kw, cat in [
-                ('항공', '항공기'), ('KH-', '항공기'), ('Su-', '항공기'),
-                ('화성', '탄도탄'), ('SM-3', '탄도탄'), ('탄도', '탄도탄'),
-                ('순항', '순항미사일'), ('Kh-', '순항미사일'), ('화살', '순항미사일'),
-                ('지르콘', '순항미사일'), ('킨잘', '순항미사일'),
-                ('잠수함', '잠수함'), ('어뢰', '잠수함'), ('수중', '잠수함'),
-            ]:
-                if kw in msg:
-                    return cat
-            return '기타'
-
-        for _, msg in log:
-            if '[요격]' in msg or '[격추]' in msg:
-                cat = _classify(msg)
-                categories[cat]['total']     += 1
-                categories[cat]['intercept'] += 1
-            elif '[피격]' in msg or '[통과]' in msg:
-                cat = _classify(msg)
-                categories[cat]['total'] += 1
-
-        labels = [k for k, v in categories.items() if v['total'] > 0]
-        if not labels:
-            ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                    color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-            self.tab_threat_type.draw()
-            return
-
-        rates  = [categories[l]['intercept'] / max(categories[l]['total'], 1)
-                  for l in labels]
-        totals = [categories[l]['total'] for l in labels]
-        colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6']
-
-        bars = ax.bar(labels, rates,
-                      color=colors[:len(labels)], alpha=0.85, edgecolor='#1e2a3a')
-        for bar, t, r in zip(bars, totals, rates):
-            ax.text(bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.02,
-                    f'{r:.0%}\n(n={t})',
-                    ha='center', va='bottom', color=C_TEXT, fontsize=9)
-        ax.set_ylim(0, 1.2)
-        ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=9)
-        ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=11)
-        ax.tick_params(colors=C_SUBTEXT)
-        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-        ax.axhline(0.9, color='#2ecc71', lw=1, ls='--', alpha=0.5, label='목표 90%')
-        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
-                  edgecolor='#1e2a3a')
-        fig.tight_layout()
-        self.tab_threat_type.draw()
+        self.tab_threat_type.start_render(_render_threat_type, result, mc)
 
     def _draw_vuln_time(self, result: dict):
-        """취약 시간대 분석 — 10초 구간별 피격·요격 빈도 히스토그램."""
-        fig = self.tab_vuln_time.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        log = result.get('log', [])
-        hit_times  = [t for t, msg in log if '[피격]' in msg]
-        kill_times = [t for t, msg in log if '[요격]' in msg or '[격추]' in msg]
-        max_t = max((result.get('sim_time', 300),
-                     max(hit_times or [0]),
-                     max(kill_times or [0]))) + 10
-        bins = np.arange(0, max_t + 10, 10)
-
-        if kill_times:
-            ax.hist(kill_times, bins=bins, color='#2ecc71', alpha=0.7,
-                    label='요격/격추', edgecolor='#0a0e1a')
-        if hit_times:
-            ax.hist(hit_times, bins=bins, color='#e74c3c', alpha=0.7,
-                    label='피격', edgecolor='#0a0e1a')
-
-        if hit_times:
-            # 가장 많이 뚫리는 시간대 강조
-            h, b = np.histogram(hit_times, bins=bins)
-            peak_start = b[np.argmax(h)]
-            ax.axvspan(peak_start, peak_start + 10, alpha=0.25, color='#e74c3c',
-                       label=f'최다 피격 구간 ({peak_start:.0f}~{peak_start+10:.0f}s)')
-
-        ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
-        ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=9)
-        ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=11)
-        ax.tick_params(colors=C_SUBTEXT)
-        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
-                  edgecolor='#1e2a3a')
-        ax.grid(axis='y', color='#1e2a3a', lw=0.5)
-        fig.tight_layout()
-        self.tab_vuln_time.draw()
+        self.tab_vuln_time.start_render(_render_vuln_time, result)
 
     def _draw_history_compare(self, result: dict, mc: dict):
-        """이전 실행 결과와 자동 비교 — 히스토리 최대 5개 비교 막대."""
-        fig = self.tab_history.fig
-        fig.clear()
-
-        history = self._history  # 현재 실행 결과는 이 메서드 호출 전에 추가됨
-        if not history:
-            ax = fig.add_subplot(111)
-            ax.set_facecolor('#0a0e1a')
-            fig.patch.set_facecolor('#0a0e1a')
-            ax.text(0.5, 0.5, '이전 실행 결과 없음\n(2회 이상 실행 후 비교 표시)',
-                    ha='center', va='center', color=C_SUBTEXT, fontsize=11,
-                    transform=ax.transAxes)
-            fig.patch.set_facecolor('#0a0e1a')
-            self.tab_history.draw()
-            return
-
-        axes = fig.subplots(1, 3, facecolor='#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-        metrics = [
-            ('요격률',        'mean_intercept',  True,  '%'),
-            ('완전 요격 비율','full_pass_rate',   True,  '%'),
-            ('평균 비용',     'mean_cost',        False, '$'),
-        ]
-        labels = [h['label'] for h in history]
-        cmap   = ['#3498db', '#2ecc71', '#f39c12', '#e74c3c', '#9b59b6']
-
-        for ax, (title, key, higher_better, unit) in zip(axes, metrics):
-            ax.set_facecolor('#0a0e1a')
-            vals  = [h.get(key, 0) for h in history]
-            cols  = [cmap[i % len(cmap)] for i in range(len(history))]
-            bars  = ax.bar(range(len(history)), vals, color=cols, alpha=0.85,
-                           edgecolor='#1e2a3a')
-            for bar, v in zip(bars, vals):
-                label = f"{v:.1%}" if unit == '%' else f"${v:,.0f}"
-                ax.text(bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() + max(vals) * 0.02,
-                        label, ha='center', va='bottom',
-                        color=C_TEXT, fontsize=8)
-            ax.set_title(title, color=C_TEXT, fontsize=10)
-            ax.set_xticks(range(len(history)))
-            ax.set_xticklabels([f'#{i+1}' for i in range(len(history))],
-                               color=C_SUBTEXT, fontsize=8)
-            ax.tick_params(colors=C_SUBTEXT)
-            for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-            ax.yaxis.set_major_formatter(
-                plt.FuncFormatter(lambda v, _: f"{v:.0%}" if unit == '%'
-                                  else f"${v/1e6:.1f}M"))
-
-        # 범례: run 번호 → label 매핑
-        fig.text(0.5, 0.01,
-                 '  |  '.join(f'#{i+1}: {h["label"]}' for i, h in enumerate(history)),
-                 ha='center', va='bottom', color=C_SUBTEXT, fontsize=7,
-                 wrap=True)
-        fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=11)
-        fig.tight_layout(rect=[0, 0.06, 1, 1])
-        self.tab_history.draw()
+        self.tab_history.start_render(_render_history_compare, list(self._history))
 
     # ── 보고서 내보내기 ──────────────────────────────────────────────────────
 
@@ -3754,7 +3824,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.7  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.8  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
