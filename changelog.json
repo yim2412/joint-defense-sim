@@ -2,188 +2,169 @@
   {
     "version": "1-1",
     "date": "2026-05-01",
-    "title": "개별 미사일 Pk 판정 + 기만기·회피·종말회피",
+    "title": "기본 교전 시스템 구축",
     "changes": [
-      "NEW-A  개별 미사일 Pk 판정 (Beta 분포 기반 확률 샘플링)",
-      "NEW-B  음향 기만기 AN/SLQ-25 + 함정 회피 기동",
-      "NEW-C  적 다발 발사 모드 (RANDOM / FIXED / MAX)",
-      "NEW-D  미사일 종말 회피 기동 (20km 이내 활성화)",
-      "NEW-E  적 회피 기동 (속도 증가·고도수심 변경·재추적)"
+      "추가  미사일마다 개별 명중 확률 계산 (무기별 성능 차이 반영)",
+      "추가  음향 기만기로 적 어뢰 유인 + 함정 회피 기동 시스템",
+      "추가  적이 미사일을 여러 발 동시에 발사하는 다발 발사 모드",
+      "추가  미사일이 마지막 순간 방향을 꺾는 종말 회피 기동",
+      "추가  적 항공기·함정의 회피 기동 (속도 증가, 고도·수심 변경 후 재추적)"
     ]
   },
   {
     "version": "2-1",
     "date": "2026-05-05",
-    "title": "ECM 재밍 + 함재 헬기 대잠 + 미구현 항목 수정",
+    "title": "전자전(ECM) + 함재 헬기 대잠",
     "changes": [
-      "NEW-F  적 자체 방어 (채프·플레어 self_defense_pk)",
-      "NEW-F  적 CIWS 요격 (enemy_ciws_pk)",
-      "NEW-G  ECM 재밍 시스템 (거리 반비례, 50km 기준, enable_ecm)",
-      "NEW-H  함재 헬기 대잠 운용 (AW-159, HeloEvent 클래스, 날씨 출격 제한)",
-      "BUG-4  normalize_enemy_db() 플랫폼 종말회피 자동 설정",
-      "BUG-5  missile_salvo_fixed 범위 초과 경고 추가",
-      "BUG-6  monte_carlo 독립 ShipStatus 집계 (mc_hit_avg / save_nth)",
-      "미구현-1~5  enable_missile_evasion·current_depth·MC샘플로그 등 적용"
+      "추가  적이 채프·플레어로 아군 미사일을 스스로 막는 자체 방어 시스템",
+      "추가  적 함정의 근접 방어 화기(CIWS) 요격",
+      "추가  ECM 전자방해 시스템 — 거리가 가까울수록 효과 증가",
+      "추가  AW-159 와일드캣 헬기 대잠 운용 (날씨 나쁘면 출격 불가)",
+      "수정  각종 버그 수정 및 미완성 기능 완성"
     ]
   },
   {
     "version": "3-1",
     "date": "2026-05-08",
-    "title": "P-3C 초계기 + Streamlit 실시간 대시보드",
+    "title": "P-3C 초계기 + 웹 대시보드",
     "changes": [
-      "NEW-I  P-3C 오라이온 해상초계기 대잠 운용 (포항기지, Mk.46 4발, enable_p3c)",
-      "NEW    실시간 Streamlit 대시보드 (사이드바 파라미터·탭·XLSX 다운로드)",
-      "NEW    항공기별 날씨 제한 (weather_limits 필드 — 헬기/P-3C/P-8A)"
+      "추가  P-3C 오라이온 해상초계기 대잠 운용 (포항기지 출격, Mk.46 어뢰 4발)",
+      "추가  웹 브라우저로 실시간 결과 확인하는 Streamlit 대시보드",
+      "추가  날씨에 따른 항공기 출격 제한 (헬기·P-3C·P-8A 각각 다르게 적용)"
     ]
   },
   {
     "version": "4-1",
     "date": "2026-05-10",
-    "title": "P-8A 포세이돈 + BUG 수정 + 데드코드 정리",
+    "title": "P-8A 포세이돈 초계기 추가",
     "changes": [
-      "NEW-J  P-8A 포세이돈 해상초계기 (준비 30분, Mk.46 5발, 소노부이 +18km, enable_p8a)",
-      "BUG-7  HeloEvent.uid 동적 ID로 변경 (다수 헬기 동시 운용 uid 중복 해소)",
-      "BUG-8  __main__ inventory에 Mk.46 경어뢰 누락 추가",
-      "DEAD-1~6  데드코드 정리"
+      "추가  P-8A 포세이돈 해상초계기 (준비 30분, 소노부이 탐지 범위 더 넓음)",
+      "수정  헬기 여러 대 동시 운용 시 번호 겹치는 버그 수정",
+      "수정  어뢰 재고 누락 수정 및 코드 정리"
     ]
   },
   {
     "version": "5-1",
     "date": "2026-05-11",
-    "title": "HeloEvent _id_counter 리셋 + MC 항공기 효과 수정",
+    "title": "몬테카를로 분석 헬기 효과 반영 수정",
     "changes": [
-      "BUG-9  HeloEvent._id_counter 리셋 누락 → MC 1000회 H번호 누적 방지",
-      "DEAD-7  HeloEvent.enemy_self_def_apps 잔존 필드 삭제",
-      "FIX    monte_carlo silent=True 시에도 _try_aircraft 실행 (P-8A/P-3C/헬기 MC 반영)"
+      "수정  1000회 반복 분석 시 헬기·초계기 출격 효과가 통계에 반영되지 않던 버그 수정"
     ]
   },
   {
     "version": "6-1",
     "date": "2026-05-13",
-    "title": "SHIP_DB + 함대 편대 모드 + Fleet 클래스 체계",
+    "title": "한국 해군 함대 편대 시스템",
     "changes": [
-      "NEW-K  SHIP_DB: KDX-III(24채널)·KDX-II(12채널)·FFX(8채널) 함정 스펙 DB",
-      "NEW-K  FLEET_PRESETS: 한국 해군 교리 기반 편대 프리셋 5종",
-      "NEW-K  Ship / Fleet / FleetStatus / FleetChannelManager 클래스 추가",
-      "NEW-K  build_fleet() / run_fleet_sim_core() — enable_fleet 플래그로 하위 호환"
+      "추가  KDX-III 이지스함·KDX-II 구축함·FFX 호위함 함정 데이터베이스 구축",
+      "추가  한국 해군 교리 기반 편대 프리셋 5종 (단독 작전·기동전단 기본 등)",
+      "추가  함정별 무기 채널·센서 성능 개별 관리 — 실제 함정처럼 동시 교전 한계 적용"
     ]
   },
   {
     "version": "7-1",
     "date": "2026-05-15",
-    "title": "적군 편대 프리셋 + 랜덤 편대 생성기",
+    "title": "적군 편대 프리셋 + 랜덤 편대 생성",
     "changes": [
-      "NEW-L  ENEMY_FLEET_PRESETS: PLA 교리 기반 적군 편대 6종 (A2/AD·항모킬체인·수상함·대잠·BMD·전면전)",
-      "NEW-L  ENEMY_FLEET_RANDOM_CFG: 난이도별 랜덤 편대 풀 (쉬움/보통/어려움/극한)",
-      "NEW-L  generate_random_enemy_fleet(): 난이도별 pool 무작위 생성",
-      "NEW-L  build_enemy_threat_list(): single/preset/custom/random 4모드 통합",
-      "NEW-L  아군 편대 커스텀 모드 (fleet_mode='custom')"
+      "추가  PLA 교리 기반 적군 편대 프리셋 6종 (항모킬체인·A2/AD·대잠 등)",
+      "추가  난이도별 랜덤 적군 편대 자동 생성 (쉬움/보통/어려움/극한)",
+      "추가  아군 편대 직접 구성하는 커스텀 모드"
     ]
   },
   {
     "version": "8-1",
     "date": "2026-05-17",
-    "title": "다층 방어 레이어 + A vs B 시나리오 비교",
+    "title": "다층 방어 + A vs B 시나리오 비교",
     "changes": [
-      "NEW-N  다층 방어 (Layered Defense): KDX-III→KDX-II→FFX 자동 인계 (CEC 교리 기반)",
-      "NEW-N  run_comparison(): A vs B 시나리오 비교 함수 (요격률·MC성공률·비용·REQ)",
-      "NEW-N  Dashboard A vs B 비교 모드"
+      "추가  다층 방어 시스템 — KDX-III가 먼저 교전, 돌파 시 KDX-II, 마지막으로 FFX 자동 인계",
+      "추가  A vs B 시나리오 비교 — 두 가지 전술을 나란히 비교 (요격률·비용·REQ)"
     ]
   },
   {
     "version": "8-2",
     "date": "2026-05-17",
-    "title": "편대 모드 BUG 패치 5종",
+    "title": "편대 모드 버그 수정",
     "changes": [
-      "BUG-1  편대 모드 무기 재고 사용량 음수 → 합산 초기값으로 수정",
-      "BUG-3  랜덤 편대 항상 1종 → 난이도별 최소 종류 보장",
-      "BUG-4  TEWA 부하 분산 미작동 → assigned_count 기반 균등 배분",
-      "BUG-5  수상함/잠수함 REQ-02 C&D 0초 → CIWS 최소 거리 기준으로 수정"
+      "수정  편대 모드에서 무기 소모량이 음수로 계산되던 버그 수정",
+      "수정  랜덤 편대 생성 시 항상 1종만 등장하던 버그 수정",
+      "수정  무기 할당이 특정 함정에만 몰리던 불균형 버그 수정",
+      "수정  C&D 응답 시간이 0초로 계산되던 버그 수정"
     ]
   },
   {
     "version": "9-1",
     "date": "2026-05-18",
-    "title": "상세 분석 탭 추가 (대시보드)",
+    "title": "분석 탭 강화",
     "changes": [
-      "NEW    편대 함정별 생존 현황 시각화",
-      "NEW    MC 통계 강화 (요격률 바차트·비용 박스플롯)",
-      "NEW    교전 타임라인 개선 (함정별 시퀀스)",
-      "NEW    비용 분석 차트 (무기별 파이·위협당 평균)",
-      "NEW    위협 카테고리별 요격률 바차트"
+      "추가  함정별 생존 현황 시각화 차트",
+      "추가  몬테카를로 통계 강화 — 요격률 바차트·비용 박스플롯",
+      "추가  교전 타임라인 개선 — 함정별 시퀀스 표시",
+      "추가  비용 분석 차트 — 무기별 파이·위협당 평균 비용",
+      "추가  위협 유형별 요격률 비교 차트"
     ]
   },
   {
     "version": "10-1",
     "date": "2026-05-19",
-    "title": "다방위 공격 + SM-3 미드코스 제한 + ECM 차등",
+    "title": "다방위 공격 + SM-3 고도 제한 + ECM 차등 효과",
     "changes": [
-      "NEW    다방위 공격: enable_multibearing + assign_bearings() + 탑다운 시각화",
-      "NEW    SM-3 미드코스 단계 제한 (alt ≥ 40km 조건)",
-      "NEW    ECM 취약도 차등 (radar/ir/combined/none 유형별 효과 차등)",
-      "NEW    CEC 사전 동시 배정 방식 (enable_cec_preassign)"
+      "추가  다방위 동시 공격 — 적이 여러 방향에서 동시에 접근하는 시나리오",
+      "추가  SM-3 요격 고도 제한 — 대기권 밖(40km 이상)에서만 요격 가능하도록 현실화",
+      "추가  ECM 전자방해 효과를 유도 방식(레이더·적외선)에 따라 다르게 적용",
+      "추가  CEC 데이터링크 기반 편대 함정 동시 발사"
     ]
   },
   {
     "version": "10-2",
     "date": "2026-05-19",
-    "title": "프로젝트명 변경 + 한글 출력 전면 정리",
+    "title": "프로젝트명 변경",
     "changes": [
-      "NEW    프로젝트명: 이지스 기동전단 통합 방어 시뮬레이터",
-      "NEW    전술교전도·엑셀 보고서 파일명 프로젝트명 반영",
-      "NEW    Dashboard 상세 분석 탭 기동전단 관점으로 개편"
+      "변경  프로젝트명 '이지스 기동전단 통합 방어 시뮬레이터'로 공식 확정",
+      "개선  보고서·파일명에 프로젝트명 반영"
     ]
   },
   {
     "version": "11-1",
     "date": "2026-05-20",
-    "title": "HeloEvent 안전 접근 + 랜덤 난이도 툴팁 수정",
+    "title": "헬기 운용 버그 수정",
     "changes": [
-      "BUG    HeloEvent.assigned_ship 없음 → getattr 안전 처리",
-      "BUG    랜덤 난이도 툴팁 줄바꿈 깨짐 → 슬래시 구분자로 변경"
+      "수정  헬기 운용 중 갑자기 오류 발생하는 버그 수정",
+      "수정  난이도 설명 툴팁 텍스트가 깨져서 표시되던 문제 수정"
     ]
   },
   {
     "version": "11-2",
     "date": "2026-05-20",
-    "title": "현실성 수정 — 무기·센서·적 DB 중간 우선순위 20종",
+    "title": "무기·센서 수치 현실화 (중간 우선순위 20종)",
     "changes": [
-      "MED-1  094형 JL-2 SLBM → Yu-6 중어뢰 (전술 교전 반영)",
-      "MED-2  YJ-12 속도 1000→1400 m/s (Mach 4 말단)",
-      "MED-3  KDX-III 대공 탐지 800km (SPY-1D 실측 기준)",
-      "MED-6  022형 속도 18.5 m/s (35 kts 실 최고속)",
-      "MED-7  MiG-29 미사일 YJ-91→Kh-31A",
-      "MED-9  ECM 기준거리 50km→25km (AN/SLQ-32 실전 유효거리)",
-      "MED-11 P-3C/P-8A 소노부이 보너스 8/10km (과대 감소)",
-      "MED-17 Yu-6 어뢰 속도 21 m/s·사거리 18km (실측)",
-      "MED-19 SM-3 재고 8→32발 (KDX-III Batch-II VLS)"
+      "수정  094형 잠수함 탑재 무기를 SLBM에서 어뢰로 변경 (전략핵 → 전술 교전 반영)",
+      "수정  YJ-12 대함미사일 속도 현실화 (Mach 4 말단 단계 반영)",
+      "수정  KDX-III SPY-1D 레이더 탐지거리 800km로 현실화",
+      "수정  ECM 유효거리 25km로 현실화 (기존 50km 과대)",
+      "수정  P-3C·P-8A 소노부이 탐지 보너스 하향 조정",
+      "수정  SM-3 탑재량 32발로 수정 (KDX-III 실제 VLS 기준)"
     ]
   },
   {
     "version": "11-3",
     "date": "2026-05-20",
-    "title": "현실성 수정 — 무기·센서 낮은 우선순위 18종",
+    "title": "무기·센서 수치 현실화 (낮은 우선순위 18종)",
     "changes": [
-      "LOW-1  YJ-91 속도 680 m/s",
-      "LOW-2  P-800 오닉스 속도 824 m/s (Mach 2.5 해면)",
-      "LOW-3  DF-26 속도 5000 m/s (MRBM 종말)",
-      "LOW-5  DF-17 속도 3000 m/s (HGV Mach 9+)",
-      "LOW-6  SM-6 Pk mean 0.75 (현실화)",
-      "LOW-7  기만기 성공률 0.50 (AN/SLQ-25 실전)",
-      "LOW-8  함정 회피 성공률 0.20 (과대 → 현실화)",
-      "LOW-15 SM-6 속도 1000 m/s",
-      "LOW-16/17 홍상어·청상어 Pk 0.65 (현실화)"
+      "수정  YJ-91·P-800·DF-26·DF-17 등 각종 미사일 속도 현실화",
+      "수정  SM-6 명중률, 기만기 성공률, 함정 회피 성공률 현실화",
+      "수정  홍상어·청상어 어뢰 명중률 현실화"
     ]
   },
   {
     "version": "12-1",
     "date": "2026-05-21",
-    "title": "BMD 탄도 포화 프리셋 + HeloEvent BUG 패치",
+    "title": "탄도미사일 포화 프리셋 + 교리 현실화",
     "changes": [
-      "NEW    ENEMY_FLEET_PRESETS 'BMD 탄도 포화' 추가 (KN-23×2·DF-15×2·DF-21D×2·DF-17×1)",
-      "BUG    HeloEvent.is_missile / is_active / intercepted / _layered getattr 안전 접근",
-      "BUG    MH-60R 시호크 Dashboard 드롭다운 제거 (한국 해군 미운용)",
-      "NEW    교리 현실화 4개: TEWA 우선순위·Shoot-Look-Shoot·이탈잠수함 억제·함대 분산"
+      "추가  탄도미사일 집중 포화 적군 편대 프리셋 (KN-23·DF-15·DF-21D·DF-17 혼합)",
+      "추가  교전 우선순위 개선 — 빠르고 가까운 위협 먼저 교전",
+      "추가  Shoot-Look-Shoot — 탄도·초음속 위협에 SAM 2발 자동 배정",
+      "추가  함대 분산 배치 — 함정들이 일정 간격으로 퍼져서 배치",
+      "수정  헬기 운용 관련 버그 다수 수정"
     ]
   },
   {
@@ -191,212 +172,184 @@
     "date": "2026-05-22",
     "title": "PyQt6 네이티브 런처 + 2.5D 전장 애니메이션",
     "changes": [
-      "NEW-A  MainWindow 좌/우 분할 레이아웃 (설정 패널 + 결과 탭)",
-      "NEW-B  ConfigPanel: 적군·아군 편대, 무기 재고, MC 설정",
-      "NEW-C  SimWorker(QThread): 백그라운드 시뮬 (UI 블로킹 없음)",
-      "NEW-D  전장 애니메이션 탭: matplotlib 2.5D 등각투영",
-      "NEW-E  MC 통계 탭: plot_v7 차트 임베드",
-      "NEW-F  교전 로그 탭: QTableWidget 시각별 이벤트",
-      "NEW-G  시스템 모니터 탭: CPU·RAM 실시간 (psutil + QTimer)",
-      "NEW-H  방어 무기 재고 UI (SM-3~Mk.46·기만기)",
-      "NEW-I  적군 모드 선택 (커스텀/프리셋/랜덤) + 프리셋·난이도",
-      "NEW-J  전술 옵션 토글 (ECM·회피·기만기·자체방어)",
-      "NEW-K  항공 자산 토글 (AW-159·P-3C·P-8A)"
+      "추가  Python 설치 없이 exe 더블클릭으로 바로 실행되는 네이티브 런처",
+      "추가  2.5D 등각투영 전장 애니메이션 — 함정·미사일·항공기 실시간 이동 표시",
+      "추가  CPU·RAM 실시간 모니터링 탭",
+      "추가  모든 시뮬레이션 설정을 마우스로 조작하는 GUI",
+      "추가  방어 무기 재고, 적군 모드, 전술 옵션, 항공 자산 설정 UI"
     ]
   },
   {
     "version": "13-2",
     "date": "2026-05-22",
-    "title": "다층 방어·CEC·REQ 판정·날씨 비교·시나리오 저장",
+    "title": "다층 방어·REQ 판정·날씨 비교·시나리오 저장",
     "changes": [
-      "NEW-L  다층 방어 레이어 (KDX-III→KDX-II→FFX 순서)",
-      "NEW-M  CEC 사전 배정 (편대 동시 발사)",
-      "NEW-N  REQ-01~08 요구조건 판정 탭",
-      "NEW-O  날씨별 3종 비교 탭 (맑음/흐림/폭풍)",
-      "NEW-P  A vs B 시나리오 비교",
-      "NEW-Q  시나리오 저장/불러오기 (JSON)",
-      "NEW-R  BMD 탄도 포화 적군 편대 프리셋 추가"
+      "추가  다층 방어·CEC 편대 동시 발사 설정 UI",
+      "추가  REQ-01~08 요구조건 자동 판정 탭",
+      "추가  날씨별 3종 비교 탭 (맑음·흐림·폭풍 각 1000회 MC)",
+      "추가  시나리오 저장/불러오기 (JSON 파일)"
     ]
   },
   {
     "version": "13-3",
     "date": "2026-05-22",
-    "title": "전장 애니메이션 개선 + 시스템 모니터 강화",
+    "title": "전장 애니메이션 기능 강화",
     "changes": [
-      "NEW-S  애니메이션 줌인/줌아웃 (마우스 휠)",
-      "NEW-T  재생 속도 조절 버튼 (0.5x / 1x / 2x / 4x)",
-      "NEW-U  격추 이벤트 북마크 (◀ 격추 / 격추 ▶)",
-      "NEW-V  스크린샷 저장 (PNG)",
-      "NEW-W  미사일 이름 표시 (색상 코딩)",
-      "NEW-X  단축키: Space 재생/정지, ←/→ 프레임 이동",
-      "NEW-Y  MC 진행률 실시간 표시 (회차/예상 잔여 시간)",
-      "NEW-Z  시스템 모니터 시뮬 구간 하이라이트"
+      "추가  마우스 휠 줌인/줌아웃",
+      "추가  재생 속도 조절 버튼 (0.5배·1배·2배·4배)",
+      "추가  격추 이벤트 북마크 — ◀ 격추 / 격추 ▶ 버튼으로 바로 이동",
+      "추가  현재 프레임 스크린샷 PNG 저장",
+      "추가  단축키 — Space 재생/정지, ←/→ 프레임 이동",
+      "추가  MC 분석 진행률 실시간 표시 (회차·예상 잔여 시간)"
     ]
   },
   {
     "version": "13-4",
     "date": "2026-05-22",
-    "title": "엔진 현실성 강화 — C&D 딜레이·부분 피해·SM-6 대함",
+    "title": "교전 엔진 현실화 — 탐지 딜레이·부분 피해·SM-6 대함",
     "changes": [
-      "NEW-AA C&D 딜레이: 레이더 탐지+확인+랜덤 편차 자동 적용",
-      "NEW-AB VLS 연속 발사 간격 2.5초 최소 대기",
-      "NEW-AC 함정 부분 피해 모델 (레이더·채널 성능 저하)",
-      "NEW-AD 탄약 소진 경고 로그",
-      "NEW-AE SM-6 대함 모드 (OTH 370km, Mach 3.5)",
-      "NEW-AF Mk.45 5인치 함포 최후 레이어 (24km)",
-      "NEW-AG sim_seed 기반 재현 가능 시뮬레이션",
-      "NEW-AH JSON 결과 내보내기 (save_json_report_v7)"
+      "추가  레이더 탐지→확인→발사 딜레이 시스템 (실제 교전 절차 반영)",
+      "추가  VLS 연속 발사 최소 간격 2.5초 (발사 간격 현실화)",
+      "추가  함정 부분 피해 — 피격 시 레이더·채널 성능 단계적 저하",
+      "추가  SM-6 대함 모드 — 해성·하푼 소진 후 수상함 공격 가능 (370km)",
+      "추가  Mk.45 5인치 함포 최후 방어 레이어 (24km 이내)",
+      "추가  시드값 기반 재현 가능 시뮬레이션"
     ]
   },
   {
     "version": "13-5",
     "date": "2026-05-22",
-    "title": "분석 탭 추가 + 날씨 비교 상세 통계",
+    "title": "분석 탭 추가 — 비용·탄약·신뢰구간",
     "changes": [
-      "NEW-AI 비용 효과 탭: 격추당 비용·무기별 잔여 재고",
-      "NEW-AJ 탄약 소모 탭: MC 평균 잔여 재고 막대",
-      "NEW-AK MC 신뢰구간 탭: 95%CI 히스토그램 + 함정별 피격",
-      "NEW-AL 날씨 비교탭: 최다 소모 무기·피격 함정 열 추가",
-      "NEW-AM 날씨 비교탭 1000회 MC로 변경"
+      "추가  비용 효과 탭 — 위협 격추당 비용·무기별 잔여 재고",
+      "추가  탄약 소모 탭 — MC 평균 잔여 재고 막대 그래프",
+      "추가  MC 신뢰구간 탭 — 95% 신뢰구간 히스토그램·함정별 피격 횟수",
+      "개선  날씨 비교 탭에 최다 소모 무기·가장 많이 피격된 함정 열 추가"
     ]
   },
   {
     "version": "14-1",
     "date": "2026-05-23",
-    "title": "엔진 추가 개선 + 적군 DB 확장 + 교전 타임라인",
+    "title": "북한·러시아·드론 위협 DB + 교전 타임라인",
     "changes": [
-      "NEW-AN 레이더 탐지 지연: 빔 드웰 1~3초 C&D 통합",
-      "NEW-AO 함정 부분 피해 모델: HP 비례 레이더·채널 성능 저하",
-      "NEW-AP VLS 탄약 소진 경고 로그",
-      "NEW-AQ SM-6 대함 모드 OTH (370km, Mach 3.5)",
-      "NEW-AR Mk.45 5인치 함포 최후 레이어 (24km)",
-      "NEW-AS 야간/악천후 C&D 딜레이 자동 증가 (cd_time_factor)",
-      "NEW-AT 북한 위협 DB: 화성-15/17, 화살-2 순항미사일",
-      "NEW-AU 러시아 위협 DB: 킨잘·지르콘·Kh-101",
-      "NEW-AV 드론 떼 DB: 소형 자폭 UAV 20기 프리셋",
-      "NEW-AW 적군 편대 프리셋 3종 추가: 북한/러시아/드론 떼",
-      "NEW-AX 교전 타임라인 탭: 이벤트 산점도 Gantt형",
-      "NEW-AY SplashWindow 런처: 기능 목록 + 패치 내역 탭"
+      "추가  북한 위협 DB — 화성-15/17 탄도미사일, 화살-2 순항미사일",
+      "추가  러시아 위협 DB — 킨잘·지르콘 극초음속, Kh-101 순항미사일",
+      "추가  소형 자폭 드론 떼 DB (20기 프리셋)",
+      "추가  적군 편대 프리셋 3종 추가 — 북한·러시아·드론 떼",
+      "추가  교전 타임라인 탭 — 시간대별 이벤트 산점도",
+      "추가  프로그램 시작 화면 — 기능 목록·패치 내역 탭 포함"
     ]
   },
   {
     "version": "14-2",
     "date": "2026-05-23",
-    "title": "분석 탭 확장 + 엔진 전술 기동 + 보고서 강화",
+    "title": "분석 탭 대폭 확장 + 보고서 강화",
     "changes": [
-      "NEW-AZ 시뮬 완료 시 MC 통계 탭 자동 전환",
-      "NEW-BA 설정 프로필 저장/불러오기 (profiles/ 폴더, JSON)",
-      "NEW-BB enable_multibearing 실제 구현: 2~4방위 섹터 분산",
-      "NEW-BC CEC 두절 시나리오 (재밍 → 함정 독립 교전)",
-      "NEW-BD 아군 함정 회피 기동 (15km 이내 지그재그 위치 보정)",
-      "NEW-BE 적 편대 전술 기동: V자 대형 / 포위 기동",
-      "NEW-BF 감도 분석 탭: C&D·확인시간 Tornado chart",
-      "NEW-BG 방위각 취약점 탭: 방향별 피격/요격 레이더차트",
-      "NEW-BH REQ 충족률 레이더 차트 (방사형)",
-      "NEW-BI 위협 유형별 요격률 탭 (항공기/탄도탄/순항/잠수함)",
-      "NEW-BJ 취약 시간대 분석: 10초 구간 히스토그램 + 최다 피격 강조",
-      "NEW-BK 이전 실행 결과 자동 비교 (최대 5회 히스토리)",
-      "NEW-BL 수중 드론 UUAV DB + 수중드론 포화 프리셋",
-      "NEW-BM PDF 보고서 생성 (4페이지: 커버·MC·탄약·로그)",
-      "NEW-BN A vs B 통합 PDF 비교 보고서",
-      "NEW-BO 앱 아이콘 (aegis_icon.ico) + spec 적용"
+      "추가  감도 분석 탭 — C&D 시간 변화에 따른 요격률 토네이도 차트",
+      "추가  방위각 취약점 탭 — 방향별 피격·요격 레이더 차트",
+      "추가  REQ 충족률 레이더 차트 (방사형)",
+      "추가  위협 유형별 요격률 탭 — 항공기·탄도탄·순항·잠수함 분류",
+      "추가  취약 시간대 분석 — 10초 구간별 피격 집중 구간 강조",
+      "추가  이전 실행 결과 자동 비교 (최대 5회 히스토리)",
+      "추가  수중 드론(UUAV) DB + 수중 드론 포화 프리셋",
+      "추가  PDF 보고서 생성 (4페이지 — 커버·MC·탄약·로그)",
+      "추가  아군 편대 다방위 동시 공격 방어 시뮬레이션",
+      "추가  적 편대 전술 기동 — V자 대형·포위 기동"
     ]
   },
   {
     "version": "14-3",
     "date": "2026-05-23",
-    "title": "성능·UX — 감도 분석 비차단 + MC 멀티프로세싱 + 플로팅 모니터",
+    "title": "성능 개선 — MC 멀티코어 병렬 처리 + 팝업 모니터",
     "changes": [
-      "FIX-1  A vs B 탭 완전 제거 (탭·버튼·메서드 모두 삭제)",
-      "FIX-2  감도 분석 freeze 수정 — SensitivityWorker(QThread) 백그라운드 실행",
-      "NEW-BP FloatingMonitor 팝업 창 — 시뮬 중 MC 진행률 + CPU/RAM/GPU 표시, 드래그 이동",
-      "NEW-BQ MC 멀티프로세싱 — ProcessPoolExecutor 최대 8코어 자동 배치 분산",
-      "NEW-BR _mc_batch_worker 엔진 함수 — PyQt6 의존성 없는 서브프로세스 안전 워커",
-      "NEW-BS freeze_support() 추가 — PyInstaller exe 멀티프로세싱 정상 동작"
+      "추가  MC 분석 멀티코어 병렬 처리 — 최대 8코어 자동 분산으로 대폭 빨라짐",
+      "추가  시뮬 진행 팝업 창 — MC 진행률·CPU/RAM/GPU 실시간 표시, 자유롭게 이동 가능",
+      "개선  감도 분석 실행 중 UI 멈춤 현상 수정 — 백그라운드에서 실행되도록 변경"
     ]
   },
   {
     "version": "14-4",
     "date": "2026-05-23",
-    "title": "폰트 전수 감사 + QPixmap 애니메이션 전환 + exe 패키징",
+    "title": "전장 애니메이션 전면 개편 + exe 패키징",
     "changes": [
-      "BUG-1  QGroupBox::title font-family 명시 (subcontrol 상속 누락 수정)",
-      "BUG-2  FloatingMonitor(독립 최상위 창) font-family stylesheet 추가",
-      "BUG-3  SplashWindow QPushButton font-family 명시",
-      "NEW-BT 전장 애니메이션 QPixmap 방식 전환 — FigureCanvas 완전 제거",
-      "NEW-BT anim_render.py 분리 (ProcessPoolExecutor 서브프로세스 안전)",
-      "NEW-BT FrameRenderWorker(QThread): 전 프레임 병렬 렌더 후 QLabel.setPixmap() 즉시 표시",
-      "NEW-BT 사전 렌더 진행률 바 + 휠 줌 (QPixmap.scaled SmoothTransformation)",
-      "BUILD  launcher.spec anim_render.py 추가, multiprocessing hiddenimports 보강"
+      "개선  전장 애니메이션 방식 전면 교체 — 모든 프레임을 미리 렌더링해 즉시 표시 (더 부드러워짐)",
+      "추가  렌더링 진행률 표시 바",
+      "수정  폰트 깨짐 버그 수정 (여러 UI 요소)",
+      "완성  exe 패키징 — Python 설치 없이 단독 실행 가능한 exe 완성"
     ]
   },
   {
     "version": "15-1",
     "date": "2026-05-24",
-    "title": "onedir 패키징 + 글로벌 풀 예열 + 시스템 모니터 확장",
+    "title": "exe 실행 안정성 개선 + 시스템 모니터 강화",
     "changes": [
-      "FIX-3  onedir 패키징 전환 — PyInstaller onefile → onedir (subprocess 재압축 해제 제거, _MEI 오류 완전 해결)",
-      "NEW-BU 글로벌 ProcessPoolExecutor 앱 시작 시 예열 (_init_global_pool, anim_render._warmup_task)",
-      "NEW-BV 시스템 모니터 확장 — 코어별 진행률 바, 워커 프로세스 탭, GPU 탭, 성능 기록 탭",
-      "NEW-BW 시스템 모니터 카드 행 2 — VRAM·GPU온도·물리RAM·가상메모리·프로세스RAM",
-      "NEW-BX 배치 진행 바 — 멀티프로세싱 배치 단위 진행률 표시 (batch_done 시그널)",
-      "NEW-BY FloatingMonitor 확장 — VRAM·GPU온도·처리속도(회/s) 추가 행"
+      "수정  exe 실행 방식 최적화 — 멀티코어 처리 시 오류 완전 해결",
+      "추가  프로그램 시작 시 코어 풀 미리 예열 — 첫 시뮬 실행 속도 향상",
+      "추가  시스템 모니터 강화 — 코어별 사용률, 워커 프로세스 탭, GPU 탭, 성능 기록 탭",
+      "추가  VRAM·GPU 온도·물리RAM·가상메모리 등 상세 정보 표시"
     ]
   },
   {
     "version": "15-2",
     "date": "2026-05-24",
-    "title": "시뮬 중 UI freeze 완전 수정 — 블로킹 I/O 백그라운드 분리",
+    "title": "시뮬 중 화면 멈춤 근본 원인 수정",
     "changes": [
-      "FIX-4  SysDataWorker(QThread) — nvidia-smi·WMI·psutil 자식프로세스 수집을 백그라운드 스레드로 분리",
-      "FIX-4  SysMonitorTab._update() — _SYS_CACHE 읽기 전용으로 교체 (메인 스레드 블로킹 제거)",
-      "FIX-4  FloatingMonitor._refresh_sys() — _SYS_CACHE 읽기 전용으로 교체",
-      "FIX-4  근본 원인: QTimer 1초 콜백에서 nvidia-smi subprocess(1s 타임아웃)·WMI(500ms) 호출 → 클릭 시 멈춤"
+      "수정  GPU 정보 수집(nvidia-smi)·CPU 온도(WMI)를 백그라운드로 분리 — 시뮬 중 클릭해도 멈추지 않음",
+      "개선  시스템 모니터가 캐시에서 읽도록 변경 — 메인 화면 응답성 향상"
     ]
   },
   {
     "version": "15-3",
     "date": "2026-05-24",
-    "title": "exe 실행 시 터미널 창 제거",
+    "title": "실행 중 cmd 창 팝업 제거",
     "changes": [
-      "BUG-1  nvidia-smi subprocess에 CREATE_NO_WINDOW 플래그 추가 — exe 실행 중 cmd 창 반복 팝업 수정"
+      "수정  GPU 정보 수집 시마다 검은 cmd 창이 반복적으로 뜨던 문제 수정"
     ]
   },
   {
     "version": "15-4",
     "date": "2026-05-24",
-    "title": "UI Freeze / 응답 없음 수정 — canvas·로그·탭 전환",
+    "title": "UI 응답성 전반 개선",
     "changes": [
-      "BUG-1  canvas.draw() → draw_idle() 전체 교체 (SysMonitor·GPU·히스토리·MC 통계 4곳) — UI 스레드 블로킹 제거",
-      "BUG-2  교전 로그 테이블 최대 300행 제한 + setUpdatesEnabled(False/True) + processEvents() 추가",
-      "BUG-3  탭 전환 200ms QTimer 디바운스 — 빠른 연속 클릭 시 마지막 탭만 렌더, _render_current_page() 분리",
-      "BUG-4  차트 캐시 _page_render_cache — 동일 result 객체 재렌더 스킵 (id(result) 기반)"
+      "수정  차트 그릴 때 화면이 잠깐 멈추던 현상 수정",
+      "수정  교전 로그가 많아지면 느려지던 문제 — 최대 300줄로 제한",
+      "수정  탭을 빠르게 연속 클릭 시 오류 발생하는 버그 수정",
+      "개선  같은 결과를 다시 클릭해도 차트를 불필요하게 다시 그리지 않도록 캐시 적용"
     ]
   },
   {
     "version": "15-5",
     "date": "2026-05-24",
-    "title": "CPU 우선순위 조정 — 시뮬 중 UI·다른 앱 응답성 유지",
+    "title": "시뮬 연산 중 CPU 우선순위 조정",
     "changes": [
-      "BUG-1  _set_pool_priority(): psutil.BELOW_NORMAL_PRIORITY_CLASS로 워커 프로세스 우선순위 낮춤 (Win/Unix 크로스플랫폼)",
-      "BUG-1  글로벌 풀(_init_global_pool) 예열 완료 후 즉시 적용",
-      "BUG-1  SimWorker 인라인 풀 생성 시(_own=True) 즉시 적용",
-      "BUG-2  SimWorker / SensitivityWorker / FrameRenderWorker .start(QThread.Priority.LowPriority) 전환"
+      "개선  시뮬 백그라운드 연산의 CPU 우선순위를 낮춤 — 시뮬 중에도 UI·다른 프로그램 응답성 유지"
     ]
   },
   {
     "version": "15-6",
     "date": "2026-05-24",
-    "title": "FloatingMonitor 전면 개선 — 단계·경과·요격률 게이지·스파크라인·격추/피격",
+    "title": "시뮬 진행 팝업 창 전면 개선",
     "changes": [
-      "NEW-1  단계 표시: '1/2 단일 시뮬 실행 중…' → '2/2 MC 분석 중…' (progress 시그널 자동 전환)",
-      "NEW-2  경과 시간 타이머: 시뮬 시작 시점 기준 분:초 실시간 카운트업",
-      "NEW-3  라이브 요격률 게이지: 배치마다 색상 변화 (≥80%=초록 / ≥60%=주황 / <60%=빨강)",
-      "NEW-4  격추/피격 평균 카운터: avg_e_dest / avg_f_hits 실시간 표시",
-      "NEW-5  배치 스파크라인: 12칸 컬러 사각형으로 요격률 수렴 추이 표시",
-      "NEW-6  워커 프로세스 수: _SYS_CACHE['worker_stats'] 기반 실시간 표시",
-      "NEW-7  시뮬 시작 시 시스템 모니터 탭 자동 전환 (_sidebar.setCurrentRow(6))",
-      "NEW-8  SimWorker.rate_update 시그널 추가 — MC 배치 완료마다 (mean_rate, avg_ed, avg_fh) emit"
+      "추가  단계 표시 — '1/2 단일 시뮬 실행 중', '2/2 MC 분석 중' 자동 전환",
+      "추가  경과 시간 타이머 — 시뮬 시작부터 분:초 실시간 카운트",
+      "추가  라이브 요격률 게이지 — 배치마다 색상 변화 (초록·주황·빨강)",
+      "추가  격추/피격 평균 카운터 실시간 표시",
+      "추가  수렴 추이 그래프 — 12칸 컬러 블록으로 요격률 변화 추이 표시",
+      "추가  사용 중인 워커 코어 수 실시간 표시"
+    ]
+  },
+  {
+    "version": "16-1",
+    "date": "2026-05-24",
+    "title": "함정 탐지거리 수치 수정 + 애니메이션 개선 + 코드 감사",
+    "changes": [
+      "수정  KDX-II 구축함 대공 탐지거리 120km로 수정 (기존 200km 과대)",
+      "수정  FFX 호위함 대공 탐지거리 100km로 수정 (기존 150km 과대)",
+      "수정  전장 애니메이션 남쪽 방향 적이 화면 아래로 잘리던 문제 수정",
+      "추가  전장 애니메이션 줌 버튼 (−/+/1:1) — 마우스 휠과 동일하게 동작",
+      "수정  방어 미사일 채널이 적 격추 후 반환되지 않던 버그 수정",
+      "수정  어뢰·SAM 명중 확률 계산 범위 보정 (0~1 범위 보장)",
+      "수정  탄도미사일 고도 시각화 범위 확장 (최대 300km — DF-26 등 반영)"
     ]
   }
 ]
