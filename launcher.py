@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.8 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.9 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.9 — 전면 코드·UI 감사 수정 (P3)]                                      ║
+║                                                                              ║
+║  BUG-1  날씨 비교 UI 프리즈 수정: WeatherWorker(QThread) 비차단 실행       ║
+║  BUG-2  update_status 조건 오류 수정: or "/" → or "/" in msg               ║
+║  BUG-3  요격률 레이블 너비 52→68px (100.0% 텍스트 잘림 방지)              ║
+║  DEAD-1 _draw_tactical / _draw_topdown 데드코드 제거                        ║
+║                                                                              ║
 ║  [v7.8 — 결과 차트 UI 프리즈 완전 해결]                                    ║
 ║                                                                              ║
 ║  NEW-1  ChartRenderWorker(QThread): 차트 13개를 백그라운드에서 PNG 렌더     ║
@@ -435,7 +442,7 @@ class FloatingMonitor(QWidget):
         self._prog_rate.setStyleSheet(self._rate_bar_css(0.0))
         self._lbl_rate_val = QLabel("  —%")
         self._lbl_rate_val.setStyleSheet(f"color:{C_TEXT}; font-size:15px; font-weight:bold;")
-        self._lbl_rate_val.setFixedWidth(52)
+        self._lbl_rate_val.setFixedWidth(68)
         rate_row.addWidget(lbl_rt)
         rate_row.addWidget(self._prog_rate, 1)
         rate_row.addWidget(self._lbl_rate_val)
@@ -564,7 +571,7 @@ class FloatingMonitor(QWidget):
     # ── 외부 시그널 핸들러 ───────────────────────────────────────────────────
     def update_status(self, msg: str):
         """progress 시그널 텍스트로 단계 표시 갱신."""
-        if "MC" in msg and ("분석" in msg or "/"):
+        if "MC" in msg and ("분석" in msg or "/" in msg):
             self._lbl_title.setText("⚙  2/2  MC 분석 중…")
         elif "시뮬레이션 실행" in msg or "실행 중" in msg:
             self._lbl_title.setText("⚙  1/2  단일 시뮬 실행 중…")
@@ -668,6 +675,26 @@ class SensitivityWorker(QThread):
                 lows.append(r_lo - base_rate)
                 highs.append(r_hi - base_rate)
             self.finished.emit(labels, lows, highs, base_rate)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class WeatherWorker(QThread):
+    """날씨별 비교 MC를 백그라운드에서 실행."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg: dict, n: int = 1000):
+        super().__init__()
+        self.cfg = cfg
+        self.n   = n
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            sc = scenario_comparison_v7(self.cfg, n=self.n)
+            self.finished.emit(sc)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -2145,9 +2172,10 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.8")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.9")
         self.resize(1800, 1060)
-        self._worker = None
+        self._worker         = None
+        self._weather_worker = None
         self._result = None
         self._mc     = None
         self._t0     = 0.0
@@ -3083,7 +3111,7 @@ class MainWindow(QMainWindow):
                 self.req_table.setItem(row, col, item)
 
     def _run_weather_compare(self):
-        """포팅 D: 날씨별 3종 비교 실행."""
+        """포팅 D: 날씨별 3종 비교 실행 (WeatherWorker 비차단)."""
         if not _V7_OK or not hasattr(self, '_result'):
             QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
             return
@@ -3091,15 +3119,13 @@ class MainWindow(QMainWindow):
         if not cfg:
             return
         self.btn_weather_run.setEnabled(False)
-        self.btn_weather_run.setText("실행 중...")
-        QApplication.processEvents()
-        try:
-            sc = scenario_comparison_v7(cfg, n=1000)
-        except Exception as e:
-            QMessageBox.critical(self, "오류", str(e))
-            self.btn_weather_run.setEnabled(True)
-            self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
-            return
+        self.btn_weather_run.setText("실행 중... (약 30~60초)")
+        self._weather_worker = WeatherWorker(cfg, n=1000)
+        self._weather_worker.finished.connect(self._on_weather_done)
+        self._weather_worker.error.connect(self._on_weather_error)
+        self._weather_worker.start()
+
+    def _on_weather_done(self, sc: dict):
         self.weather_table.setRowCount(0)
         for label, res in sc.items():
             row = self.weather_table.rowCount()
@@ -3137,6 +3163,11 @@ class MainWindow(QMainWindow):
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
         self._sidebar.setCurrentRow(3)
+
+    def _on_weather_error(self, msg: str):
+        QMessageBox.critical(self, "날씨 비교 오류", msg)
+        self.btn_weather_run.setEnabled(True)
+        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
 
     # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
 
@@ -3351,140 +3382,6 @@ class MainWindow(QMainWindow):
             self.log_table.setItem(row, 1, QTableWidgetItem(msg))
         self.log_table.setUpdatesEnabled(True)
         QApplication.processEvents()
-
-    def _draw_tactical(self, result: dict):
-        """전술교전도 (Janes 式 측면도): X=시간(s), Y=함대 거리(km)."""
-        frames = result.get('frames', [])
-        if not frames:
-            return
-        fig = self.tab_tactical.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.tick_params(colors='#aab', labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        ax.set_xlabel('시간 (s)', color='#aab', fontsize=9)
-        ax.set_ylabel('거리 (km)', color='#aab', fontsize=9)
-        ax.set_title('전술교전도 (측면도)', color='#dde', fontsize=11, fontweight='bold')
-        ax.grid(color='#1e2a3a', linewidth=0.5, alpha=0.7)
-
-        # 아군 함대 중심점
-        px0 = np.mean([s[1] for s in frames[0].friendly_ships]) if frames[0].friendly_ships else 0
-        py0 = np.mean([s[2] for s in frames[0].friendly_ships]) if frames[0].friendly_ships else 0
-
-        enemy_tracks  = {}
-        missile_tracks = {}
-        for frame in frames:
-            t = frame.t
-            for uid, epname, ex, ey, ealive, ehp, *_ in frame.enemy_ships:
-                dist = ((ex - px0)**2 + (ey - py0)**2)**0.5 / 1000
-                if uid not in enemy_tracks:
-                    enemy_tracks[uid] = {'name': epname, 'pts': []}
-                enemy_tracks[uid]['pts'].append((t, dist))
-            for uid, mx, my, mtype, mname, *_ in frame.missiles:
-                dist = ((mx - px0)**2 + (my - py0)**2)**0.5 / 1000
-                if uid not in missile_tracks:
-                    missile_tracks[uid] = {'mtype': mtype, 'pts': []}
-                missile_tracks[uid]['pts'].append((t, dist))
-
-        seen_names = set()
-        for uid, info in enemy_tracks.items():
-            pts = info['pts']
-            if len(pts) < 2:
-                continue
-            ts = [p[0] for p in pts]
-            ds = [p[1] for p in pts]
-            lbl = info['name'] if info['name'] not in seen_names else None
-            ax.plot(ts, ds, color='#e74c3c', linewidth=1.5, alpha=0.85, label=lbl)
-            if lbl:
-                seen_names.add(info['name'])
-
-        for uid, info in missile_tracks.items():
-            pts = info['pts']
-            if len(pts) < 2:
-                continue
-            ts = [p[0] for p in pts]
-            ds = [p[1] for p in pts]
-            if info['mtype'] == 'friendly_sam':
-                ax.plot(ts, ds, color='#2ecc71', linewidth=0.9, alpha=0.6, linestyle='--')
-            elif info['mtype'] == 'enemy_strike':
-                ax.plot(ts, ds, color='#f39c12', linewidth=0.9, alpha=0.6, linestyle=':')
-
-        ax.axhline(0, color='#3498db', linewidth=1.5, alpha=0.5)
-        handles = [
-            Line2D([0],[0], color='#e74c3c', lw=1.5, label='적 위협'),
-            Line2D([0],[0], color='#f39c12', lw=1, ls=':', label='적 미사일'),
-            Line2D([0],[0], color='#2ecc71', lw=1, ls='--', label='아군 SAM'),
-            Line2D([0],[0], color='#3498db', lw=1.5, label='아군 함대(Y=0)'),
-        ]
-        ax.legend(handles=handles, loc='upper right', fontsize=8,
-                  facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
-        fig.tight_layout()
-        self.tab_tactical.draw()
-
-    def _draw_topdown(self, result: dict):
-        """Top-down 2D 교전도: 전체 전투 미사일 궤적 정적 플롯."""
-        frames = result.get('frames', [])
-        if not frames:
-            return
-        fig = self.tab_topdown.fig
-        fig.clear()
-        fig.patch.set_facecolor(C_BG)
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.tick_params(colors='#aab', labelsize=8)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        ax.set_xlabel('X (km)', color='#aab', fontsize=9)
-        ax.set_ylabel('Y (km)', color='#aab', fontsize=9)
-        ax.set_title('Top-down 교전도 (전체 궤적)', color='#dde', fontsize=11, fontweight='bold')
-        ax.grid(color='#1e2a3a', linewidth=0.5, alpha=0.7)
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v/1000:.0f}'))
-
-        traj = {}
-        for frame in frames:
-            for uid, mx, my, mtype, mname, *_ in frame.missiles:
-                if uid not in traj:
-                    traj[uid] = {'mtype': mtype, 'xs': [], 'ys': []}
-                traj[uid]['xs'].append(mx)
-                traj[uid]['ys'].append(my)
-
-        mtype_color = {
-            'enemy_strike':    '#ff6b6b',
-            'friendly_strike': '#3498db',
-            'friendly_sam':    '#2ecc71',
-            'enemy_sam':       '#e67e22',
-        }
-        plotted = set()
-        for uid, info in traj.items():
-            c = mtype_color.get(info['mtype'], '#aaa')
-            lbl = info['mtype'] if info['mtype'] not in plotted else None
-            ax.plot(info['xs'], info['ys'], color=c, linewidth=0.8, alpha=0.55, label=lbl)
-            if info['xs']:
-                ax.scatter(info['xs'][-1], info['ys'][-1], s=8, c=c, zorder=4)
-            if lbl:
-                plotted.add(info['mtype'])
-
-        # 아군 함정 최종 위치
-        for sname, sx, sy, salive, shp in frames[-1].friendly_ships:
-            c = '#2ecc71' if salive else '#555555'
-            ax.scatter(sx, sy, s=180, c=c, marker='^', zorder=6)
-            ax.annotate(sname, (sx, sy), xytext=(5, 5),
-                        textcoords='offset points', color=c, fontsize=7)
-
-        handles = [
-            Line2D([0],[0], color='#ff6b6b', lw=1.5, label='적 미사일'),
-            Line2D([0],[0], color='#2ecc71', lw=1.5, label='아군 SAM'),
-            Line2D([0],[0], color='#3498db', lw=1.5, label='아군 대함'),
-            Line2D([0],[0], color='#e67e22', lw=1.5, label='적 SAM'),
-            Line2D([0],[0], marker='^', color='w', markerfacecolor='#2ecc71',
-                   markersize=8, label='아군 함정'),
-        ]
-        ax.legend(handles=handles, loc='upper right', fontsize=8,
-                  facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
-        fig.tight_layout()
-        self.tab_topdown.draw()
 
     def _draw_channel_heatmap(self, result: dict):
         self.tab_channel.start_render(_render_channel_heatmap, result)
@@ -3824,7 +3721,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.8  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.9  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
