@@ -1,6 +1,6 @@
 [
   {
-    "version": "v5.14",
+    "version": "1-1",
     "date": "2026-05-01",
     "title": "개별 미사일 Pk 판정 + 기만기·회피·종말회피",
     "changes": [
@@ -12,7 +12,7 @@
     ]
   },
   {
-    "version": "v5.16.1",
+    "version": "2-1",
     "date": "2026-05-05",
     "title": "ECM 재밍 + 함재 헬기 대잠 + 미구현 항목 수정",
     "changes": [
@@ -27,7 +27,7 @@
     ]
   },
   {
-    "version": "v6.1",
+    "version": "3-1",
     "date": "2026-05-08",
     "title": "P-3C 초계기 + Streamlit 실시간 대시보드",
     "changes": [
@@ -37,7 +37,7 @@
     ]
   },
   {
-    "version": "v6.2",
+    "version": "4-1",
     "date": "2026-05-10",
     "title": "P-8A 포세이돈 + BUG 수정 + 데드코드 정리",
     "changes": [
@@ -48,7 +48,7 @@
     ]
   },
   {
-    "version": "v6.2.1",
+    "version": "5-1",
     "date": "2026-05-11",
     "title": "HeloEvent _id_counter 리셋 + MC 항공기 효과 수정",
     "changes": [
@@ -58,7 +58,7 @@
     ]
   },
   {
-    "version": "v6.3",
+    "version": "6-1",
     "date": "2026-05-13",
     "title": "SHIP_DB + 함대 편대 모드 + Fleet 클래스 체계",
     "changes": [
@@ -69,7 +69,7 @@
     ]
   },
   {
-    "version": "v6.4",
+    "version": "7-1",
     "date": "2026-05-15",
     "title": "적군 편대 프리셋 + 랜덤 편대 생성기",
     "changes": [
@@ -81,7 +81,7 @@
     ]
   },
   {
-    "version": "v6.6",
+    "version": "8-1",
     "date": "2026-05-17",
     "title": "다층 방어 레이어 + A vs B 시나리오 비교",
     "changes": [
@@ -91,7 +91,7 @@
     ]
   },
   {
-    "version": "v6.6.1",
+    "version": "8-2",
     "date": "2026-05-17",
     "title": "편대 모드 BUG 패치 5종",
     "changes": [
@@ -102,7 +102,7 @@
     ]
   },
   {
-    "version": "v6.7",
+    "version": "9-1",
     "date": "2026-05-18",
     "title": "상세 분석 탭 추가 (대시보드)",
     "changes": [
@@ -114,7 +114,7 @@
     ]
   },
   {
-    "version": "v6.8",
+    "version": "10-1",
     "date": "2026-05-19",
     "title": "다방위 공격 + SM-3 미드코스 제한 + ECM 차등",
     "changes": [
@@ -125,7 +125,7 @@
     ]
   },
   {
-    "version": "v6.8.1",
+    "version": "10-2",
     "date": "2026-05-19",
     "title": "프로젝트명 변경 + 한글 출력 전면 정리",
     "changes": [
@@ -135,7 +135,7 @@
     ]
   },
   {
-    "version": "v6.8.3",
+    "version": "11-1",
     "date": "2026-05-20",
     "title": "HeloEvent 안전 접근 + 랜덤 난이도 툴팁 수정",
     "changes": [
@@ -144,7 +144,7 @@
     ]
   },
   {
-    "version": "v6.8.5",
+    "version": "11-2",
     "date": "2026-05-20",
     "title": "현실성 수정 — 무기·센서·적 DB 중간 우선순위 20종",
     "changes": [
@@ -160,7 +160,7 @@
     ]
   },
   {
-    "version": "v6.8.6",
+    "version": "11-3",
     "date": "2026-05-20",
     "title": "현실성 수정 — 무기·센서 낮은 우선순위 18종",
     "changes": [
@@ -176,7 +176,7 @@
     ]
   },
   {
-    "version": "v6.8.4",
+    "version": "12-1",
     "date": "2026-05-21",
     "title": "BMD 탄도 포화 프리셋 + HeloEvent BUG 패치",
     "changes": [
@@ -187,7 +187,7 @@
     ]
   },
   {
-    "version": "v7.0",
+    "version": "13-1",
     "date": "2026-05-22",
     "title": "PyQt6 네이티브 런처 + 2.5D 전장 애니메이션",
     "changes": [
@@ -205,7 +205,7 @@
     ]
   },
   {
-    "version": "v7.0 (포팅 A~D)",
+    "version": "13-2",
     "date": "2026-05-22",
     "title": "다층 방어·CEC·REQ 판정·날씨 비교·시나리오 저장",
     "changes": [
@@ -219,7 +219,7 @@
     ]
   },
   {
-    "version": "v7.0 (1단계 UI)",
+    "version": "13-3",
     "date": "2026-05-22",
     "title": "전장 애니메이션 개선 + 시스템 모니터 강화",
     "changes": [
@@ -234,7 +234,7 @@
     ]
   },
   {
-    "version": "v7.0 (2단계 엔진)",
+    "version": "13-4",
     "date": "2026-05-22",
     "title": "엔진 현실성 강화 — C&D 딜레이·부분 피해·SM-6 대함",
     "changes": [
@@ -249,7 +249,7 @@
     ]
   },
   {
-    "version": "v7.0 (3단계 분석)",
+    "version": "13-5",
     "date": "2026-05-22",
     "title": "분석 탭 추가 + 날씨 비교 상세 통계",
     "changes": [
@@ -261,7 +261,7 @@
     ]
   },
   {
-    "version": "v7.0 (2단계 추가·3단계 DB)",
+    "version": "14-1",
     "date": "2026-05-23",
     "title": "엔진 추가 개선 + 적군 DB 확장 + 교전 타임라인",
     "changes": [
@@ -275,12 +275,12 @@
       "NEW-AU 러시아 위협 DB: 킨잘·지르콘·Kh-101",
       "NEW-AV 드론 떼 DB: 소형 자폭 UAV 20기 프리셋",
       "NEW-AW 적군 편대 프리셋 3종 추가: 북한/러시아/드론 떼",
-      "NEW-AX ⏱️ 교전 타임라인 탭: 이벤트 산점도 Gantt형",
+      "NEW-AX 교전 타임라인 탭: 이벤트 산점도 Gantt형",
       "NEW-AY SplashWindow 런처: 기능 목록 + 패치 내역 탭"
     ]
   },
   {
-    "version": "v7.1 (포팅 G~O)",
+    "version": "14-2",
     "date": "2026-05-23",
     "title": "분석 탭 확장 + 엔진 전술 기동 + 보고서 강화",
     "changes": [
@@ -303,9 +303,9 @@
     ]
   },
   {
-    "version": "v7.2",
+    "version": "14-3",
     "date": "2026-05-23",
-    "title": "성능·UX 패치 — 감도 분석 비차단 + MC 멀티프로세싱 + 플로팅 모니터",
+    "title": "성능·UX — 감도 분석 비차단 + MC 멀티프로세싱 + 플로팅 모니터",
     "changes": [
       "FIX-1  A vs B 탭 완전 제거 (탭·버튼·메서드 모두 삭제)",
       "FIX-2  감도 분석 freeze 수정 — SensitivityWorker(QThread) 백그라운드 실행",
@@ -313,6 +313,21 @@
       "NEW-BQ MC 멀티프로세싱 — ProcessPoolExecutor 최대 8코어 자동 배치 분산",
       "NEW-BR _mc_batch_worker 엔진 함수 — PyQt6 의존성 없는 서브프로세스 안전 워커",
       "NEW-BS freeze_support() 추가 — PyInstaller exe 멀티프로세싱 정상 동작"
+    ]
+  },
+  {
+    "version": "14-4",
+    "date": "2026-05-23",
+    "title": "폰트 전수 감사 + QPixmap 애니메이션 전환 + exe 패키징",
+    "changes": [
+      "BUG-1  QGroupBox::title font-family 명시 (subcontrol 상속 누락 수정)",
+      "BUG-2  FloatingMonitor(독립 최상위 창) font-family stylesheet 추가",
+      "BUG-3  SplashWindow QPushButton font-family 명시",
+      "NEW-BT 전장 애니메이션 QPixmap 방식 전환 — FigureCanvas 완전 제거",
+      "NEW-BT anim_render.py 분리 (ProcessPoolExecutor 서브프로세스 안전)",
+      "NEW-BT FrameRenderWorker(QThread): 전 프레임 병렬 렌더 후 QLabel.setPixmap() 즉시 표시",
+      "NEW-BT 사전 렌더 진행률 바 + 휠 줌 (QPixmap.scaled SmoothTransformation)",
+      "BUILD  launcher.spec anim_render.py 추가, multiprocessing hiddenimports 보강"
     ]
   }
 ]

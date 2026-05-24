@@ -12,6 +12,7 @@ a = Analysis(
     datas=[
         ('engine.py',      '.'),
         ('engine_v7.py',   '.'),
+        ('anim_render.py', '.'),
         ('changelog.json', '.'),
         ('aegis_icon.ico', '.'),
     ],
@@ -41,8 +42,15 @@ a = Analysis(
         'openpyxl.drawing.image',
         # psutil
         'psutil',
+        # 멀티프로세싱 (FrameRenderWorker + MC 배치 워커)
+        'multiprocessing',
+        'multiprocessing.pool',
+        'multiprocessing.spawn',
+        'concurrent',
+        'concurrent.futures',
+        'concurrent.futures.process',
         # 기타 stdlib
-        'json', 'math', 'random', 'copy', 'dataclasses',
+        'json', 'io', 'math', 'random', 'copy', 'dataclasses',
         'collections', 'itertools', 'threading', 'time',
     ],
     hookspath=[],

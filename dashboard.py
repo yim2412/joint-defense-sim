@@ -131,7 +131,7 @@ with st.sidebar:
             v7_enemy_fleet_preset = st.selectbox(
                 "PLA 편대 프리셋", list(V7_ENEMY_FLEET_PRESETS.keys()),
                 key="v7_efp",
-                help="A2/AD 항공 포화 / 항모킬체인 / 수상함 포화 / 대잠 복합 / 전면전 포화")
+                help="A2/AD 항공 포화 / 항모킬체인 / 수상함 포화 / 대잠 복합 / BMD 탄도 포화 / 전면전 포화")
             _specs = V7_ENEMY_FLEET_PRESETS.get(v7_enemy_fleet_preset, [])
             st.caption(" | ".join(f"{s['preset'].split('(')[0].strip()}×{s['count']}" for s in _specs))
 
@@ -235,7 +235,7 @@ with st.sidebar:
     if enemy_fleet_mode == 'preset':
         enemy_fleet_preset = st.selectbox(
             "PLA 편대 프리셋", list(ENEMY_FLEET_PRESETS.keys()),
-            help="A2/AD(J-16×4+H-6×2) / 항모킬체인(DF-21D×2+DF-17×1+J-20×2) / 수상함(055×1+052D×2+022×4) / 대잠(095+093) / 전면전(전카테고리)")
+            help="A2/AD(J-16×4+H-6×2) / 항모킬체인(DF-21D×2+DF-17×1+J-20×2) / 수상함(055×1+052D×2+022×4) / 대잠(095+093) / BMD(KN-23×2+DF-15×2+DF-21D×2+DF-17×1) / 전면전(전카테고리)")
         specs = ENEMY_FLEET_PRESETS.get(enemy_fleet_preset, [])
         st.caption(" | ".join(f"{s['preset'].split('(')[0].strip()}×{s['count']}" for s in specs))
     elif enemy_fleet_mode == 'custom':

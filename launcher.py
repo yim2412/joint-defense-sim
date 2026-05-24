@@ -40,7 +40,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
     QListWidget, QListWidgetItem, QStackedWidget,
 )
-from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence
+from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 import matplotlib
@@ -118,6 +118,7 @@ QGroupBox::title {{
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 4px;
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
 }}
 QComboBox, QSpinBox {{
     background-color: {C_PANEL};
@@ -232,6 +233,7 @@ class FloatingMonitor(QWidget):
                          Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(360, 220)
+        self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._drag_pos = None
         self._timer = QTimer(self)
         self._timer.setInterval(800)
@@ -504,89 +506,118 @@ class MplCanvas(FigureCanvas):
                            QSizePolicy.Policy.Expanding)
 
 
+# 서브프로세스 안전 렌더 함수: anim_render.py에서 임포트 (launcher.py는 QtAgg 백엔드 사용)
+from anim_render import _render_anim_frame
+
+
 # ════════════════════════════════════════════════════════════════════════════
-#  전장 애니메이션 탭 (matplotlib 2.5D 등각투영)
+#  전장 애니메이션 프레임 사전 렌더 워커
+# ════════════════════════════════════════════════════════════════════════════
+class FrameRenderWorker(QThread):
+    frame_ready = pyqtSignal(int, bytes)
+    all_done    = pyqtSignal()
+
+    def __init__(self, frame_data, display_range, show_labels, show_alt):
+        super().__init__()
+        self._frame_data    = frame_data
+        self._display_range = display_range
+        self._show_labels   = show_labels
+        self._show_alt      = show_alt
+        self._cancelled     = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        n = len(self._frame_data)
+        if n == 0:
+            self.all_done.emit()
+            return
+        n_workers = min(os.cpu_count() or 4, 8)
+        args_list = [
+            (i, fd['t'], fd['enemy_ships'], fd['friendly_ships'],
+             fd['missiles'], fd['events'],
+             self._display_range, self._show_labels, self._show_alt)
+            for i, fd in enumerate(self._frame_data)
+        ]
+        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            futs = {ex.submit(_render_anim_frame, a): a[0] for a in args_list}
+            for fut in as_completed(futs):
+                if self._cancelled:
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    return
+                try:
+                    idx, png = fut.result()
+                    self.frame_ready.emit(idx, png)
+                except Exception:
+                    pass
+        if not self._cancelled:
+            self.all_done.emit()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  전장 애니메이션 탭 (QPixmap 사전 렌더링 방식)
 # ════════════════════════════════════════════════════════════════════════════
 class AnimationTab(QWidget):
     """
-    2.5D 등각투영(isometric) 전장 애니메이션.
-    matplotlib 2D 위에 등각투영 좌표 변환으로 고도를 시각화.
-    탄도탄 포물선 호, 항공기·잠수함 고도가 수직 오프셋으로 표현됨.
+    2.5D 등각투영 전장 애니메이션.
+    FrameRenderWorker가 모든 프레임을 PNG→QPixmap으로 사전 렌더링하고,
+    재생 시 QLabel.setPixmap() 으로 즉시 표시한다.
     """
-
-    # 엔티티 유형 → (matplotlib marker, 크기, 색상, zorder)
-    _ENT_CFG = {
-        'friendly': ('^', 140, '#2ecc71',  8),
-        'aircraft':  ('*', 170, '#ff6b6b',  7),
-        'ship':      ('s',  90, '#ff8c8c',  7),
-        'sub':       ('D',  75, '#e74c3c',  7),
-        'em_bm':    ('^',  55, '#ff2222',  9),
-        'em_cm':    ('o',  30, '#ff8888',  9),
-        'sam':       ('^',  30, '#55ff99', 10),
-        'fstk':      ('o',  30, '#55aaff', 10),
-        'esam':      ('v',  22, '#e67e22',  9),
-    }
-
-    # 등각투영 파라미터
-    _ISO_COS      = np.cos(np.radians(30))   # ≈ 0.866
-    _ISO_SIN      = np.sin(np.radians(30))   # ≈ 0.500
-    _ALT_SCALE    = 0.50   # 고도 1km → 화면 0.5단위
-    _MAX_DISP_ALT = 200.0  # 탄도탄 고도 표시 상한(km)
 
     def __init__(self):
         super().__init__()
-        self.frames = []
-        self._display_range = 350.0
-        self._cur_idx = 0
-        self._zoom = 1.0
-        self._kill_frames = []
-        self._play_interval = 150   # 80ms → 150ms (matplotlib 렌더 여유 확보)
-        self._rendering = False     # 렌더링 중복 방지 lock
-        self._pending_idx = None    # 건너뛴 프레임 추적
+        self.frames            = []
+        self._display_range    = 350.0
+        self._cur_idx          = 0
+        self._zoom             = 1.0
+        self._kill_frames      = []
+        self._play_interval    = 80
+        self._pixmaps: list    = []   # list[Optional[QPixmap]]
+        self._rendered_count   = 0
+        self._render_worker    = None
         self._build_ui()
-
-    # ── 등각투영 좌표 변환 ────────────────────────────────────────────────
-    def _iso(self, xk: float, yk: float, ak: float = 0.0):
-        """월드 좌표(km) → 등각투영 화면 좌표 (sx, sy)."""
-        ak_c = min(ak, self._MAX_DISP_ALT)
-        sx = (xk - yk) * self._ISO_COS
-        sy = (xk + yk) * self._ISO_SIN + ak_c * self._ALT_SCALE
-        return sx, sy
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # ── matplotlib 캔버스 ─────────────────────────────────────────────
-        self._fig = Figure(figsize=(8, 6), facecolor='#0d1117')
-        self.canvas = FigureCanvas(self._fig)
-        self.canvas.setSizePolicy(
+        # ── QLabel 디스플레이 (FigureCanvas 대체) ─────────────────────────
+        self._lbl_canvas = QLabel()
+        self._lbl_canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_canvas.setStyleSheet("background: #0d1117;")
+        self._lbl_canvas.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.ax = self._fig.add_axes([0.01, 0.01, 0.98, 0.98],
-                                      facecolor='#0d1117')
-        self.ax.set_aspect('equal')
-        self.ax.axis('off')
-        layout.addWidget(self.canvas)
+        self._lbl_canvas.installEventFilter(self)
+        layout.addWidget(self._lbl_canvas)
 
-        # 스크롤 줌 이벤트 연결
-        self.canvas.mpl_connect('scroll_event', self._on_scroll)
+        # 사전 렌더 진행률 바
+        self._prog_render = QProgressBar()
+        self._prog_render.setFixedHeight(6)
+        self._prog_render.setRange(0, 100)
+        self._prog_render.setValue(0)
+        self._prog_render.setTextVisible(False)
+        self._prog_render.setStyleSheet(
+            f"QProgressBar {{ background:{C_PANEL}; border:none; border-radius:3px; }}"
+            f"QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}")
+        self._prog_render.hide()
+        layout.addWidget(self._prog_render)
 
         # ── 옵션 행 ──────────────────────────────────────────────────────
+        _bs = (f"background:{C_PANEL}; color:{C_TEXT}; "
+               f"border:1px solid #3a5a7a; font-size:15px; padding:2px 7px;")
         opt_row = QHBoxLayout()
+
         self.chk_labels = QCheckBox("이름 표시")
         self.chk_labels.setChecked(True)
         self.chk_labels.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
-        self.chk_labels.stateChanged.connect(lambda _: self._redraw_current())
+        self.chk_labels.stateChanged.connect(self._restart_render)
 
         self.chk_altitude = QCheckBox("고도선 표시")
         self.chk_altitude.setChecked(True)
         self.chk_altitude.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
-        self.chk_altitude.stateChanged.connect(lambda _: self._redraw_current())
+        self.chk_altitude.stateChanged.connect(self._restart_render)
 
-        _bs = (f"background:{C_PANEL}; color:{C_TEXT}; "
-               f"border:1px solid #3a5a7a; font-size:15px; padding:2px 7px;")
-
-        # 재생 속도 버튼
         lbl_spd = QLabel("속도:")
         lbl_spd.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self._spd_btns = []
@@ -596,24 +627,22 @@ class AnimationTab(QWidget):
             b.setStyleSheet(_bs)
             b.clicked.connect(lambda _, m=ms: self._set_speed(m))
             self._spd_btns.append(b)
-            opt_row.addWidget(b) if label != "0.5x" else None
+
+        btn_shot = QPushButton("📷")
+        btn_shot.setFixedHeight(24); btn_shot.setFixedWidth(30)
+        btn_shot.setStyleSheet(_bs)
+        btn_shot.setToolTip("현재 프레임 PNG 저장")
+        btn_shot.clicked.connect(self._save_screenshot)
+
+        lbl_hint = QLabel("  휠:줌  2.5D 등각투영")
+        lbl_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
 
         opt_row.addWidget(self.chk_labels)
         opt_row.addWidget(self.chk_altitude)
         opt_row.addWidget(lbl_spd)
         for b in self._spd_btns:
             opt_row.addWidget(b)
-
-        # 스크린샷 버튼
-        btn_shot = QPushButton("📷")
-        btn_shot.setFixedHeight(24); btn_shot.setFixedWidth(30)
-        btn_shot.setStyleSheet(_bs)
-        btn_shot.setToolTip("현재 프레임 PNG 저장")
-        btn_shot.clicked.connect(self._save_screenshot)
         opt_row.addWidget(btn_shot)
-
-        lbl_hint = QLabel("  휠:줌  2.5D 등각투영")
-        lbl_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
         opt_row.addWidget(lbl_hint)
         opt_row.addStretch()
         layout.addLayout(opt_row)
@@ -629,8 +658,8 @@ class AnimationTab(QWidget):
         self.btn_play = QPushButton("▶ 재생")
         self.btn_play.setFixedWidth(90)
         self.btn_play.clicked.connect(self._toggle_play)
+        self.btn_play.setEnabled(False)
 
-        # 격추 이벤트 이동 버튼
         self.btn_prev_kill = QPushButton("◀ 격추")
         self.btn_next_kill = QPushButton("격추 ▶")
         for b in [self.btn_prev_kill, self.btn_next_kill]:
@@ -642,6 +671,7 @@ class AnimationTab(QWidget):
         self.lbl_events = QLabel("")
         self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.lbl_events.setWordWrap(True)
+
         ctrl.addWidget(self.btn_prev_kill)
         ctrl.addWidget(self.btn_next_kill)
         ctrl.addWidget(self.lbl_time)
@@ -654,22 +684,37 @@ class AnimationTab(QWidget):
         self._play_timer.timeout.connect(self._step_play)
         self._playing = False
 
+    # ── 이벤트 필터 (휠 줌) ──────────────────────────────────────────────
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if obj is self._lbl_canvas and event.type() == QEvent.Type.Wheel:
+            delta = event.angleDelta().y()
+            self._zoom *= (0.85 if delta > 0 else 1.15)
+            self._zoom = max(0.2, min(5.0, self._zoom))
+            self._draw_frame(self._cur_idx)
+            return True
+        return super().eventFilter(obj, event)
+
     # ── 공개 API ──────────────────────────────────────────────────────────
     def load_frames(self, frames):
         self.frames = frames
         self._display_range = self._calc_range(frames)
         self._zoom = 1.0
-        # 격추 이벤트 발생 프레임 인덱스 추출
         self._kill_frames = [
             i for i, f in enumerate(frames)
             if any('격추' in e or '요격' in e or '파괴' in e
                    for e in (f.events or []))
         ]
         if not frames:
+            self._pixmaps = []
             return
         self.slider.setMaximum(len(frames) - 1)
         self.slider.setValue(0)
-        self._draw_frame(0)
+        self.btn_play.setEnabled(False)
+        self._lbl_canvas.setText("렌더링 준비 중…")
+        self._lbl_canvas.setStyleSheet(
+            f"background:#0d1117; color:{C_SUBTEXT}; font-size:16px;")
+        self._start_render_worker()
 
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────
     def _calc_range(self, frames) -> float:
@@ -683,9 +728,93 @@ class AnimationTab(QWidget):
             max_r = max(max_r, abs(item[1]) / 1000, abs(item[2]) / 1000)
         return max_r * 1.12
 
-    def _redraw_current(self):
+    def _start_render_worker(self):
+        if not self.frames:
+            return
+        if self._render_worker and self._render_worker.isRunning():
+            self._render_worker.cancel()
+            self._render_worker.wait()
+        n = len(self.frames)
+        self._pixmaps = [None] * n
+        self._rendered_count = 0
+        self._prog_render.setMaximum(n)
+        self._prog_render.setValue(0)
+        self._prog_render.show()
+        frame_data = [
+            {'t': f.t,
+             'enemy_ships':   list(f.enemy_ships),
+             'friendly_ships': list(f.friendly_ships),
+             'missiles':      list(f.missiles),
+             'events':        list(f.events or [])}
+            for f in self.frames
+        ]
+        self._render_worker = FrameRenderWorker(
+            frame_data, self._display_range,
+            self.chk_labels.isChecked(), self.chk_altitude.isChecked())
+        self._render_worker.frame_ready.connect(self._on_frame_ready)
+        self._render_worker.all_done.connect(self._on_all_done)
+        self._render_worker.start()
+
+    def _restart_render(self):
         if self.frames:
-            self._draw_frame(self._cur_idx)
+            self._start_render_worker()
+
+    def _on_frame_ready(self, idx: int, png_bytes: bytes):
+        pm = QPixmap()
+        pm.loadFromData(png_bytes, 'PNG')
+        self._pixmaps[idx] = pm
+        self._rendered_count += 1
+        self._prog_render.setValue(self._rendered_count)
+        if idx == 0 or idx == self._cur_idx:
+            self._draw_frame(idx)
+
+    def _on_all_done(self):
+        self._prog_render.hide()
+        self.btn_play.setEnabled(True)
+        self._lbl_canvas.setStyleSheet("background: #0d1117;")
+        self._draw_frame(self._cur_idx)
+
+    def _draw_frame(self, idx: int):
+        self._cur_idx = idx
+        if 0 <= idx < len(self.frames):
+            f = self.frames[idx]
+            self.lbl_time.setText(f"t = {f.t:.0f}s")
+            self.lbl_events.setText('  |  '.join((f.events or [])[:4]))
+        if not self._pixmaps or idx >= len(self._pixmaps):
+            return
+        pm = self._pixmaps[idx]
+        if pm is None:
+            self._lbl_canvas.setText(
+                f"렌더링 중… ({self._rendered_count}/{len(self._pixmaps)})")
+            return
+
+        lw = max(1, self._lbl_canvas.width())
+        lh = max(1, self._lbl_canvas.height())
+
+        # 기본 fit (label 크기에 비율 유지하며 맞춤)
+        fitted = pm.scaled(lw, lh,
+                           Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.SmoothTransformation)
+        if abs(self._zoom - 1.0) < 0.02:
+            self._lbl_canvas.setPixmap(fitted)
+            return
+
+        # 줌 적용: 1/zoom 배율로 fitted 재스케일
+        sf  = 1.0 / self._zoom
+        zw  = max(1, int(fitted.width()  * sf))
+        zh  = max(1, int(fitted.height() * sf))
+        zoomed = fitted.scaled(zw, zh,
+                               Qt.AspectRatioMode.IgnoreAspectRatio,
+                               Qt.TransformationMode.SmoothTransformation)
+        if self._zoom < 1.0:
+            # 줌인: 중앙 크롭
+            fw, fh = fitted.width(), fitted.height()
+            cx = max(0, (zoomed.width()  - fw) // 2)
+            cy = max(0, (zoomed.height() - fh) // 2)
+            zoomed = zoomed.copy(cx, cy,
+                                 min(fw, zoomed.width()),
+                                 min(fh, zoomed.height()))
+        self._lbl_canvas.setPixmap(zoomed)
 
     def _toggle_play(self):
         if self._playing:
@@ -707,226 +836,37 @@ class AnimationTab(QWidget):
         if self.frames:
             self._draw_frame(val)
 
-    def _on_scroll(self, event):
-        """마우스 휠 줌인/줌아웃."""
-        if event.button == 'up':
-            self._zoom *= 0.85
-        elif event.button == 'down':
-            self._zoom *= 1.15
-        self._zoom = max(0.2, min(5.0, self._zoom))
-        self._redraw_current()
-
     def _set_speed(self, ms: int):
-        """재생 속도 변경."""
         self._play_interval = ms
         if self._playing:
             self._play_timer.setInterval(ms)
 
     def _prev_kill(self):
-        """이전 격추 이벤트 프레임으로 이동."""
         if not self._kill_frames:
             return
-        cur = self._cur_idx
-        prev = [f for f in self._kill_frames if f < cur]
+        prev = [f for f in self._kill_frames if f < self._cur_idx]
         if prev:
             self.slider.setValue(prev[-1])
 
     def _next_kill(self):
-        """다음 격추 이벤트 프레임으로 이동."""
         if not self._kill_frames:
             return
-        cur = self._cur_idx
-        nxt = [f for f in self._kill_frames if f > cur]
+        nxt = [f for f in self._kill_frames if f > self._cur_idx]
         if nxt:
             self.slider.setValue(nxt[0])
 
     def _save_screenshot(self):
-        """현재 프레임을 PNG로 저장."""
+        pm = (self._pixmaps[self._cur_idx]
+              if self._pixmaps and 0 <= self._cur_idx < len(self._pixmaps)
+              else None)
+        if pm is None:
+            return
         path, _ = QFileDialog.getSaveFileName(
             self, "스크린샷 저장",
             f"전장_{self._cur_idx:04d}.png",
             "PNG (*.png)")
         if path:
-            self._fig.savefig(path, dpi=150,
-                              bbox_inches='tight',
-                              facecolor='#0d1117')
-
-    def _draw_grid(self, R: float):
-        """등각투영 해수면 격자 + 거리 링."""
-        ax = self.ax
-        step = max(50, int(R / 5) // 10 * 10)
-        gc = '#0c2640'
-
-        r_int = int(R) + step
-        vals = range(-r_int, r_int + step, step)
-        for v in vals:
-            x1, y1 = self._iso(-R, v);  x2, y2 = self._iso(R, v)
-            ax.plot([x1, x2], [y1, y2], color=gc, lw=0.55, zorder=1)
-            x1, y1 = self._iso(v, -R);  x2, y2 = self._iso(v, R)
-            ax.plot([x1, x2], [y1, y2], color=gc, lw=0.55, zorder=1)
-
-        for ring_r in [r for r in [100, 200, 300, 400, 500, 700] if r < R * 1.05]:
-            θ = np.linspace(0, 2 * np.pi, 80)
-            rxs = ring_r * np.cos(θ); rys = ring_r * np.sin(θ)
-            sxs = [(x - y) * self._ISO_COS for x, y in zip(rxs, rys)]
-            sys_ = [(x + y) * self._ISO_SIN for x, y in zip(rxs, rys)]
-            ax.plot(sxs, sys_, color='#152e48', lw=0.85, ls='--', zorder=1)
-            lx, ly = self._iso(ring_r * 0.72, ring_r * (-0.72))
-            ax.text(lx, ly, f'{ring_r}km',
-                    color='#2a4e72', fontsize=7, va='center', zorder=2)
-
-    # ── 핵심: 프레임 렌더링 ──────────────────────────────────────────────
-    def _draw_frame(self, idx: int):
-        if self._rendering:
-            # 렌더링 중이면 인덱스만 기억하고 즉시 반환
-            self._pending_idx = idx
-            self._cur_idx = idx
-            self.lbl_time.setText(f"t = {self.frames[idx].t:.0f}s" if idx < len(self.frames) else "")
-            return
-        self._rendering = True
-        self._cur_idx = idx
-        frame = self.frames[idx]
-        self.lbl_time.setText(f"t = {frame.t:.0f}s")
-
-        ax = self.ax
-        ax.cla()
-        ax.set_facecolor('#0d1117')
-        ax.axis('off')
-        ax.set_aspect('equal')
-
-        R  = self._display_range
-        km = lambda v: v / 1000.0
-        show_labels    = self.chk_labels.isChecked()
-        show_alt_lines = self.chk_altitude.isChecked()
-
-        self._draw_grid(R)
-
-        # 화면 범위 확정 (등각투영 기준 + zoom 적용)
-        cx = R * self._ISO_COS
-        cy_gnd = R * self._ISO_SIN
-        cy_alt = self._MAX_DISP_ALT * self._ALT_SCALE
-        x_span  = cx * 1.10 * self._zoom
-        y_bot   = -cy_gnd * 0.40 * self._zoom   # 하단 여유 확대
-        y_top   = (cy_gnd + cy_alt * 0.60) * self._zoom
-        ax.set_xlim(-x_span, x_span)
-        ax.set_ylim(y_bot, y_top)
-
-        # ── 적 위협 ───────────────────────────────────────────────────────
-        for item in frame.enemy_ships:
-            euid, epname, ex, ey, ealive, ehp = item[:6]
-            ealt = item[6] if len(item) > 6 else 0.0
-            xk, yk, ak = km(ex), km(ey), km(ealt)
-
-            gx, gy = self._iso(xk, yk, 0)
-            px, py = self._iso(xk, yk, ak)
-
-            if ak > 0.5 and show_alt_lines:
-                ax.plot([gx, px], [gy, py],
-                        color='#ff6b6b', lw=0.9, alpha=0.40, zorder=5)
-                ax.scatter([gx], [gy], s=10, c='#ff4444',
-                           marker='o', alpha=0.22, zorder=5, edgecolors='none')
-
-            if ak < -0.02:
-                key = 'sub'
-            elif ak > 0.5:
-                key = 'aircraft'
-            else:
-                key = 'ship'
-            mk, sz, col, zo = self._ENT_CFG[key]
-            ec = '#ff0000' if not ealive else 'none'
-            lw = 2.0   if not ealive else 0
-            ax.scatter([px], [py], s=sz, c=col, marker=mk,
-                       edgecolors=ec, linewidths=lw, zorder=zo)
-            if show_labels and ealive:
-                ax.text(px + R * 0.02, py + R * 0.015, epname[:10],
-                        color='#ffaaaa', fontsize=7,
-                        ha='left', va='bottom', zorder=12)
-
-        # ── 아군 함정 ─────────────────────────────────────────────────────
-        for sname, sx_, sy_, salive, shp in frame.friendly_ships:
-            xk, yk = km(sx_), km(sy_)
-            px, py = self._iso(xk, yk, 0)
-            mk, sz, col, zo = self._ENT_CFG['friendly']
-            ec = '#ff0000' if not salive else 'none'
-            lw = 2.5   if not salive else 0
-            ax.scatter([px], [py], s=sz, c=col, marker=mk,
-                       edgecolors=ec, linewidths=lw, zorder=zo)
-            if show_labels:
-                ax.text(px + R * 0.02, py + R * 0.015, sname[:9],
-                        color='#aaffcc', fontsize=7,
-                        ha='left', va='bottom', zorder=12)
-
-        # ── 미사일 ────────────────────────────────────────────────────────
-        for item in frame.missiles:
-            muid, mx_, my_, mtype, mname = item[:5]
-            malt = item[5] if len(item) > 5 else 0.0
-            xk, yk, ak = km(mx_), km(my_), km(malt)
-
-            gx, gy = self._iso(xk, yk, 0)
-            px, py = self._iso(xk, yk, ak)
-
-            if mtype == 'enemy_strike':
-                key = 'em_bm' if malt > 5000 else 'em_cm'
-            elif mtype == 'friendly_sam':
-                key = 'sam'
-            elif mtype == 'friendly_strike':
-                key = 'fstk'
-            elif mtype == 'enemy_sam':
-                key = 'esam'
-            else:
-                continue
-
-            mk, sz, col, zo = self._ENT_CFG[key]
-            if ak > 0.5 and show_alt_lines:
-                ax.plot([gx, px], [gy, py],
-                        color=col, lw=0.7, alpha=0.38, zorder=6)
-            ax.scatter([px], [py], s=sz, c=col, marker=mk,
-                       edgecolors='none', zorder=zo)
-            # 미사일 이름 표시
-            if show_labels and mname:
-                short = mname[:8]
-                lbl_col = '#aaffaa' if mtype == 'friendly_sam' else \
-                          '#aaaaff' if mtype == 'friendly_strike' else '#ffaaaa'
-                ax.text(px + R * 0.015, py + R * 0.01, short,
-                        color=lbl_col, fontsize=6,
-                        ha='left', va='bottom', zorder=12)
-
-        # ── 타이틀 ────────────────────────────────────────────────────────
-        ylim_top = ax.get_ylim()[1]
-        ax.text(0, ylim_top * 0.975,
-                f"전장 상황   t = {frame.t:.0f}s",
-                color='#dde8ff', fontsize=11, fontweight='bold',
-                ha='center', va='top', zorder=15)
-
-        # ── 범례 ─────────────────────────────────────────────────────────
-        legend_items = [
-            ('▲ 아군 함정',  '#2ecc71'),
-            ('★ 적 항공기',  '#ff6b6b'),
-            ('■ 적 수상함',  '#ff8c8c'),
-            ('◆ 적 잠수함',  '#e74c3c'),
-            ('▲ 아군 SAM',   '#55ff99'),
-            ('● 적 미사일',  '#ff2222'),
-            ('▲ 적 탄도탄',  '#ff4444'),
-        ]
-        lx_leg = cx * 0.90
-        ly_leg = ylim_top * 0.95
-        row_h  = (ylim_top - ax.get_ylim()[0]) * 0.055
-        for i, (lbl, col) in enumerate(legend_items):
-            ax.text(lx_leg, ly_leg - i * row_h,
-                    lbl, color=col, fontsize=7,
-                    ha='center', va='top', zorder=15)
-
-        self.canvas.draw()
-
-        events_text = '  |  '.join(frame.events[:4]) if frame.events else ''
-        self.lbl_events.setText(events_text)
-
-        self._rendering = False
-        # 건너뛴 pending 프레임이 있으면 다음 이벤트 루프에서 처리
-        if self._pending_idx is not None and self._pending_idx != self._cur_idx:
-            pending = self._pending_idx
-            self._pending_idx = None
-            QTimer.singleShot(0, lambda: self._draw_frame(pending))
+            pm.save(path, 'PNG')
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3094,7 +3034,8 @@ class SplashWindow(QWidget):
             QTabBar::tab:selected {{ background: {C_BG}; color: {C_ACCENT};
                                      border-bottom: 2px solid {C_ACCENT}; }}
             QPushButton {{ background: {C_ACCENT}; color: white; border: none;
-                           padding: 14px 36px; border-radius: 6px; font-size: 18px; }}
+                           padding: 14px 36px; border-radius: 6px; font-size: 18px;
+                           font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }}
             QPushButton:hover {{ background: #2980b9; }}
             QTableWidget {{ background: {C_PANEL}; gridline-color: {C_BORDER};
                             border: none; font-size: 16px; }}
@@ -3168,37 +3109,48 @@ class SplashWindow(QWidget):
             layout.addWidget(QLabel("changelog.json 없음"))
             return w
         tbl = QTableWidget()
-        tbl.setColumnCount(3)
-        tbl.setHorizontalHeaderLabels(["버전", "날짜", "변경 내용"])
+        tbl.setColumnCount(2)
+        tbl.setHorizontalHeaderLabels(["버전", "변경 내용"])
         hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 240)
-        tbl.setColumnWidth(1, 120)
-        tbl.verticalHeader().setDefaultSectionSize(36)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        tbl.setColumnWidth(0, 60)
+        tbl.verticalHeader().setDefaultSectionSize(28)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.verticalHeader().setVisible(False)
-        tbl.setAlternatingRowColors(True)
-        tbl.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        tbl.setShowGrid(False)
+        tbl.setStyleSheet(f"background-color: {C_BG}; gridline-color: {C_PANEL};")
+
+        prev_date = None
         for entry in changelog:
             ver   = entry.get('version', '')
             date  = entry.get('date', '')
             items = entry.get('changes', [])
+            if date != prev_date:
+                # 날짜 그룹 헤더 행
+                row = tbl.rowCount()
+                tbl.insertRow(row)
+                tbl.setRowHeight(row, 32)
+                date_item = QTableWidgetItem(f"  {date}")
+                date_item.setBackground(QColor(C_PANEL))
+                date_item.setForeground(QColor(C_SUBTEXT))
+                f = date_item.font(); f.setBold(True); date_item.setFont(f)
+                tbl.setItem(row, 0, date_item)
+                tbl.setItem(row, 1, QTableWidgetItem(""))
+                tbl.item(row, 1).setBackground(QColor(C_PANEL))
+                tbl.setSpan(row, 0, 1, 2)
+                prev_date = date
             for i, item in enumerate(items):
                 row = tbl.rowCount()
                 tbl.insertRow(row)
                 if i == 0:
                     vi = QTableWidgetItem(ver)
                     vi.setForeground(QColor(C_ACCENT))
+                    vi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     tbl.setItem(row, 0, vi)
-                    di = QTableWidgetItem(date)
-                    di.setForeground(QColor(C_SUBTEXT))
-                    tbl.setItem(row, 1, di)
                 else:
                     tbl.setItem(row, 0, QTableWidgetItem(""))
-                    tbl.setItem(row, 1, QTableWidgetItem(""))
-                tbl.setItem(row, 2, QTableWidgetItem(item))
+                tbl.setItem(row, 1, QTableWidgetItem(f"  {item}"))
         layout.addWidget(tbl)
         return w
 
@@ -3293,3 +3245,14 @@ if __name__ == '__main__':
 # · NEW-BS: multiprocessing.freeze_support() 추가 — PyInstaller exe 멀티프로세싱 지원
 # · UX:     _FEATURES에서 A vs B 제거, 플로팅 모니터·멀티프로세싱 항목 추가
 # · UX:     SplashWindow 서브타이틀 v7.0 → v7.2
+
+# ── v7.3 패치 ────────────────────────────────────────────────────────────────
+# · BUG-1: 폰트 전수 감사 — QGroupBox::title에 font-family 명시
+#           FloatingMonitor(최상위 독립 창)에 font-family stylesheet 추가
+#           SplashWindow QPushButton에 font-family 명시
+# · NEW-BT: 전장 애니메이션 QPixmap 방식 전환
+#           _render_anim_frame(args) — 모듈 최상위 서브프로세스용 렌더 함수
+#           FrameRenderWorker(QThread) — ProcessPoolExecutor 병렬 렌더링
+#           AnimationTab: FigureCanvas 제거 → QLabel + QProgressBar(사전 렌더 진행률)
+#           _pixmaps 캐시, _draw_frame → setPixmap 즉시 표시
+#           휠 줌: eventFilter + QPixmap.scaled(SmoothTransformation)
