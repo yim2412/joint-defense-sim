@@ -135,7 +135,7 @@ Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\" -Force
 
 ### DB 구조 원칙
 
-- `ENEMY_DB` : 적군 32종. 신규 추가 시 `normalize_enemy_db()`가 누락 필드를 자동 보완하므로 필수 필드만 정의해도 된다.
+- `ENEMY_DB` : 적군 43종. 신규 추가 시 `normalize_enemy_db()`가 누락 필드를 자동 보완하므로 필수 필드만 정의해도 된다.
 - `FRIENDLY_DB` : 아군 무기 8종. `pk_dist`는 Beta 분포 파라미터(`alpha`, `beta`, `mean`).
 - `SHIP_DB` / `FLEET_PRESETS` : 아군 함정·편대 스펙. 실제 한국 해군 함명 사용.
 - `FRIENDLY_AIRCRAFT_DB` : 함재 헬기·해상초계기. `base_type='ship'` 또는 `'land'` 구분.

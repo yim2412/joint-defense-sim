@@ -278,6 +278,15 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
+    # NEW-X: YJ-21 — 함발 극초음속 대함탄도미사일 (055형 탑재, Mach 10+, 사거리 1500km)
+    # BUG-ref: is_hgv=True → SM-3만 요격 가능, Pk 최대 0.45
+    'YJ-21 (극초음속 대함)':
+        {'category':'대공','type':'극초음속활공체','speed_ms':3400,'altitude_m':40000,  # Mach 10+ 활공 단계 (종말 급강하)
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
+         'can_fire_missile':False,'rcs_m2':0.05,'is_hgv':True,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
     # ⭐ QBM: SM-3 거의 무력화
     'KN-23 (북한 이스칸데르)':
         {'category':'대공','type':'저고도기동탄도','speed_ms':1800,'altitude_m':2000,
@@ -302,6 +311,14 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
+    # NEW-X: CM-302 — 초음속 대함순항미사일 (054A·055 탑재, Mach 3, 사거리 290km)
+    'CM-302 (초음속 순항)':
+        {'category':'대공','type':'순항미사일','speed_ms':1020,'altitude_m':15,  # Mach 3 해면밀착 종말
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':290,
+         'can_fire_missile':False,'rcs_m2':0.05,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
     'P-800 오닉스 (야혼트)':
         {'category':'대공','type':'순항미사일','speed_ms':824,'altitude_m':15,  # LOW-2: 750→824 m/s (Mach 2.5 해면 근접)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':300,
@@ -320,6 +337,15 @@ ENEMY_DB = {
         {'category':'대공','type':'순항미사일','speed_ms':300,'altitude_m':50,
          # 장거리 지형추적 순항 50m (CJ-10보다 낮은 스텔스 비행 프로파일)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':800,
+         'can_fire_missile':False,'rcs_m2':0.01,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
+    # NEW-X: 해성-3 — 북한 잠수함발사 순항미사일 (아음속, 사거리 1500km+)
+    # 실제 스텔스 설계로 RCS 극소 (CJ-10 수준), 잠수함에서 발사 후 해면 밀착 순항
+    '해성-3 (잠수함발사 순항)':
+        {'category':'대공','type':'순항미사일','speed_ms':250,'altitude_m':50,  # 아음속 지형추적
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
          'can_fire_missile':False,'rcs_m2':0.01,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
