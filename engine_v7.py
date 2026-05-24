@@ -501,10 +501,11 @@ class TimeStepEngine:
         self._log_entries: list = []
         self._tick_events:  list = []
 
-        # sim_seed 적용 (재현 보장)
+        # sim_seed 적용 (재현 보장) — python random + numpy 동시 고정
         seed = cfg.get('sim_seed', None)
         if seed:
             random.seed(int(seed))
+            np.random.seed(int(seed))
 
         MissileObj.reset_counter()
         EnemyThreatObj.reset_counter()
@@ -1623,6 +1624,7 @@ class TimeStepEngine:
             'enemy_ships':       self.enemy_threats,   # 하위 호환 키 유지
             'remaining_inventory': remaining_inv,
             'total_channels':      total_channels,
+            'used_seed':           self.cfg.get('sim_seed', None),
         }
 
 

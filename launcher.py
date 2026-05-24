@@ -1,9 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.9 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.10 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v7.9 — 전면 코드·UI 감사 수정 (P3)]                                      ║
+║  [v7.10 — 시뮬레이션 재현 (seed) + 적 DB 확장 + 코드 감사]                ║
 ║                                                                              ║
+║  NEW-1  시뮬 seed numpy 동시 고정 (random + np.random.seed) — 완전 재현    ║
+║  NEW-2  결과 화면 사용된 시드 표시 — 재현 시 동일 값 입력 안내             ║
+║  NEW-3  YJ-21 극초음속 대함탄도미사일 추가 (Mach 10+, 1500km, HGV)        ║
+║  NEW-4  CM-302 초음속 순항미사일 추가 (Mach 3, 290km, 054A/055 탑재)      ║
+║  NEW-5  해성-3 잠수함발사 순항미사일 추가 (북한 SLCM, 1500km+)            ║
 ║  BUG-1  날씨 비교 UI 프리즈 수정: WeatherWorker(QThread) 비차단 실행       ║
 ║  BUG-2  update_status 조건 오류 수정: or "/" → or "/" in msg               ║
 ║  BUG-3  요격률 레이블 너비 52→68px (100.0% 텍스트 잘림 방지)              ║
@@ -2172,7 +2177,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.9")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.10")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -2439,7 +2444,7 @@ class MainWindow(QMainWindow):
 
         # 시뮬 시드
         seed_row = QHBoxLayout()
-        lbl_seed = QLabel("시뮬 시드  (0=랜덤)")
+        lbl_seed = QLabel("시뮬 시드  (0=랜덤, 재현 시 동일 값 입력)")
         lbl_seed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.spn_sim_seed = NoScrollSpinBox()
         self.spn_sim_seed.setRange(0, 99999)
@@ -2656,6 +2661,12 @@ class MainWindow(QMainWindow):
         self.btn_pdf.clicked.connect(self._export_pdf)
         export_rl.addWidget(self.btn_excel)
         export_rl.addWidget(self.btn_pdf)
+
+        # 시드 표시 레이블 (재현용)
+        self._lbl_seed_used = QLabel("")
+        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        export_rl.addSpacing(12)
+        export_rl.addWidget(self._lbl_seed_used)
         layout.addWidget(export_row)
 
         # ── 사이드바 + QStackedWidget ─────────────────────────────────────
@@ -3364,6 +3375,12 @@ class MainWindow(QMainWindow):
         self._cards['cost'].setText(f"${result['total_cost']:,.0f}")
         sorties = result.get('aircraft_sorties', 0)
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
+        # 사용된 시드 표시 (재현용)
+        seed = result.get('used_seed')
+        if seed:
+            self._lbl_seed_used.setText(f"시드: {seed}  (재현하려면 시뮬 시드에 동일 값 입력)")
+        else:
+            self._lbl_seed_used.setText("시드: 랜덤  (재현 불가)")
 
     def _draw_mc_chart(self, result: dict, mc: dict, cfg: dict):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
@@ -3721,7 +3738,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.9  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.10  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
