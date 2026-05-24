@@ -568,6 +568,15 @@ FRIENDLY_DB = {
         {'speed_ms':21.0,'range_km':11,'cost_usd':150000,'stock':8,  # MED-4: 28.3→21 m/s (Mk.46 Mod5 ~40 kts)
          'category':['대잠'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
+    # NEW-X: 한국 해군 대함 무기 (PKG·PCC 탑재)
+    '해성-I (대함순항)':
+        {'speed_ms':300,'range_km':150,'cost_usd':600000,'stock':0,
+         'category':['대함'],
+         'pk_dist':{'alpha':8,'beta':2,'mean':0.800},'requires_illuminator':False},
+    '하푼 Block II (AGM-84)':
+        {'speed_ms':270,'range_km':280,'cost_usd':1200000,'stock':0,
+         'category':['대함'],
+         'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
 }
 
 WEATHER_DB = {
@@ -658,6 +667,70 @@ SHIP_DB = {
             'CIWS-II (Phalanx)': 9999,
         },
     },
+    # ── 유도탄 고속함 (PKG 윤영하급) ─────────────────────────────────────────
+    # 570톤 / 40노트+ / 대함 특화 — 해성-I × 4, 40mm CIWS × 1
+    # 방공 SAM 없음 → 채널 2 (CIWS 우선 자체방어 수준)
+    'PKG': {
+        'display':      '유도탄 고속함 (PKG 윤영하급)',
+        'sensor_km':    {'대공': 50, '대함': 30, '대잠': 10},
+        'max_channels': 2,
+        'role':         ['대함'],
+        'default_inventory': {
+            '해성-I (대함순항)':  4,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # ── 초계함 (PCC 포항급) ───────────────────────────────────────────────────
+    # 1,200톤 / 32노트 / 연안 초계 — 하푼 × 4, 40mm CIWS × 2, Mk.46 × 6
+    'PCC': {
+        'display':      '초계함 (PCC 포항급)',
+        'sensor_km':    {'대공': 80, '대함': 35, '대잠': 35},
+        'max_channels': 4,
+        'role':         ['대공', '대함', '대잠'],
+        'default_inventory': {
+            '하푼 Block II (AGM-84)': 4,
+            'CIWS-II (Phalanx)':     9999,
+            'Mk.46 경어뢰':           6,
+        },
+    },
+    # ── 유도탄 고속정 (PKX-B 참수리-II) ──────────────────────────────────────
+    # 200톤 / 40노트+ / 연안 급속 대응 — 해성-I × 2, 40mm × 1
+    'PKX-B': {
+        'display':      '유도탄 고속정 (PKX-B 참수리-II)',
+        'sensor_km':    {'대공': 30, '대함': 20, '대잠': 5},
+        'max_channels': 1,
+        'role':         ['대함'],
+        'default_inventory': {
+            '해성-I (대함순항)':  2,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # ── 강습상륙함 (LPH 독도함급 / 마라도함) ─────────────────────────────────
+    # 14,500톤 / 22노트 / 헬기 모함·지휘함 — RAM × 42, CIWS × 2, 헬기 15대
+    'LPH': {
+        'display':      '강습상륙함 (LPH 독도함급)',
+        'sensor_km':    {'대공': 100, '대함': 40, '대잠': 55},
+        'max_channels': 6,
+        'role':         ['대공', '대잠'],
+        'default_inventory': {
+            'RIM-116 RAM':       42,   # RAM 21셀 × 2기
+            'CIWS-II (Phalanx)': 9999,
+            '홍상어 (대잠)':     12,   # 탑재 헬기(AW-101·와일드캣) 운용
+            '청상어 (경어뢰)':   12,
+            'Mk.46 경어뢰':       8,
+        },
+    },
+    # ── 고속전투지원함 (AOE 소양함) ──────────────────────────────────────────
+    # 23,000톤 / 22노트 / 전단 보급·연료·탄약 지원 — 전투력 없음
+    'AOE': {
+        'display':      '고속전투지원함 (AOE 소양함)',
+        'sensor_km':    {'대공': 60, '대함': 30, '대잠': 20},
+        'max_channels': 0,
+        'role':         ['보급'],
+        'default_inventory': {
+            'CIWS-II (Phalanx)': 9999,   # 자체방어 최소 CIWS
+        },
+    },
 }
 
 # ── 편대 프리셋 (한국 해군 기동전단 교리 기반) ──────────────────────────────
@@ -695,6 +768,57 @@ FLEET_PRESETS = {
         {'name': '문무대왕함',     'type': 'KDX-II'},
         {'name': '대구함',         'type': 'FFX'},
         {'name': '인천함',         'type': 'FFX'},
+    ],
+
+    # ════ 현실 기반 편대 (한국 해군 실 교리 기반) ════════════════════════════
+    # 이지스 기동전단 — 정조대왕함 중심, KDX-II 2·FFX 2·보급함 1
+    '이지스 기동전단': [
+        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': '충무공이순신함', 'type': 'KDX-II'},
+        {'name': '문무대왕함',     'type': 'KDX-II'},
+        {'name': '인천함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX'},
+        {'name': '소양함',         'type': 'AOE'},
+    ],
+    # 이지스 기동전단 (강화) — 이지스 2척 체제, 전시 확장 편성
+    '이지스 기동전단 (강화)': [
+        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': '세종대왕함',     'type': 'KDX-III'},
+        {'name': '충무공이순신함', 'type': 'KDX-II'},
+        {'name': '문무대왕함',     'type': 'KDX-II'},
+        {'name': '인천함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX'},
+        {'name': '소양함',         'type': 'AOE'},
+    ],
+    # 독도함 상륙전단 — 상륙기동전단, 헬기 대잠 특화
+    '독도함 상륙전단': [
+        {'name': '독도함',         'type': 'LPH'},
+        {'name': '충무공이순신함', 'type': 'KDX-II'},
+        {'name': '인천함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX'},
+    ],
+    # 동해 해역방어 (1함대) — 구축함 1·호위함 2·고속함 4·초계함 2
+    '동해 해역방어 (1함대)': [
+        {'name': '대조영함',  'type': 'KDX-II'},
+        {'name': '인천함',    'type': 'FFX'},
+        {'name': '강원함',    'type': 'FFX'},
+        {'name': '윤영하함',  'type': 'PKG'},
+        {'name': '한상국함',  'type': 'PKG'},
+        {'name': '조천형함',  'type': 'PKG'},
+        {'name': '황도현함',  'type': 'PKG'},
+        {'name': '포항함',    'type': 'PCC'},
+        {'name': '군산함',    'type': 'PCC'},
+    ],
+    # 서해 해역방어 (2함대) — 호위함 2·고속함 4·초계함 2
+    '서해 해역방어 (2함대)': [
+        {'name': '부산함',    'type': 'FFX'},
+        {'name': '전주함',    'type': 'FFX'},
+        {'name': '서후원함',  'type': 'PKG'},
+        {'name': '박동혁함',  'type': 'PKG'},
+        {'name': '이희완함',  'type': 'PKG'},
+        {'name': '김두찬함',  'type': 'PKG'},
+        {'name': '경주함',    'type': 'PCC'},
+        {'name': '목포함',    'type': 'PCC'},
     ],
 }
 
