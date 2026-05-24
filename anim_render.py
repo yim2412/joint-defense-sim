@@ -43,12 +43,21 @@ def _render_anim_frame(args):
         ak_c = min(ak, _MAX_ALT)
         return (xk - yk) * _ISO_COS, (xk + yk) * _ISO_SIN + ak_c * _ALT_SCALE
 
-    fig = Figure(figsize=(8, 6), facecolor='#0d1117')
+    fig = Figure(figsize=(10, 7), facecolor='#0d1117')
     ax  = fig.add_axes([0.01, 0.01, 0.98, 0.98], facecolor='#0d1117')
     ax.set_aspect('equal')
     ax.axis('off')
 
     km = lambda v: v / 1000.0
+
+    # ── 뷰 범위 (격자보다 먼저 계산) ─────────────────────────────────────
+    cx     = R * _ISO_COS
+    cy_gnd = R * _ISO_SIN
+    x_span = cx * 1.10
+    y_bot  = -cy_gnd * 1.05   # 남쪽 적 하단 잘림 수정 (0.40 → 1.05)
+    y_top  = cy_gnd + _MAX_ALT * _ALT_SCALE * 0.60
+    ax.set_xlim(-x_span, x_span)
+    ax.set_ylim(y_bot, y_top)
 
     # ── 격자 ─────────────────────────────────────────────────────────────
     step  = max(50, int(R / 5) // 10 * 10)
@@ -67,15 +76,6 @@ def _render_anim_frame(args):
         lx, ly = iso(ring_r * 0.72, ring_r * -0.72)
         ax.text(lx, ly, f'{ring_r}km', color='#2a4e72', fontsize=7,
                 va='center', zorder=2)
-
-    # ── 뷰 범위 ──────────────────────────────────────────────────────────
-    cx     = R * _ISO_COS
-    cy_gnd = R * _ISO_SIN
-    x_span = cx * 1.10
-    y_bot  = -cy_gnd * 0.40
-    y_top  = cy_gnd + _MAX_ALT * _ALT_SCALE * 0.60
-    ax.set_xlim(-x_span, x_span)
-    ax.set_ylim(y_bot, y_top)
 
     # ── 적 위협 ──────────────────────────────────────────────────────────
     for item in enemy_ships:
