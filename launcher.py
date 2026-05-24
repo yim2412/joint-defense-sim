@@ -35,7 +35,8 @@ def _get_gpu_info() -> dict:
             ['nvidia-smi',
              '--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu',
              '--format=csv,noheader,nounits'],
-            timeout=1, stderr=_sp.DEVNULL)
+            timeout=1, stderr=_sp.DEVNULL,
+            creationflags=_sp.CREATE_NO_WINDOW)
         p = [x.strip() for x in out.decode().strip().split(',')]
         return {'util': int(p[0]), 'mem_used': int(p[1]),
                 'mem_total': int(p[2]), 'temp': int(p[3])}
