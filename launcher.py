@@ -3736,7 +3736,7 @@ class SplashWindow(QWidget):
         tbl.setHorizontalHeaderLabels(["탭 / 기능", "설명"])
         tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         tbl.setColumnWidth(0, 280)
-        tbl.verticalHeader().setDefaultSectionSize(36)
+        tbl.setWordWrap(True)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.verticalHeader().setVisible(False)
@@ -3746,8 +3746,12 @@ class SplashWindow(QWidget):
         for row, (name, desc) in enumerate(_FEATURES):
             ni = QTableWidgetItem(name)
             ni.setForeground(QColor(C_ACCENT))
+            desc_item = QTableWidgetItem(desc)
+            desc_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, ni)
-            tbl.setItem(row, 1, QTableWidgetItem(desc))
+            tbl.setItem(row, 1, desc_item)
+        tbl.resizeRowsToContents()
         layout.addWidget(tbl)
         return w
 
