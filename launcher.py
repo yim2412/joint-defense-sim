@@ -1,7 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.0 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.4 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.4 — Freeze/응답없음 수정]                                              ║
+║                                                                              ║
+║  BUG-1  canvas.draw() → draw_idle() 전체 교체 (UI 스레드 블로킹 제거)      ║
+║  BUG-2  로그 테이블 최대 300행 제한 + setUpdatesEnabled + processEvents     ║
+║  BUG-3  탭 전환 200ms 디바운스 (QTimer, 빠른 연속 클릭 시 마지막만 렌더)   ║
+║  BUG-4  차트 캐시 — 동일 result 객체 재렌더 스킵 (id 기반)                 ║
+║                                                                              ║
 ║  [6단계 — PyQt6 네이티브 UI / 포팅 A+B]                                    ║
 ║                                                                              ║
 ║  NEW-A  MainWindow: 좌/우 분할 레이아웃 (설정 패널 + 결과 탭)               ║
@@ -1288,7 +1295,7 @@ class SysMonitorTab(QWidget):
             ax.axvspan(self._sim_start_idx, 59, color='#f1c40f',
                        alpha=0.18, zorder=0, label='시뮬 실행 중')
         ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
-        self._sys_canvas.draw()
+        self._sys_canvas.draw_idle()   # BUG-1: draw_idle()로 UI 블로킹 방지
 
     def _draw_gpu_chart(self):
         fig = self._gpu_canvas.fig; fig.clear()
@@ -1303,7 +1310,7 @@ class SysMonitorTab(QWidget):
         ax.grid(color='#1e2a3a', linewidth=0.5)
         ax.plot(self._gpu_hist, color='#2ecc71', lw=1.5, label='GPU')
         ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
-        self._gpu_canvas.draw()
+        self._gpu_canvas.draw_idle()   # BUG-1
 
     def _update_proc_table(self):
         self._proc_tbl.setRowCount(0)
@@ -1340,7 +1347,7 @@ class SysMonitorTab(QWidget):
             ax.tick_params(colors='#aab', labelsize=8)
             for sp in ax.spines.values(): sp.set_color('#1e2a3a')
             ax.grid(color='#1e2a3a', linewidth=0.5, axis='y')
-            self._hist_canvas.draw()
+            self._hist_canvas.draw_idle()   # BUG-1
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1349,7 +1356,7 @@ class SysMonitorTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.0")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.4")
         self.resize(1800, 1060)
         self._worker = None
         self._result = None
@@ -1357,6 +1364,15 @@ class MainWindow(QMainWindow):
         self._t0     = 0.0
         self._history: list = []  # 이전 실행 결과 히스토리 (최대 5개)
         self._float_mon = FloatingMonitor()
+
+        # ── BUG-1: 탭 전환 디바운스 (200ms) ────────────────────────────────
+        self._page_pending_idx: int = -1
+        self._page_debounce_timer = QTimer(self)
+        self._page_debounce_timer.setSingleShot(True)
+        self._page_debounce_timer.setInterval(200)
+        self._page_debounce_timer.timeout.connect(self._render_current_page)
+        # BUG-1: 차트 캐시 — 동일 result 객체면 재렌더 스킵
+        self._page_render_cache: dict = {}   # {page_idx: id(result)}
 
         self._build_ui()
         self._apply_style()
@@ -1924,12 +1940,24 @@ class MainWindow(QMainWindow):
         return panel
 
     def _on_page_changed(self, idx: int):
-        """사이드바 선택 시 해당 페이지 지연 렌더링."""
-        if self._result is None:
-            return
-        cfg  = self._worker.cfg  if self._worker else {}
-        mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
+        """사이드바 선택 시 200ms 디바운스 후 지연 렌더링 (BUG-1)."""
+        self._page_pending_idx = idx
+        self._page_debounce_timer.start()
 
+    def _render_current_page(self):
+        """디바운스 만료 후 실제 페이지 렌더링 — 동일 데이터 재렌더 스킵 (BUG-1)."""
+        idx = self._page_pending_idx
+        if self._result is None or idx < 0:
+            return
+        if idx not in self._page_dirty:
+            return
+        # 동일 result 객체면 재렌더 스킵
+        result_id = id(self._result)
+        if self._page_render_cache.get(idx) == result_id:
+            self._page_dirty.discard(idx)
+            return
+
+        cfg = self._worker.cfg if self._worker else {}
         render_map = {
             1:  lambda: self._draw_mc_chart(self._result, self._mc, cfg),
             5:  lambda: self._draw_channel_heatmap(self._result),
@@ -1937,16 +1965,17 @@ class MainWindow(QMainWindow):
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
             10: lambda: self._draw_timeline(self._result),
-            12: lambda: None,   # 감도 분석은 SensitivityWorker가 처리
+            12: lambda: None,
             13: lambda: self._draw_bearing_vulnerability(self._result),
             14: lambda: self._draw_req_radar(self._result, self._mc),
             15: lambda: self._draw_threat_type(self._result, self._mc),
             16: lambda: self._draw_vuln_time(self._result),
             17: lambda: self._draw_history_compare(self._result, self._mc),
         }
-        if idx in render_map and idx in self._page_dirty:
+        if idx in render_map:
             render_map[idx]()
             self._page_dirty.discard(idx)
+            self._page_render_cache[idx] = result_id
 
     def _build_req_tab(self) -> QWidget:
         """포팅 D: REQ 판정 결과 테이블."""
@@ -2502,17 +2531,22 @@ class MainWindow(QMainWindow):
             ax.axis('off')
             fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        self.tab_mc_canvas.draw()
+        self.tab_mc_canvas.draw_idle()   # BUG-1
 
     def _fill_log(self, log: list):
+        # BUG-1: 최대 300행 제한 + 배치 삽입 (UI 블로킹 방지)
+        entries = log[-300:] if len(log) > 300 else log
+        self.log_table.setUpdatesEnabled(False)
         self.log_table.setRowCount(0)
-        for t, msg in log:
+        for t, msg in entries:
             row = self.log_table.rowCount()
             self.log_table.insertRow(row)
             t_item = QTableWidgetItem(f"{t:.0f}s")
             t_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.log_table.setItem(row, 0, t_item)
             self.log_table.setItem(row, 1, QTableWidgetItem(msg))
+        self.log_table.setUpdatesEnabled(True)
+        QApplication.processEvents()
 
     def _draw_tactical(self, result: dict):
         """전술교전도 (Janes 式 측면도): X=시간(s), Y=함대 거리(km)."""
@@ -3432,7 +3466,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.2  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.4  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -3539,11 +3573,9 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v7.4", "낮음", "Freeze 수정",
-             "canvas.draw_idle() 전환 + 로그 300행 제한 + 탭 전환 디바운스 + 차트 캐시"),
-            ("v7.4", "낮음", "CPU 우선순위 조정",
+            ("v7.5", "낮음", "CPU 우선순위 조정",
              "워커 프로세스 BELOW_NORMAL 우선순위 — 다른 앱 실행 시 자동 양보"),
-            ("v7.4", "중간", "FloatingMonitor 개선",
+            ("v7.5", "중간", "FloatingMonitor 개선",
              "단계 표시·경과 시간·요격률 게이지·배치 스파크라인·격추/피격 카운터·시스템 모니터 수치"),
             ("v8.0", "높음", "양방향 교전 엔진",
              "적 함정/항공기가 아군 미사일을 HHQ-9 등으로 요격. 엔진 전면 재설계 필요."),
@@ -3691,3 +3723,12 @@ if __name__ == '__main__':
 #           AnimationTab: FigureCanvas 제거 → QLabel + QProgressBar(사전 렌더 진행률)
 #           _pixmaps 캐시, _draw_frame → setPixmap 즉시 표시
 #           휠 줌: eventFilter + QPixmap.scaled(SmoothTransformation)
+
+# ── v7.4 패치 ────────────────────────────────────────────────────────────────
+# · BUG-1: canvas.draw() → draw_idle() 전체 교체 (4곳)
+#           _sys_canvas / _gpu_canvas / _hist_canvas / tab_mc_canvas
+# · BUG-2: _fill_log() 최대 300행 제한 + setUpdatesEnabled(False/True) + processEvents()
+# · BUG-3: _on_page_changed() 200ms 디바운스 — QTimer.singleShot 방식
+#           self._page_debounce_timer, self._page_pending_idx 추가
+#           _render_current_page() 분리 (실제 렌더 로직)
+# · BUG-4: _page_render_cache {page_idx: id(result)} — 동일 result 재렌더 스킵

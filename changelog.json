@@ -361,5 +361,16 @@
     "changes": [
       "BUG-1  nvidia-smi subprocess에 CREATE_NO_WINDOW 플래그 추가 — exe 실행 중 cmd 창 반복 팝업 수정"
     ]
+  },
+  {
+    "version": "15-4",
+    "date": "2026-05-24",
+    "title": "UI Freeze / 응답 없음 수정 — canvas·로그·탭 전환",
+    "changes": [
+      "BUG-1  canvas.draw() → draw_idle() 전체 교체 (SysMonitor·GPU·히스토리·MC 통계 4곳) — UI 스레드 블로킹 제거",
+      "BUG-2  교전 로그 테이블 최대 300행 제한 + setUpdatesEnabled(False/True) + processEvents() 추가",
+      "BUG-3  탭 전환 200ms QTimer 디바운스 — 빠른 연속 클릭 시 마지막 탭만 렌더, _render_current_page() 분리",
+      "BUG-4  차트 캐시 _page_render_cache — 동일 result 객체 재렌더 스킵 (id(result) 기반)"
+    ]
   }
 ]
