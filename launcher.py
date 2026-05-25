@@ -4503,22 +4503,45 @@ class SplashWindow(QWidget):
         _normalize_enemy_db()
         db = V7_ENEMY_DB
 
-        # 범례
-        legend_row = QHBoxLayout()
-        legend_row.setSpacing(16)
-        for label, color in [("🔴 대공", "#5c1a1a"), ("🟠 대함", "#5c3a1a"), ("🔵 대잠", "#1a2a5c")]:
-            lbl = QLabel(label)
-            lbl.setStyleSheet(f"background:{color}; color:{C_TEXT}; padding:2px 8px;"
-                              f" border-radius:4px; font-size:12px;")
-            legend_row.addWidget(lbl)
-        legend_row.addStretch()
+        # ── 필터 토글 버튼 ────────────────────────────────────────────────
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
+
+        _cat_defs = {
+            '대공': ('🔴', '#ff8080', '#5c1a1a', '#2a1010'),
+            '대함': ('🟠', '#ffaa55', '#5c3a1a', '#2a1a08'),
+            '대잠': ('🔵', '#6699ff', '#1a2a5c', '#0a1228'),
+        }
+        filter_btns: dict[str, QPushButton] = {}
+        for cat, (emoji, fg, act_bg, _) in _cat_defs.items():
+            btn = QPushButton(f"{emoji} {cat}")
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.setFixedHeight(26)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:{act_bg}; color:{fg};
+                    border:1px solid {fg}55; border-radius:4px;
+                    padding:0px 12px; font-size:12px; font-weight:bold;
+                }}
+                QPushButton:!checked {{
+                    background:{C_BG}; color:{C_SUBTEXT};
+                    border:1px solid {C_BORDER};
+                    font-weight:normal;
+                }}
+                QPushButton:hover {{ opacity:0.85; }}
+            """)
+            filter_btns[cat] = btn
+            filter_row.addWidget(btn)
+
+        filter_row.addStretch()
         lbl_count = QLabel(f"총 {len(db)}종")
         lbl_count.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
-        legend_row.addWidget(lbl_count)
-        layout.addLayout(legend_row)
+        filter_row.addWidget(lbl_count)
+        layout.addLayout(filter_row)
 
-        _cat_bg = {'대공': '#2a1010', '대함': '#2a1a08', '대잠': '#0a1228'}
-        _cat_fg = {'대공': '#ff8080', '대함': '#ffaa55', '대잠': '#6699ff'}
+        _cat_bg = {c: v[3] for c, v in _cat_defs.items()}
+        _cat_fg = {c: v[1] for c, v in _cat_defs.items()}
 
         sorted_entries = sorted(db.items(), key=lambda kv: kv[1].get('category', '대공'))
 
@@ -4545,6 +4568,7 @@ class SplashWindow(QWidget):
             it = QListWidgetItem(f"  {name}")
             it.setBackground(QColor(_cat_bg.get(cat, C_BG)))
             it.setForeground(QColor(_cat_fg.get(cat, C_TEXT)))
+            it.setData(Qt.ItemDataRole.UserRole, cat)
             name_list.addItem(it)
 
         # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
@@ -4564,9 +4588,31 @@ class SplashWindow(QWidget):
 
         layout.addWidget(splitter, stretch=1)
 
+        def _apply_filter():
+            visible = 0
+            for i in range(name_list.count()):
+                it = name_list.item(i)
+                cat = it.data(Qt.ItemDataRole.UserRole)
+                hide = not filter_btns.get(cat, filter_btns['대공']).isChecked()
+                it.setHidden(hide)
+                if not hide:
+                    visible += 1
+            lbl_count.setText(f"{visible}종 표시")
+            cur = name_list.currentRow()
+            if cur >= 0:
+                cur_it = name_list.item(cur)
+                if cur_it and cur_it.isHidden():
+                    spec_panel.clear()
+
+        for btn in filter_btns.values():
+            btn.toggled.connect(lambda _checked: _apply_filter())
+
         def _on_enemy_select(row):
             if row < 0 or row >= len(sorted_entries):
                 spec_panel.clear()
+                return
+            it = name_list.item(row)
+            if it and it.isHidden():
                 return
             uname, uentry = sorted_entries[row]
             spec_panel.show_unit(uname, uentry, _SPEC_DETAIL_DB.get(uname, {}), 'enemy')
