@@ -259,7 +259,6 @@ try:
         find_all_min_stocks_v7,
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
-        save_scenario_v7, load_scenario_v7,
         calculate_fleet_detect_ranges,
         save_json_report_v7,
         _mc_batch_worker,
@@ -2393,21 +2392,11 @@ class MainWindow(QMainWindow):
         fl.addRow("날씨",        self.cmb_weather)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
-        # 랜덤 배치 옵션
+        # 랜덤 배치 — 항상 활성화 (반경 10km 고정)
         rp_row = QHBoxLayout()
-        self.chk_random_placement = QCheckBox("함정 위치 랜덤 배치")
-        self.chk_random_placement.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
-        self.spn_spread_km = NoScrollSpinBox()
-        self.spn_spread_km.setRange(1, 50)
-        self.spn_spread_km.setValue(5)
-        self.spn_spread_km.setSuffix(" km")
-        self.spn_spread_km.setFixedWidth(72)
-        self.spn_spread_km.setEnabled(False)
-        self.chk_random_placement.toggled.connect(self.spn_spread_km.setEnabled)
-        rp_row.addWidget(self.chk_random_placement)
-        rp_row.addStretch()
-        rp_row.addWidget(QLabel("반경:"))
-        rp_row.addWidget(self.spn_spread_km)
+        lbl_rp = QLabel("함정 위치 랜덤 배치  (반경 10 km 고정)")
+        lbl_rp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        rp_row.addWidget(lbl_rp)
         fl.addRow("", rp_row)
         layout.addWidget(grp_f)
 
@@ -2588,134 +2577,23 @@ class MainWindow(QMainWindow):
         grp_def.hide()
         layout.addWidget(grp_def)
 
-        # ── C&D 시간 설정 ──────────────────────────────────────────────────
+        # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
         grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
-        cdl = QVBoxLayout(grp_cd)
-        cdl.setSpacing(6)
-
-        # cd_time_s
-        cd_row1 = QHBoxLayout()
-        lbl_cd_name = QLabel("C&&D 시간 (초)")
-        lbl_cd_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self.lbl_cd_val = QLabel("10s")
-        self.lbl_cd_val.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
-        self.lbl_cd_val.setFixedWidth(32)
-        cd_row1.addWidget(lbl_cd_name)
-        cd_row1.addStretch()
-        cd_row1.addWidget(self.lbl_cd_val)
-        self.sld_cd = QSlider(Qt.Orientation.Horizontal)
-        self.sld_cd.setRange(0, 60)
-        self.sld_cd.setValue(10)
-        self.sld_cd.setTickInterval(5)
-        self.sld_cd.setToolTip(
-            "Command & Decision 시간 (초)\n"
-            "위협 탐지 후 발사 명령까지 소요 시간.\n"
-            "클수록 첫 SAM 발사가 늦어집니다."
-        )
-        self.sld_cd.valueChanged.connect(lambda v: self.lbl_cd_val.setText(f"{v}s"))
-        cdl.addLayout(cd_row1)
-        cdl.addWidget(self.sld_cd)
-
-        # confirm_time_s
-        cd_row2 = QHBoxLayout()
-        lbl_cf_name = QLabel("확인 시간 (초)")
-        lbl_cf_name.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self.lbl_cf_val = QLabel("3s")
-        self.lbl_cf_val.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
-        self.lbl_cf_val.setFixedWidth(32)
-        cd_row2.addWidget(lbl_cf_name)
-        cd_row2.addStretch()
-        cd_row2.addWidget(self.lbl_cf_val)
-        self.sld_confirm = QSlider(Qt.Orientation.Horizontal)
-        self.sld_confirm.setRange(0, 20)
-        self.sld_confirm.setValue(3)
-        self.sld_confirm.setTickInterval(1)
-        self.sld_confirm.setToolTip(
-            "교전 확인(IFF 식별) 시간 (초)\n"
-            "피아식별 절차 소요 시간. 클수록 반응이 늦어집니다."
-        )
-        self.sld_confirm.valueChanged.connect(lambda v: self.lbl_cf_val.setText(f"{v}s"))
-        cdl.addLayout(cd_row2)
-        cdl.addWidget(self.sld_confirm)
-
+        cdl = QHBoxLayout(grp_cd)
+        cdl.setSpacing(16)
+        lbl_cd_fixed = QLabel("C&&D  10초  /  확인  3초  (고정)")
+        lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        cdl.addWidget(lbl_cd_fixed)
         layout.addWidget(grp_cd)
 
         # ── MC 설정 ────────────────────────────────────────────────────────
         grp_mc = QGroupBox("📊 몬테카를로")
-        mcl = QFormLayout(grp_mc)
-        self.spn_mc_n = NoScrollSpinBox()
-        self.spn_mc_n.setRange(50, 5000)
-        self.spn_mc_n.setValue(1000)
-        self.spn_mc_n.setSingleStep(50)
-        mcl.addRow("반복 횟수", self.spn_mc_n)
+        mcl = QHBoxLayout(grp_mc)
+        lbl_mc_fixed = QLabel("반복 횟수  1000회  (고정)")
+        lbl_mc_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        mcl.addWidget(lbl_mc_fixed)
         layout.addWidget(grp_mc)
 
-        # ── 설정 프로필 저장/불러오기 ─────────────────────────────────────────
-        grp_prof = QGroupBox("📋 설정 프로필")
-        profl = QVBoxLayout(grp_prof)
-        profl.setSpacing(4)
-
-        # 프로필 선택 콤보박스
-        prof_sel_row = QHBoxLayout()
-        lbl_prof = QLabel("프로필:")
-        lbl_prof.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        lbl_prof.setFixedWidth(42)
-        self.cmb_profile = NoScrollComboBox()
-        self.cmb_profile.setMinimumWidth(120)
-        prof_sel_row.addWidget(lbl_prof)
-        prof_sel_row.addWidget(self.cmb_profile, stretch=1)
-        profl.addLayout(prof_sel_row)
-
-        # 새 프로필 이름 입력
-        prof_name_row = QHBoxLayout()
-        lbl_pname = QLabel("이름:")
-        lbl_pname.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        lbl_pname.setFixedWidth(42)
-        self.edt_profile_name = QLineEdit()
-        self.edt_profile_name.setPlaceholderText("새 프로필 이름 입력")
-        self.edt_profile_name.setStyleSheet(
-            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a; "
-            f"font-size:15px; padding:2px 4px;")
-        prof_name_row.addWidget(lbl_pname)
-        prof_name_row.addWidget(self.edt_profile_name, stretch=1)
-        profl.addLayout(prof_name_row)
-
-        # 버튼 행
-        prof_btn_row = QHBoxLayout()
-        prof_btn_row.setSpacing(4)
-        btn_prof_save = QPushButton("저장")
-        btn_prof_load = QPushButton("불러오기")
-        btn_prof_del  = QPushButton("삭제")
-        for b in [btn_prof_save, btn_prof_load, btn_prof_del]:
-            b.setFixedHeight(32)
-            b.setMinimumWidth(90)
-            b.setFont(QFont('Malgun Gothic', 14))
-            b.setStyleSheet(
-                f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a;")
-            prof_btn_row.addWidget(b)
-        btn_prof_save.clicked.connect(self._save_profile)
-        btn_prof_load.clicked.connect(self._load_profile)
-        btn_prof_del.clicked.connect(self._delete_profile)
-        profl.addLayout(prof_btn_row)
-
-        layout.addWidget(grp_prof)
-        self._refresh_profile_list()
-
-        # ── 시나리오 저장/불러오기 (포팅 D) ──────────────────────────────────
-        grp_sc = QGroupBox("💾 시나리오")
-        scl = QHBoxLayout(grp_sc)
-        scl.setSpacing(6)
-        btn_save = QPushButton("저장")
-        btn_load = QPushButton("불러오기")
-        for b in [btn_save, btn_load]:
-            b.setFixedHeight(32)
-            b.setMinimumWidth(90)
-            b.setFont(QFont('Malgun Gothic', 14))
-            b.setStyleSheet(f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #3a5a7a;")
-            scl.addWidget(b)
-        btn_save.clicked.connect(self._save_scenario)
-        btn_load.clicked.connect(self._load_scenario)
-        layout.addWidget(grp_sc)
 
         # ── 실행 버튼 ─────────────────────────────────────────────────────
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
@@ -3194,18 +3072,18 @@ class MainWindow(QMainWindow):
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
-            'enable_random_placement':   self.chk_random_placement.isChecked(),
-            'random_spread_km':          self.spn_spread_km.value(),
+            'enable_random_placement':   True,
+            'random_spread_km':          10.0,
             'enemy_tactics':          {
                 '없음': None, 'V자 대형': 'v_formation',
                 '포위 기동': 'encirclement'
             }.get(self.cmb_enemy_tactics.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
             # C&D 시간
-            'cd_time_s':      self.sld_cd.value(),
-            'confirm_time_s': self.sld_confirm.value(),
+            'cd_time_s':      10,
+            'confirm_time_s': 3,
         }
-        mc_n = self.spn_mc_n.value()
+        mc_n = 1000
 
         self.btn_run.setEnabled(False)
         self._prog.setVisible(True)
@@ -3428,160 +3306,6 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "날씨 비교 오류", msg)
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
-
-    # ── 설정 프로필 저장/불러오기 ────────────────────────────────────────────
-
-    def _profiles_dir(self) -> str:
-        # exe 환경: exe 파일 옆에 저장 / 일반: 소스 파일 옆에 저장
-        if getattr(sys, 'frozen', False):
-            base = os.path.dirname(sys.executable)
-        else:
-            base = os.path.dirname(os.path.abspath(__file__))
-        d = os.path.join(base, 'profiles')
-        os.makedirs(d, exist_ok=True)
-        return d
-
-    def _refresh_profile_list(self):
-        d = self._profiles_dir()
-        names = sorted(
-            os.path.splitext(f)[0]
-            for f in os.listdir(d) if f.endswith('.json')
-        )
-        self.cmb_profile.blockSignals(True)
-        self.cmb_profile.clear()
-        self.cmb_profile.addItems(names)
-        self.cmb_profile.blockSignals(False)
-
-    def _ui_to_profile(self) -> dict:
-        return {
-            'fleet_preset':       self.cmb_fleet.currentText(),
-            'weather':            self.cmb_weather.currentText(),
-            'enemy_mode':         self.cmb_enemy_mode.currentText(),
-            'enemy_fleet_preset': self.cmb_fleet_preset_e.currentText(),
-            'mixed_scenario':     self.cmb_mixed_scenario.currentText(),
-            'difficulty':         self.cmb_difficulty.currentText(),
-            'enemy_seed':         self.spn_seed.value(),
-            'sim_seed':           self.spn_sim_seed.value(),
-            'cd_time_s':          self.sld_cd.value(),
-            'confirm_time_s':     self.sld_confirm.value(),
-            'mc_n':               self.spn_mc_n.value(),
-            'multibearing':         self.chk_multibearing.isChecked(),
-            'cec_jammed':           self.chk_cec_jammed.isChecked(),
-            'ship_evasion':         self.chk_ship_evasion.isChecked(),
-            'random_placement':     self.chk_random_placement.isChecked(),
-            'random_spread_km':     self.spn_spread_km.value(),
-            'enemy_tactics':        self.cmb_enemy_tactics.currentText(),
-        }
-
-    def _profile_to_ui(self, p: dict):
-        def _set_cmb(cmb, val):
-            idx = cmb.findText(val)
-            if idx >= 0:
-                cmb.setCurrentIndex(idx)
-
-        _set_cmb(self.cmb_fleet,          p.get('fleet_preset', ''))
-        _set_cmb(self.cmb_weather,        p.get('weather', ''))
-        _set_cmb(self.cmb_enemy_mode,     p.get('enemy_mode', ''))
-        _set_cmb(self.cmb_fleet_preset_e,  p.get('enemy_fleet_preset', ''))
-        _set_cmb(self.cmb_mixed_scenario,  p.get('mixed_scenario', ''))
-        _set_cmb(self.cmb_difficulty,      p.get('difficulty', ''))
-        _set_cmb(self.cmb_enemy_tactics,  p.get('enemy_tactics', '없음'))
-        self.spn_seed.setValue(p.get('enemy_seed', 0))
-        self.spn_sim_seed.setValue(p.get('sim_seed', 0))
-        self.sld_cd.setValue(p.get('cd_time_s', 10))
-        self.sld_confirm.setValue(p.get('confirm_time_s', 3))
-        self.spn_mc_n.setValue(p.get('mc_n', 1000))
-        self.chk_multibearing.setChecked(p.get('multibearing', False))
-        self.chk_cec_jammed.setChecked(p.get('cec_jammed', False))
-        self.chk_ship_evasion.setChecked(p.get('ship_evasion', False))
-        self.chk_random_placement.setChecked(p.get('random_placement', False))
-        self.spn_spread_km.setValue(p.get('random_spread_km', 5))
-
-    def _save_profile(self):
-        name = self.edt_profile_name.text().strip()
-        if not name:
-            name = self.cmb_profile.currentText().strip()
-        if not name:
-            QMessageBox.warning(self, "프로필 저장", "저장할 프로필 이름을 입력하세요.")
-            return
-        import re
-        safe = re.sub(r'[\\/:*?"<>|]', '_', name)
-        path = os.path.join(self._profiles_dir(), f"{safe}.json")
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(self._ui_to_profile(), f, ensure_ascii=False, indent=2)
-        self._refresh_profile_list()
-        idx = self.cmb_profile.findText(safe)
-        if idx >= 0:
-            self.cmb_profile.setCurrentIndex(idx)
-        self.edt_profile_name.clear()
-        self._lbl_status.setText(f"프로필 저장: {safe}")
-
-    def _load_profile(self):
-        name = self.cmb_profile.currentText().strip()
-        if not name:
-            QMessageBox.warning(self, "프로필 불러오기", "불러올 프로필을 선택하세요.")
-            return
-        path = os.path.join(self._profiles_dir(), f"{name}.json")
-        if not os.path.exists(path):
-            QMessageBox.warning(self, "프로필 불러오기", f"파일 없음: {path}")
-            return
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                p = json.load(f)
-            self._profile_to_ui(p)
-            self._lbl_status.setText(f"프로필 불러옴: {name}")
-        except Exception as e:
-            QMessageBox.critical(self, "오류", str(e))
-
-    def _delete_profile(self):
-        name = self.cmb_profile.currentText().strip()
-        if not name:
-            return
-        reply = QMessageBox.question(
-            self, "프로필 삭제", f"'{name}' 프로필을 삭제하시겠습니까?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        path = os.path.join(self._profiles_dir(), f"{name}.json")
-        if os.path.exists(path):
-            os.remove(path)
-        self._refresh_profile_list()
-        self._lbl_status.setText(f"프로필 삭제: {name}")
-
-    def _save_scenario(self):
-        """포팅 D: 현재 설정을 JSON으로 저장."""
-        if not _V7_OK:
-            return
-        from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(
-            self, "시나리오 저장", "scenario.json", "JSON (*.json)")
-        if not path:
-            return
-        cfg = self._worker.cfg if (self._worker and hasattr(self._worker, 'cfg')) else {}
-        if not cfg:
-            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
-            return
-        save_scenario_v7(cfg, path)
-        QMessageBox.information(self, "저장 완료", f"저장됨: {path}")
-
-    def _load_scenario(self):
-        """포팅 D: JSON에서 설정 불러오기 (알림만, 실제 UI 반영은 수동)."""
-        if not _V7_OK:
-            return
-        from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getOpenFileName(
-            self, "시나리오 불러오기", "", "JSON (*.json)")
-        if not path:
-            return
-        try:
-            cfg = load_scenario_v7(path)
-            QMessageBox.information(
-                self, "불러오기 완료",
-                f"불러온 시나리오: {path}\n\n"
-                "※ UI 수동 설정이 필요합니다.\n"
-                f"날씨: {cfg.get('weather','—')} | MC: {cfg.get('mc_n','—')}회")
-        except Exception as e:
-            QMessageBox.critical(self, "오류", str(e))
 
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
