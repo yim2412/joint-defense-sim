@@ -92,8 +92,6 @@ SEARCH_QUERIES = {
     '오스카-II급 SSGN':        'Oscar II SSGN submarine Russia',
     '야센급 SSGN':             'Yasen submarine Russia nuclear attack',
     # ── 드론 ────────────────────────────────────────────────────────────────
-    '소형 자폭 드론 (UAV)':    'Shahed-136 loitering munition drone kamikaze',
-    '드론 떼 (Swarm-12)':      'Bayraktar TB2 drone formation military',
     # ── 아군 함정 ────────────────────────────────────────────────────────────
     'KDX-III':   'ROKS Sejong Great Aegis destroyer Korea Navy',
     'KDX-II':    'Chungmugong Yi Sun-sin destroyer Korea Navy',

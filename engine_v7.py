@@ -247,16 +247,6 @@ _MISSILE_PK_MAP = {
 }
 _MISSILE_PK_DEFAULT = 0.72  # 미등록 미사일 기본값
 
-# NEW-A: 스웜 그룹에 대한 무기별 격추 수 (lo, hi) — 1발당 제압 드론 수
-_SWARM_KILL_PER_WEAPON = {
-    'RIM-116 RAM':       (2, 5),  # 산탄식 근접 신관
-    'CIWS-II (Phalanx)': (1, 3),  # 발칸포 연사
-    'SM-2 Block IIIB':   (1, 1),  # SAM은 1기만 제압 (낭비)
-    'SM-6':              (1, 1),
-    'SM-3 Block IIA':    (1, 1),
-    'ESSM Block II':     (1, 1),
-    'SM-6 Block IB':     (1, 1),
-}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -411,11 +401,6 @@ class EnemyThreatObj:
         # MED-12: 항공기 재공격 — 이탈 후 재접근 허용
         self.reattack_count = 0
         self.max_reattacks  = 1 if self.is_aircraft else 0
-
-        # NEW-A: 드론 떼(Swarm) 속성
-        self.is_swarm        = bool(self.info.get('is_swarm', False))
-        self.swarm_size      = int(self.info.get('swarm_size', 1))
-        self.swarm_remaining = self.swarm_size
 
     def take_hit(self, weapon_name: str, t: float):
         self.hit_count += 1
@@ -947,17 +932,9 @@ class TimeStepEngine:
                 continue  # 일반 전투기는 미사일 발사 후 이탈 — 자폭 없음
             if et.pos.dist_to(primary.pos) > 200:
                 continue
-            if et.is_swarm:
-                hits = et.swarm_remaining
-                for _ in range(hits):
-                    primary.take_hit(et.preset_name, self.t)
-                    self.stats['friendly_hits'] += 1
-                self._log(f"[피격!] {et.preset_name} 잔여 {hits}기 자폭")
-                et.swarm_remaining = 0
-            else:
-                primary.take_hit(et.preset_name, self.t)
-                self.stats['friendly_hits'] += 1
-                self._log(f"[피격!] {et.preset_name} 자폭")
+            primary.take_hit(et.preset_name, self.t)
+            self.stats['friendly_hits'] += 1
+            self._log(f"[피격!] {et.preset_name} 자폭")
             et.alive = False
 
         for m in self.missiles:
@@ -1264,12 +1241,6 @@ class TimeStepEngine:
         """
         inv = ship.inventory
         alt = et.altitude_m
-
-        # NEW-A: 스웜 대응 — RAM/CIWS 우선, SAM 낭비 금지
-        if getattr(et, 'is_swarm', False):
-            if dist_m <= 2_000 and inv.get('CIWS-II (Phalanx)', 0) > 0: return 'CIWS-II (Phalanx)'
-            if dist_m <= 9_000 and inv.get('RIM-116 RAM',       0) > 0: return 'RIM-116 RAM'
-            return None  # 사거리 밖이면 SAM 낭비하지 않음
 
         sm2_ok = self._sm2_illuminator_ok(ship)  # LOW-11: 조명기 가용 여부
 
@@ -1591,44 +1562,23 @@ class TimeStepEngine:
                     eff_pk *= tgt.terminal_evasion_factor
 
             if random.random() < eff_pk:
-                # NEW-A: 스웜 부분 격추 (RAM 1발 = 2~5기 제압, 그룹 전멸 시에만 완전 격추)
-                if (sam.mtype == 'friendly_sam'
-                        and isinstance(tgt, EnemyThreatObj)
-                        and getattr(tgt, 'is_swarm', False)):
-                    lo, hi = _SWARM_KILL_PER_WEAPON.get(sam.name, (1, 1))
-                    kills  = random.randint(lo, hi)
-                    tgt.swarm_remaining = max(0, tgt.swarm_remaining - kills)
-                    self._log(
-                        f"[스웜 부분 격추] {sam.name}: {kills}기 격추, "
-                        f"잔여 {tgt.swarm_remaining}/{tgt.swarm_size}기"
-                    )
-                    if tgt.swarm_remaining <= 0:
-                        tgt.alive       = False
-                        tgt.intercepted = True
-                        tgt.t_intercept = self.t
+                tgt.alive       = False
+                tgt.intercepted = True
+                tgt.t_intercept = self.t
+
+                if sam.mtype == 'friendly_sam':
+                    self._log(f"[요격 성공] {sam.name} -> {tgt_name} 격추 ({self.t:.0f}s)")
+                    # MissileObj만 intercepted_threats에 집계 (BUG 수정: 항공기 플랫폼 격추는 enemy_ships_destroyed로)
+                    if isinstance(tgt, MissileObj):
                         self.stats['intercepted_threats'] += 1
-                        self._log(f"[스웜 완전 격추] {tgt.preset_name} ({self.t:.0f}s)")
                     for ship in self.friendly_ships:
                         if id(ship) == sam.owner_id:
                             ship.channels_used = max(0, ship.channels_used - 1)
                 else:
-                    tgt.alive       = False
-                    tgt.intercepted = True
-                    tgt.t_intercept = self.t
-
-                    if sam.mtype == 'friendly_sam':
-                        self._log(f"[요격 성공] {sam.name} -> {tgt_name} 격추 ({self.t:.0f}s)")
-                        # MissileObj만 intercepted_threats에 집계 (BUG 수정: 항공기 플랫폼 격추는 enemy_ships_destroyed로)
-                        if isinstance(tgt, MissileObj):
-                            self.stats['intercepted_threats'] += 1
-                        for ship in self.friendly_ships:
-                            if id(ship) == sam.owner_id:
-                                ship.channels_used = max(0, ship.channels_used - 1)
-                    else:
-                        self._log(f"[적 요격 성공] {sam.name} -> {tgt_name} 격추 ({self.t:.0f}s)")
-                        for et in self.enemy_threats:
-                            if id(et) == sam.owner_id:
-                                et.sam_channels_used = max(0, et.sam_channels_used - 1)
+                    self._log(f"[적 요격 성공] {sam.name} -> {tgt_name} 격추 ({self.t:.0f}s)")
+                    for et in self.enemy_threats:
+                        if id(et) == sam.owner_id:
+                            et.sam_channels_used = max(0, et.sam_channels_used - 1)
             else:
                 if sam.mtype == 'friendly_sam':
                     self._log(f"[요격 실패] {sam.name} -> {tgt_name} 통과")

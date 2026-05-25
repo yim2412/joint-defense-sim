@@ -478,37 +478,6 @@ ENEMY_DB = {
         'cost_usd':0,
         'missile_terminal_evasion':0.78},
 
-    # ════ 드론 떼 ════════════════════════════════════════════════════════════
-    '소형 자폭 드론 (UAV)': {
-        'type':'전투기','category':'대공','altitude_m':200,
-        'speed_ms':60,    # ~220km/h
-        'range_km':300,
-        'rcs_m2':0.005,   # 극소 RCS
-        'cost_usd':10000,
-        'missile_salvo_min':1,'missile_salvo_max':1,
-        'can_fire_missile':False,  # 자폭 방식 (체계 피격으로 처리)
-        'missile_name':'드론 자폭',
-        'missile_speed_ms':60,
-        'missile_range_km':0,
-        'missile_terminal_evasion':0.60,
-        'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
-
-    # 드론 떼 (Swarm) — RAM/CIWS 포화 전술: 1채널당 12기 그룹, RAM 1발로 2~5기 제압
-    '드론 떼 (Swarm-12)': {
-        'type':'전투기','category':'대공','altitude_m':150,
-        'speed_ms':55,    # ~200km/h
-        'range_km':300,
-        'rcs_m2':0.08,    # 개별 드론은 작지만 떼 전체 RCS
-        'cost_usd':120_000,  # 그룹당 단가
-        'missile_salvo_min':1,'missile_salvo_max':1,
-        'can_fire_missile':False,
-        'missile_name':'드론 자폭',
-        'missile_speed_ms':55,
-        'missile_range_km':0,
-        'missile_terminal_evasion':0.50,
-        'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
-        'is_swarm':True,'swarm_size':12},
-
     # ════ 중국 신규 추가 (7종) ═══════════════════════════════════════════════
     # J-35: Type 003 탑재 5세대 스텔스 함재기
     'J-35 (백상어)':
@@ -1297,10 +1266,6 @@ ENEMY_FLEET_PRESETS = {
         {'preset': '지르콘 (극초음속 순항)', 'count': 2},
         {'preset': 'Kh-101 (스텔스 순항)', 'count': 2},
     ],
-    # 드론 떼 포화 — CIWS/RAM 전용 위협 (Swarm-12 그룹 × 4 = 실질 48기)
-    '드론 떼 포화': [
-        {'preset': '드론 떼 (Swarm-12)', 'count': 4},
-    ],
     # 잠수함 복합 — 다중 잠수함 대잠 압박
     '잠수함 복합 포화': [
         {'preset': '039형 잠수함 (송급)',   'count': 3},
@@ -1312,12 +1277,11 @@ ENEMY_FLEET_PRESETS = {
 # 각 시나리오는 파도(wave)별로 위협을 정의한다.
 # delay_s: 시뮬레이션 시작 후 해당 파도가 출현하는 시각 (초)
 MIXED_ATTACK_SCENARIOS = {
-    '순항미사일 + 탄도탄 + 드론 복합': {
-        'description': '1파: 순항미사일 4발로 SM-2 재고 소모 → 2파: 탄도탄으로 SM-3 강요 → 3파: 드론 떼로 CIWS/RAM 포화',
+    '순항미사일 + 탄도탄 복합': {
+        'description': '1파: 순항미사일 4발로 SM-2 재고 소모 → 2파: 탄도탄으로 SM-3 강요 — 재고 연속 압박',
         'waves': [
             {'delay_s':   0, 'threats': [{'preset': 'CJ-10 (순항미사일)', 'count': 4}]},
             {'delay_s':  60, 'threats': [{'preset': 'DF-21D (대함 탄도)', 'count': 2}]},
-            {'delay_s':  90, 'threats': [{'preset': '드론 떼 (Swarm-12)', 'count': 3}]},
         ],
     },
     '잠수함 어뢰 + 대함미사일 병행': {
@@ -1336,13 +1300,12 @@ MIXED_ATTACK_SCENARIOS = {
         ],
     },
     '전방위 포화 공격 (채널 포화)': {
-        'description': '전투기·탄도탄·순항미사일·드론이 동시 출현 — 모든 교전 채널 동시 포화 테스트',
+        'description': '전투기·탄도탄·순항미사일이 동시 출현 — 모든 교전 채널 동시 포화 테스트',
         'waves': [
             {'delay_s':  0, 'threats': [
                 {'preset': 'J-16 (플랭커-D)',     'count': 3},
                 {'preset': 'DF-21D (대함 탄도)',  'count': 2},
                 {'preset': 'CJ-10 (순항미사일)',  'count': 4},
-                {'preset': '드론 떼 (Swarm-12)',   'count': 2},
             ]},
         ],
     },
