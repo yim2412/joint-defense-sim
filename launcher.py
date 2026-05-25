@@ -1,11 +1,16 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.20 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.21 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.21 — 아군 무기 스펙 상세화 + exe 이미지 번들 수정]                     ║
+║  BUG-1  exe 빌드 시 assets/images 미포함 → launcher.spec 수정               ║
+║  BUG-2  이미지 경로 _res() 함수 미사용 → exe 환경 경로 오류 수정            ║
+║  NEW-A  spec_db: 아군 무기 13종 필드 4→6개 확장 (교전고도·탄두중량 등)     ║
+║                                                                              ║
 ║  [v7.20 — 드론 DB 제거 + 창 레이아웃 개선 + normalize_enemy_db 연결 수정]  ║
 ║  DEL-A  소형 자폭 드론·드론 떼 전 파일 제거 (engine/engine_v7/spec_db)      ║
-║  BUG-1  engine_v7: normalize_enemy_db import 누락 수정                      ║
-║  BUG-2  설정 패널 수평 스크롤 제거 (430px 고정 + ScrollBarAlwaysOff)        ║
+║  BUG-3  engine_v7: normalize_enemy_db import 누락 수정                      ║
+║  BUG-4  설정 패널 수평 스크롤 제거 (430px 고정 + ScrollBarAlwaysOff)        ║
 ║                                                                              ║
 ║  [v7.18 — 미확인 전력 4종 DB 제거]                                          ║
 ║  DEL-A  095형·039C형 잠수함, CM-302, 수중자폭드론 — 실전 배치 미확인        ║
@@ -2258,7 +2263,7 @@ def _render_history_compare(history: list) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.20")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.21")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -4154,10 +4159,7 @@ class SpecSheetPanel(QWidget):
         self._title_lbl.setText(name)
 
         # 사진 또는 아이콘 (.jpg → .png → .webp 순서로 탐색)
-        _img_base = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            'assets', 'images', name
-        )
+        _img_base = os.path.join(_res('assets/images'), name)
         img_path = next(
             (p for p in (_img_base + ext for ext in ('.jpg', '.png', '.webp'))
              if os.path.exists(p)),
@@ -4252,7 +4254,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.20  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v7.21  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)

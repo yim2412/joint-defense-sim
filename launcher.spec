@@ -17,6 +17,7 @@ a = Analysis(
         ('spec_db.py',     '.'),
         ('changelog.json', '.'),
         ('aegis_icon.ico', '.'),
+        ('assets/images',  'assets/images'),
     ],
     hiddenimports=[
         # PyQt6 core
