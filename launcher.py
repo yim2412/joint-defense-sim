@@ -4068,7 +4068,7 @@ _FEATURES = [
 #  스펙시트 패널
 # ════════════════════════════════════════════════════════════════════════════
 class SpecSheetPanel(QWidget):
-    """선택 유닛 스펙시트 — 340px 패널 (사진 + 카테고리별 상세 스펙 + 스크롤)"""
+    """선택 유닛 스펙시트 — 우측 패널 (사진 + 카테고리별 상세 스펙 + 스크롤)"""
 
     _TYPE_ICON = {
         '전투기': '✈', '전폭기': '✈', '폭격기': '✈',
@@ -4082,9 +4082,8 @@ class SpecSheetPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(340)
         self.setStyleSheet(
-            f"background:{C_PANEL}; border-top:1px solid {C_BORDER};"
+            f"background:{C_PANEL}; border-left:1px solid {C_BORDER};"
         )
 
         root = QHBoxLayout(self)
@@ -4504,104 +4503,61 @@ class SplashWindow(QWidget):
         legend_row.addWidget(lbl_count)
         layout.addLayout(legend_row)
 
-        cols = ["이름", "분류", "유형", "속도 (마하)", "사거리 (km)", "고도/수심 (m)", "특성"]
-        tbl = QTableWidget(len(db), len(cols))
-        tbl.setHorizontalHeaderLabels(cols)
-        hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        tbl.setShowGrid(False)
-        tbl.setWordWrap(False)
-        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
-
         _cat_bg = {'대공': '#2a1010', '대함': '#2a1a08', '대잠': '#0a1228'}
         _cat_fg = {'대공': '#ff8080', '대함': '#ffaa55', '대잠': '#6699ff'}
 
         sorted_entries = sorted(db.items(), key=lambda kv: kv[1].get('category', '대공'))
 
-        for r, (name, info) in enumerate(sorted_entries):
-            cat  = info.get('category', '대공')
-            typ  = info.get('type', '-')
-            spd  = info.get('speed_ms', 0)
-            mach = spd / 343
-            rng  = info.get('missile_range_km') or info.get('range_km', 0)
-            alt  = info.get('altitude_m', 0)
-            bg   = QColor(_cat_bg.get(cat, '#1a1a1a'))
-            fg   = QColor(_cat_fg.get(cat, C_TEXT))
+        # ── 왼쪽: 이름 목록 ──────────────────────────────────────────────
+        name_list = QListWidget()
+        name_list.setStyleSheet(f"""
+            QListWidget {{
+                background:{C_BG}; border:none; outline:none;
+                font-size:13px;
+            }}
+            QListWidget::item {{
+                padding:5px 10px;
+                border-bottom:1px solid {C_BORDER};
+            }}
+            QListWidget::item:selected {{
+                background:{C_ACCENT}; color:#000; font-weight:bold;
+            }}
+            QListWidget::item:hover:!selected {{
+                background:{C_PANEL};
+            }}
+        """)
+        for name, info in sorted_entries:
+            cat = info.get('category', '대공')
+            it = QListWidgetItem(f"  {name}")
+            it.setBackground(QColor(_cat_bg.get(cat, C_BG)))
+            it.setForeground(QColor(_cat_fg.get(cat, C_TEXT)))
+            name_list.addItem(it)
 
-            # 특성 태그
-            tags = []
-            if info.get('is_hgv'):        tags.append('HGV')
-            if info.get('is_qbm'):        tags.append('QBM')
-            if info.get('can_fire_missile') and info.get('missile_name'):
-                tags.append(f"미사일: {info['missile_name']}")
-            if info.get('ecm_power', 0) > 0.15:
-                tags.append(f"ECM {info['ecm_power']:.0%}")
-            if cat == '대잠':
-                tags.append(f"수심 {abs(alt)}m")
-            spec_tags = "  |  ".join(tags) if tags else "-"
-
-            alt_txt = f"{alt:,}" if cat != '대잠' else f"{alt:,} (수심)"
-
-            def _make_item(txt, align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                           _bg=bg, _fg=QColor(C_TEXT)):
-                it = QTableWidgetItem(str(txt))
-                it.setBackground(_bg)
-                it.setForeground(_fg)
-                it.setTextAlignment(align)
-                return it
-
-            name_it = QTableWidgetItem(f"  {name}")
-            name_it.setBackground(bg)
-            name_it.setForeground(fg)
-            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            tbl.setItem(r, 0, name_it)
-            cat_it = _make_item(cat, Qt.AlignmentFlag.AlignCenter, bg, fg)
-            tbl.setItem(r, 1, cat_it)
-            tbl.setItem(r, 2, _make_item(f"  {typ}"))
-            tbl.setItem(r, 3, _make_item(f"  Mach {mach:.1f}", Qt.AlignmentFlag.AlignCenter))
-            tbl.setItem(r, 4, _make_item(f"  {rng:,}", Qt.AlignmentFlag.AlignCenter))
-            tbl.setItem(r, 5, _make_item(f"  {alt_txt}", Qt.AlignmentFlag.AlignCenter))
-            tbl.setItem(r, 6, _make_item(f"  {spec_tags}"))
-
-        tbl.verticalHeader().setDefaultSectionSize(26)
-
-        # ── 스펙시트 패널 + QSplitter ──────────────────────────────────
+        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
         spec_panel = SpecSheetPanel()
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        # ── 좌우 QSplitter ────────────────────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
-        splitter.addWidget(tbl)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
+        )
+        splitter.addWidget(name_list)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 340])
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([230, 9999])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter, stretch=1)
 
-        def _on_enemy_select():
-            rows = tbl.selectedItems()
-            if not rows:
+        def _on_enemy_select(row):
+            if row < 0 or row >= len(sorted_entries):
                 spec_panel.clear()
                 return
-            r = tbl.currentRow()
-            if r < 0 or r >= len(sorted_entries):
-                spec_panel.clear()
-                return
-            uname, uentry = sorted_entries[r]
+            uname, uentry = sorted_entries[row]
             spec_panel.show_unit(uname, uentry, _SPEC_DETAIL_DB.get(uname, {}), 'enemy')
 
-        tbl.itemSelectionChanged.connect(_on_enemy_select)
+        name_list.currentRowChanged.connect(_on_enemy_select)
         return w
 
     # ── 아군 DB 탭 ─────────────────────────────────────────────────────────
@@ -4634,85 +4590,53 @@ class SplashWindow(QWidget):
 
         db = V7_FRIENDLY_DB
         wpn_entries = list(db.items())
-        cols = ["무기명", "분류", "속도 (m/s)", "사거리 (km)", "평균 Pk (%)", "기본 재고", "단가 (USD)"]
-        tbl = QTableWidget(len(db), len(cols))
-        tbl.setHorizontalHeaderLabels(cols)
-        hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for c in range(2, len(cols)):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        tbl.setShowGrid(False)
-        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
 
-        for r, (name, info) in enumerate(wpn_entries):
-            cats   = info.get('category', [])
-            speed  = info.get('speed_ms', 0)
-            rng    = info.get('range_km', 0)
-            pk_m   = info.get('pk_dist', {}).get('mean', 0) * 100
-            stock  = info.get('stock', 0)
-            cost   = info.get('cost_usd', 0)
-            cat_str   = " / ".join(cats)
-            stock_txt = "무한" if stock >= 9999 else f"{stock:,}"
-            cost_txt  = f"${cost:,.0f}" if cost else "-"
+        # ── 왼쪽: 무기 이름 목록 ─────────────────────────────────────────
+        name_list = QListWidget()
+        name_list.setStyleSheet(f"""
+            QListWidget {{
+                background:{C_BG}; border:none; outline:none;
+                font-size:13px;
+            }}
+            QListWidget::item {{
+                padding:5px 10px;
+                border-bottom:1px solid {C_BORDER};
+                color:{C_ACCENT};
+            }}
+            QListWidget::item:selected {{
+                background:{C_ACCENT}; color:#000; font-weight:bold;
+            }}
+            QListWidget::item:hover:!selected {{
+                background:{C_PANEL};
+            }}
+        """)
+        for name, _ in wpn_entries:
+            name_list.addItem(QListWidgetItem(f"  {name}"))
 
-            bg = QColor(C_BG)
-            def _wi(txt, align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                    _bg=bg):
-                it = QTableWidgetItem(str(txt))
-                it.setBackground(_bg)
-                it.setForeground(QColor(C_TEXT))
-                it.setTextAlignment(align)
-                return it
-
-            name_it = QTableWidgetItem(f"  {name}")
-            name_it.setBackground(bg)
-            name_it.setForeground(QColor(C_ACCENT))
-            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            tbl.setItem(r, 0, name_it)
-            tbl.setItem(r, 1, _wi(f"  {cat_str}"))
-            tbl.setItem(r, 2, _wi(f"  {speed:,.0f}", Qt.AlignmentFlag.AlignCenter))
-            tbl.setItem(r, 3, _wi(f"  {rng:,.0f}", Qt.AlignmentFlag.AlignCenter))
-            pk_it = _wi(f"  {pk_m:.1f}%", Qt.AlignmentFlag.AlignCenter)
-            if pk_m >= 80:   pk_it.setForeground(QColor('#2ecc71'))
-            elif pk_m >= 60: pk_it.setForeground(QColor(C_ORANGE))
-            else:            pk_it.setForeground(QColor('#e74c3c'))
-            tbl.setItem(r, 4, pk_it)
-            tbl.setItem(r, 5, _wi(f"  {stock_txt}", Qt.AlignmentFlag.AlignCenter))
-            tbl.setItem(r, 6, _wi(f"  {cost_txt}", Qt.AlignmentFlag.AlignCenter))
-
-        tbl.verticalHeader().setDefaultSectionSize(28)
-
-        # ── 스펙시트 패널 + QSplitter ──────────────────────────────────
+        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
         spec_panel = SpecSheetPanel()
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
-        splitter.addWidget(tbl)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
+        )
+        splitter.addWidget(name_list)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 340])
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([230, 9999])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter, stretch=1)
 
-        def _on_weapon_select():
-            if not tbl.selectedItems():
+        def _on_weapon_select(row):
+            if row < 0 or row >= len(wpn_entries):
                 spec_panel.clear()
                 return
-            r = tbl.currentRow()
-            if r < 0 or r >= len(wpn_entries):
-                spec_panel.clear()
-                return
-            wname, wentry = wpn_entries[r]
+            wname, wentry = wpn_entries[row]
             spec_panel.show_unit(wname, wentry, _SPEC_DETAIL_DB.get(wname, {}), 'weapon')
 
-        tbl.itemSelectionChanged.connect(_on_weapon_select)
+        name_list.currentRowChanged.connect(_on_weapon_select)
         return w
 
     def _build_ship_sub_tab(self) -> QWidget:
@@ -4723,90 +4647,65 @@ class SplashWindow(QWidget):
 
         db = V7_SHIP_DB
         ship_entries = list(db.items())
-        cols = ["함정", "대공 탐지 (km)", "대함 탐지 (km)", "대잠 탐지 (km)", "교전 채널", "주요 역할"]
-        tbl = QTableWidget(len(db), len(cols))
-        tbl.setHorizontalHeaderLabels(cols)
-        hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        for c in range(1, 5):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        tbl.setShowGrid(False)
-        tbl.setStyleSheet(f"background-color:{C_BG}; gridline-color:{C_PANEL};")
 
+        # ── 왼쪽: 함정 이름 목록 ─────────────────────────────────────────
         _ship_bg = ['#0d1a2a', '#0a1a14', '#1a0d2a']
 
+        name_list = QListWidget()
+        name_list.setStyleSheet(f"""
+            QListWidget {{
+                background:{C_BG}; border:none; outline:none;
+                font-size:13px;
+            }}
+            QListWidget::item {{
+                padding:5px 10px;
+                border-bottom:1px solid {C_BORDER};
+                color:{C_ACCENT};
+            }}
+            QListWidget::item:selected {{
+                background:{C_ACCENT}; color:#000; font-weight:bold;
+            }}
+            QListWidget::item:hover:!selected {{
+                background:{C_PANEL};
+            }}
+        """)
         for r, (key, info) in enumerate(ship_entries):
-            display  = info.get('display', key)
-            sensor   = info.get('sensor_km', {})
-            channels = info.get('max_channels', 0)
-            roles    = " / ".join(info.get('role', []))
-            bg       = QColor(_ship_bg[r % len(_ship_bg)])
-
-            def _si(txt, align=Qt.AlignmentFlag.AlignCenter, _bg=bg):
-                it = QTableWidgetItem(str(txt))
-                it.setBackground(_bg)
-                it.setForeground(QColor(C_TEXT))
-                it.setTextAlignment(align)
-                return it
-
-            name_it = QTableWidgetItem(f"  {display}")
-            name_it.setBackground(bg)
-            name_it.setForeground(QColor(C_ACCENT))
-            name_it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            tbl.setItem(r, 0, name_it)
-            tbl.setItem(r, 1, _si(f"{sensor.get('대공', '-'):,}"))
-            tbl.setItem(r, 2, _si(f"{sensor.get('대함', '-'):,}"))
-            tbl.setItem(r, 3, _si(f"{sensor.get('대잠', '-'):,}"))
-            ch_it = _si(f"{channels}")
-            ch_it.setForeground(QColor(C_ACCENT))
-            tbl.setItem(r, 4, ch_it)
-            tbl.setItem(r, 5, _si(f"  {roles}",
-                                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-
-            # 탑재 무기 목록 툴팁
+            display = info.get('display', key)
+            it = QListWidgetItem(f"  {display}")
+            it.setBackground(QColor(_ship_bg[r % len(_ship_bg)]))
+            it.setForeground(QColor(C_ACCENT))
+            # 탑재 무기 툴팁 유지
             inv = info.get('default_inventory', {})
             tip_lines = [f"【{display} 기본 탑재】"]
             for wname, cnt in inv.items():
-                cnt_str = "무한" if cnt >= 9999 else str(cnt)
-                tip_lines.append(f"  • {wname}: {cnt_str}발")
-            for c in range(len(cols)):
-                item = tbl.item(r, c)
-                if item:
-                    item.setToolTip("\n".join(tip_lines))
+                tip_lines.append(f"  • {wname}: {'무한' if cnt >= 9999 else cnt}발")
+            it.setToolTip("\n".join(tip_lines))
+            name_list.addItem(it)
 
-        tbl.verticalHeader().setDefaultSectionSize(32)
-
-        # ── 스펙시트 패널 + QSplitter ──────────────────────────────────
+        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
         spec_panel = SpecSheetPanel()
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
-        splitter.addWidget(tbl)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
+        )
+        splitter.addWidget(name_list)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 340])
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([230, 9999])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter, stretch=1)
 
-        def _on_ship_select():
-            if not tbl.selectedItems():
+        def _on_ship_select(row):
+            if row < 0 or row >= len(ship_entries):
                 spec_panel.clear()
                 return
-            r = tbl.currentRow()
-            if r < 0 or r >= len(ship_entries):
-                spec_panel.clear()
-                return
-            skey, sentry = ship_entries[r]
+            skey, sentry = ship_entries[row]
             spec_panel.show_unit(skey, sentry, _SPEC_DETAIL_DB.get(skey, {}), 'ship')
 
-        tbl.itemSelectionChanged.connect(_on_ship_select)
+        name_list.currentRowChanged.connect(_on_ship_select)
         return w
 
 
