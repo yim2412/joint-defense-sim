@@ -54,7 +54,6 @@ SEARCH_QUERIES = {
     # ── 순항미사일 ───────────────────────────────────────────────────────────
     'CJ-10 (순항미사일)':     'CJ-10A DH-10 Changjian cruise missile China military parade',
     'YJ-12 (초음속 순항)':    'YJ-12 supersonic anti-ship missile China',
-    'CM-302 (초음속 순항)':   'CM-302 supersonic anti-ship missile export',
     'P-800 오닉스 (야혼트)':  'Yakhont P-800 Onyx anti-ship missile',
     'Kh-31A (항공기발사 대함)':'Kh-31 missile aircraft Russia',
     'YJ-100 (장거리 순항)':   'YJ-100 long range cruise missile PLAAF 2019',
@@ -73,8 +72,6 @@ SEARCH_QUERIES = {
     '041형 잠수함 (위안급 개량)':'Yuan class submarine Type 041 China',
     '093형 잠수함 (상급)':    'Shang class submarine Type 093 China nuclear',
     '094형 잠수함 (진급)':    'Type 094 Jin class ballistic missile submarine',
-    '095형 잠수함 (차세대 SSN)':'Type 093 nuclear submarine PLAN attack China',
-    '039C형 잠수함 (AIP)':    'Type 039 Yuan class AIP submarine China PLAN surfaced',
     # ── 북한 ────────────────────────────────────────────────────────────────
     '화성-15 (북한 ICBM급)':  'Hwasong-15 intercontinental ballistic missile North Korea',
     '화성-17 (북한 ICBM 개량)':'Hwasong-17 DPRK intercontinental ballistic missile parade 2022',
@@ -94,7 +91,6 @@ SEARCH_QUERIES = {
     '오스카-II급 SSGN':        'Oscar II class submarine Project 949A SSGN Russia',
     '야센급 SSGN':             'Yasen class submarine Russia nuclear',
     # ── 드론 ────────────────────────────────────────────────────────────────
-    '수중 자폭 드론 (UUAV)':   'Poseidon Kanyon Status-6 nuclear torpedo Russia',
     '소형 자폭 드론 (UAV)':    'Shahed-136 Iranian loitering munition kamikaze drone',
     '드론 떼 (Swarm-12)':      'military drone swarm unmanned aerial',
     # ── 아군 함정 ────────────────────────────────────────────────────────────

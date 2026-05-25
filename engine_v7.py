@@ -2733,8 +2733,8 @@ if __name__ == '__main__':
             'haesong1_stock': 0,
             'harpoon_stock':  0,
             'enemy_fleet': [
-                {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
-                {'preset': '093형 잠수함 (위안급)',     'count': 2},
+                {'preset': '093형 잠수함 (위안급)', 'count': 2},
+                {'preset': '039형 잠수함 (송급)',   'count': 1},
             ],
         },
         # 32종 혼합
@@ -2755,7 +2755,7 @@ if __name__ == '__main__':
                 {'preset': 'DF-17 (극초음속 활공)',     'count': 1},
                 {'preset': 'KN-23 (북한 이스칸데르)',   'count': 1},
                 {'preset': 'YJ-12 (초음속 순항)',       'count': 2},
-                {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
+                {'preset': '039형 잠수함 (송급)', 'count': 1},
             ],
         },
     }

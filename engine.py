@@ -79,7 +79,6 @@ SUB_DEPTH_M = {
     '041형 잠수함 (위안급 개량)': -280,
     '093형 잠수함 (위안급)':      -350,
     '094형 잠수함 (진급)':        -400,
-    '095형 잠수함 (차세대 SSN)':  -450,
 }
 
 TACTICAL_LAYERS = [
@@ -311,14 +310,6 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
-    # NEW-X: CM-302 — 초음속 대함순항미사일 (054A·055 탑재, Mach 3, 사거리 290km)
-    'CM-302 (초음속 순항)':
-        {'category':'대공','type':'순항미사일','speed_ms':1020,'altitude_m':15,  # Mach 3 해면밀착 종말
-         'missile_name':None,'missile_speed_ms':None,'missile_range_km':290,
-         'can_fire_missile':False,'rcs_m2':0.05,
-         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
-         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
-
     'P-800 오닉스 (야혼트)':
         {'category':'대공','type':'순항미사일','speed_ms':824,'altitude_m':15,  # LOW-2: 750→824 m/s (Mach 2.5 해면 근접)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':300,
@@ -449,16 +440,6 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.12,'depth_change_m':-80,'max_attempts':1},
          'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
-    '095형 잠수함 (차세대 SSN)':
-        {'category':'대잠','type':'잠수함','speed_ms':18.0,'altitude_m':-350,
-         # Type-095 SSN (추정): 최대 잠항 500m+, 작전 수심 350m (수온약층 완전 하부)
-         'missile_name':'YJ-18B 잠대함미사일','missile_speed_ms':1000,'missile_range_km':500,
-         'can_fire_missile':True,'rcs_m2':None,
-         'missile_salvo_min':2,'missile_salvo_max':8,
-         'missile_terminal_evasion':0.75,
-         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.22,'depth_change_m':-100,'max_attempts':3},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
-
     # ════ 북한 위협 ══════════════════════════════════════════════════════════
     '화성-15 (북한 ICBM급)': {
         'type':'탄도미사일','category':'대공','altitude_m':1200000,
@@ -496,23 +477,6 @@ ENEMY_DB = {
         'rcs_m2':0.01,    # 매우 낮은 RCS (스텔스)
         'cost_usd':0,
         'missile_terminal_evasion':0.78},
-
-    # ════ 수중 무인 드론 (UUAV) ══════════════════════════════════════════════
-    '수중 자폭 드론 (UUAV)': {
-        'type':'잠수함','category':'대잠','altitude_m':-30,
-        'speed_ms':8,         # ~15노트 수중
-        'range_km':150,
-        'rcs_m2':0.003,       # 소나 반사면적 (RCS 대신 소나 단면적으로 근사)
-        'cost_usd':50000,
-        'missile_salvo_min':1,'missile_salvo_max':1,
-        'can_fire_missile':True,
-        'missile_name':'UUAV 자폭',
-        'missile_speed_ms':8,
-        'missile_range_km':5,   # 5km 이내 접근 시 자폭
-        'missile_terminal_evasion':0.70,
-        'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
-        'pk_base_override':0.75,  # 수중 자폭 — 어뢰 회피 더 어려움
-    },
 
     # ════ 드론 떼 ════════════════════════════════════════════════════════════
     '소형 자폭 드론 (UAV)': {
@@ -593,16 +557,6 @@ ENEMY_DB = {
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.18,'enemy_ciws_pk':0.20},
-
-    # 039C: AIP 추진 극저소음 잠수함
-    '039C형 잠수함 (AIP)':
-        {'category':'대잠','type':'잠수함','speed_ms':9.0,'altitude_m':-300,
-         'missile_name':'YJ-18B 잠대함미사일','missile_speed_ms':1000,'missile_range_km':540,
-         'can_fire_missile':True,'rcs_m2':None,
-         'missile_salvo_min':2,'missile_salvo_max':4,
-         'missile_terminal_evasion':0.75,
-         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.20,'depth_change_m':-100,'max_attempts':3,'alt_change_m':0},
-         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
 
     'YJ-18 (초음속 대함)':
         {'category':'대함','type':'순항미사일','speed_ms':1000,'altitude_m':12,
@@ -1313,8 +1267,8 @@ ENEMY_FLEET_PRESETS = {
     ],
     # 대잠 복합 — 잠수함 2척 동시 위협
     '대잠 복합': [
-        {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
-        {'preset': '093형 잠수함 (위안급)',      'count': 1},
+        {'preset': '093형 잠수함 (위안급)', 'count': 1},
+        {'preset': '039형 잠수함 (송급)',   'count': 1},
     ],
     # BMD 탄도 포화 — 순수 탄도·HGV 방어 전용 (SM-3/SM-6 BMD 성능 평가)
     'BMD 탄도 포화': [
@@ -1329,7 +1283,7 @@ ENEMY_FLEET_PRESETS = {
         {'preset': 'DF-17 (극초음속 활공)', 'count': 1},
         {'preset': '055형 대형 구축함',     'count': 1},
         {'preset': 'DF-21D (대함 탄도)',    'count': 1},
-        {'preset': '095형 잠수함 (차세대 SSN)', 'count': 1},
+        {'preset': '093형 잠수함 (위안급)', 'count': 1},
     ],
     # 북한 탄도 포화 — 화성 계열 + 순항
     '북한 탄도 포화': [
@@ -1347,10 +1301,10 @@ ENEMY_FLEET_PRESETS = {
     '드론 떼 포화': [
         {'preset': '드론 떼 (Swarm-12)', 'count': 4},
     ],
-    # 수중 드론 혼합 — 대잠 전력 압박
-    '수중 드론 포화': [
-        {'preset': '수중 자폭 드론 (UUAV)', 'count': 6},
-        {'preset': '039형 잠수함 (송급)',   'count': 2},
+    # 잠수함 복합 — 다중 잠수함 대잠 압박
+    '잠수함 복합 포화': [
+        {'preset': '039형 잠수함 (송급)',   'count': 3},
+        {'preset': '093형 잠수함 (위안급)', 'count': 1},
     ],
 }
 
@@ -1374,11 +1328,11 @@ MIXED_ATTACK_SCENARIOS = {
         ],
     },
     '항모 킬 체인 (스텔스→HGV→초음속)': {
-        'description': 'J-20 스텔스로 방공망 혼란 → DF-17 극초음속으로 방어 돌파 → CM-302 초음속 마무리',
+        'description': 'J-20 스텔스로 방공망 혼란 → DF-17 극초음속으로 방어 돌파 → YJ-18 초음속 마무리',
         'waves': [
             {'delay_s':  0, 'threats': [{'preset': 'J-20 (위룡)', 'count': 2}]},
             {'delay_s': 30, 'threats': [{'preset': 'DF-17 (극초음속 활공)', 'count': 1}]},
-            {'delay_s': 50, 'threats': [{'preset': 'CM-302 (초음속 순항)', 'count': 3}]},
+            {'delay_s': 50, 'threats': [{'preset': 'YJ-18 (초음속 대함)', 'count': 3}]},
         ],
     },
     '전방위 포화 공격 (채널 포화)': {
@@ -1442,7 +1396,7 @@ ENEMY_FLEET_RANDOM_CFG = {
         'pool': ['J-20 (위룡)', 'H-6 (폭격기)', 'DF-15 (단거리 탄도)',
                  'DF-21D (대함 탄도)', 'DF-17 (극초음속 활공)',
                  '055형 대형 구축함', '022형 미사일 고속정',
-                 '093형 잠수함 (위안급)', '095형 잠수함 (차세대 SSN)'],
+                 '093형 잠수함 (위안급)'],
         'max_types': 4,
     },
     '극한':   {
@@ -1451,7 +1405,7 @@ ENEMY_FLEET_RANDOM_CFG = {
             'J-20 (위룡)', 'H-6 (폭격기)', 'DF-26 (중장거리 탄도)',
             'DF-17 (극초음속 활공)', 'KN-23 (북한 이스칸데르)',
             '055형 대형 구축함', '022형 미사일 고속정',
-            '095형 잠수함 (차세대 SSN)', '094형 잠수함 (진급)',
+            '094형 잠수함 (진급)',
         }),
         'max_types': 6,
     },
@@ -3847,9 +3801,6 @@ if __name__ == "__main__":
     # ║      속도 12 m/s | 잠항 -400 m | SLBM JL-2 1~2발
     # ║      소음기동 자체방어 5% | 특징 : 전략 핵잠수함, SM-3 필수
     # ║
-    # ║  '095형 잠수함 (차세대 SSN)'  ⭐ 차세대 핵추진
-    # ║      속도 18 m/s | 잠항 -450 m | 어뢰+미사일 2~8발
-    # ║      소음기동 자체방어 5% | 특징 : 고속·고심도·최대 발사 수
     # ╚═════════════════════════════════════════════════════════════════════
     enemy_preset_name = 'MiG-23 (플로거)'   # ← 위 목록에서 선택하여 교체하세요
 
