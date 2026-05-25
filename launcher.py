@@ -216,7 +216,7 @@ def _res(filename: str) -> str:
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
-    QGridLayout,
+    QGridLayout, QFrame,
     QLabel, QPushButton, QComboBox, QSpinBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
@@ -4068,7 +4068,7 @@ _FEATURES = [
 #  스펙시트 패널
 # ════════════════════════════════════════════════════════════════════════════
 class SpecSheetPanel(QWidget):
-    """선택 유닛 스펙시트 — 고정 170px 패널 (사진/아이콘 + 상세 스펙)"""
+    """선택 유닛 스펙시트 — 340px 패널 (사진 + 카테고리별 상세 스펙 + 스크롤)"""
 
     _TYPE_ICON = {
         '전투기': '✈', '전폭기': '✈', '폭격기': '✈',
@@ -4082,18 +4082,18 @@ class SpecSheetPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(172)
+        self.setFixedHeight(340)
         self.setStyleSheet(
             f"background:{C_PANEL}; border-top:1px solid {C_BORDER};"
         )
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(10, 6, 10, 6)
+        root.setContentsMargins(10, 8, 10, 8)
         root.setSpacing(10)
 
         # ── 왼쪽: 사진/아이콘 박스 ───────────────────────────────────────
         self._img_lbl = QLabel()
-        self._img_lbl.setFixedSize(148, 112)
+        self._img_lbl.setFixedSize(148, 200)
         self._img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._img_lbl.setStyleSheet(
             f"background:{C_BG}; border:1px solid {C_BORDER};"
@@ -4114,13 +4114,24 @@ class SpecSheetPanel(QWidget):
         self._sub_lbl = QLabel()
         self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
 
-        # 필드 그리드
-        self._grid_w = QWidget()
-        self._grid_w.setStyleSheet("background:transparent;")
-        self._gl = QGridLayout(self._grid_w)
-        self._gl.setContentsMargins(0, 2, 0, 2)
-        self._gl.setHorizontalSpacing(14)
-        self._gl.setVerticalSpacing(2)
+        # 카테고리 스크롤 영역
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ background:transparent; border:none; }}"
+            f"QWidget {{ background:transparent; }}"
+            f"QScrollBar:vertical {{ width:6px; background:{C_BG}; }}"
+            f"QScrollBar::handle:vertical {{ background:{C_BORDER}; border-radius:3px; min-height:20px; }}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}"
+        )
+
+        self._scroll_w = QWidget()
+        self._scroll_vbox = QVBoxLayout(self._scroll_w)
+        self._scroll_vbox.setContentsMargins(0, 2, 4, 2)
+        self._scroll_vbox.setSpacing(0)
+        self._scroll.setWidget(self._scroll_w)
 
         self._note_lbl = QLabel()
         self._note_lbl.setStyleSheet(
@@ -4130,18 +4141,47 @@ class SpecSheetPanel(QWidget):
 
         info_col.addWidget(self._title_lbl)
         info_col.addWidget(self._sub_lbl)
-        info_col.addWidget(self._grid_w)
+        info_col.addWidget(self._scroll, stretch=1)
         info_col.addWidget(self._note_lbl)
-        info_col.addStretch()
         root.addLayout(info_col, stretch=1)
 
     # ── 내부 헬퍼 ──────────────────────────────────────────────────────
-    def _clear_grid(self):
-        while self._gl.count():
-            item = self._gl.takeAt(0)
+    def _clear_scroll(self):
+        while self._scroll_vbox.count():
+            item = self._scroll_vbox.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
+
+    def _add_category(self, cat_name: str, cat_fields: list):
+        hdr = QLabel(f"  {cat_name.upper()}")
+        hdr.setStyleSheet(
+            f"color:{C_ACCENT}; font-size:9px; font-weight:bold;"
+            f" background:#1a2030; padding:2px 0px; margin-top:3px;"
+        )
+        self._scroll_vbox.addWidget(hdr)
+
+        gw = QWidget()
+        gl = QGridLayout(gw)
+        gl.setContentsMargins(4, 1, 2, 3)
+        gl.setHorizontalSpacing(6)
+        gl.setVerticalSpacing(1)
+
+        row, col = 0, 0
+        for label, value in cat_fields:
+            lbl_w = QLabel(f"{label}:")
+            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:9px;")
+            val_w = QLabel(str(value))
+            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:9px; font-weight:600;")
+            val_w.setWordWrap(True)
+            gl.addWidget(lbl_w, row, col * 2)
+            gl.addWidget(val_w, row, col * 2 + 1)
+            col += 1
+            if col >= 2:
+                col = 0
+                row += 1
+
+        self._scroll_vbox.addWidget(gw)
 
     def clear(self):
         self._img_lbl.setPixmap(QPixmap())
@@ -4149,13 +4189,10 @@ class SpecSheetPanel(QWidget):
         self._title_lbl.setText("← 유닛을 선택하면 스펙시트가 표시됩니다")
         self._sub_lbl.setText("")
         self._note_lbl.setText("")
-        self._clear_grid()
+        self._clear_scroll()
 
     def show_unit(self, name: str, db_entry: dict, spec: dict, unit_type: str = 'enemy'):
-        """
-        unit_type: 'enemy' | 'ship' | 'weapon'
-        spec: SPEC_DETAIL_DB.get(name, {})
-        """
+        """unit_type: 'enemy' | 'ship' | 'weapon'"""
         self._title_lbl.setText(name)
 
         # 사진 또는 아이콘 (.jpg → .png → .webp 순서로 탐색)
@@ -4167,7 +4204,7 @@ class SpecSheetPanel(QWidget):
         )
         if img_path:
             pix = QPixmap(img_path).scaled(
-                148, 112,
+                148, 200,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -4187,29 +4224,21 @@ class SpecSheetPanel(QWidget):
         # 부제목
         origin    = spec.get('origin', '')
         type_desc = spec.get('type_desc', db_entry.get('type', ''))
-        if origin and type_desc:
-            sub = f"{origin}  |  {type_desc}"
-        else:
-            sub = origin or type_desc
-        self._sub_lbl.setText(sub)
+        self._sub_lbl.setText(
+            f"{origin}  |  {type_desc}" if (origin and type_desc) else (origin or type_desc)
+        )
 
-        # 필드 그리드
-        self._clear_grid()
-        fields = spec.get('fields', [])
-        row, col = 0, 0
-        for label, value in fields:
-            lbl_w = QLabel(f"{label}:")
-            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
-            val_w = QLabel(str(value))
-            val_w.setStyleSheet(
-                f"color:{C_TEXT}; font-size:11px; font-weight:bold;"
-            )
-            self._gl.addWidget(lbl_w, row, col * 2)
-            self._gl.addWidget(val_w, row, col * 2 + 1)
-            col += 1
-            if col >= 2:
-                col = 0
-                row += 1
+        # 카테고리 렌더링
+        self._clear_scroll()
+        categories = spec.get('categories', [])
+        if categories:
+            for cat_name, cat_fields in categories:
+                self._add_category(cat_name, cat_fields)
+        else:
+            fields = spec.get('fields', [])
+            if fields:
+                self._add_category('제원', fields)
+        self._scroll_vbox.addStretch()
 
         # 비고
         self._note_lbl.setText(spec.get('note', ''))
@@ -4554,7 +4583,7 @@ class SplashWindow(QWidget):
         splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
         splitter.addWidget(tbl)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 172])
+        splitter.setSizes([9999, 340])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
@@ -4666,7 +4695,7 @@ class SplashWindow(QWidget):
         splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
         splitter.addWidget(tbl)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 172])
+        splitter.setSizes([9999, 340])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
@@ -4760,7 +4789,7 @@ class SplashWindow(QWidget):
         splitter.setStyleSheet("QSplitter::handle { background: " + C_BORDER + "; height: 2px; }")
         splitter.addWidget(tbl)
         splitter.addWidget(spec_panel)
-        splitter.setSizes([9999, 172])
+        splitter.setSizes([9999, 340])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
