@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.17 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.19 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.19 — 이미지 다중 확장자 지원 (.jpg/.png/.webp) + DB 정리]             ║
+║  NEW-A  SpecSheetPanel: .jpg → .png → .webp 순서 자동 탐색                 ║
+║                                                                              ║
+║  [v7.18 — 미확인 전력 4종 DB 제거]                                          ║
+║  DEL-A  095형·039C형 잠수함, CM-302, 수중자폭드론 — 실전 배치 미확인        ║
+║                                                                              ║
 ║  [v7.17 — DB 탭 스펙시트 패널: 적군 63종·아군 15함정·13무기 상세 카드]     ║
 ║  NEW-A  spec_db.py: 91개 유닛 상세 스펙 DB (제원·원산국·비고)              ║
 ║  NEW-B  SpecSheetPanel: 사진/아이콘 + 제원 그리드 (고정 172px 하단 패널)   ║
@@ -4144,12 +4150,17 @@ class SpecSheetPanel(QWidget):
         """
         self._title_lbl.setText(name)
 
-        # 사진 또는 아이콘
-        img_path = os.path.join(
+        # 사진 또는 아이콘 (.jpg → .png → .webp 순서로 탐색)
+        _img_base = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            'assets', 'images', f'{name}.jpg'
+            'assets', 'images', name
         )
-        if os.path.exists(img_path):
+        img_path = next(
+            (p for p in (_img_base + ext for ext in ('.jpg', '.png', '.webp'))
+             if os.path.exists(p)),
+            None
+        )
+        if img_path:
             pix = QPixmap(img_path).scaled(
                 148, 112,
                 Qt.AspectRatioMode.KeepAspectRatio,
