@@ -80,6 +80,7 @@ from engine import (
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
+    normalize_enemy_db,
 )
 
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────

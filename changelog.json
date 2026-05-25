@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "version": "1-1",
     "date": "2026-05-01",
@@ -432,6 +432,31 @@
       "추가  아군 편대 설정에 \"함정 위치 랜덤 배치\" 체크박스 + 반경(km) 입력 추가",
       "추가  엔진: enable_random_placement + random_spread_km 파라미터 지원 — MC 매 회차마다 함정 위치 재배치",
       "추가  설정 프로필에 random_placement/random_spread_km 저장·불러오기 연동"
+    ]
+  }
+,
+  {
+    "version": "19",
+    "date": "2026-05-25",
+    "title": "스펙시트 사진 완성 — 85종 전원 실제 사진",
+    "changes": [
+      "추가  download_images.py: Wikimedia Commons 자동 수집 스크립트 완성 (85종)",
+      "추가  assets/images/ 85종 실제 사진 수록 (.jpg/.png/.webp 혼용)",
+      "수정  SpecSheetPanel: .jpg → .png → .webp 순 자동 탐색 (다중 확장자 지원)",
+      "수정  download_images.py: 기존 .png/.webp 파일도 SKIP 처리"
+    ]
+  },
+  {
+    "version": "20",
+    "date": "2026-05-25",
+    "title": "소형 자폭 드론·드론 떼 DB 제거",
+    "changes": [
+      "삭제  소형 자폭 드론 (UAV), 드론 떼 (Swarm-12) — engine/spec_db/engine_v7 전 파일",
+      "삭제  engine_v7: _SWARM_KILL_PER_WEAPON, swarm 속성·교전 로직 완전 제거",
+      "수정  혼합 시나리오: 드론 파도 제거 → '순항미사일+탄도탄 복합'으로 이름 변경",
+      "수정  '전방위 포화 공격' 시나리오에서 드론 떼 항목 제거",
+      "수정  창 너비 430px로 확장 + 수평 스크롤바 제거",
+      "수정  버전 표시 v7.20으로 업데이트"
     ]
   }
 ]
