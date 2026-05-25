@@ -4086,34 +4086,51 @@ class SpecSheetPanel(QWidget):
             f"background:{C_PANEL}; border-left:1px solid {C_BORDER};"
         )
 
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 8)
-        root.setSpacing(10)
+        root.setSpacing(6)
 
-        # ── 왼쪽: 사진/아이콘 박스 ───────────────────────────────────────
+        # ── 상단: 가로 사진 박스 ──────────────────────────────────────────
         self._img_lbl = QLabel()
-        self._img_lbl.setFixedSize(148, 200)
+        self._img_lbl.setFixedHeight(175)
+        self._img_lbl.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._img_lbl.setStyleSheet(
             f"background:{C_BG}; border:1px solid {C_BORDER};"
-            f" border-radius:4px; font-size:44px;"
+            f" border-radius:4px; font-size:48px;"
         )
         root.addWidget(self._img_lbl)
 
-        # ── 오른쪽: 정보 컬럼 ───────────────────────────────────────────
-        info_col = QVBoxLayout()
-        info_col.setSpacing(2)
-        info_col.setContentsMargins(0, 0, 0, 0)
+        # ── 제목 / 부제 행 ────────────────────────────────────────────────
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_row.setContentsMargins(2, 0, 2, 0)
 
-        self._title_lbl = QLabel("← 유닛을 선택하면 스펙시트가 표시됩니다")
+        self._title_lbl = QLabel("← 왼쪽 목록에서 유닛을 선택하세요")
         self._title_lbl.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:13px; font-weight:bold;"
+            f"color:{C_ACCENT}; font-size:14px; font-weight:bold;"
         )
 
         self._sub_lbl = QLabel()
         self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._sub_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
 
-        # 카테고리 스크롤 영역
+        title_row.addWidget(self._title_lbl)
+        title_row.addStretch()
+        title_row.addWidget(self._sub_lbl)
+        root.addLayout(title_row)
+
+        # 구분선
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color:{C_BORDER};")
+        root.addWidget(sep)
+
+        # ── 카테고리 스크롤 영역 ──────────────────────────────────────────
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -4134,15 +4151,12 @@ class SpecSheetPanel(QWidget):
 
         self._note_lbl = QLabel()
         self._note_lbl.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:10px; font-style:italic;"
+            f"color:{C_SUBTEXT}; font-size:10px; font-style:italic; padding:2px 4px;"
         )
         self._note_lbl.setWordWrap(True)
 
-        info_col.addWidget(self._title_lbl)
-        info_col.addWidget(self._sub_lbl)
-        info_col.addWidget(self._scroll, stretch=1)
-        info_col.addWidget(self._note_lbl)
-        root.addLayout(info_col, stretch=1)
+        root.addWidget(self._scroll, stretch=1)
+        root.addWidget(self._note_lbl)
 
     # ── 내부 헬퍼 ──────────────────────────────────────────────────────
     def _clear_scroll(self):
@@ -4184,8 +4198,8 @@ class SpecSheetPanel(QWidget):
 
     def clear(self):
         self._img_lbl.setPixmap(QPixmap())
-        self._img_lbl.setText("—")
-        self._title_lbl.setText("← 유닛을 선택하면 스펙시트가 표시됩니다")
+        self._img_lbl.setText("")
+        self._title_lbl.setText("← 왼쪽 목록에서 유닛을 선택하세요")
         self._sub_lbl.setText("")
         self._note_lbl.setText("")
         self._clear_scroll()
@@ -4203,7 +4217,7 @@ class SpecSheetPanel(QWidget):
         )
         if img_path:
             pix = QPixmap(img_path).scaled(
-                148, 200,
+                1200, 175,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
