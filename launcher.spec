@@ -14,6 +14,7 @@ a = Analysis(
         ('engine.py',      '.'),
         ('engine_v7.py',   '.'),
         ('anim_render.py', '.'),
+        ('spec_db.py',     '.'),
         ('changelog.json', '.'),
         ('aegis_icon.ico', '.'),
     ],
