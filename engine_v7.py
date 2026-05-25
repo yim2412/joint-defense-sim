@@ -139,6 +139,13 @@ FRIENDLY_STRIKE_DB = {
         'cost_usd': 2_000, # 발당 약 $2,000
         'pk_base':  0.40,  # 대함 Pk (표적이 클수록 높음)
     },
+    # NEW-P1: Tomahawk Block V 초장거리 대함 타격 (US ships)
+    'Tomahawk Block V': {
+        'speed_ms': 250,
+        'range_km': 1700,
+        'cost_usd': 2_000_000,
+        'pk_base':  0.80,
+    },
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -149,6 +156,9 @@ ENEMY_SAM_DB = {
     'HHQ-16':    {'range_km':  50, 'speed_ms': 1000, 'pk': 0.75, 'channels': 4},
     'HHQ-10':    {'range_km':   9, 'speed_ms':  680, 'pk': 0.70, 'channels': 2},
     '1130-CIWS': {'range_km':   3, 'speed_ms': 1100, 'pk': 0.65, 'channels': 1},
+    # NEW-P1: 러시아 함정 SAM
+    'S-300F':    {'range_km':  90, 'speed_ms': 1800, 'pk': 0.85, 'channels': 6},  # 슬라바급
+    'SA-N-9':    {'range_km':  12, 'speed_ms':  900, 'pk': 0.75, 'channels': 4},  # 우달로이급
 }
 
 ENEMY_SHIP_SAM_LOADOUT = {
@@ -172,6 +182,25 @@ ENEMY_SHIP_SAM_LOADOUT = {
         {'name': '1130-CIWS', 'stock': 9999},
     ],
     '022형 미사일 고속정': [
+        {'name': '1130-CIWS', 'stock': 9999},
+    ],
+    # NEW-P1: 신규 적 함정 SAM 탑재 목록
+    '052C형 구축함 (HHQ-9)': [
+        {'name': 'HHQ-9B',    'stock': 48},
+        {'name': 'HHQ-10',    'stock': 24},
+        {'name': '1130-CIWS', 'stock': 9999},
+    ],
+    '071형 상륙함': [
+        {'name': 'HHQ-10',    'stock': 24},
+        {'name': '1130-CIWS', 'stock': 9999},
+    ],
+    '우달로이급 구축함': [
+        {'name': 'SA-N-9',    'stock': 64},
+        {'name': '1130-CIWS', 'stock': 9999},
+    ],
+    '슬라바급 순양함': [
+        {'name': 'S-300F',    'stock': 64},
+        {'name': 'HHQ-10',    'stock': 40},   # AK-630 CIWS (HHQ-10 근사)
         {'name': '1130-CIWS', 'stock': 9999},
     ],
 }
@@ -207,6 +236,14 @@ _MISSILE_PK_MAP = {
     'KN-23 (북한 이스칸데르)':   0.72,
     # 어뢰 (수중 유도, 회피 어려움: 0.78)
     'Yu-6 중어뢰':               0.78,
+    # NEW-P1: 신규 미사일
+    'DF-21D (공중발사)':         0.70,
+    'Kh-32 극초음속':            0.65,
+    'P-700 그라니트':            0.62,
+    'P-1000 (벌칸)':             0.62,
+    'Kalibr 3M54 잠대함':        0.68,
+    '북극성-1 (SLBM)':           0.70,
+    'Kh-31A 대함미사일':         0.68,
 }
 _MISSILE_PK_DEFAULT = 0.72  # 미등록 미사일 기본값
 
@@ -217,6 +254,8 @@ _SWARM_KILL_PER_WEAPON = {
     'SM-2 Block IIIB':   (1, 1),  # SAM은 1기만 제압 (낭비)
     'SM-6':              (1, 1),
     'SM-3 Block IIA':    (1, 1),
+    'ESSM Block II':     (1, 1),
+    'SM-6 Block IB':     (1, 1),
 }
 
 
@@ -418,7 +457,11 @@ class FriendlyShipObj:
         self.strike_inventory: dict = {}
 
         # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
-        _hp_map = {'KDX-III': 5, 'KDX-II': 4, 'FFX': 3}
+        _hp_map = {
+            'KDX-III': 5, 'KDX-II': 4, 'FFX': 3,
+            'DDG-51': 5, 'CG-47': 5, 'CVN': 8,
+            'LPD': 3, 'SSN': 3, 'LST': 3, 'AO': 2,
+        }
         self.hp            = _hp_map.get(ship_type, 4)
         self._max_hp       = self.hp
         self.alive         = True
@@ -1200,10 +1243,12 @@ class TimeStepEngine:
         # 근거리→원거리 표준 다층 (SM-2는 조명기 가용 시에만)
         if dist_m <= 2_000   and inv.get('CIWS-II (Phalanx)', 0) > 0: return 'CIWS-II (Phalanx)'
         if dist_m <= 9_000   and inv.get('RIM-116 RAM',        0) > 0: return 'RIM-116 RAM'
+        if dist_m <= 50_000  and inv.get('ESSM Block II',      0) > 0: return 'ESSM Block II'
         # LOW-11: SM-2 조명기 채널 확인
         if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and self._sm2_illuminator_ok(ship):
             return 'SM-2 Block IIIB'
         if dist_m <= 240_000 and inv.get('SM-6',               0) > 0: return 'SM-6'
+        if dist_m <= 240_000 and inv.get('SM-6 Block IB',      0) > 0: return 'SM-6 Block IB'
         if dist_m <= 500_000 and inv.get('SM-3 Block IIA',     0) > 0: return 'SM-3 Block IIA'  # BUG-2
         return None
 
@@ -1232,20 +1277,25 @@ class TimeStepEngine:
             # 고고도: SM-2/SM-6만 유효, SM-3 배정 금지
             if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
+            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
             return None  # 사거리 초과 → 교전 불가
 
         elif alt >= 3_000:
-            # 중고도: SM-2 → SM-6, 접근 시 RAM 보조
+            # 중고도: SM-2 → SM-6, 접근 시 RAM/ESSM 보조
             if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
+            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
+            if dist_m <= 50_000  and inv.get('ESSM Block II',   0) > 0: return 'ESSM Block II'
             if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
             return None
 
         else:
-            # 저고도 침투 (JH-7A 등 해면 근접): RAM 우선, SM-2/SM-6 원거리 커버
+            # 저고도 침투 (JH-7A 등 해면 근접): RAM 우선, ESSM/SM-2/SM-6 원거리 커버
             if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
+            if dist_m <= 50_000  and inv.get('ESSM Block II',   0) > 0: return 'ESSM Block II'
             if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
             if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
+            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
             return None
 
     # ── 4단계: 아군 공격 TEWA ─────────────────────────────────────────────────
@@ -1291,6 +1341,8 @@ class TimeStepEngine:
                     # SM-6 대함 모드: VLS inventory에서 소모
                     if wpn == 'SM-6 대함 모드':
                         ship.inventory['SM-6'] -= 1
+                    elif wpn == 'Tomahawk Block V':
+                        ship.inventory['Tomahawk Block V'] = ship.inventory.get('Tomahawk Block V', 0) - 1
                     elif wpn == 'Mk.45 5인치 함포':
                         pass  # 함포는 재고 무한 (수백 발 탑재)
                     else:
@@ -1427,7 +1479,11 @@ class TimeStepEngine:
                 break  # 한 tick당 한 표적만 공격
 
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
-        # 우선순위: 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)
+        # 우선순위: Tomahawk(초장거리) → 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)
+        # Tomahawk Block V: US 함정 전용 초장거리 대함 타격
+        if (ship.inventory.get('Tomahawk Block V', 0) > 0
+                and dist_m <= FRIENDLY_STRIKE_DB['Tomahawk Block V']['range_km'] * 1000):
+            return 'Tomahawk Block V'
         for wpn in ['해성-II', '해성-I', '하푼 Block II']:
             if ship.strike_inventory.get(wpn, 0) <= 0:
                 continue

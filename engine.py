@@ -544,6 +544,181 @@ ENEMY_DB = {
         'missile_terminal_evasion':0.50,
         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
         'is_swarm':True,'swarm_size':12},
+
+    # ════ 중국 신규 추가 (7종) ═══════════════════════════════════════════════
+    # J-35: Type 003 탑재 5세대 스텔스 함재기
+    'J-35 (백상어)':
+        {'category':'대공','type':'전투기','speed_ms':450,'altitude_m':11000,
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
+         'can_fire_missile':True,'rcs_m2':0.002,
+         'missile_salvo_min':2,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.72,
+         'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.15,'alt_change_m':4000,'max_attempts':3},
+         'self_defense_pk':0.20,'enemy_ciws_pk':0.0},
+
+    'J-10C (맹룡 개량)':
+        {'category':'대공','type':'전투기','speed_ms':540,'altitude_m':9000,
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
+         'can_fire_missile':True,'rcs_m2':3.0,
+         'missile_salvo_min':1,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.72,
+         'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.14,'alt_change_m':3500,'max_attempts':3},
+         'self_defense_pk':0.14,'enemy_ciws_pk':0.0},
+
+    # H-6N: 공중발사 탄도미사일(DF-21D) 운용 전략폭격기
+    'H-6N (폭격기 개량)':
+        {'category':'대공','type':'폭격기','speed_ms':270,'altitude_m':9000,
+         'missile_name':'DF-21D (공중발사)','missile_speed_ms':3000,'missile_range_km':1500,
+         'can_fire_missile':True,'rcs_m2':45.0,
+         'missile_salvo_min':1,'missile_salvo_max':2,
+         'missile_terminal_evasion':0.92,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':600,'max_attempts':1},
+         'self_defense_pk':0.06,'enemy_ciws_pk':0.0,
+         'is_qbm':True},
+
+    '052C형 구축함 (HHQ-9)':
+        {'category':'대함','type':'구축함','speed_ms':15.0,'altitude_m':30,
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
+         'can_fire_missile':True,'rcs_m2':1600.0,
+         'missile_salvo_min':4,'missile_salvo_max':8,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.04,'speed_boost_max':0.08,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.30,'enemy_ciws_pk':0.28},
+
+    '071형 상륙함':
+        {'category':'대함','type':'구축함','speed_ms':12.0,'altitude_m':30,
+         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
+         'can_fire_missile':True,'rcs_m2':3500.0,
+         'missile_salvo_min':2,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.18,'enemy_ciws_pk':0.20},
+
+    # 039C: AIP 추진 극저소음 잠수함
+    '039C형 잠수함 (AIP)':
+        {'category':'대잠','type':'잠수함','speed_ms':9.0,'altitude_m':-300,
+         'missile_name':'YJ-18B 잠대함미사일','missile_speed_ms':1000,'missile_range_km':540,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':2,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.20,'depth_change_m':-100,'max_attempts':3,'alt_change_m':0},
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
+
+    'YJ-18 (초음속 대함)':
+        {'category':'대함','type':'순항미사일','speed_ms':1000,'altitude_m':12,
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':540,
+         'can_fire_missile':False,'rcs_m2':0.04,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.04,'alt_change_m':5,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'terminal_evasion_factor':0.88,'missile_terminal_evasion':1.0},
+
+    # ════ 러시아 신규 추가 (8종) ═════════════════════════════════════════════
+    'Su-57 (펠론)':
+        {'category':'대공','type':'전투기','speed_ms':594,'altitude_m':12000,
+         'missile_name':'Kh-31A 대함미사일','missile_speed_ms':680,'missile_range_km':70,
+         'can_fire_missile':True,'rcs_m2':0.005,
+         'missile_salvo_min':2,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.72,
+         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.18,'alt_change_m':4000,'max_attempts':3},
+         'self_defense_pk':0.22,'enemy_ciws_pk':0.0},
+
+    # Tu-22M3: Kh-32 극초음속 대함미사일 탑재 (마하 5, 고고도 강하)
+    'Tu-22M3 (백파이어)':
+        {'category':'대공','type':'폭격기','speed_ms':480,'altitude_m':11000,
+         'missile_name':'Kh-32 극초음속','missile_speed_ms':1500,'missile_range_km':600,
+         'can_fire_missile':True,'rcs_m2':30.0,
+         'missile_salvo_min':2,'missile_salvo_max':3,
+         'missile_terminal_evasion':0.88,
+         'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.12,'alt_change_m':2000,'max_attempts':2},
+         'self_defense_pk':0.08,'enemy_ciws_pk':0.0,
+         'is_hgv':True},
+
+    '우달로이급 구축함':
+        {'category':'대함','type':'구축함','speed_ms':16.0,'altitude_m':30,
+         'missile_name':'P-800 오닉스 (야혼트)','missile_speed_ms':2000,'missile_range_km':300,
+         'can_fire_missile':True,'rcs_m2':1800.0,
+         'missile_salvo_min':4,'missile_salvo_max':8,
+         'missile_terminal_evasion':0.82,
+         'evasion_profile':{'speed_boost_min':0.04,'speed_boost_max':0.08,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.28,'enemy_ciws_pk':0.25},
+
+    '슬라바급 순양함':
+        {'category':'대함','type':'구축함','speed_ms':17.0,'altitude_m':30,
+         'missile_name':'P-1000 (벌칸)','missile_speed_ms':2000,'missile_range_km':700,
+         'can_fire_missile':True,'rcs_m2':4000.0,
+         'missile_salvo_min':8,'missile_salvo_max':16,
+         'missile_terminal_evasion':0.82,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.07,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.35,'enemy_ciws_pk':0.32},
+
+    '킬로급 잠수함 (Project 636)':
+        {'category':'대잠','type':'잠수함','speed_ms':10.0,'altitude_m':-250,
+         'missile_name':'Kalibr 3M54 잠대함','missile_speed_ms':1000,'missile_range_km':660,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':2,'missile_salvo_max':6,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.18,'depth_change_m':-80,'max_attempts':2,'alt_change_m':0},
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
+
+    # 오스카-II: P-700 그라니트 24발 포화 공격 특화 SSGN
+    '오스카-II급 SSGN':
+        {'category':'대잠','type':'잠수함','speed_ms':13.0,'altitude_m':-400,
+         'missile_name':'P-700 그라니트','missile_speed_ms':2500,'missile_range_km':550,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':8,'missile_salvo_max':24,
+         'missile_terminal_evasion':0.82,
+         'evasion_profile':{'speed_boost_min':0.08,'speed_boost_max':0.16,'depth_change_m':-100,'max_attempts':2,'alt_change_m':0},
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
+
+    '야센급 SSGN':
+        {'category':'대잠','type':'잠수함','speed_ms':14.0,'altitude_m':-400,
+         'missile_name':'Kalibr 3M54 잠대함','missile_speed_ms':1000,'missile_range_km':660,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':6,'missile_salvo_max':16,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.18,'depth_change_m':-120,'max_attempts':3,'alt_change_m':0},
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0},
+
+    'Kalibr (3M14 순항미사일)':
+        {'category':'대함','type':'순항미사일','speed_ms':250,'altitude_m':50,
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
+         'can_fire_missile':False,'rcs_m2':0.05,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.03,'alt_change_m':5,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'terminal_evasion_factor':0.88,'missile_terminal_evasion':1.0},
+
+    # ════ 북한 신규 추가 (4종) ═══════════════════════════════════════════════
+    '화성-12 (IRBM)':
+        {'category':'대공','type':'탄도미사일','speed_ms':4000,'altitude_m':80000,
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':5000,
+         'can_fire_missile':False,'rcs_m2':0.5,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
+    '화성-18 (ICBM 고체연료)':
+        {'category':'대공','type':'탄도미사일','speed_ms':7000,'altitude_m':150000,
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':15000,
+         'can_fire_missile':False,'rcs_m2':0.5,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
+
+    # KN-24: ATACMS 유사 QBM, 종말단계 불규칙 기동
+    'KN-24 (단거리 기동탄도)':
+        {'category':'대공','type':'저고도기동탄도','speed_ms':2000,'altitude_m':50000,
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':450,
+         'can_fire_missile':False,'rcs_m2':0.4,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.05,'alt_change_m':10000,'max_attempts':2},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'is_qbm':True},
+
+    '신포급 잠수함 (SLBM)':
+        {'category':'대잠','type':'잠수함','speed_ms':8.0,'altitude_m':-150,
+         'missile_name':'북극성-1 (SLBM)','missile_speed_ms':2000,'missile_range_km':1200,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':1,'missile_salvo_max':2,
+         'missile_terminal_evasion':0.88,
+         'evasion_profile':{'speed_boost_min':0.06,'speed_boost_max':0.12,'depth_change_m':-60,'max_attempts':2,'alt_change_m':0},
+         'self_defense_pk':0.03,'enemy_ciws_pk':0.0},
 }
 
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
@@ -593,6 +768,19 @@ FRIENDLY_DB = {
         {'speed_ms':270,'range_km':280,'cost_usd':1200000,'stock':0,
          'category':['대함'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
+    # NEW-P1: 미국 해군 무기 추가 (한미 연합 작전용)
+    'ESSM Block II':
+        {'speed_ms':1050,'range_km':50,'cost_usd':1500000,'stock':0,
+         'category':['대공','근접'],
+         'pk_dist':{'alpha':12,'beta':3,'mean':0.800},'requires_illuminator':False},
+    'SM-6 Block IB':
+        {'speed_ms':1190,'range_km':370,'cost_usd':4800000,'stock':0,
+         'category':['대공','탄도미사일'],
+         'pk_dist':{'alpha':10,'beta':2,'mean':0.833},'requires_illuminator':False},
+    'Tomahawk Block V':
+        {'speed_ms':250,'range_km':1700,'cost_usd':2000000,'stock':0,
+         'category':['대함'],
+         'pk_dist':{'alpha':16,'beta':4,'mean':0.800},'requires_illuminator':False},
 }
 
 WEATHER_DB = {
@@ -747,6 +935,97 @@ SHIP_DB = {
             'CIWS-II (Phalanx)': 9999,   # 자체방어 최소 CIWS
         },
     },
+
+    # ════ 미국 해군 함정 (한미 연합 작전용) ══════════════════════════════════
+    # DDG-51 Flight III: SPY-6 AMDR 탑재, MK-41 96셀
+    'DDG-51': {
+        'display':      '이지스 구축함 (DDG-51 Arleigh Burke Flight III)',
+        'sensor_km':    {'대공': 850, '대함': 50, '대잠': 50},
+        'max_channels': 24,
+        'role':         ['대공', '대함', '대잠', 'BMD'],
+        'default_inventory': {
+            'SM-3 Block IIA':    32,
+            'SM-6 Block IB':     32,
+            'SM-2 Block IIIB':   48,
+            'ESSM Block II':     32,
+            'RIM-116 RAM':       21,
+            'Mk.46 경어뢰':       8,
+            'CIWS-II (Phalanx)': 9999,
+            'Tomahawk Block V':   8,
+        },
+    },
+    # CG-47 Ticonderoga: SPY-1B, MK-41 122셀 — 최대 채널 32
+    'CG-47': {
+        'display':      '이지스 순양함 (CG-47 Ticonderoga)',
+        'sensor_km':    {'대공': 850, '대함': 50, '대잠': 55},
+        'max_channels': 32,
+        'role':         ['대공', '대함', '대잠', 'BMD'],
+        'default_inventory': {
+            'SM-3 Block IIA':    40,
+            'SM-6 Block IB':     40,
+            'SM-2 Block IIIB':   60,
+            'ESSM Block II':     24,
+            'RIM-116 RAM':       21,
+            'Mk.46 경어뢰':       8,
+            'CIWS-II (Phalanx)': 9999,
+            'Tomahawk Block V':  16,
+        },
+    },
+    # CVN Nimitz: 항모 자체 방어 (함재기 방어는 별도), RAM × 4기
+    'CVN': {
+        'display':      '항공모함 (CVN Nimitz급)',
+        'sensor_km':    {'대공': 500, '대함': 60, '대잠': 80},
+        'max_channels': 12,
+        'role':         ['대공', '대잠'],
+        'default_inventory': {
+            'RIM-116 RAM':       84,   # RAM 21셀 × 4기
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # LPD San Antonio: MH-60S·MV-22 탑재 상륙함
+    'LPD': {
+        'display':      '상륙함 (LPD San Antonio급)',
+        'sensor_km':    {'대공': 120, '대함': 45, '대잠': 40},
+        'max_channels': 6,
+        'role':         ['대공', '대잠'],
+        'default_inventory': {
+            'ESSM Block II':     16,
+            'RIM-116 RAM':       21,
+            'Mk.46 경어뢰':       4,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # SSN Virginia Block V: VPM Tomahawk 65발 + Mk.48 ADCAP 대잠
+    'SSN': {
+        'display':      '핵잠수함 (SSN Virginia Block V)',
+        'sensor_km':    {'대공': 0, '대함': 0, '대잠': 80},
+        'max_channels': 4,
+        'role':         ['대잠', '대함'],
+        'default_inventory': {
+            'Mk.46 경어뢰':      26,   # Mk.48 ADCAP 근사
+            'Tomahawk Block V':  65,
+        },
+    },
+    # ════ 한국 해군 지원 함정 ══════════════════════════════════════════════════
+    'LST': {
+        'display':      '상륙함 (LST 천왕봉급)',
+        'sensor_km':    {'대공': 60, '대함': 30, '대잠': 15},
+        'max_channels': 2,
+        'role':         ['보급'],
+        'default_inventory': {
+            'RIM-116 RAM':       21,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    'AO': {
+        'display':      '군수지원함 (AO 천지함)',
+        'sensor_km':    {'대공': 40, '대함': 25, '대잠': 10},
+        'max_channels': 0,
+        'role':         ['보급'],
+        'default_inventory': {
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
 }
 
 # ── 편대 프리셋 (한국 해군 기동전단 교리 기반) ──────────────────────────────
@@ -836,6 +1115,39 @@ FLEET_PRESETS = {
         {'name': '경주함',    'type': 'PCC'},
         {'name': '목포함',    'type': 'PCC'},
     ],
+
+    # ════ 한미 연합 프리셋 ═══════════════════════════════════════════════════
+    # 한미 기동전단 기본 — KDX-III + DDG-51 × 2 + KDX-II + FFX × 2
+    '한미 기동전단 기본': [
+        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': 'USS John Finn',  'type': 'DDG-51'},
+        {'name': 'USS Fitzgerald', 'type': 'DDG-51'},
+        {'name': '충무공이순신함', 'type': 'KDX-II'},
+        {'name': '대구함',         'type': 'FFX'},
+        {'name': '인천함',         'type': 'FFX'},
+    ],
+    # 한미 기동전단 강화 — KDX-III × 2 + DDG-51 × 2 + CG-47 + KDX-II × 2 + AOE
+    '한미 기동전단 강화': [
+        {'name': '정조대왕함',      'type': 'KDX-III'},
+        {'name': '세종대왕함',      'type': 'KDX-III'},
+        {'name': 'USS John Finn',   'type': 'DDG-51'},
+        {'name': 'USS Fitzgerald',  'type': 'DDG-51'},
+        {'name': 'USS Bunker Hill', 'type': 'CG-47'},
+        {'name': '충무공이순신함',  'type': 'KDX-II'},
+        {'name': '문무대왕함',      'type': 'KDX-II'},
+        {'name': '소양함',          'type': 'AOE'},
+    ],
+    # 한미 항모전단 지원 — CVN + DDG-51 × 3 + CG-47 + KDX-III + KDX-II × 2
+    '한미 항모전단 지원': [
+        {'name': 'USS Ronald Reagan', 'type': 'CVN'},
+        {'name': 'USS John Finn',     'type': 'DDG-51'},
+        {'name': 'USS Fitzgerald',    'type': 'DDG-51'},
+        {'name': 'USS Milius',        'type': 'DDG-51'},
+        {'name': 'USS Bunker Hill',   'type': 'CG-47'},
+        {'name': '정조대왕함',        'type': 'KDX-III'},
+        {'name': '충무공이순신함',    'type': 'KDX-II'},
+        {'name': '문무대왕함',        'type': 'KDX-II'},
+    ],
 }
 
 REQ_ITEMS = [
@@ -900,6 +1212,11 @@ _ECM_OVR = {
     '055형 대형 구축함':0.28,'052D형 구축함':0.22,'054A형 호위함':0.18,
     '056형 초계함':0.12,'022형 미사일 고속정':0.08,
     'P-800 오닉스 (야혼트)':0.08,'YJ-12 (초음속 순항)':0.06,
+    # NEW-P1: 신규 추가 항목
+    'J-35 (백상어)':0.32,'J-10C (맹룡 개량)':0.18,'H-6N (폭격기 개량)':0.05,
+    '052C형 구축함 (HHQ-9)':0.20,'071형 상륙함':0.10,
+    'Su-57 (펠론)':0.30,'Tu-22M3 (백파이어)':0.08,
+    '우달로이급 구축함':0.18,'슬라바급 순양함':0.22,
 }
 for _n, _v in _ECM_OVR.items():
     if _n in ENEMY_DB: ENEMY_DB[_n]['ecm_power'] = _v
