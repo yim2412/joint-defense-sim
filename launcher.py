@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.27 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.28 — 시스템 모니터 버그 수정]                                          ║
+║  BUG-1  시뮬 실행 중 오버레이 미표시 수정 (_sim_start_idx→벽시계 기반)      ║
+║  BUG-2  코어별 퍼센트 폰트 크기 10px→12px (가독성 개선)                    ║
+║                                                                              ║
 ║  [v7.27 — 아군 잠수함 추가 (KSS-I/II/III)]                                  ║
 ║  NEW-A  SHIP_DB: KSS-I 장보고급·KSS-II 류관순급·KSS-III 도산안창호급 추가  ║
 ║  NEW-B  engine_v7: 아군 잠수함 공격 로직 (수상함·적잠수함 어뢰/미사일)      ║
@@ -1535,8 +1539,8 @@ class SysMonitorTab(QWidget):
         self._gpu_hist      = [0.0] * 60
         self._core_pcts     = [0.0] * (os.cpu_count() or 4)
         self._worker_stats  = []
-        self._sim_ranges    = []
-        self._sim_start_idx = None
+        self._sim_ranges     = []   # list of (start_wall_time, end_wall_time)
+        self._sim_start_time = None  # wall-clock time when current sim started
         self._batch_done    = 0
         self._batch_total   = 0
         self._sim_speed     = 0.0
@@ -1549,16 +1553,16 @@ class SysMonitorTab(QWidget):
 
     # ── 외부 슬롯 ────────────────────────────────────────────────────────────
     def mark_sim_start(self):
-        self._sim_start_idx = len(self._cpu_hist) - 1
+        self._sim_start_time = time.time()
         self._sim_t0   = time.time()
         self._sim_done = 0
         self._sim_speed = 0.0
 
     def mark_sim_end(self):
-        if self._sim_start_idx is not None:
-            self._sim_ranges.append((self._sim_start_idx, len(self._cpu_hist) - 1))
+        if self._sim_start_time is not None:
+            self._sim_ranges.append((self._sim_start_time, time.time()))
             self._sim_ranges = self._sim_ranges[-3:]
-            self._sim_start_idx = None
+            self._sim_start_time = None
         self._batch_done = 0
         self._batch_total = 0
         self._prog_batch.setValue(0)
@@ -1654,17 +1658,17 @@ class SysMonitorTab(QWidget):
         self._core_bars = []
         for i in range(os.cpu_count() or 4):
             row = QHBoxLayout()
-            lbl = QLabel(f"C{i:02d}"); lbl.setFixedWidth(28)
-            lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            lbl = QLabel(f"C{i:02d}"); lbl.setFixedWidth(32)
+            lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
             bar = QProgressBar(); bar.setRange(0, 100); bar.setValue(0)
-            bar.setFixedHeight(12); bar.setTextVisible(False)
+            bar.setFixedHeight(14); bar.setTextVisible(False)
             bar.setStyleSheet(f"""
                 QProgressBar {{ background:{C_PANEL}; border-radius:3px; border:none; }}
                 QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:2px; }}
             """)
-            plbl = QLabel("0%"); plbl.setFixedWidth(32)
+            plbl = QLabel("0%"); plbl.setFixedWidth(42)
             plbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            plbl.setStyleSheet(f"color:{C_TEXT}; font-size:10px;")
+            plbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px; font-weight:bold;")
             row.addWidget(lbl); row.addWidget(bar, 1); row.addWidget(plbl)
             cl.addLayout(row)
             self._core_bars.append((bar, plbl))
@@ -1777,10 +1781,16 @@ class SysMonitorTab(QWidget):
         ax.grid(color='#1e2a3a', linewidth=0.5)
         ax.plot(self._cpu_hist, color=C_ACCENT, lw=1.5, label='CPU')
         ax.plot(self._ram_hist, color=C_ORANGE, lw=1.5, label='RAM')
-        for s, e in self._sim_ranges:
-            ax.axvspan(s, min(e, 59), color='#f1c40f', alpha=0.12, zorder=0)
-        if self._sim_start_idx is not None:
-            ax.axvspan(self._sim_start_idx, 59, color='#f1c40f',
+        now = time.time()
+        for st, et in self._sim_ranges:
+            # x=59 is now, older data is further left
+            sx = max(0, 59 - int(now - st))
+            ex = min(59, 59 - int(now - et))
+            if sx <= 59 and ex >= 0:
+                ax.axvspan(sx, max(sx + 1, ex), color='#f1c40f', alpha=0.12, zorder=0)
+        if self._sim_start_time is not None:
+            sx = max(0, 59 - int(now - self._sim_start_time))
+            ax.axvspan(sx, 59, color='#f1c40f',
                        alpha=0.18, zorder=0, label='시뮬 실행 중')
         ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor='white', edgecolor='#1e2a3a')
         self._sys_canvas.draw_idle()   # BUG-1: draw_idle()로 UI 블로킹 방지
