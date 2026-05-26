@@ -59,6 +59,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.font_manager as fm
+from matplotlib.figure import Figure as _MplFigure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as _FigureCanvasAgg
+from matplotlib.ticker import FuncFormatter as _FuncFormatter
 import numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -2349,7 +2352,8 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     단일 시뮬 결과(result) + MC 통계(mc)를 6개 서브플롯으로 시각화.
     img_path에 저장 후 경로 반환.
     """
-    fig = plt.figure(figsize=(16, 10), facecolor=_BG)
+    fig = _MplFigure(figsize=(16, 10), facecolor=_BG)
+    _FigureCanvasAgg(fig)
     fig.suptitle(
         f"이지스 기동전단 통합 방어 시뮬레이터 v7.0\n"
         f"시나리오: {cfg.get('fleet_preset','?')} | "
@@ -2370,7 +2374,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     ax0.set_xlabel('요격률', color='#aab', fontsize=8)
     ax0.set_ylabel('빈도', color='#aab', fontsize=8)
     ax0.legend(fontsize=7, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
-    ax0.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:.0%}'))
+    ax0.xaxis.set_major_formatter(_FuncFormatter(lambda v, _: f'{v:.0%}'))
 
     # ── (0,1) 아군 피격 분포 ─────────────────────────────────────────────────
     ax1 = fig.add_subplot(gs[0, 1])
@@ -2456,8 +2460,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         ax5.text(0.96, y, val,   color='white',   fontsize=8, transform=ax5.transAxes, va='top', ha='right', fontweight='bold')
         y -= 0.072
 
-    plt.savefig(img_path, dpi=150, bbox_inches='tight', facecolor=_BG)
-    plt.close(fig)
+    fig.savefig(img_path, dpi=150, bbox_inches='tight', facecolor=_BG)
     print(f"  그래프 저장: '{img_path}'")
     return img_path
 
