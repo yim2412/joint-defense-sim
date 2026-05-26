@@ -691,6 +691,11 @@ FRIENDLY_DB = {
         {'speed_ms':270,'range_km':280,'cost_usd':1200000,'stock':0,
          'category':['대함'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
+    # NEW-B2: 국산 단거리 함대공 해궁 (K-SAAM, KVLS 탑재 — FFX-II/III 전용)
+    '해궁 (K-SAAM)':
+        {'speed_ms':720,'range_km':15,'cost_usd':180000,'stock':0,
+         'category':['대공','근접'],
+         'pk_dist':{'alpha':10,'beta':3,'mean':0.769},'requires_illuminator':False},
     # NEW-P1: 미국 해군 무기 추가 (한미 연합 작전용)
     'ESSM Block II':
         {'speed_ms':1050,'range_km':50,'cost_usd':1500000,'stock':0,
@@ -749,20 +754,37 @@ SHIP_SPEC = {
 #  NEW-K: 함정 DB + 편대 프리셋 (v6.3)
 # ════════════════════════════════════════════════════════════════════════════
 SHIP_DB = {
-    # ── 이지스 구축함 (KDX-III 정조대왕급 / 세종대왕급) ─────────────────────
-    'KDX-III': {
-        'display':      '이지스 구축함 (KDX-III)',
-        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},  # MED-3: 대공 1200→800 km
+    # ── 이지스 구축함 Batch I (KDX-III 세종대왕급: 세종대왕·율곡이이·서애류성룡) ──
+    # SPY-1D(V) / Mk.41 VLS 80셀 / SM-3 미탑재 (BMD 불가)
+    'KDX-III-B1': {
+        'display':      '이지스 구축함 KDX-III Batch I (세종대왕급)',
+        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},
+        'max_channels': 18,
+        'role':         ['대공', '대함', '대잠'],
+        'default_inventory': {
+            'SM-2 Block IIIB':   64,   # Mk.41 VLS 80셀 위주 탑재
+            'RIM-116 RAM':       42,   # 21셀 × 2기
+            '홍상어 (대잠)':     16,
+            '청상어 (경어뢰)':   12,
+            'Mk.46 경어뢰':       8,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # ── 이지스 구축함 Batch II (KDX-III 정조대왕급: 정조대왕함) ──────────────
+    # 개량형 SPY-1D(V) / VLS 증설 / SM-3 Block IIA 32셀 / BMD 가능
+    'KDX-III-B2': {
+        'display':      '이지스 구축함 KDX-III Batch II (정조대왕급)',
+        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},
         'max_channels': 24,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'default_inventory': {
-            'SM-3 Block IIA':   32,   # MED-19: 8→32 (KDX-III Batch-II: Mk.41 VLS 32셀 SM-3 탑재)
-            'SM-6':             32,
-            'SM-2 Block IIIB':  48,
-            'RIM-116 RAM':      21,
-            '홍상어 (대잠)':    16,
-            '청상어 (경어뢰)':  12,
-            'Mk.46 경어뢰':      8,
+            'SM-3 Block IIA':    32,   # Batch II: 전방 VLS 32셀 SM-3 전담
+            'SM-6':              32,
+            'SM-2 Block IIIB':   48,
+            'RIM-116 RAM':       21,
+            '홍상어 (대잠)':     16,
+            '청상어 (경어뢰)':   12,
+            'Mk.46 경어뢰':       8,
             'CIWS-II (Phalanx)': 9999,
         },
     },
@@ -780,17 +802,50 @@ SHIP_DB = {
             'CIWS-II (Phalanx)': 9999,
         },
     },
-    # ── 호위함 (FFX 인천급 / 대구급) ────────────────────────────────────────
-    'FFX': {
-        'display':      '호위함 (FFX 인천급/대구급)',
+    # ── 호위함 Batch I (FFX-I 인천급: 인천·전북·강원·경기·부산·서울) ─────────
+    # SPS-520K 레이더 / Mk.41 VLS 16셀 / SM-2 × 16 + RAM × 21
+    'FFX-I': {
+        'display':      '호위함 FFX Batch I (인천급)',
         'sensor_km':    {'대공': 100, '대함': 35, '대잠': 45},
         'max_channels': 8,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
-            'SM-2 Block IIIB':  16,
-            'RIM-116 RAM':      21,
-            '청상어 (경어뢰)':   8,
-            'Mk.46 경어뢰':      4,
+            'SM-2 Block IIIB':   16,
+            'RIM-116 RAM':       21,
+            '청상어 (경어뢰)':    8,
+            'Mk.46 경어뢰':       4,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # ── 호위함 Batch II (FFX-II 대구급: 대구·경남·전남·광주·진주 등) ─────────
+    # SPS-550K AESA 레이더 / KVLS 32셀 해궁 추가 / 채널 개선
+    'FFX-II': {
+        'display':      '호위함 FFX Batch II (대구급)',
+        'sensor_km':    {'대공': 120, '대함': 38, '대잠': 48},
+        'max_channels': 10,
+        'role':         ['대공', '대함', '대잠'],
+        'default_inventory': {
+            'SM-2 Block IIIB':   16,
+            '해궁 (K-SAAM)':     32,   # KVLS 32셀 국산 단거리 함대공
+            'RIM-116 RAM':       21,
+            '청상어 (경어뢰)':    8,
+            'Mk.46 경어뢰':       4,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
+    # ── 호위함 Batch III (FFX-III 충남급: 충남·충북·울산 등, 건조 중) ─────────
+    # 개량형 AESA + 확장 VLS / 해궁 블록 II / 채널 추가
+    'FFX-III': {
+        'display':      '호위함 FFX Batch III (충남급)',
+        'sensor_km':    {'대공': 150, '대함': 40, '대잠': 50},
+        'max_channels': 12,
+        'role':         ['대공', '대함', '대잠'],
+        'default_inventory': {
+            'SM-2 Block IIIB':   16,
+            '해궁 (K-SAAM)':     48,   # 확장 KVLS 48셀
+            'RIM-116 RAM':       21,
+            '청상어 (경어뢰)':   12,
+            'Mk.46 경어뢰':       4,
             'CIWS-II (Phalanx)': 9999,
         },
     },
@@ -994,82 +1049,94 @@ SHIP_DB = {
 }
 
 # ── 편대 프리셋 (한국 해군 기동전단 교리 기반) ──────────────────────────────
-# 실제 함명 사용 (KDX-III 4척: 세종대왕·율곡이이·서애류성룡·정조대왕)
-# (KDX-II 6척: 충무공이순신·문무대왕·대조영·왕건·강감찬·최영)
-# (FFX 인천급 6척 + 대구급 계열 다수)
+# KDX-III Batch I (세종대왕·율곡이이·서애류성룡) → 'KDX-III-B1'  (SM-3 없음)
+# KDX-III Batch II (정조대왕함)                 → 'KDX-III-B2'  (SM-3 × 32)
+# FFX Batch I  (인천·전북·강원·경기·부산·서울)  → 'FFX-I'
+# FFX Batch II (대구·경남·전남·광주·진주 등)    → 'FFX-II'
+# FFX Batch III (충남·충북·울산 등, 건조 중)    → 'FFX-III'
 FLEET_PRESETS = {
     # 단독 작전 (현재 방식과 동일 — 정조대왕함 1척)
     '단독 작전': [
-        {'name': '정조대왕함', 'type': 'KDX-III'},
+        {'name': '정조대왕함', 'type': 'KDX-III-B2'},
     ],
     # 기동전단 기본 (균형 편대 — 이지스1 + 구축함1 + 호위함1)
     '기동전단 기본': [
-        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
-        {'name': '대구함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX-II'},
     ],
     # BMD 중점 (탄도·HGV 방어 특화 — 이지스2 + 구축함1)
     'BMD 중점': [
-        {'name': '정조대왕함', 'type': 'KDX-III'},
-        {'name': '세종대왕함', 'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
+        {'name': '세종대왕함',     'type': 'KDX-III-B1'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
     ],
     # 대잠 중점 (잠수함 위협 대응 — 이지스1 + 호위함2)
     '대잠 중점': [
-        {'name': '정조대왕함', 'type': 'KDX-III'},
-        {'name': '대구함',     'type': 'FFX'},
-        {'name': '인천함',     'type': 'FFX'},
+        {'name': '정조대왕함', 'type': 'KDX-III-B2'},
+        {'name': '대구함',     'type': 'FFX-II'},
+        {'name': '인천함',     'type': 'FFX-I'},
     ],
     # 대잠전단 (수중 위협 집중 대응 — 이지스1 + 호위함2 + KSS-II × 2)
     '대잠전단': [
-        {'name': '정조대왕함',   'type': 'KDX-III'},
-        {'name': '대구함',       'type': 'FFX'},
-        {'name': '인천함',       'type': 'FFX'},
+        {'name': '정조대왕함',   'type': 'KDX-III-B2'},
+        {'name': '대구함',       'type': 'FFX-II'},
+        {'name': '인천함',       'type': 'FFX-I'},
         {'name': '이순신함(SS)', 'type': 'KSS-II'},
         {'name': '안중근함(SS)', 'type': 'KSS-II'},
     ],
     # 최대 편대 (전면전 — 이지스2 + 구축함2 + 호위함2)
     '최대 편대': [
-        {'name': '정조대왕함',     'type': 'KDX-III'},
-        {'name': '세종대왕함',     'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
+        {'name': '세종대왕함',     'type': 'KDX-III-B1'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
         {'name': '문무대왕함',     'type': 'KDX-II'},
-        {'name': '대구함',         'type': 'FFX'},
-        {'name': '인천함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX-II'},
+        {'name': '인천함',         'type': 'FFX-I'},
     ],
 
     # ════ 현실 기반 편대 (한국 해군 실 교리 기반) ════════════════════════════
     # 이지스 기동전단 — 정조대왕함 중심, KDX-II 2·FFX 2·보급함 1
     '이지스 기동전단': [
-        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
         {'name': '문무대왕함',     'type': 'KDX-II'},
-        {'name': '인천함',         'type': 'FFX'},
-        {'name': '대구함',         'type': 'FFX'},
+        {'name': '인천함',         'type': 'FFX-I'},
+        {'name': '대구함',         'type': 'FFX-II'},
         {'name': '소양함',         'type': 'AOE'},
     ],
     # 이지스 기동전단 (강화) — 이지스 2척 체제, 전시 확장 편성
     '이지스 기동전단 (강화)': [
-        {'name': '정조대왕함',     'type': 'KDX-III'},
-        {'name': '세종대왕함',     'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
+        {'name': '세종대왕함',     'type': 'KDX-III-B1'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
         {'name': '문무대왕함',     'type': 'KDX-II'},
-        {'name': '인천함',         'type': 'FFX'},
-        {'name': '대구함',         'type': 'FFX'},
+        {'name': '인천함',         'type': 'FFX-I'},
+        {'name': '대구함',         'type': 'FFX-II'},
+        {'name': '소양함',         'type': 'AOE'},
+    ],
+    # 전 이지스 기동전단 — 이지스 4척 완전 편성 (최강 방공)
+    '전 이지스 기동전단': [
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
+        {'name': '세종대왕함',     'type': 'KDX-III-B1'},
+        {'name': '율곡이이함',     'type': 'KDX-III-B1'},
+        {'name': '서애류성룡함',   'type': 'KDX-III-B1'},
+        {'name': '충무공이순신함', 'type': 'KDX-II'},
+        {'name': '대구함',         'type': 'FFX-II'},
         {'name': '소양함',         'type': 'AOE'},
     ],
     # 독도함 상륙전단 — 상륙기동전단, 헬기 대잠 특화
     '독도함 상륙전단': [
         {'name': '독도함',         'type': 'LPH'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
-        {'name': '인천함',         'type': 'FFX'},
-        {'name': '대구함',         'type': 'FFX'},
+        {'name': '인천함',         'type': 'FFX-I'},
+        {'name': '대구함',         'type': 'FFX-II'},
     ],
     # 동해 해역방어 (1함대) — 구축함 1·호위함 2·고속함 4·초계함 2
     '동해 해역방어 (1함대)': [
         {'name': '대조영함',  'type': 'KDX-II'},
-        {'name': '인천함',    'type': 'FFX'},
-        {'name': '강원함',    'type': 'FFX'},
+        {'name': '인천함',    'type': 'FFX-I'},
+        {'name': '강원함',    'type': 'FFX-I'},
         {'name': '윤영하함',  'type': 'PKG'},
         {'name': '한상국함',  'type': 'PKG'},
         {'name': '조천형함',  'type': 'PKG'},
@@ -1079,8 +1146,8 @@ FLEET_PRESETS = {
     ],
     # 서해 해역방어 (2함대) — 호위함 2·고속함 4·초계함 2
     '서해 해역방어 (2함대)': [
-        {'name': '부산함',    'type': 'FFX'},
-        {'name': '전주함',    'type': 'FFX'},
+        {'name': '부산함',    'type': 'FFX-I'},
+        {'name': '전주함',    'type': 'FFX-I'},
         {'name': '서후원함',  'type': 'PKG'},
         {'name': '박동혁함',  'type': 'PKG'},
         {'name': '이희완함',  'type': 'PKG'},
@@ -1090,19 +1157,19 @@ FLEET_PRESETS = {
     ],
 
     # ════ 한미 연합 프리셋 ═══════════════════════════════════════════════════
-    # 한미 기동전단 기본 — KDX-III + DDG-51 × 2 + KDX-II + FFX × 2
+    # 한미 기동전단 기본 — KDX-III-B2 + DDG-51 × 2 + KDX-II + FFX-II + FFX-I
     '한미 기동전단 기본': [
-        {'name': '정조대왕함',     'type': 'KDX-III'},
+        {'name': '정조대왕함',     'type': 'KDX-III-B2'},
         {'name': 'USS John Finn',  'type': 'DDG-51'},
         {'name': 'USS Fitzgerald', 'type': 'DDG-51'},
         {'name': '충무공이순신함', 'type': 'KDX-II'},
-        {'name': '대구함',         'type': 'FFX'},
-        {'name': '인천함',         'type': 'FFX'},
+        {'name': '대구함',         'type': 'FFX-II'},
+        {'name': '인천함',         'type': 'FFX-I'},
     ],
-    # 한미 기동전단 강화 — KDX-III × 2 + DDG-51 × 2 + CG-47 + KDX-II × 2 + AOE
+    # 한미 기동전단 강화 — KDX-III-B2/B1 × 2 + DDG-51 × 2 + CG-47 + KDX-II × 2 + AOE
     '한미 기동전단 강화': [
-        {'name': '정조대왕함',      'type': 'KDX-III'},
-        {'name': '세종대왕함',      'type': 'KDX-III'},
+        {'name': '정조대왕함',      'type': 'KDX-III-B2'},
+        {'name': '세종대왕함',      'type': 'KDX-III-B1'},
         {'name': 'USS John Finn',   'type': 'DDG-51'},
         {'name': 'USS Fitzgerald',  'type': 'DDG-51'},
         {'name': 'USS Bunker Hill', 'type': 'CG-47'},
@@ -1110,14 +1177,14 @@ FLEET_PRESETS = {
         {'name': '문무대왕함',      'type': 'KDX-II'},
         {'name': '소양함',          'type': 'AOE'},
     ],
-    # 한미 항모전단 지원 — CVN + DDG-51 × 3 + CG-47 + KDX-III + KDX-II × 2
+    # 한미 항모전단 지원 — CVN + DDG-51 × 3 + CG-47 + KDX-III-B2 + KDX-II × 2
     '한미 항모전단 지원': [
         {'name': 'USS Ronald Reagan', 'type': 'CVN'},
         {'name': 'USS John Finn',     'type': 'DDG-51'},
         {'name': 'USS Fitzgerald',    'type': 'DDG-51'},
         {'name': 'USS Milius',        'type': 'DDG-51'},
         {'name': 'USS Bunker Hill',   'type': 'CG-47'},
-        {'name': '정조대왕함',        'type': 'KDX-III'},
+        {'name': '정조대왕함',        'type': 'KDX-III-B2'},
         {'name': '충무공이순신함',    'type': 'KDX-II'},
         {'name': '문무대왕함',        'type': 'KDX-II'},
     ],

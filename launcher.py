@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.37 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.38 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.38 — 함정 DB Batch 세분화]                                               ║
+║  NEW-A  KDX-III → Batch I (세종대왕급, SM-3 없음) / Batch II (정조대왕급)    ║
+║  NEW-B  FFX → Batch I (인천급) / Batch II (대구급, 해궁 추가) / Batch III    ║
+║  NEW-C  FRIENDLY_DB: 해궁 (K-SAAM) 추가                                      ║
+║  NEW-D  FLEET_PRESETS 전 프리셋 타입 키 갱신 + 전 이지스 기동전단 프리셋 추가║
+║  NEW-E  spec_db: KDX-III-B1/B2, FFX-I/II/III 상세 스펙 각각 분리             ║
+║                                                                              ║
 ║  [v7.37 — 전체 차트 고화질 + 폰트 확대]                                      ║
 ║  NEW-A  CHART_DPI 자동 감지: 화면 크기 기반 min 150 ~ max 300 DPI 설정       ║
 ║  NEW-B  정적 차트 13종 fontsize +3 일괄 증가 (8→11, 9→12, 11→14 등)          ║
@@ -3093,17 +3100,17 @@ class MainWindow(QMainWindow):
         defl = QVBoxLayout(grp_def)
         defl.setSpacing(4)
 
-        self.chk_layered = QCheckBox("다층 방어  (KDX-III → KDX-II → FFX 순서)")
+        self.chk_layered = QCheckBox("다층 방어  (KDX-III-B2 → B1 → KDX-II → FFX 순서)")
         self.chk_layered.setChecked(True)
         self.chk_layered.setToolTip(
-            "1차 교전 함정(KDX-III)이 요격 실패 시 다음 레이어(KDX-II→FFX)가 자동 인계.\n"
+            "1차 교전 함정(KDX-III Batch II)이 요격 실패 시 다음 레이어(Batch I → KDX-II → FFX)가 자동 인계.\n"
             "우선순위 정렬로 최고 성능 함정이 항상 먼저 교전합니다."
         )
 
         self.chk_cec = QCheckBox("CEC 사전 동시 배정  (1차+2차 함정 동시 발사)")
         self.chk_cec.setChecked(False)
         self.chk_cec.setToolTip(
-            "위협 탐지 시 1차(KDX-III)+2차(KDX-II) 함정이 동시에 SAM을 발사합니다.\n"
+            "위협 탐지 시 1차(KDX-III-B2)+2차(KDX-III-B1/KDX-II) 함정이 동시에 SAM을 발사합니다.\n"
             "1차 성공 시 2차 SAM은 표적 소멸로 자동 종료.\n"
             "탄약 소비 증가 / 동시 다수 위협에 효과적."
         )
@@ -3509,9 +3516,12 @@ class MainWindow(QMainWindow):
     # ── 툴팁 / 편성 표시 ────────────────────────────────────────────────────
 
     _SHIP_DISPLAY = {
-        'KDX-III': '이지스 구축함 (KDX-III)',
-        'KDX-II':  '구축함 (KDX-II 충무공이순신급)',
-        'FFX':     '호위함 (FFX 인천급/대구급)',
+        'KDX-III-B2': '이지스 구축함 KDX-III Batch II (정조대왕급)',
+        'KDX-III-B1': '이지스 구축함 KDX-III Batch I (세종대왕급)',
+        'KDX-II':     '구축함 (KDX-II 충무공이순신급)',
+        'FFX-I':      '호위함 FFX Batch I (인천급)',
+        'FFX-II':     '호위함 FFX Batch II (대구급)',
+        'FFX-III':    '호위함 FFX Batch III (충남급)',
     }
 
     def _update_fleet_detail(self, preset_name: str):
@@ -4288,10 +4298,10 @@ _FEATURES = [
     ("🌊  적군 위협 데이터베이스",
      "중국 PLA해군·공군 함정·전투기, 북한 탄도·순항·잠수함발사 미사일, "
      "러시아 극초음속 무기, YJ-21·YJ-18 신형 미사일, 드론 떼·소형 자폭 드론까지 총 39종 위협 수록."),
-    ("⚓  한국 해군 함정 DB (8종)",
-     "KDX-III 이지스·KDX-II 구축함·FFX 호위함 외 PKG 윤영하급(유도탄 고속함), "
-     "PCC 포항급(초계함), PKX-B 참수리-II(고속정), LPH 독도함급(강습상륙함), "
-     "AOE 소양함(보급함)까지 총 8종 수록. 함정별 탐지거리·채널·탑재 무장 실제 제원 반영."),
+    ("⚓  한국 해군 함정 DB (10종+)",
+     "KDX-III Batch I/II(세종대왕·정조대왕급)·KDX-II 구축함·FFX Batch I/II/III 호위함 외 "
+     "PKG 윤영하급, PCC 포항급, PKX-B 참수리-II, LPH 독도함급, AOE 소양함까지 수록. "
+     "Batch별 SM-3 탑재 유무·해궁 장착 여부 등 실제 제원 반영."),
     ("🏴  현실 기반 편대 프리셋 (10종)",
      "한국 해군 실 교리 기반 편대 5종 추가: 이지스 기동전단 / 이지스 기동전단(강화) / "
      "독도함 상륙전단 / 동해 해역방어(1함대) / 서해 해역방어(2함대). "

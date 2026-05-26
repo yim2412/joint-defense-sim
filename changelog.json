@@ -644,5 +644,22 @@
       "수정  lbl_events: setWordWrap(True) 제거 → setFixedHeight(28) 고정 높이 적용",
       "수정  이벤트 자막 텍스트가 나타나거나 사라질 때 캔버스 크기가 변동되어 화면이 진동하던 현상 해결"
     ]
+  },
+  {
+    "version": "38",
+    "date": "2026-05-26",
+    "title": "함정 DB Batch 세분화 (KDX-III B1/B2, FFX I/II/III)",
+    "changes": [
+      "추가  KDX-III Batch I (세종대왕급): SM-3 미탑재, SM-2 × 64, RAM × 42, 채널 18",
+      "추가  KDX-III Batch II (정조대왕급): SM-3 × 32 + SM-6 × 32 + SM-2 × 48, 채널 24, BMD 가능",
+      "추가  FFX Batch I (인천급): SM-2 × 16, RAM × 21, 채널 8",
+      "추가  FFX Batch II (대구급): SM-2 × 16 + 해궁 × 32, AESA 레이더, 채널 10",
+      "추가  FFX Batch III (충남급): SM-2 × 16 + 해궁 × 48, 개선 AESA, 채널 12",
+      "추가  FRIENDLY_DB에 해궁 (K-SAAM) 단거리 함대공 미사일 추가",
+      "추가  FLEET_PRESETS: 전 이지스 기동전단 프리셋 추가 (이지스 4척 완전 편성)",
+      "수정  다층 방어 레이어: KDX-III-B2 → B1 → KDX-II → FFX-III → II → I 순서",
+      "수정  FLEET_PRESETS 전 프리셋 타입 키 갱신 (KDX-III-B1/B2, FFX-I/II/III 적용)",
+      "수정  spec_db: KDX-III/FFX 각 Batch별 상세 스펙 분리 기재"
+    ]
   }
 ]
