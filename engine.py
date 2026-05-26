@@ -859,6 +859,48 @@ SHIP_DB = {
         },
     },
 
+    # ── 아군 잠수함 (KSS-I/II/III) ──────────────────────────────────────────
+    # KSS-I 장보고급 (209형): 1,200톤, 어뢰관 8문, 청상어 + UGM-84 하푼
+    'KSS-I': {
+        'display':      '잠수함 (KSS-I 장보고급)',
+        'sensor_km':    {'대공': 0, '대함': 0, '대잠': 25},
+        'max_channels': 0,
+        'role':         ['대잠', '대함'],
+        'is_submarine': True,
+        'default_inventory': {
+            '청상어 (경어뢰)': 8,
+        },
+        'default_strike_inventory': {
+            '하푼 Block II': 4,   # UGM-84 잠수함발사 하푼 (어뢰관 발사)
+        },
+    },
+    # KSS-II 류관순급 (214형 AIP): 1,800톤, 저소음 AIP 추진, 청상어 전담
+    'KSS-II': {
+        'display':      '잠수함 (KSS-II 류관순급)',
+        'sensor_km':    {'대공': 0, '대함': 0, '대잠': 30},
+        'max_channels': 0,
+        'role':         ['대잠'],
+        'is_submarine': True,
+        'default_inventory': {
+            '청상어 (경어뢰)': 8,
+        },
+        'default_strike_inventory': {},
+    },
+    # KSS-III 도산안창호급: 3,000톤, VLS 6셀, 현무-3C 순항미사일
+    'KSS-III': {
+        'display':      '잠수함 (KSS-III 도산안창호급)',
+        'sensor_km':    {'대공': 0, '대함': 0, '대잠': 35},
+        'max_channels': 0,
+        'role':         ['대잠', '대함'],
+        'is_submarine': True,
+        'default_inventory': {
+            '청상어 (경어뢰)': 12,
+        },
+        'default_strike_inventory': {
+            '현무-3C': 6,   # VLS 6셀 순항미사일 (사거리 1,500km)
+        },
+    },
+
     # ════ 미국 해군 함정 (한미 연합 작전용) ══════════════════════════════════
     # DDG-51 Flight III: SPY-6 AMDR 탑재, MK-41 96셀
     'DDG-51': {
@@ -977,6 +1019,14 @@ FLEET_PRESETS = {
         {'name': '정조대왕함', 'type': 'KDX-III'},
         {'name': '대구함',     'type': 'FFX'},
         {'name': '인천함',     'type': 'FFX'},
+    ],
+    # 대잠전단 (수중 위협 집중 대응 — 이지스1 + 호위함2 + KSS-II × 2)
+    '대잠전단': [
+        {'name': '정조대왕함',   'type': 'KDX-III'},
+        {'name': '대구함',       'type': 'FFX'},
+        {'name': '인천함',       'type': 'FFX'},
+        {'name': '이순신함(SS)', 'type': 'KSS-II'},
+        {'name': '안중근함(SS)', 'type': 'KSS-II'},
     ],
     # 최대 편대 (전면전 — 이지스2 + 구축함2 + 호위함2)
     '최대 편대': [

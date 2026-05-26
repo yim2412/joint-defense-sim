@@ -147,6 +147,13 @@ FRIENDLY_STRIKE_DB = {
         'cost_usd': 2_000_000,
         'pk_base':  0.80,
     },
+    # KSS-III VLS 탑재 현무-3C 순항미사일 (잠수함 발사)
+    '현무-3C': {
+        'speed_ms': 250,    # Mach 0.73 (아음속 순항)
+        'range_km': 1500,   # 현무-3C 사거리 1,500km
+        'cost_usd': 2_000_000,
+        'pk_base':  0.80,
+    },
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -442,11 +449,14 @@ class FriendlyShipObj:
 
         self.strike_inventory: dict = {}
 
+        self.is_submarine  = spec.get('is_submarine', False)
+
         # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
         _hp_map = {
             'KDX-III': 5, 'KDX-II': 4, 'FFX': 3,
             'DDG-51': 5, 'CG-47': 5, 'CVN': 8,
             'LPD': 3, 'SSN': 3, 'LST': 3, 'AO': 2,
+            'KSS-I': 2, 'KSS-II': 2, 'KSS-III': 3,
         }
         self.hp            = _hp_map.get(ship_type, 4)
         self._max_hp       = self.hp
@@ -595,11 +605,15 @@ class TimeStepEngine:
         ships = []
         for spec in preset:
             s = FriendlyShipObj(spec['name'], spec['type'])
-            s.strike_inventory = {
-                '해성-II':       self.cfg.get('haesong2_stock', 8),
-                '해성-I':        self.cfg.get('haesong1_stock', 0),
-                '하푼 Block II': self.cfg.get('harpoon_stock',  4),
-            }
+            if s.is_submarine:
+                # 잠수함: SHIP_DB default_strike_inventory 사용 (해성/하푼 설정값 무시)
+                s.strike_inventory = SHIP_DB[spec['type']].get('default_strike_inventory', {}).copy()
+            else:
+                s.strike_inventory = {
+                    '해성-II':       self.cfg.get('haesong2_stock', 8),
+                    '해성-I':        self.cfg.get('haesong1_stock', 0),
+                    '하푼 Block II': self.cfg.get('harpoon_stock',  4),
+                }
             # 포팅 A: 방어 무기 재고 수동 설정 (설정 없으면 SHIP_DB 기본값 유지)
             _def_map = [
                 ('SM-3 Block IIA',  'sm3_stock'),
@@ -1306,34 +1320,68 @@ class TimeStepEngine:
                     )
                     if en_route >= 4:  # BUG-3 연계: 대함 협조 살보 최대 4발 (기존 2발 과소)
                         continue
-                    wpn = self._select_strike_wpn(ship, dist_m)
-                    if not wpn:
-                        continue
-                    wpn_info = FRIENDLY_STRIKE_DB[wpn]
-                    # SM-6 대함 모드: VLS inventory에서 소모
-                    if wpn == 'SM-6 대함 모드':
-                        ship.inventory['SM-6'] -= 1
-                    elif wpn == 'Tomahawk Block V':
-                        ship.inventory['Tomahawk Block V'] = ship.inventory.get('Tomahawk Block V', 0) - 1
-                    elif wpn == 'Mk.45 5인치 함포':
-                        pass  # 함포는 재고 무한 (수백 발 탑재)
+
+                    if ship.is_submarine:
+                        # 아군 잠수함 → 적 수상함 공격 (현무-3C/하푼/어뢰)
+                        wpn = self._select_sub_strike_wpn(ship, dist_m)
+                        if not wpn:
+                            continue
+                        if wpn in FRIENDLY_STRIKE_DB:
+                            wpn_info = FRIENDLY_STRIKE_DB[wpn]
+                            ship.strike_inventory[wpn] = ship.strike_inventory.get(wpn, 0) - 1
+                            pk_b = wpn_info['pk_base']
+                            spd  = wpn_info['speed_ms']
+                            cost = wpn_info['cost_usd']
+                        else:
+                            wpn_info = FRIENDLY_DB[wpn]
+                            ship.inventory[wpn] -= 1
+                            pk_b = wpn_info['pk_dist']['mean']
+                            spd  = wpn_info['speed_ms']
+                            cost = wpn_info['cost_usd']
+                        ship.total_cost += cost
+                        self.missiles.append(MissileObj(
+                            mtype    = 'friendly_strike',
+                            name     = wpn,
+                            pos      = ship.pos,
+                            target   = et,
+                            speed_ms = spd,
+                            pk_base  = pk_b,
+                            owner_id = id(ship),
+                            t_spawn  = self.t,
+                        ))
+                        self._log(
+                            f"[공격] {ship.name} -> {wpn} -> {et.preset_name} "
+                            f"(거리 {dist_m/1000:.0f}km)"
+                        )
                     else:
-                        ship.strike_inventory[wpn] = ship.strike_inventory.get(wpn, 0) - 1
-                    ship.total_cost += wpn_info['cost_usd']
-                    self.missiles.append(MissileObj(
-                        mtype    = 'friendly_strike',
-                        name     = wpn,
-                        pos      = ship.pos,
-                        target   = et,
-                        speed_ms = wpn_info['speed_ms'],
-                        pk_base  = wpn_info['pk_base'],
-                        owner_id = id(ship),
-                        t_spawn  = self.t,
-                    ))
-                    self._log(
-                        f"[공격] {ship.name} -> {wpn} -> {et.preset_name} "
-                        f"(거리 {dist_m/1000:.0f}km)"
-                    )
+                        wpn = self._select_strike_wpn(ship, dist_m)
+                        if not wpn:
+                            continue
+                        wpn_info = FRIENDLY_STRIKE_DB[wpn]
+                        # SM-6 대함 모드: VLS inventory에서 소모
+                        if wpn == 'SM-6 대함 모드':
+                            ship.inventory['SM-6'] -= 1
+                        elif wpn == 'Tomahawk Block V':
+                            ship.inventory['Tomahawk Block V'] = ship.inventory.get('Tomahawk Block V', 0) - 1
+                        elif wpn == 'Mk.45 5인치 함포':
+                            pass  # 함포는 재고 무한 (수백 발 탑재)
+                        else:
+                            ship.strike_inventory[wpn] = ship.strike_inventory.get(wpn, 0) - 1
+                        ship.total_cost += wpn_info['cost_usd']
+                        self.missiles.append(MissileObj(
+                            mtype    = 'friendly_strike',
+                            name     = wpn,
+                            pos      = ship.pos,
+                            target   = et,
+                            speed_ms = wpn_info['speed_ms'],
+                            pk_base  = wpn_info['pk_base'],
+                            owner_id = id(ship),
+                            t_spawn  = self.t,
+                        ))
+                        self._log(
+                            f"[공격] {ship.name} -> {wpn} -> {et.preset_name} "
+                            f"(거리 {dist_m/1000:.0f}km)"
+                        )
 
                 elif et.is_sub:
                     en_route = sum(
@@ -1472,6 +1520,20 @@ class TimeStepEngine:
 
     def _select_asw_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
         for wpn in ['홍상어 (대잠)', '청상어 (경어뢰)', 'Mk.46 경어뢰']:
+            if ship.inventory.get(wpn, 0) <= 0:
+                continue
+            if dist_m <= FRIENDLY_DB[wpn]['range_km'] * 1000:
+                return wpn
+        return None
+
+    def _select_sub_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
+        """아군 잠수함 → 적 수상함 공격 무기 선택 (현무-3C / 하푼 / 청상어)"""
+        for wpn in ['현무-3C', '하푼 Block II']:
+            if ship.strike_inventory.get(wpn, 0) <= 0:
+                continue
+            if dist_m <= FRIENDLY_STRIKE_DB[wpn]['range_km'] * 1000:
+                return wpn
+        for wpn in ['청상어 (경어뢰)', 'Mk.46 경어뢰']:
             if ship.inventory.get(wpn, 0) <= 0:
                 continue
             if dist_m <= FRIENDLY_DB[wpn]['range_km'] * 1000:
