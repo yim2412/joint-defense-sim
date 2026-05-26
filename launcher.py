@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.25 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.26 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.26 — DB 탭 스펙 설명창 폰트 크기 확대]                                 ║
+║  NEW-A  카테고리 헤더·레이블·값 9px → 11px, 비고 10px → 12px               ║
+║                                                                              ║
 ║  [v7.25 — 설정 패널 정리: 고정값 전환 + 프로필·시나리오 기능 삭제]          ║
 ║  DEL-A  설정 프로필 섹션 완전 삭제 (UI + 메서드 6개)                        ║
 ║  DEL-B  시나리오 저장/불러오기 섹션 완전 삭제 (UI + 메서드 2개)             ║
@@ -3895,7 +3898,7 @@ class SpecSheetPanel(QWidget):
 
         self._note_lbl = QLabel()
         self._note_lbl.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:10px; font-style:italic; padding:2px 4px;"
+            f"color:{C_SUBTEXT}; font-size:12px; font-style:italic; padding:2px 4px;"
         )
         self._note_lbl.setWordWrap(True)
 
@@ -3913,7 +3916,7 @@ class SpecSheetPanel(QWidget):
     def _add_category(self, cat_name: str, cat_fields: list):
         hdr = QLabel(f"  {cat_name.upper()}")
         hdr.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:9px; font-weight:bold;"
+            f"color:{C_ACCENT}; font-size:11px; font-weight:bold;"
             f" background:#1a2030; padding:2px 0px; margin-top:3px;"
         )
         self._scroll_vbox.addWidget(hdr)
@@ -3927,9 +3930,9 @@ class SpecSheetPanel(QWidget):
         row, col = 0, 0
         for label, value in cat_fields:
             lbl_w = QLabel(f"{label}:")
-            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:9px;")
+            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
             val_w = QLabel(str(value))
-            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:9px; font-weight:600;")
+            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:11px; font-weight:600;")
             val_w.setWordWrap(True)
             gl.addWidget(lbl_w, row, col * 2)
             gl.addWidget(val_w, row, col * 2 + 1)
