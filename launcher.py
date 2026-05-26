@@ -217,7 +217,20 @@ def _init_global_pool():
 def _shutdown_global_pool():
     global _GLOBAL_POOL
     if _GLOBAL_POOL is not None:
-        _GLOBAL_POOL.shutdown(wait=False)
+        try:
+            procs = getattr(_GLOBAL_POOL, '_processes', {})
+            pids = list(procs.keys()) if isinstance(procs, dict) else []
+            for pid in pids:
+                try:
+                    psutil.Process(pid).kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            _GLOBAL_POOL.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            _GLOBAL_POOL.shutdown(wait=False)
         _GLOBAL_POOL = None
 
 def _set_pool_priority(pool):
@@ -3364,8 +3377,18 @@ class MainWindow(QMainWindow):
             if not rw.wait(1000):
                 rw.terminate()
                 rw.wait(500)
-        # 글로벌 프로세스 풀 종료
+        # 글로벌 프로세스 풀 종료 (워커 프로세스 강제 kill 포함)
         _shutdown_global_pool()
+        # 풀 종료 후에도 남은 자식 프로세스 강제 종료 (BUG: X 버튼 시 좀비 프로세스)
+        try:
+            me = psutil.Process()
+            for child in me.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
         event.accept()
 
     # ── 결과 렌더링 ──────────────────────────────────────────────────────────
