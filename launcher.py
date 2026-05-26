@@ -268,14 +268,15 @@ def _res(filename: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  실행 로그 (sim_history.log — exe 옆에 생성)
+#  실행 로그 (sim_history.log 텍스트 + sim_history.json 구조화)
 # ════════════════════════════════════════════════════════════════════════════
-def _log_path() -> str:
+def _log_base() -> str:
     if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, 'sim_history.log')
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _log_path()  -> str: return os.path.join(_log_base(), 'sim_history.log')
+def _json_log_path() -> str: return os.path.join(_log_base(), 'sim_history.json')
 
 
 def _write_log(line: str):
@@ -286,16 +287,34 @@ def _write_log(line: str):
         pass
 
 
+def _load_json_log() -> list:
+    try:
+        with open(_json_log_path(), encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_json_log(records: list):
+    try:
+        with open(_json_log_path(), 'w', encoding='utf-8') as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def _write_sim_log(cfg: dict, result: dict, mc: dict):
     from datetime import datetime
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    # 적군 구성 요약
-    enemy_parts = []
-    for e in cfg.get('enemy_fleet', []):
-        enemy_parts.append(f"{e.get('preset','?')} ×{e.get('count',1)}")
+    enemy_parts = [f"{e.get('preset','?')} ×{e.get('count',1)}"
+                   for e in cfg.get('enemy_fleet', [])]
     enemy_str = ', '.join(enemy_parts) if enemy_parts else cfg.get('enemy_fleet_preset', '?')
+    n = max(mc.get('n', 1), 1)
+    avg_hits  = sum(mc.get('friendly_hits',  [])) / n
+    avg_edest = sum(mc.get('enemy_destroyed', [])) / n
 
+    # ── 텍스트 로그 ──────────────────────────────────────────────────────
     lines = [
         '=' * 80,
         f'[{now}]  시뮬레이션 완료',
@@ -308,17 +327,35 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
         f'  총 위협    : {result.get("total_threats", 0)}발/기',
         f'  요격률     : {mc.get("mean_intercept", 0):.1%}  (±{mc.get("std_intercept", 0):.1%})',
         f'  완전요격   : {mc.get("full_pass_rate", 0):.1%}',
-        f'  아군 피격  : {sum(mc.get("friendly_hits", [])) / max(mc.get("n", 1), 1):.1f}회 (평균)',
-        f'  적 격침    : {sum(mc.get("enemy_destroyed", [])) / max(mc.get("n", 1), 1):.1f}기/척 (평균)',
+        f'  아군 피격  : {avg_hits:.1f}회 (평균)',
+        f'  적 격침    : {avg_edest:.1f}기/척 (평균)',
         f'  총 비용    : ${result.get("total_cost", 0):,.0f}',
-        '=' * 80,
-        '',
+        '=' * 80, '',
     ]
     try:
         with open(_log_path(), 'a', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
     except Exception:
         pass
+
+    # ── JSON 로그 ─────────────────────────────────────────────────────────
+    record = {
+        'datetime':       now,
+        'fleet':          cfg.get('fleet_preset', '?'),
+        'weather':        cfg.get('weather', '?'),
+        'mc_n':           mc.get('n', 0),
+        'enemy':          enemy_str,
+        'total_threats':  result.get('total_threats', 0),
+        'mean_intercept': round(mc.get('mean_intercept', 0), 4),
+        'std_intercept':  round(mc.get('std_intercept', 0), 4),
+        'full_pass_rate': round(mc.get('full_pass_rate', 0), 4),
+        'avg_friendly_hits':    round(avg_hits,  2),
+        'avg_enemy_destroyed':  round(avg_edest, 2),
+        'total_cost':     result.get('total_cost', 0),
+    }
+    records = _load_json_log()
+    records.append(record)
+    _save_json_log(records)
 
 
 from PyQt6.QtWidgets import (
@@ -814,6 +851,237 @@ class FloatingMonitor(QWidget):
 
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  실행 로그 뷰어 다이얼로그
+# ════════════════════════════════════════════════════════════════════════════
+class SimLogDialog(QWidget):
+    """sim_history.json 을 읽어 테이블로 표시하는 독립 창."""
+
+    _COLS = [
+        ('날짜/시각',    'datetime',           180),
+        ('편대',         'fleet',              140),
+        ('날씨',         'weather',            110),
+        ('MC',           'mc_n',                55),
+        ('총 위협',      'total_threats',       70),
+        ('요격률',       'mean_intercept',      80),
+        ('±',            'std_intercept',       60),
+        ('완전요격',     'full_pass_rate',      75),
+        ('아군 피격',    'avg_friendly_hits',   75),
+        ('비용 ($M)',    'total_cost',          90),
+        ('적군 구성',    'enemy',                0),   # 0 = stretch
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle("실행 로그 뷰어")
+        self.resize(1300, 620)
+        self.setStyleSheet(
+            f"QWidget {{ background:{C_BG}; color:{C_TEXT}; "
+            f"font-family:'Malgun Gothic','Segoe UI'; font-size:13px; }}"
+            f"QHeaderView::section {{ background:{C_PANEL}; color:{C_ACCENT}; "
+            f"border:none; padding:5px; font-size:13px; }}"
+            f"QTableWidget {{ background:{C_PANEL}; gridline-color:{C_BORDER}; border:none; }}"
+            f"QScrollBar:vertical {{ width:6px; background:{C_BG}; }}"
+            f"QScrollBar::handle:vertical {{ background:{C_BORDER}; border-radius:3px; }}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}"
+        )
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+
+        # ── 상단 툴바 ──────────────────────────────────────────────────────
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("🔍  날짜·편대·날씨·적군 검색…")
+        self._search.setFixedHeight(28)
+        self._search.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:4px; padding:0 8px;"
+        )
+        self._search.textChanged.connect(self._apply_filter)
+
+        btn_refresh = QPushButton("새로고침")
+        btn_refresh.setFixedHeight(28)
+        btn_refresh.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_SUBTEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:4px; padding:0 12px; }}"
+            f"QPushButton:hover {{ color:{C_TEXT}; }}"
+        )
+        btn_refresh.clicked.connect(self._load)
+
+        btn_csv = QPushButton("CSV 내보내기")
+        btn_csv.setFixedHeight(28)
+        btn_csv.setStyleSheet(btn_refresh.styleSheet())
+        btn_csv.clicked.connect(self._export_csv)
+
+        btn_clear = QPushButton("로그 초기화")
+        btn_clear.setFixedHeight(28)
+        btn_clear.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:#e74c3c; border:1px solid #5c1a1a;"
+            f" border-radius:4px; padding:0 12px; }}"
+            f"QPushButton:hover {{ background:#2a1010; }}"
+        )
+        btn_clear.clicked.connect(self._clear_log)
+
+        self._lbl_count = QLabel("")
+        self._lbl_count.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+
+        bar.addWidget(self._search, stretch=1)
+        bar.addWidget(btn_refresh)
+        bar.addWidget(btn_csv)
+        bar.addWidget(btn_clear)
+        bar.addWidget(self._lbl_count)
+        root.addLayout(bar)
+
+        # ── 테이블 ─────────────────────────────────────────────────────────
+        self._tbl = QTableWidget()
+        self._tbl.setColumnCount(len(self._COLS))
+        self._tbl.setHorizontalHeaderLabels([c[0] for c in self._COLS])
+        self._tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl.setAlternatingRowColors(True)
+        self._tbl.verticalHeader().setDefaultSectionSize(26)
+        self._tbl.verticalHeader().setVisible(False)
+        self._tbl.setStyleSheet(
+            f"QTableWidget {{ alternate-background-color: #111720; }}"
+            f"QTableWidget::item:selected {{ background:{C_ACCENT}33; color:{C_TEXT}; }}"
+        )
+        hh = self._tbl.horizontalHeader()
+        hh.setSortIndicatorShown(True)
+        hh.setSectionsClickable(True)
+        for i, (_, _, w) in enumerate(self._COLS):
+            if w == 0:
+                hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            else:
+                hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+                self._tbl.setColumnWidth(i, w)
+        self._tbl.setSortingEnabled(True)
+
+        # ── 하단 상세 패널 ─────────────────────────────────────────────────
+        self._detail = QLabel("← 행을 선택하면 상세 정보가 표시됩니다.")
+        self._detail.setWordWrap(True)
+        self._detail.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_SUBTEXT}; font-size:13px;"
+            f" border:1px solid {C_BORDER}; border-radius:4px; padding:8px 12px;"
+        )
+        self._detail.setFixedHeight(72)
+
+        self._tbl.currentRowChanged.connect(self._show_detail)
+
+        root.addWidget(self._tbl, stretch=1)
+        root.addWidget(self._detail)
+
+    # ── 데이터 처리 ────────────────────────────────────────────────────────
+    def _load(self):
+        self._records = list(reversed(_load_json_log()))   # 최신순
+        self._apply_filter(self._search.text())
+
+    def _apply_filter(self, text: str):
+        kw = text.strip().lower()
+        filtered = [
+            r for r in self._records
+            if not kw or any(kw in str(v).lower() for v in r.values())
+        ]
+        self._fill_table(filtered)
+        self._lbl_count.setText(f"총 {len(filtered)}건")
+
+    def _fill_table(self, records: list):
+        self._tbl.setSortingEnabled(False)
+        self._tbl.setRowCount(0)
+        for rec in records:
+            row = self._tbl.rowCount()
+            self._tbl.insertRow(row)
+            values = [
+                rec.get('datetime', ''),
+                rec.get('fleet', ''),
+                rec.get('weather', ''),
+                str(rec.get('mc_n', '')),
+                str(rec.get('total_threats', '')),
+                f"{rec.get('mean_intercept', 0):.1%}",
+                f"±{rec.get('std_intercept', 0):.1%}",
+                f"{rec.get('full_pass_rate', 0):.1%}",
+                f"{rec.get('avg_friendly_hits', 0):.1f}",
+                f"{rec.get('total_cost', 0) / 1e6:.1f}",
+                rec.get('enemy', ''),
+            ]
+            for col, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter
+                                      if col != len(self._COLS) - 1
+                                      else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                # 요격률 컬러
+                if col == 5:
+                    rate = rec.get('mean_intercept', 0)
+                    item.setForeground(QColor(
+                        C_GREEN if rate >= 0.8 else
+                        '#f39c12' if rate >= 0.5 else
+                        '#e74c3c'
+                    ))
+                self._tbl.setItem(row, col, item)
+            self._tbl.item(row, 0).setData(Qt.ItemDataRole.UserRole, rec)
+        self._tbl.setSortingEnabled(True)
+
+    def _show_detail(self, row: int):
+        if row < 0:
+            return
+        item = self._tbl.item(row, 0)
+        if not item:
+            return
+        rec = item.data(Qt.ItemDataRole.UserRole)
+        if not rec:
+            return
+        self._detail.setText(
+            f"<b>{rec.get('datetime','')}</b> &nbsp;|&nbsp; "
+            f"편대: <b>{rec.get('fleet','')}</b> &nbsp;|&nbsp; "
+            f"날씨: {rec.get('weather','')} &nbsp;|&nbsp; "
+            f"MC: {rec.get('mc_n','')}회 &nbsp;|&nbsp; "
+            f"위협: {rec.get('total_threats','')}발/기<br>"
+            f"요격률: <b>{rec.get('mean_intercept',0):.1%}</b> "
+            f"(±{rec.get('std_intercept',0):.1%}) &nbsp;|&nbsp; "
+            f"완전요격: {rec.get('full_pass_rate',0):.1%} &nbsp;|&nbsp; "
+            f"아군 피격: {rec.get('avg_friendly_hits',0):.1f}회 &nbsp;|&nbsp; "
+            f"비용: ${rec.get('total_cost',0):,.0f}<br>"
+            f"<span style='color:{C_SUBTEXT}'>적군: {rec.get('enemy','')}</span>"
+        )
+
+    def _export_csv(self):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, "CSV 저장", "sim_history.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            import csv
+            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+                w = csv.DictWriter(f, fieldnames=list(self._records[0].keys()) if self._records else [])
+                w.writeheader()
+                w.writerows(list(reversed(self._records)))
+            QMessageBox.information(self, "내보내기 완료", f"저장됨:\n{path}")
+        except Exception as e:
+            QMessageBox.warning(self, "오류", str(e))
+
+    def _clear_log(self):
+        from PyQt6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+            self, "로그 초기화",
+            "모든 실행 기록을 삭제하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        _save_json_log([])
+        try:
+            open(_log_path(), 'w', encoding='utf-8').close()
+        except Exception:
+            pass
+        self._load()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2451,14 +2719,13 @@ class MainWindow(QMainWindow):
                   activated=self._shortcut_next_frame)
 
     def _open_log_file(self):
-        p = _log_path()
-        if not os.path.exists(p):
-            _write_log('(로그 없음)')
-        try:
-            os.startfile(p)
-        except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "로그 열기 실패", str(e))
+        if not hasattr(self, '_log_dialog') or not self._log_dialog.isVisible():
+            self._log_dialog = SimLogDialog(self)
+        else:
+            self._log_dialog._load()
+        self._log_dialog.show()
+        self._log_dialog.raise_()
+        self._log_dialog.activateWindow()
 
     def _shortcut_play_pause(self):
         if hasattr(self, 'tab_anim'):
