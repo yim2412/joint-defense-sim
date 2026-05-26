@@ -2,6 +2,10 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.29 — DB 스펙 패널 폰트 확대]                                           ║
+║  NEW-1  SpecSheetPanel 제목 14→16px, 부제·카테고리·레이블·값 11→13px,       ║
+║         비고 12→14px, 행간격 확대                                            ║
+║                                                                              ║
 ║  [v7.28 — 시스템 모니터 버그 수정 + 향후 계획·changelog 갱신]              ║
 ║  BUG-1  시뮬 실행 중 오버레이 미표시 수정 (_sim_start_idx→벽시계 기반)      ║
 ║  BUG-2  코어별 퍼센트 폰트 크기 10px→12px (가독성 개선)                    ║
@@ -3899,11 +3903,11 @@ class SpecSheetPanel(QWidget):
 
         self._title_lbl = QLabel("← 왼쪽 목록에서 유닛을 선택하세요")
         self._title_lbl.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:14px; font-weight:bold;"
+            f"color:{C_ACCENT}; font-size:16px; font-weight:bold;"
         )
 
         self._sub_lbl = QLabel()
-        self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self._sub_lbl.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -3940,7 +3944,7 @@ class SpecSheetPanel(QWidget):
 
         self._note_lbl = QLabel()
         self._note_lbl.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:12px; font-style:italic; padding:2px 4px;"
+            f"color:{C_SUBTEXT}; font-size:14px; font-style:italic; padding:2px 4px;"
         )
         self._note_lbl.setWordWrap(True)
 
@@ -3958,23 +3962,23 @@ class SpecSheetPanel(QWidget):
     def _add_category(self, cat_name: str, cat_fields: list):
         hdr = QLabel(f"  {cat_name.upper()}")
         hdr.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:11px; font-weight:bold;"
-            f" background:#1a2030; padding:2px 0px; margin-top:3px;"
+            f"color:{C_ACCENT}; font-size:13px; font-weight:bold;"
+            f" background:#1a2030; padding:3px 0px; margin-top:4px;"
         )
         self._scroll_vbox.addWidget(hdr)
 
         gw = QWidget()
         gl = QGridLayout(gw)
-        gl.setContentsMargins(4, 1, 2, 3)
-        gl.setHorizontalSpacing(6)
-        gl.setVerticalSpacing(1)
+        gl.setContentsMargins(4, 2, 2, 4)
+        gl.setHorizontalSpacing(8)
+        gl.setVerticalSpacing(3)
 
         row, col = 0, 0
         for label, value in cat_fields:
             lbl_w = QLabel(f"{label}:")
-            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
             val_w = QLabel(str(value))
-            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:11px; font-weight:600;")
+            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:600;")
             val_w.setWordWrap(True)
             gl.addWidget(lbl_w, row, col * 2)
             gl.addWidget(val_w, row, col * 2 + 1)
