@@ -110,21 +110,39 @@ v6.8.5 patch: HeloEvent.xxx 오류 수정
 
 작업 중간 상태는 커밋하지 않는다. 기능 단위로 완성 후 커밋한다.
 
+### 패치 완료 시 필수 체크리스트 (매번 반드시 수행)
+
+**어떤 코드를 수정하든 패치 완료 후 아래 두 가지를 반드시 처리한다.**
+
+1. **changelog.json 갱신**: 새 버전 항목을 배열 마지막에 추가한다.
+   ```json
+   {
+     "version": "28",
+     "date": "YYYY-MM-DD",
+     "title": "변경 내용 제목",
+     "changes": ["수정  ...", "추가  ..."]
+   }
+   ```
+
+2. **향후 계획 탭 갱신** (`launcher.py` → `_build_plan_tab()` 내 `_PLANS` 리스트):
+   - 이번 패치로 구현 완료된 항목은 **즉시 삭제**한다.
+   - 새로운 계획이 생기면 추가한다.
+
 ### exe 빌드 규칙
 
 패치 완료 후 **항상** exe를 갱신한다. 파일 종류에 따라 방법이 다르다.
 
 | 변경 파일 | 처리 방법 |
 |-----------|-----------|
-| `.py` 파일 변경 | `pyinstaller launcher.spec --noconfirm` (전체 빌드) |
-| `changelog.json`만 변경 | dist 폴더에 파일 복사만 (빌드 불필요) |
+| `.py` 파일 변경 | `python -m PyInstaller launcher.spec --noconfirm` (전체 빌드) |
+| `changelog.json`만 변경 | dist `_internal` 폴더에 파일 복사만 (빌드 불필요) |
 
 ```powershell
 # .py 변경 시
-pyinstaller launcher.spec --noconfirm
+python -m PyInstaller launcher.spec --noconfirm
 
-# changelog.json만 변경 시
-Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\" -Force
+# changelog.json만 변경 시 (_internal 경로가 올바른 위치)
+Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
 ```
 
 빌드 후 git 커밋은 소스 파일만 한다. `dist/`, `build/` 폴더는 커밋하지 않는다.
