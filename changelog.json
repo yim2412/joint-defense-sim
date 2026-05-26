@@ -612,5 +612,16 @@
       "수정  FrameRenderWorker: 10프레임마다 msleep(12) 추가 → ProcessPool 병렬 완료 신호 폭주 방지",
       "수정  _draw_frame: 재생 중 FastTransformation(속도 우선), 정지 시 SmoothTransformation(품질 우선)으로 전환"
     ]
+  },
+  {
+    "version": "35",
+    "date": "2026-05-26",
+    "title": "종합 버그 감사 수정",
+    "changes": [
+      "수정  PDF 보고서 2페이지 MC 차트 누락: 삭제된 임시 파일 참조 → ChartPageWidget._raw_bytes 직접 사용",
+      "수정  _on_frame_ready: idx 범위 초과 방어 코드 추가 (bounds check)",
+      "수정  load_frames: 재생 중 새 시뮬 결과 로드 시 타이머·_playing 플래그·버튼 텍스트 미초기화 수정",
+      "수정  _stop_sys_data_worker: None 중복 할당 제거"
+    ]
   }
 ]

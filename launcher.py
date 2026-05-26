@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.35 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.35 — 종합 버그 감사 수정]                                               ║
+║  BUG-1  PDF 보고서 MC 차트 누락: 삭제된 tmp 파일 참조 → _raw_bytes 직접 사용 ║
+║  BUG-2  _on_frame_ready: idx 범위 초과 방어 코드 추가                        ║
+║  BUG-3  load_frames: 재생 중 새 시뮬 로드 시 타이머·플래그 미초기화 수정     ║
+║  BUG-4  _stop_sys_data_worker: None 중복 할당 제거                           ║
+║                                                                              ║
 ║  [v7.34 — 전장 애니메이션 렉·프리즈 수정]                                   ║
 ║  BUG-1  _start_render_worker: cancel 후 wait() → 메인 스레드 블로킹 수정    ║
 ║         세대 카운터(_render_gen)로 구식 frame_ready 신호 필터링              ║
@@ -1373,7 +1379,6 @@ def _stop_sys_data_worker():
             _SYS_DATA_WORKER.terminate()
             _SYS_DATA_WORKER.wait(300)
         _SYS_DATA_WORKER = None
-        _SYS_DATA_WORKER = None
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1426,6 +1431,7 @@ class ChartPageWidget(QWidget):
         super().__init__(parent)
         self._worker: 'ChartRenderWorker | None' = None
         self._raw_pix: 'QPixmap | None' = None
+        self._raw_bytes: bytes = b''
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1468,6 +1474,7 @@ class ChartPageWidget(QWidget):
             self._worker.requestInterruption()
             self._worker.quit()
         self._raw_pix = None
+        self._raw_bytes = b''
         self._loading_lbl.setText("  차트 렌더링 중…")
         self._pane.setCurrentIndex(0)
         self._worker = ChartRenderWorker(fn, args, kwargs)
@@ -1491,6 +1498,7 @@ class ChartPageWidget(QWidget):
                 w.wait(300)
 
     def _on_done(self, png_bytes: bytes):
+        self._raw_bytes = png_bytes
         pix = QPixmap()
         pix.loadFromData(png_bytes)
         self._raw_pix = pix
@@ -1759,6 +1767,11 @@ class AnimationTab(QWidget):
         if not frames:
             self._pixmaps = []
             return
+        # 재생 중이었으면 중단 후 버튼/플래그 초기화
+        if self._playing:
+            self._play_timer.stop()
+            self._playing = False
+            self.btn_play.setText("▶ 재생")
         self.slider.setMaximum(len(frames) - 1)
         self.slider.setValue(0)
         self.btn_play.setEnabled(False)
@@ -1823,6 +1836,8 @@ class AnimationTab(QWidget):
     def _on_frame_ready(self, idx: int, png_bytes: bytes, gen: int):
         if gen != self._render_gen:
             return   # 이전 세대 신호 — 무시
+        if idx < 0 or idx >= len(self._pixmaps):
+            return   # 범위 초과 방어
         pm = QPixmap()
         pm.loadFromData(png_bytes, 'PNG')
         self._pixmaps[idx] = pm
@@ -4118,14 +4133,15 @@ class MainWindow(QMainWindow):
             pdf.savefig(fig, facecolor='#0a0e1a')
             plt.close(fig)
 
-            # 2페이지: MC 통계 차트 (임시 PNG 사용)
-            img_path = '_launcher_mc_tmp.png'
-            if os.path.exists(img_path):
-                from matplotlib.image import imread
+            # 2페이지: MC 통계 차트
+            mc_bytes = getattr(self.tab_mc_canvas, '_raw_bytes', b'')
+            if mc_bytes:
+                import io as _io
+                from matplotlib.image import imread as _mpl_imread
                 fig2, ax2 = plt.subplots(figsize=(11.7, 8.3))
                 fig2.patch.set_facecolor('#0a0e1a')
                 ax2.set_facecolor('#0a0e1a')
-                ax2.imshow(imread(img_path))
+                ax2.imshow(_mpl_imread(_io.BytesIO(mc_bytes)))
                 ax2.axis('off')
                 ax2.set_title('MC 통계', color=C_TEXT, fontsize=14, pad=10)
                 pdf.savefig(fig2, facecolor='#0a0e1a')
