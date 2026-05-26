@@ -560,5 +560,14 @@
       "개선  비고(notes) 12px → 14px",
       "개선  카테고리 행간격 확대 (verticalSpacing 1→3, margin 상하 확대)"
     ]
+  },
+  {
+    "version": "30",
+    "date": "2026-05-26",
+    "title": "결과 패널 MC 통계 미표시 버그 수정",
+    "changes": [
+      "수정  사이드바가 MC 통계(row 1)에 이미 있을 때 시뮬레이션 재실행 시 차트가 표시되지 않던 버그 수정",
+      "수정  setCurrentRow(1) 호출 후 수동 트리거(_on_page_changed) 추가로 재렌더 보장"
+    ]
   }
 ]

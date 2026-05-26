@@ -2,6 +2,9 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.30 — 결과 패널 MC 통계 미표시 버그 수정]                               ║
+║  BUG-1  사이드바 row 1 유지 시 setCurrentRow(1) 신호 미발화 → 수동 트리거   ║
+║                                                                              ║
 ║  [v7.29 — DB 스펙 패널 폰트 확대]                                           ║
 ║  NEW-1  SpecSheetPanel 제목 14→16px, 부제·카테고리·레이블·값 11→13px,       ║
 ║         비고 12→14px, 행간격 확대                                            ║
@@ -3574,7 +3577,8 @@ class MainWindow(QMainWindow):
         if len(self._history) > 5:
             self._history.pop(0)
 
-        self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환 (lazy render 트리거)
+        self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환
+        self._on_page_changed(1)       # BUG-1: 이미 row 1이면 currentRowChanged 미발화 → 수동 트리거
         _write_sim_log(cfg, result, mc)
 
     def _fill_req(self, result: dict, mc: dict):
