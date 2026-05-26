@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.35 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.36 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.36 — 애니메이션 자막 진동 수정]                                         ║
+║  BUG-1  lbl_events setWordWrap → setFixedHeight(28): 텍스트 변경 시           ║
+║         캔버스 크기 변동(진동) 방지                                           ║
+║                                                                              ║
 ║  [v7.35 — 종합 버그 감사 수정]                                               ║
 ║  BUG-1  PDF 보고서 MC 차트 누락: 삭제된 tmp 파일 참조 → _raw_bytes 직접 사용 ║
 ║  BUG-2  _on_frame_ready: idx 범위 초과 방어 코드 추가                        ║
@@ -1718,7 +1722,7 @@ class AnimationTab(QWidget):
 
         self.lbl_events = QLabel("")
         self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self.lbl_events.setWordWrap(True)
+        self.lbl_events.setFixedHeight(28)  # 고정 높이 — 텍스트 변경 시 캔버스 크기 변동(진동) 방지
 
         ctrl.addWidget(self.btn_prev_kill)
         ctrl.addWidget(self.btn_next_kill)

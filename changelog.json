@@ -623,5 +623,14 @@
       "수정  load_frames: 재생 중 새 시뮬 결과 로드 시 타이머·_playing 플래그·버튼 텍스트 미초기화 수정",
       "수정  _stop_sys_data_worker: None 중복 할당 제거"
     ]
+  },
+  {
+    "version": "36",
+    "date": "2026-05-26",
+    "title": "전장 애니메이션 자막 진동 수정",
+    "changes": [
+      "수정  lbl_events: setWordWrap(True) 제거 → setFixedHeight(28) 고정 높이 적용",
+      "수정  이벤트 자막 텍스트가 나타나거나 사라질 때 캔버스 크기가 변동되어 화면이 진동하던 현상 해결"
+    ]
   }
 ]
