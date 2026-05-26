@@ -3972,20 +3972,18 @@ class SpecSheetPanel(QWidget):
         gl.setContentsMargins(4, 2, 2, 4)
         gl.setHorizontalSpacing(8)
         gl.setVerticalSpacing(3)
+        gl.setColumnStretch(1, 1)
 
-        row, col = 0, 0
-        for label, value in cat_fields:
+        for r, (label, value) in enumerate(cat_fields):
             lbl_w = QLabel(f"{label}:")
             lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
+            lbl_w.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             val_w = QLabel(str(value))
             val_w.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:600;")
             val_w.setWordWrap(True)
-            gl.addWidget(lbl_w, row, col * 2)
-            gl.addWidget(val_w, row, col * 2 + 1)
-            col += 1
-            if col >= 2:
-                col = 0
-                row += 1
+            val_w.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+            gl.addWidget(lbl_w, r, 0)
+            gl.addWidget(val_w, r, 1)
 
         self._scroll_vbox.addWidget(gw)
 
