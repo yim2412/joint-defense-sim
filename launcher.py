@@ -2,6 +2,12 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.32 — 창 닫기 시 좀비 프로세스 완전 제거]                               ║
+║  BUG-1  ChartRenderWorker 11개 closeEvent 미처리 → stop_worker() 추가       ║
+║  BUG-2  WeatherWorker closeEvent 누락 → 날씨 비교 중 닫아도 즉시 종료       ║
+║  BUG-3  ProcessPool shutdown 순서: None 먼저 설정 → 새 작업 제출 차단       ║
+║  BUG-4  _stop_sys_data_worker: terminate 폴백 + closeEvent 직접 호출         ║
+║                                                                              ║
 ║  [v7.31 — 결과 화면 탭 전환 시 UI 프리즈 수정]                              ║
 ║  BUG-1  SensitivityWorker·MinStockWorker 즉시 기동 → GIL 독점으로 프리즈    ║
 ║         → lazy-start: 감도 분석·최소 재고 탭 방문 시에만 워커 시작          ║
@@ -234,22 +240,27 @@ def _init_global_pool():
 
 def _shutdown_global_pool():
     global _GLOBAL_POOL
-    if _GLOBAL_POOL is not None:
+    if _GLOBAL_POOL is None:
+        return
+    pool, _GLOBAL_POOL = _GLOBAL_POOL, None   # None 먼저 → 새 작업 제출 차단
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
         try:
-            procs = getattr(_GLOBAL_POOL, '_processes', {})
-            pids = list(procs.keys()) if isinstance(procs, dict) else []
-            for pid in pids:
-                try:
-                    psutil.Process(pid).kill()
-                except Exception:
-                    pass
+            pool.shutdown(wait=False)
         except Exception:
             pass
-        try:
-            _GLOBAL_POOL.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            _GLOBAL_POOL.shutdown(wait=False)
-        _GLOBAL_POOL = None
+    # 풀 프로세스가 아직 살아 있으면 즉시 kill
+    try:
+        procs = getattr(pool, '_processes', {})
+        pids = list(procs.keys()) if isinstance(procs, dict) else []
+        for pid in pids:
+            try:
+                psutil.Process(pid).kill()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def _set_pool_priority(pool):
     """워커 프로세스 우선순위를 BELOW_NORMAL로 낮춤 — 시뮬 중 UI·다른 앱 응답성 유지."""
@@ -1344,7 +1355,11 @@ def _stop_sys_data_worker():
     global _SYS_DATA_WORKER
     if _SYS_DATA_WORKER is not None:
         _SYS_DATA_WORKER.requestInterruption()
-        _SYS_DATA_WORKER.wait(2000)
+        _SYS_DATA_WORKER.quit()
+        if not _SYS_DATA_WORKER.wait(1500):
+            _SYS_DATA_WORKER.terminate()
+            _SYS_DATA_WORKER.wait(300)
+        _SYS_DATA_WORKER = None
         _SYS_DATA_WORKER = None
 
 
@@ -1446,6 +1461,21 @@ class ChartPageWidget(QWidget):
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start(QThread.Priority.LowPriority)
+
+    def stop_worker(self):
+        """창 닫기 시 백그라운드 렌더 스레드 정리."""
+        w = self._worker
+        if w and w.isRunning():
+            try:
+                w.finished.disconnect()
+                w.error.disconnect()
+            except Exception:
+                pass
+            w.requestInterruption()
+            w.quit()
+            if not w.wait(800):
+                w.terminate()
+                w.wait(300)
 
     def _on_done(self, png_bytes: bytes):
         pix = QPixmap()
@@ -3741,6 +3771,22 @@ class MainWindow(QMainWindow):
             if not ms.wait(1000):
                 ms.terminate()
                 ms.wait(500)
+        # WeatherWorker 중단
+        ww = getattr(self, '_weather_worker', None)
+        if ww and ww.isRunning():
+            ww.requestInterruption()
+            ww.quit()
+            if not ww.wait(800):
+                ww.terminate()
+                ww.wait(300)
+        # 차트 렌더 워커 11개 중단 (ChartPageWidget._worker)
+        for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
+                     'tab_ammo_curve', 'tab_ci', 'tab_timeline',
+                     'tab_bearing', 'tab_req_radar', 'tab_threat_type',
+                     'tab_vuln_time', 'tab_history'):
+            widget = getattr(self, attr, None)
+            if widget:
+                widget.stop_worker()
         # 애니메이션 렌더 워커 중단
         rw = getattr(self.tab_anim, '_render_worker', None)
         if rw and rw.isRunning():
@@ -3750,7 +3796,9 @@ class MainWindow(QMainWindow):
                 rw.wait(500)
         # 글로벌 프로세스 풀 종료 (워커 프로세스 강제 kill 포함)
         _shutdown_global_pool()
-        # 풀 종료 후에도 남은 자식 프로세스 강제 종료 (BUG: X 버튼 시 좀비 프로세스)
+        # 시스템 모니터 워커 중단 (nvidia-smi subprocess 포함)
+        _stop_sys_data_worker()
+        # 남은 자식 프로세스 강제 종료 (좀비 프로세스 완전 제거)
         try:
             me = psutil.Process()
             for child in me.children(recursive=True):

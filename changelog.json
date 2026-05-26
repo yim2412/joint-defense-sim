@@ -578,5 +578,17 @@
       "수정  감도 분석·최소 재고 워커를 시뮬 완료 즉시 기동하던 방식 → 해당 탭 방문 시 lazy-start로 변경 (GIL 경합 해소)",
       "수정  MC 통계 차트 이중 렌더 제거: plot_v7 PNG → Figure 임베드 → PNG 반복 저장 → bytes 직접 반환으로 단순화"
     ]
+  },
+  {
+    "version": "32",
+    "date": "2026-05-26",
+    "title": "창 닫기 시 좀비 프로세스 완전 제거",
+    "changes": [
+      "수정  ChartRenderWorker 11개를 closeEvent에서 정리 (stop_worker() 메서드 추가)",
+      "수정  WeatherWorker closeEvent 미처리 → 날씨 비교 중 닫아도 MC 스레드 즉시 종료",
+      "수정  _SysDataWorker 종료 시 terminate() 폴백 + None 초기화 추가",
+      "수정  ProcessPool shutdown → kill 순서 개선 (None 먼저 설정해 새 작업 제출 차단)",
+      "수정  closeEvent에서 _stop_sys_data_worker() 직접 호출 (nvidia-smi 자식 프로세스 포함)"
+    ]
   }
 ]
