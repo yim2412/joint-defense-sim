@@ -2968,6 +2968,10 @@ class MainWindow(QMainWindow):
 
         self.cmb_fleet   = NoScrollComboBox()
         self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
+        if _V7_OK:
+            for _i, _n in enumerate(V7_FLEET_PRESETS.keys()):
+                self.cmb_fleet.setItemData(_i, self._friendly_preset_tooltip(_n),
+                                           Qt.ItemDataRole.ToolTipRole)
         self.cmb_weather = NoScrollComboBox()
         self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
         self.lbl_fleet_detail = QLabel()
@@ -3014,6 +3018,10 @@ class MainWindow(QMainWindow):
         # 프리셋 선택 (프리셋 모드용)
         self.cmb_fleet_preset_e = NoScrollComboBox()
         self.cmb_fleet_preset_e.addItems(list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else [])
+        if _V7_OK:
+            for _i, _n in enumerate(V7_ENEMY_FLEET_PRESETS.keys()):
+                self.cmb_fleet_preset_e.setItemData(_i, self._enemy_preset_tooltip(_n),
+                                                    Qt.ItemDataRole.ToolTipRole)
         self.cmb_fleet_preset_e.currentTextChanged.connect(self._update_enemy_preset_detail)
         el.addWidget(self.cmb_fleet_preset_e)
 
@@ -3524,6 +3532,55 @@ class MainWindow(QMainWindow):
         'FFX-III':    '호위함 FFX Batch III (충남급)',
     }
 
+    # 아군 편대 프리셋 전술 설명 (툴팁용)
+    _FRIENDLY_PRESET_TIPS = {
+        '단독 작전':              '정조대왕함 1척 단독 방어. 기준 성능 평가 및 단독 교전 테스트.',
+        '기동전단 기본':          '이지스 1 + 구축함 1 + 호위함 1. 균형 편성, 기본 방어력 평가.',
+        'BMD 중점':               'SM-3 탑재 이지스 2척 체제. 탄도미사일·HGV 방어 특화, BMD 채널 극대화.',
+        '대잠 중점':              '이지스 1 + 호위함 2. 잠수함 위협 특화 편성. 홍상어·청상어 재고 집중.',
+        '대잠전단':               '이지스 1 + 호위함 2 + KSS-II × 2. 아군 잠수함 포함 입체 대잠전.',
+        '최대 편대':              '이지스 2 + 구축함 2 + 호위함 2, 총 6척. 종합 방어력 최대 평가.',
+        '이지스 기동전단':        '실제 교리 기반. 정조대왕함 중심 + KDX-II 2 + FFX-I/II 2 + 보급함.',
+        '이지스 기동전단 (강화)': '전시 확장 편성. 이지스 2척 + KDX-II 2 + FFX 2 + 보급함.',
+        '전 이지스 기동전단':     '이지스 4척 완전 편성 (B2×1 + B1×3). SM-3 채널 극대화, 최강 방공.',
+        '독도함 상륙전단':        '독도함(LPH) 중심 상륙작전 편성. 헬기 대잠 특화, 연안 화력 지원.',
+        '동해 해역방어 (1함대)':  '1함대 교리. KDX-II + FFX-I 2 + PKG 4 + PCC 2. 동해 연안 방어.',
+        '서해 해역방어 (2함대)':  '2함대 교리. FFX-I 2 + PKG 4 + PCC 2. 서해 연안 방어.',
+        '한미 기동전단 기본':     '한미 연합. KDX-III-B2 + DDG-51 × 2 + KDX-II + FFX-II + FFX-I.',
+        '한미 기동전단 강화':     '한미 연합 강화. 이지스 2(한) + DDG-51 2 + CG-47 + KDX-II 2 + AOE.',
+        '한미 항모전단 지원':     '한미 항모전단. CVN + DDG-51 × 3 + CG-47 + 한국 이지스 + KDX-II 2.',
+    }
+
+    # 적군 편대 프리셋 전술 설명 (툴팁용)
+    _ENEMY_PRESET_TIPS = {
+        'A2/AD 항공 포화':    'J-16 × 4 + H-6 × 2. 장거리 공대함미사일 포화 — SM-2·RAM 재고 소모 유도.',
+        '항모 킬 체인':       'DF-21D + DF-17(HGV) + J-20(스텔스). BMD + 스텔스 복합 — SM-3 필수.',
+        '수상함 편대전':      '055형 × 1 + 052D × 2 + 022형 × 4. 대함미사일 집중 — 채널 포화 테스트.',
+        '대잠 복합':          '093형 + 039형 잠수함. 어뢰 + 잠수함 발사 순항미사일 동시 위협.',
+        'BMD 탄도 포화':      'KN-23·DF-15·DF-21D·DF-17 혼합. SM-3 BMD 성능 집중 검증. 최고 난이도 탄도.',
+        '전면전 포화':        '전 카테고리 혼합 최고 난이도. J-20·DF-17·055형·DF-21D·093형.',
+        '북한 탄도 포화':     'KN-23 × 3 + 화성-15 + 화살-2. 북한 교리 기반 탄도 + 순항 병행 공격.',
+        '러시아 극초음속':    '킨잘·지르콘·Kh-101. 극초음속 2종 + 스텔스 순항 — SM-3/6 연속 소진.',
+        '잠수함 복합 포화':   '039형 × 3 + 093형. 다중 잠수함 동시 위협 — 대잠 전력 한계 테스트.',
+    }
+
+    def _friendly_preset_tooltip(self, name: str) -> str:
+        desc  = self._FRIENDLY_PRESET_TIPS.get(name, '')
+        ships = V7_FLEET_PRESETS.get(name, [])
+        lines = ([desc, ''] if desc else []) + ['편성:']
+        for s in ships:
+            disp = self._SHIP_DISPLAY.get(s['type'], s['type'])
+            lines.append(f"  • {s['name']}  ({disp})")
+        return '\n'.join(lines)
+
+    def _enemy_preset_tooltip(self, name: str) -> str:
+        desc    = self._ENEMY_PRESET_TIPS.get(name, '')
+        threats = V7_ENEMY_FLEET_PRESETS.get(name, [])
+        lines   = ([desc, ''] if desc else []) + ['위협 구성:']
+        for t in threats:
+            lines.append(f"  • {t['preset']}  ×{t['count']}")
+        return '\n'.join(lines)
+
     def _update_fleet_detail(self, preset_name: str):
         if not _V7_OK or preset_name not in V7_FLEET_PRESETS:
             self.lbl_fleet_detail.setText('')
@@ -3533,6 +3590,7 @@ class MainWindow(QMainWindow):
             disp = self._SHIP_DISPLAY.get(s['type'], s['type'])
             lines.append(f"• {s['name']}  ({disp})")
         self.lbl_fleet_detail.setText('\n'.join(lines))
+        self.cmb_fleet.setToolTip(self._friendly_preset_tooltip(preset_name))
 
     def _update_detect_info(self, _=None):
         if not _V7_OK:
@@ -3559,20 +3617,10 @@ class MainWindow(QMainWindow):
             return
         units = V7_ENEMY_FLEET_PRESETS[preset_name]
         label_lines = []
-        tip_lines = [f"【{preset_name}】"]
         for e in units:
-            name = e['preset']; cnt = e['count']
-            label_lines.append(f"• {name}  ×{cnt}")
-            if name in V7_ENEMY_DB:
-                d = V7_ENEMY_DB[name]
-                mach = d['speed_ms'] / 340
-                tip_line = (f"  {d.get('type','')} | 마하 {mach:.1f}"
-                            + (f" | 미사일 {d['missile_range_km']}km"
-                               if d.get('missile_range_km') else ''))
-                tip_lines.append(f"• {name} ×{cnt}")
-                tip_lines.append(tip_line)
+            label_lines.append(f"• {e['preset']}  ×{e['count']}")
         self.lbl_enemy_preset_detail.setText('\n'.join(label_lines))
-        self.cmb_fleet_preset_e.setToolTip('\n'.join(tip_lines))
+        self.cmb_fleet_preset_e.setToolTip(self._enemy_preset_tooltip(preset_name))
 
     def _update_difficulty_tooltip(self, diff: str):
         if not _V7_OK or diff not in V7_RANDOM_CFG:
