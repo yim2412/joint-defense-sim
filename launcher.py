@@ -2,6 +2,11 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.31 — 결과 화면 탭 전환 시 UI 프리즈 수정]                              ║
+║  BUG-1  SensitivityWorker·MinStockWorker 즉시 기동 → GIL 독점으로 프리즈    ║
+║         → lazy-start: 감도 분석·최소 재고 탭 방문 시에만 워커 시작          ║
+║  BUG-2  MC 통계 차트 이중 렌더(plot_v7→PNG→Figure→PNG) → bytes 직접 반환   ║
+║                                                                              ║
 ║  [v7.30 — 결과 패널 MC 통계 미표시 버그 수정]                               ║
 ║  BUG-1  사이드바 row 1 유지 시 setCurrentRow(1) 신호 미발화 → 수동 트리거   ║
 ║                                                                              ║
@@ -1370,7 +1375,12 @@ class ChartRenderWorker(QThread):
 
     def run(self):
         try:
-            fig = self._fn(*self._args, **self._kwargs)
+            result = self._fn(*self._args, **self._kwargs)
+            if isinstance(result, (bytes, bytearray)):
+                # 함수가 PNG bytes를 직접 반환 (이중 렌더 없음)
+                self.finished.emit(bytes(result))
+                return
+            fig = result
             buf = io.BytesIO()
             fig.savefig(buf, format='png', bbox_inches='tight',
                         facecolor=fig.get_facecolor(), dpi=96)
@@ -2189,27 +2199,22 @@ class SysMonitorTab(QWidget):
 #  차트 순수 렌더 함수 (백그라운드 스레드에서 호출, Figure 반환)
 # ════════════════════════════════════════════════════════════════════════════
 
-def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> Figure:
-    """MC 통계: plot_v7 생성 PNG → Figure에 임베드."""
+def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> bytes:
+    """MC 통계: plot_v7 PNG를 bytes로 직접 반환 (이중 렌더 제거)."""
     import tempfile, uuid as _uuid
     img_path = os.path.join(tempfile.gettempdir(),
                             f'mc_chart_{_uuid.uuid4().hex}.png')
-    fig = Figure(figsize=(12, 7), facecolor=C_BG)
     try:
         plot_v7(result, mc, cfg, img_path=img_path)
         if os.path.exists(img_path):
-            from matplotlib.image import imread
-            img = imread(img_path)
-            ax = fig.add_subplot(111)
-            ax.imshow(img)
-            ax.axis('off')
-            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            with open(img_path, 'rb') as f:
+                return f.read()
     finally:
         try:
             os.remove(img_path)
         except Exception:
             pass
-    return fig
+    return b''
 
 
 def _render_channel_heatmap(result: dict) -> Figure:
@@ -3209,6 +3214,8 @@ class MainWindow(QMainWindow):
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
             10: lambda: self._draw_timeline(self._result),
+            11: lambda: self._lazy_start_sensitivity(),
+            12: lambda: self._lazy_start_min_stock(),
             13: lambda: self._draw_bearing_vulnerability(self._result),
             14: lambda: self._draw_req_radar(self._result, self._mc),
             15: lambda: self._draw_threat_type(self._result, self._mc),
@@ -3547,24 +3554,14 @@ class MainWindow(QMainWindow):
         self._fill_log(result.get('log', []))
         cfg  = self._worker.cfg  if self._worker else {}
         self._fill_diagnosis(result, mc, cfg)
-        # 감도 분석 — 백그라운드 SensitivityWorker로 비차단 실행
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
-        self._sensitivity_placeholder()
-        self._sens_worker = SensitivityWorker(cfg, mc_n)
-        self._sens_worker.finished.connect(self._on_sensitivity_done)
-        self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
-        self._sens_worker.start(QThread.Priority.LowPriority)  # BUG-1
+        # BUG-1: 감도 분석·최소 재고 워커를 즉시 기동하면 GIL 독점으로 UI 프리즈
+        # → 해당 탭 방문 시점까지 lazy-start로 연기
+        self._pending_cfg  = cfg
+        self._pending_mc_n = mc_n
 
-        # 최소 재고 역산 — 백그라운드 MinStockWorker로 비차단 실행
-        self._min_stock_placeholder()
-        self._ms_worker = MinStockWorker(cfg, mc_n)
-        self._ms_worker.progress.connect(self._on_min_stock_progress)
-        self._ms_worker.finished.connect(self._on_min_stock_done)
-        self._ms_worker.error.connect(lambda e: self._min_stock_error(e))
-        self._ms_worker.start(QThread.Priority.LowPriority)
-
-        # 모든 차트 페이지를 dirty로 표시 (지연 렌더링)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 13, 14, 15, 16, 17}
+        # 모든 차트 페이지를 dirty로 표시 (11·12는 탭 방문 시 워커 기동)
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -3818,6 +3815,33 @@ class MainWindow(QMainWindow):
 
     def _draw_timeline(self, result: dict):
         self.tab_timeline.start_render(_render_timeline, result)
+
+    def _lazy_start_sensitivity(self):
+        """감도 분석 탭 첫 방문 시 SensitivityWorker 기동 (lazy-start)."""
+        if not hasattr(self, '_pending_cfg'):
+            return
+        sens = getattr(self, '_sens_worker', None)
+        if sens and sens.isRunning():
+            return
+        self._sensitivity_placeholder()
+        self._sens_worker = SensitivityWorker(self._pending_cfg, self._pending_mc_n)
+        self._sens_worker.finished.connect(self._on_sensitivity_done)
+        self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
+        self._sens_worker.start(QThread.Priority.LowPriority)
+
+    def _lazy_start_min_stock(self):
+        """최소 재고 탭 첫 방문 시 MinStockWorker 기동 (lazy-start)."""
+        if not hasattr(self, '_pending_cfg'):
+            return
+        ms = getattr(self, '_ms_worker', None)
+        if ms and ms.isRunning():
+            return
+        self._min_stock_placeholder()
+        self._ms_worker = MinStockWorker(self._pending_cfg, self._pending_mc_n)
+        self._ms_worker.progress.connect(self._on_min_stock_progress)
+        self._ms_worker.finished.connect(self._on_min_stock_done)
+        self._ms_worker.error.connect(lambda e: self._min_stock_error(e))
+        self._ms_worker.start(QThread.Priority.LowPriority)
 
     def _sensitivity_placeholder(self):
         """감도 분석 탭에 '계산 중' 안내 텍스트 표시."""
