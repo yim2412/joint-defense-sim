@@ -4142,7 +4142,7 @@ class SplashWindow(QWidget):
         cl_path = _res('changelog.json')
         if os.path.exists(cl_path):
             try:
-                with open(cl_path, encoding='utf-8') as f:
+                with open(cl_path, encoding='utf-8-sig') as f:
                     changelog = json.load(f)
             except Exception:
                 pass
