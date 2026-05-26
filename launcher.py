@@ -266,6 +266,61 @@ def _res(filename: str) -> str:
     base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, filename)
 
+
+# ════════════════════════════════════════════════════════════════════════════
+#  실행 로그 (sim_history.log — exe 옆에 생성)
+# ════════════════════════════════════════════════════════════════════════════
+def _log_path() -> str:
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, 'sim_history.log')
+
+
+def _write_log(line: str):
+    try:
+        with open(_log_path(), 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        pass
+
+
+def _write_sim_log(cfg: dict, result: dict, mc: dict):
+    from datetime import datetime
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # 적군 구성 요약
+    enemy_parts = []
+    for e in cfg.get('enemy_fleet', []):
+        enemy_parts.append(f"{e.get('preset','?')} ×{e.get('count',1)}")
+    enemy_str = ', '.join(enemy_parts) if enemy_parts else cfg.get('enemy_fleet_preset', '?')
+
+    lines = [
+        '=' * 80,
+        f'[{now}]  시뮬레이션 완료',
+        '-' * 80,
+        f'  편대       : {cfg.get("fleet_preset", "?")}',
+        f'  날씨       : {cfg.get("weather", "?")}',
+        f'  MC 횟수    : {mc.get("n", 0)}회',
+        f'  적군 구성  : {enemy_str}',
+        '',
+        f'  총 위협    : {result.get("total_threats", 0)}발/기',
+        f'  요격률     : {mc.get("mean_intercept", 0):.1%}  (±{mc.get("std_intercept", 0):.1%})',
+        f'  완전요격   : {mc.get("full_pass_rate", 0):.1%}',
+        f'  아군 피격  : {sum(mc.get("friendly_hits", [])) / max(mc.get("n", 1), 1):.1f}회 (평균)',
+        f'  적 격침    : {sum(mc.get("enemy_destroyed", [])) / max(mc.get("n", 1), 1):.1f}기/척 (평균)',
+        f'  총 비용    : ${result.get("total_cost", 0):,.0f}',
+        '=' * 80,
+        '',
+    ]
+    try:
+        with open(_log_path(), 'a', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+    except Exception:
+        pass
+
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
@@ -2377,6 +2432,16 @@ class MainWindow(QMainWindow):
         self.status.addWidget(self._lbl_status)
         self.status.addPermanentWidget(self._prog)
 
+        btn_log = QPushButton("📋 실행 로그")
+        btn_log.setFixedHeight(22)
+        btn_log.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_SUBTEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:3px; padding:0 8px; font-size:12px; }}"
+            f"QPushButton:hover {{ color:{C_TEXT}; }}"
+        )
+        btn_log.clicked.connect(self._open_log_file)
+        self.status.addPermanentWidget(btn_log)
+
         # 단축키
         QShortcut(QKeySequence(Qt.Key.Key_Space), self,
                   activated=self._shortcut_play_pause)
@@ -2384,6 +2449,16 @@ class MainWindow(QMainWindow):
                   activated=self._shortcut_prev_frame)
         QShortcut(QKeySequence(Qt.Key.Key_Right), self,
                   activated=self._shortcut_next_frame)
+
+    def _open_log_file(self):
+        p = _log_path()
+        if not os.path.exists(p):
+            _write_log('(로그 없음)')
+        try:
+            os.startfile(p)
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "로그 열기 실패", str(e))
 
     def _shortcut_play_pause(self):
         if hasattr(self, 'tab_anim'):
@@ -3228,6 +3303,7 @@ class MainWindow(QMainWindow):
             self._history.pop(0)
 
         self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환 (lazy render 트리거)
+        _write_sim_log(cfg, result, mc)
 
     def _fill_req(self, result: dict, mc: dict):
         """포팅 D: REQ 판정 테이블 채우기."""
@@ -4061,6 +4137,8 @@ class SplashWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        from datetime import datetime
+        _write_log(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]  앱 시작')
         self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터")
         self.setFixedSize(1400, 960)
         self.setStyleSheet(f"""
