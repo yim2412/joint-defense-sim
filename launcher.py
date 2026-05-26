@@ -1359,7 +1359,12 @@ class AnimationTab(QWidget):
         self._draw_frame(self._cur_idx)
 
     # ── 공개 API ──────────────────────────────────────────────────────────
+    _MAX_ANIM_FRAMES = 300  # 초과 시 서브샘플링 — 메인 스레드 시그널 폭주 방지
+
     def load_frames(self, frames):
+        if len(frames) > self._MAX_ANIM_FRAMES:
+            step = len(frames) / self._MAX_ANIM_FRAMES
+            frames = [frames[int(i * step)] for i in range(self._MAX_ANIM_FRAMES)]
         self.frames = frames
         self._display_range = self._calc_range(frames)
         self._zoom = 1.0
@@ -1427,7 +1432,8 @@ class AnimationTab(QWidget):
         pm.loadFromData(png_bytes, 'PNG')
         self._pixmaps[idx] = pm
         self._rendered_count += 1
-        self._prog_render.setValue(self._rendered_count)
+        if self._rendered_count % 10 == 0 or self._rendered_count == len(self._pixmaps):
+            self._prog_render.setValue(self._rendered_count)
         if idx == 0 or idx == self._cur_idx:
             self._draw_frame(idx)
 
