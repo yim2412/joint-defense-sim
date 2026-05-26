@@ -2340,10 +2340,10 @@ _ACC  = '#3498db'
 
 def _ax_style(ax, title: str):
     ax.set_facecolor(_BG)
-    ax.tick_params(colors='#aab', labelsize=8)
+    ax.tick_params(colors='#aab', labelsize=11)
     for sp in ax.spines.values():
         sp.set_color(_GRID)
-    ax.set_title(title, color='#dde', fontsize=9, fontweight='bold', pad=6)
+    ax.set_title(title, color='#dde', fontsize=13, fontweight='bold', pad=6)
 
 
 def plot_v7(result: dict, mc: dict, cfg: dict,
@@ -2359,7 +2359,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         f"시나리오: {cfg.get('fleet_preset','?')} | "
         f"날씨: {cfg.get('weather','?')} | "
         f"MC {mc['n']}회",
-        color='white', fontsize=13, fontweight='bold', y=0.98,
+        color='white', fontsize=16, fontweight='bold', y=0.98,
     )
 
     gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35,
@@ -2371,9 +2371,9 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     ax0.hist(mc['intercept_rates'], bins=20, color=_ACC, edgecolor='#0a0e1a', alpha=0.85)
     ax0.axvline(mc['mean_intercept'], color='#e74c3c', lw=1.5, ls='--',
                 label=f"평균 {mc['mean_intercept']:.1%}")
-    ax0.set_xlabel('요격률', color='#aab', fontsize=8)
-    ax0.set_ylabel('빈도', color='#aab', fontsize=8)
-    ax0.legend(fontsize=7, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
+    ax0.set_xlabel('요격률', color='#aab', fontsize=11)
+    ax0.set_ylabel('빈도', color='#aab', fontsize=11)
+    ax0.legend(fontsize=10, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
     ax0.xaxis.set_major_formatter(_FuncFormatter(lambda v, _: f'{v:.0%}'))
 
     # ── (0,1) 아군 피격 분포 ─────────────────────────────────────────────────
@@ -2381,8 +2381,8 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     _ax_style(ax1, '아군 피격 횟수 분포 (MC)')
     ax1.hist(mc['friendly_hits'], bins=range(0, max(mc['friendly_hits']) + 2),
              color='#e74c3c', edgecolor='#0a0e1a', alpha=0.85, align='left')
-    ax1.set_xlabel('피격 횟수', color='#aab', fontsize=8)
-    ax1.set_ylabel('빈도', color='#aab', fontsize=8)
+    ax1.set_xlabel('피격 횟수', color='#aab', fontsize=11)
+    ax1.set_ylabel('빈도', color='#aab', fontsize=11)
 
     # ── (0,2) 적 격침 분포 ───────────────────────────────────────────────────
     ax2 = fig.add_subplot(gs[0, 2])
@@ -2390,8 +2390,8 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     max_dest = max(mc['enemy_destroyed']) if mc['enemy_destroyed'] else 1
     ax2.hist(mc['enemy_destroyed'], bins=range(0, max_dest + 2),
              color='#2ecc71', edgecolor='#0a0e1a', alpha=0.85, align='left')
-    ax2.set_xlabel('격침 수', color='#aab', fontsize=8)
-    ax2.set_ylabel('빈도', color='#aab', fontsize=8)
+    ax2.set_xlabel('격침 수', color='#aab', fontsize=11)
+    ax2.set_ylabel('빈도', color='#aab', fontsize=11)
 
     # ── (1,0) 무기 소모 현황 (단일 시뮬) ─────────────────────────────────────
     ax3 = fig.add_subplot(gs[1, 0])
@@ -2410,9 +2410,9 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         values = [wpn_used[k] for k in labels]
         colors = [_ACC if i % 2 == 0 else '#5dade2' for i in range(len(labels))]
         bars = ax3.barh(labels, values, color=colors, edgecolor='#0a0e1a')
-        ax3.bar_label(bars, padding=3, color='white', fontsize=7)
-        ax3.set_xlabel('발사 수', color='#aab', fontsize=8)
-        ax3.tick_params(axis='y', labelsize=7)
+        ax3.bar_label(bars, padding=3, color='white', fontsize=10)
+        ax3.set_xlabel('발사 수', color='#aab', fontsize=11)
+        ax3.tick_params(axis='y', labelsize=10)
     else:
         ax3.text(0.5, 0.5, '발사 없음', color='#aab', ha='center', va='center',
                  transform=ax3.transAxes)
@@ -2425,9 +2425,9 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     mean_m = np.mean(costs_m)
     ax4.axvline(mean_m, color='#e74c3c', lw=1.5, ls='--',
                 label=f'평균 ${mean_m:.1f}M')
-    ax4.set_xlabel('비용 (백만 USD)', color='#aab', fontsize=8)
-    ax4.set_ylabel('빈도', color='#aab', fontsize=8)
-    ax4.legend(fontsize=7, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
+    ax4.set_xlabel('비용 (백만 USD)', color='#aab', fontsize=11)
+    ax4.set_ylabel('빈도', color='#aab', fontsize=11)
+    ax4.legend(fontsize=10, facecolor=_BG, labelcolor='white', edgecolor=_GRID)
 
     # ── (1,2) 핵심 수치 요약 ────────────────────────────────────────────────
     ax5 = fig.add_subplot(gs[1, 2])
@@ -2456,9 +2456,9 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         if not label:
             y -= 0.04
             continue
-        ax5.text(0.04, y, label, color='#7fb3d3', fontsize=8, transform=ax5.transAxes, va='top')
-        ax5.text(0.96, y, val,   color='white',   fontsize=8, transform=ax5.transAxes, va='top', ha='right', fontweight='bold')
-        y -= 0.072
+        ax5.text(0.04, y, label, color='#7fb3d3', fontsize=11, transform=ax5.transAxes, va='top')
+        ax5.text(0.96, y, val,   color='white',   fontsize=11, transform=ax5.transAxes, va='top', ha='right', fontweight='bold')
+        y -= 0.075
 
     fig.savefig(img_path, dpi=150, bbox_inches='tight', facecolor=_BG)
     print(f"  그래프 저장: '{img_path}'")

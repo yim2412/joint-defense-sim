@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.36 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.37 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.37 — 전체 차트 고화질 + 폰트 확대]                                      ║
+║  NEW-A  CHART_DPI 자동 감지: 화면 크기 기반 min 150 ~ max 300 DPI 설정       ║
+║  NEW-B  정적 차트 13종 fontsize +3 일괄 증가 (8→11, 9→12, 11→14 등)          ║
+║  NEW-C  MC 통계(plot_v7) fontsize +3, suptitle 13→16                         ║
+║  NEW-D  애니메이션 프레임 dpi 120→150, 레이블·범례 폰트 +2                   ║
+║  NEW-E  REQ 판정 탭: 요구조건 상단 / 취약점 진단 하단 배치 + 카드 크게       ║
+║                                                                              ║
 ║  [v7.36 — 애니메이션 자막 진동 수정]                                         ║
 ║  BUG-1  lbl_events setWordWrap → setFixedHeight(28): 텍스트 변경 시           ║
 ║         캔버스 크기 변동(진동) 방지                                           ║
@@ -469,6 +476,9 @@ C_SUBTEXT = '#7d8590'
 C_GREEN   = '#2ecc71'
 C_RED     = '#e74c3c'
 C_ORANGE  = '#f39c12'
+
+# 차트 렌더 DPI — main()에서 화면 크기 기반으로 갱신 (min 150, max 300)
+CHART_DPI: int = 150
 
 
 class NoScrollSpinBox(QSpinBox):
@@ -1420,7 +1430,7 @@ class ChartRenderWorker(QThread):
             fig = result
             buf = io.BytesIO()
             fig.savefig(buf, format='png', bbox_inches='tight',
-                        facecolor=fig.get_facecolor(), dpi=96)
+                        facecolor=fig.get_facecolor(), dpi=CHART_DPI)
             from matplotlib import pyplot as _plt
             _plt.close(fig)
             self.finished.emit(buf.getvalue())
@@ -2299,15 +2309,15 @@ def _render_sensitivity_chart(labels: list, lows: list, highs: list, base_rate: 
     ax.barh(y, highs, color='#2ecc71', alpha=0.8, label='높은값')
     ax.axvline(0, color=C_TEXT, lw=1)
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=C_TEXT, fontsize=9)
-    ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=9)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=12)
+    ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=12)
     ax.set_title(f'감도 분석 — Tornado chart  (기준 요격률 {base_rate:.1%})',
-                 color=C_TEXT, fontsize=11)
-    ax.tick_params(colors=C_SUBTEXT)
+                 color=C_TEXT, fontsize=14)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     from matplotlib.ticker import FuncFormatter
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:+.1%}"))
     for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
     fig.tight_layout()
     return fig
 
@@ -2349,20 +2359,20 @@ def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
         else:
             saving = cur - mn
             txt = f'최소 {mn}발  ({"▼ " + str(saving) + "발 절약" if saving > 0 else ("▲ " + str(-saving) + "발 부족" if saving < 0 else "현재 최적")})'
-        ax.text(max(cur, mn) + 0.5, i, txt, va='center', color=C_TEXT, fontsize=8.5)
+        ax.text(max(cur, mn) + 0.5, i, txt, va='center', color=C_TEXT, fontsize=11)
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=C_TEXT, fontsize=10)
-    ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=9)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=13)
+    ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=12)
     ax.set_title(
         f'REQ 달성 최소 재고 역산  (목표: 완전 요격 성공률 ≥ {target_rate:.0%})\n'
         '■ 현재 재고  ■ 최소 필요  (녹색=절약 가능 / 주황=부족 / 파랑=불필요)',
-        color=C_TEXT, fontsize=10, pad=10,
+        color=C_TEXT, fontsize=13, pad=10,
     )
     max_x = max(currents + [m for m in mins if m >= 0], default=50)
     ax.set_xlim(0, max_x * 1.35)
-    ax.tick_params(colors=C_SUBTEXT)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT,
               edgecolor='#1e2a3a', loc='lower right')
     fig.tight_layout()
     return fig
@@ -2408,15 +2418,15 @@ def _render_channel_heatmap(result: dict) -> Figure:
                    origin='lower', cmap='RdYlGn_r', vmin=0, vmax=1,
                    interpolation='nearest')
     ax.set_yticks(range(len(ship_names)))
-    ax.set_yticklabels(ship_names, color='#aab', fontsize=9)
-    ax.set_xlabel('시간 (s)', color='#aab', fontsize=9)
-    ax.set_title('채널 포화도  (빨강=포화, 초록=여유)', color='#dde', fontsize=11)
-    ax.tick_params(colors='#aab', labelsize=8)
+    ax.set_yticklabels(ship_names, color='#aab', fontsize=12)
+    ax.set_xlabel('시간 (s)', color='#aab', fontsize=12)
+    ax.set_title('채널 포화도  (빨강=포화, 초록=여유)', color='#dde', fontsize=14)
+    ax.tick_params(colors='#aab', labelsize=11)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-    cbar.ax.tick_params(colors='#aab', labelsize=7)
-    cbar.set_label('채널 사용률', color='#aab', fontsize=8)
+    cbar.ax.tick_params(colors='#aab', labelsize=10)
+    cbar.set_label('채널 사용률', color='#aab', fontsize=11)
     fig.tight_layout()
     return fig
 
@@ -2439,12 +2449,12 @@ def _render_cost_effect(result: dict, mc: dict) -> Figure:
     ax1.axis('off')
     lbl = f"${cost_per_kill:,.0f}" if cost_per_kill != float('inf') else "N/A"
     ax1.text(0.5, 0.6, lbl, ha='center', va='center',
-             color=C_GREEN, fontsize=26, fontweight='bold',
+             color=C_GREEN, fontsize=30, fontweight='bold',
              transform=ax1.transAxes)
     ax1.text(0.5, 0.35, '격추 1건당 평균 비용', ha='center', va='center',
-             color=C_TEXT, fontsize=11, transform=ax1.transAxes)
+             color=C_TEXT, fontsize=14, transform=ax1.transAxes)
     ax1.text(0.5, 0.20, f"총 평균 비용 ${mean_cost:,.0f}  |  평균 격침 {mean_kill:.1f}척",
-             ha='center', va='center', color=C_SUBTEXT, fontsize=9,
+             ha='center', va='center', color=C_SUBTEXT, fontsize=12,
              transform=ax1.transAxes)
     ax1.set_facecolor('#0a0e1a')
     if ax2 and wpn_rem:
@@ -2454,10 +2464,10 @@ def _render_cost_effect(result: dict, mc: dict) -> Figure:
         y = range(len(names))
         ax2.barh(list(y), vals, color=colors, height=0.6)
         ax2.set_yticks(list(y))
-        ax2.set_yticklabels(names, color=C_TEXT, fontsize=8)
-        ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
-        ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=10)
-        ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+        ax2.set_yticklabels(names, color=C_TEXT, fontsize=11)
+        ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=12)
+        ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=13)
+        ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
         for sp in ax2.spines.values():
             sp.set_color('#1e2a3a')
     fig.tight_layout()
@@ -2480,12 +2490,12 @@ def _render_ammo_curve(mc: dict) -> Figure:
     bars  = ax.barh(y, vals, color=C_ACCENT, height=0.55, alpha=0.85)
     for bar, val in zip(bars, vals):
         ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
-                f'{val:.1f}', va='center', color=C_TEXT, fontsize=8)
+                f'{val:.1f}', va='center', color=C_TEXT, fontsize=11)
     ax.set_yticks(y)
-    ax.set_yticklabels(names, color=C_TEXT, fontsize=8)
-    ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=9)
-    ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=10)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+    ax.set_yticklabels(names, color=C_TEXT, fontsize=12)
+    ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=12)
+    ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=13)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
     fig.tight_layout()
@@ -2513,11 +2523,11 @@ def _render_ci_chart(mc: dict) -> Figure:
     ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}')
     ax1.axvline(ci_lo, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 하한 {ci_lo:.1%}')
     ax1.axvline(ci_hi, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 상한 {ci_hi:.1%}')
-    ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=9)
-    ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=9)
-    ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=10)
-    ax1.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-    ax1.tick_params(colors=C_SUBTEXT, labelsize=8)
+    ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=12)
+    ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=12)
+    ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=13)
+    ax1.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax1.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax1.spines.values():
         sp.set_color('#1e2a3a')
     ship_hits = mc.get('ship_avg_hits', {})
@@ -2528,10 +2538,10 @@ def _render_ci_chart(mc: dict) -> Figure:
         clrs   = [C_RED if v > 1 else C_ORANGE if v > 0 else C_GREEN for v in shvals]
         ax2.barh(y, shvals, color=clrs, height=0.55)
         ax2.set_yticks(y)
-        ax2.set_yticklabels(snames, color=C_TEXT, fontsize=8)
-        ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=9)
-        ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=10)
-        ax2.tick_params(colors=C_SUBTEXT, labelsize=8)
+        ax2.set_yticklabels(snames, color=C_TEXT, fontsize=11)
+        ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=12)
+        ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=13)
+        ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
         for sp in ax2.spines.values():
             sp.set_color('#1e2a3a')
     else:
@@ -2575,18 +2585,18 @@ def _render_timeline(result: dict) -> Figure:
     for t, yi, color, label, msg in events:
         ax.scatter(t, yi, c=color, s=30, zorder=3, alpha=0.8)
     ax.set_yticks(range(len(y_labels)))
-    ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=9)
-    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
-    ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=11)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=8)
+    ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=12)
+    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=12)
+    ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=14)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     ax.set_ylim(-0.8, len(y_labels) - 0.2)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
     ax.grid(axis='x', color='#1e2a3a', lw=0.5)
     handles = [plt.Line2D([0], [0], marker='o', color='w',
-                           markerfacecolor=c, markersize=7, label=l)
+                           markerfacecolor=c, markersize=9, label=l)
                for _, c, l, _ in _CAT]
-    ax.legend(handles=handles, fontsize=7, facecolor='#0a0e1a',
+    ax.legend(handles=handles, fontsize=10, facecolor='#0a0e1a',
               labelcolor=C_TEXT, edgecolor='#1e2a3a',
               loc='upper right', ncol=4)
     fig.tight_layout()
@@ -2630,13 +2640,13 @@ def _render_bearing_vulnerability(result: dict) -> Figure:
     ax.plot(angles_c, hit_c,  'o-', color='#e74c3c', lw=1.5, label='피격')
     ax.fill(angles_c, hit_c,  alpha=0.2, color='#e74c3c')
     ax.set_xticks(angles)
-    ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=9)
+    ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=12)
     ax.set_yticklabels([])
-    ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=11, pad=15)
+    ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=14, pad=15)
     ax.tick_params(colors=C_SUBTEXT)
     ax.spines['polar'].set_color('#1e2a3a')
     ax.grid(color='#1e2a3a')
-    ax.legend(loc='upper right', fontsize=8, facecolor='#0a0e1a',
+    ax.legend(loc='upper right', fontsize=11, facecolor='#0a0e1a',
               labelcolor=C_TEXT, edgecolor='#1e2a3a',
               bbox_to_anchor=(1.25, 1.1))
     fig.tight_layout()
@@ -2667,13 +2677,13 @@ def _render_req_radar(result: dict, mc: dict) -> Figure:
     ax.plot(angles_c, vals_c, 'o-', color=C_ACCENT, lw=2)
     ax.fill(angles_c, vals_c, alpha=0.3, color=C_ACCENT)
     ax.set_xticks(angles)
-    ax.set_xticklabels(labels, color=C_TEXT, fontsize=9)
+    ax.set_xticklabels(labels, color=C_TEXT, fontsize=12)
     ax.set_yticks([0, 0.5, 1.0])
-    ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=7)
+    ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=10)
     ax.set_ylim(0, 1.2)
     pass_cnt = sum(verdicts)
     ax.set_title(f'REQ 충족률  {pass_cnt}/{N}  ({pass_cnt/N:.0%})',
-                 color=C_TEXT, fontsize=11, pad=15)
+                 color=C_TEXT, fontsize=14, pad=15)
     ax.spines['polar'].set_color('#1e2a3a')
     ax.grid(color='#1e2a3a')
     fig.tight_layout()
@@ -2729,15 +2739,15 @@ def _render_threat_type(result: dict, mc: dict) -> Figure:
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + 0.02,
                 f'{r:.0%}\n(n={t})',
-                ha='center', va='bottom', color=C_TEXT, fontsize=9)
+                ha='center', va='bottom', color=C_TEXT, fontsize=12)
     ax.set_ylim(0, 1.2)
-    ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=9)
-    ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=11)
-    ax.tick_params(colors=C_SUBTEXT)
+    ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=12)
+    ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=14)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=12)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
     ax.axhline(0.9, color='#2ecc71', lw=1, ls='--', alpha=0.5, label='목표 90%')
-    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
     fig.tight_layout()
     return fig
 
@@ -2763,13 +2773,13 @@ def _render_vuln_time(result: dict) -> Figure:
         peak_start = b[np.argmax(h)]
         ax.axvspan(peak_start, peak_start + 10, alpha=0.25, color='#e74c3c',
                    label=f'최다 피격 구간 ({peak_start:.0f}~{peak_start+10:.0f}s)')
-    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=9)
-    ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=9)
-    ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=11)
-    ax.tick_params(colors=C_SUBTEXT)
+    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=12)
+    ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=12)
+    ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=14)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
-    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
     ax.grid(axis='y', color='#1e2a3a', lw=0.5)
     fig.tight_layout()
     return fig
@@ -2801,12 +2811,12 @@ def _render_history_compare(history: list) -> Figure:
             ax.text(bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + max(vals) * 0.02,
                     label, ha='center', va='bottom',
-                    color=C_TEXT, fontsize=8)
-        ax.set_title(title, color=C_TEXT, fontsize=10)
+                    color=C_TEXT, fontsize=11)
+        ax.set_title(title, color=C_TEXT, fontsize=13)
         ax.set_xticks(range(len(history)))
         ax.set_xticklabels([f'#{i+1}' for i in range(len(history))],
-                           color=C_SUBTEXT, fontsize=8)
-        ax.tick_params(colors=C_SUBTEXT)
+                           color=C_SUBTEXT, fontsize=11)
+        ax.tick_params(colors=C_SUBTEXT, labelsize=11)
         for sp in ax.spines.values():
             sp.set_color('#1e2a3a')
         ax.yaxis.set_major_formatter(
@@ -2814,8 +2824,8 @@ def _render_history_compare(history: list) -> Figure:
                               else f"${v/1e6:.1f}M"))
     fig.text(0.5, 0.01,
              '  |  '.join(f'#{i+1}: {h["label"]}' for i, h in enumerate(history)),
-             ha='center', va='bottom', color=C_SUBTEXT, fontsize=7)
-    fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=11)
+             ha='center', va='bottom', color=C_SUBTEXT, fontsize=10)
+    fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=14)
     fig.tight_layout(rect=[0, 0.06, 1, 1])
     return fig
 
@@ -3403,31 +3413,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # ── 자동 취약점 진단 카드 영역 ───────────────────────────────────
-        diag_header = QLabel("  🩺  자동 취약점 진단")
-        diag_header.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(diag_header)
-
-        # 카드가 들어갈 스크롤 영역 (최대 높이 200px)
-        self._diag_scroll = QScrollArea()
-        self._diag_scroll.setWidgetResizable(True)
-        self._diag_scroll.setFixedHeight(210)
-        self._diag_scroll.setStyleSheet(
-            f"QScrollArea {{ background: {C_BG}; border: 1px solid #30363d; border-radius: 6px; }}"
-        )
-        self._diag_inner = QWidget()
-        self._diag_inner.setStyleSheet(f"background: {C_BG};")
-        self._diag_layout = QVBoxLayout(self._diag_inner)
-        self._diag_layout.setContentsMargins(6, 6, 6, 6)
-        self._diag_layout.setSpacing(5)
-        _ph = QLabel("  시뮬레이션 실행 후 진단 결과가 표시됩니다.")
-        _ph.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        self._diag_layout.addWidget(_ph)
-        self._diag_layout.addStretch()
-        self._diag_scroll.setWidget(self._diag_inner)
-        layout.addWidget(self._diag_scroll)
-
-        # ── REQ 판정 테이블 ───────────────────────────────────────────────
+        # ── REQ 판정 테이블 (상단) ────────────────────────────────────────
         req_lbl = QLabel("  ✅  REQ 요구조건 판정")
         req_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
         layout.addWidget(req_lbl)
@@ -3443,7 +3429,30 @@ class MainWindow(QMainWindow):
         self.req_table.setAlternatingRowColors(True)
         self.req_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self.req_table, stretch=1)
+        layout.addWidget(self.req_table, stretch=2)
+
+        # ── 자동 취약점 진단 카드 영역 (하단 — 넓게) ─────────────────────
+        diag_header = QLabel("  🩺  자동 취약점 진단")
+        diag_header.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(diag_header)
+
+        self._diag_scroll = QScrollArea()
+        self._diag_scroll.setWidgetResizable(True)
+        self._diag_scroll.setMinimumHeight(260)
+        self._diag_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {C_BG}; border: 1px solid #30363d; border-radius: 6px; }}"
+        )
+        self._diag_inner = QWidget()
+        self._diag_inner.setStyleSheet(f"background: {C_BG};")
+        self._diag_layout = QVBoxLayout(self._diag_inner)
+        self._diag_layout.setContentsMargins(8, 8, 8, 8)
+        self._diag_layout.setSpacing(7)
+        _ph = QLabel("  시뮬레이션 실행 후 진단 결과가 표시됩니다.")
+        _ph.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        self._diag_layout.addWidget(_ph)
+        self._diag_layout.addStretch()
+        self._diag_scroll.setWidget(self._diag_inner)
+        layout.addWidget(self._diag_scroll, stretch=3)
         return w
 
     def _build_weather_tab(self) -> QWidget:
@@ -3791,29 +3800,29 @@ class MainWindow(QMainWindow):
 
             frame = QFrame()
             frame.setStyleSheet(
-                f"QFrame {{ background: #161b22; border-left: 4px solid {color};"
-                f" border-radius: 4px; padding: 4px; }}"
+                f"QFrame {{ background: #161b22; border-left: 5px solid {color};"
+                f" border-radius: 5px; padding: 6px; }}"
             )
             fl = QVBoxLayout(frame)
-            fl.setContentsMargins(8, 4, 8, 4)
-            fl.setSpacing(2)
+            fl.setContentsMargins(10, 6, 10, 6)
+            fl.setSpacing(4)
 
             # 제목줄
             title_lbl = QLabel(f"{badge}  {card['title']}")
-            title_lbl.setStyleSheet(f"color:{color}; font-size:11px; font-weight:bold; border:none;")
+            title_lbl.setStyleSheet(f"color:{color}; font-size:13px; font-weight:bold; border:none;")
             fl.addWidget(title_lbl)
 
             # 상세
             if card.get('detail'):
                 det = QLabel(card['detail'])
-                det.setStyleSheet(f"color:{C_TEXT}; font-size:10px; border:none;")
+                det.setStyleSheet(f"color:{C_TEXT}; font-size:12px; border:none;")
                 det.setWordWrap(True)
                 fl.addWidget(det)
 
             # 개선 제안
             if card.get('suggestion'):
                 sugg = QLabel(card['suggestion'])
-                sugg.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px; border:none;")
+                sugg.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; border:none;")
                 sugg.setWordWrap(True)
                 fl.addWidget(sugg)
 
@@ -5001,8 +5010,16 @@ class SplashWindow(QWidget):
 #  진입점
 # ════════════════════════════════════════════════════════════════════════════
 def main():
+    global CHART_DPI
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+
+    # 화면 DPI 기반 차트 렌더 해상도 자동 설정
+    screen = app.primaryScreen()
+    if screen:
+        px_w = int(screen.size().width() * screen.devicePixelRatio())
+        # figsize 12인치 기준: 화면 너비 90%를 커버하는 DPI 계산
+        CHART_DPI = max(150, min(300, px_w * 3 // 40))
 
     # 앱 아이콘 설정
     _icon_path = _res('aegis_icon.ico')

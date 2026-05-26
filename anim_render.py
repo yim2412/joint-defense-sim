@@ -74,7 +74,7 @@ def _render_anim_frame(args):
                 [(x + y) * _ISO_SIN for x, y in zip(rxs, rys)],
                 color='#152e48', lw=0.85, ls='--', zorder=1)
         lx, ly = iso(ring_r * 0.72, ring_r * -0.72)
-        ax.text(lx, ly, f'{ring_r}km', color='#2a4e72', fontsize=7,
+        ax.text(lx, ly, f'{ring_r}km', color='#2a4e72', fontsize=9,
                 va='center', zorder=2)
 
     # ── 적 위협 ──────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ def _render_anim_frame(args):
                    linewidths=2.0 if not ealive else 0, zorder=zo)
         if show_labels and ealive:
             ax.text(px + R * 0.02, py + R * 0.015, str(epname)[:10],
-                    color='#ffaaaa', fontsize=7, ha='left', va='bottom', zorder=12)
+                    color='#ffaaaa', fontsize=9, ha='left', va='bottom', zorder=12)
 
     # ── 아군 함정 ────────────────────────────────────────────────────────
     for item in friendly_ships:
@@ -106,7 +106,7 @@ def _render_anim_frame(args):
                    linewidths=2.5 if not salive else 0, zorder=zo)
         if show_labels:
             ax.text(px + R * 0.02, py + R * 0.015, str(sname)[:9],
-                    color='#aaffcc', fontsize=7, ha='left', va='bottom', zorder=12)
+                    color='#aaffcc', fontsize=9, ha='left', va='bottom', zorder=12)
 
     # ── 미사일 ───────────────────────────────────────────────────────────
     for item in missiles:
@@ -128,11 +128,11 @@ def _render_anim_frame(args):
             lbl_col = ('#aaffaa' if mtype == 'friendly_sam' else
                        '#aaaaff' if mtype == 'friendly_strike' else '#ffaaaa')
             ax.text(px + R * 0.015, py + R * 0.01, str(mname)[:8],
-                    color=lbl_col, fontsize=6, ha='left', va='bottom', zorder=12)
+                    color=lbl_col, fontsize=8, ha='left', va='bottom', zorder=12)
 
     # ── 타이틀 ───────────────────────────────────────────────────────────
     ax.text(0, y_top * 0.975, f"전장 상황   t = {t:.0f}s",
-            color='#dde8ff', fontsize=11, fontweight='bold',
+            color='#dde8ff', fontsize=14, fontweight='bold',
             ha='center', va='top', zorder=15)
 
     # ── 범례 ─────────────────────────────────────────────────────────────
@@ -147,10 +147,10 @@ def _render_anim_frame(args):
     row_h  = (y_top - y_bot) * 0.055
     for i, (lbl, col) in enumerate(legend_items):
         ax.text(lx_leg, ly_leg - i * row_h, lbl,
-                color=col, fontsize=7, ha='center', va='top', zorder=15)
+                color=col, fontsize=9, ha='center', va='top', zorder=15)
 
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=120, facecolor='#0d1117')
+    fig.savefig(buf, format='png', dpi=150, facecolor='#0d1117')
     buf.seek(0)
     data = buf.read()
     fig.clf()
