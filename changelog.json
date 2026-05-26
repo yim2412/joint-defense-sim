@@ -602,5 +602,15 @@
       "수정  시스템 모니터 타이머 1초 → 2초 (메인 스레드 matplotlib 그리기 빈도 절반 감소)",
       "수정  _fill_log: processEvents() 제거 (setUpdatesEnabled 배치 처리로 충분)"
     ]
+  },
+  {
+    "version": "34",
+    "date": "2026-05-26",
+    "title": "전장 애니메이션 렉·프리즈 수정",
+    "changes": [
+      "수정  _start_render_worker: cancel() 후 wait() 호출로 메인 스레드가 블로킹되던 버그 수정 → 세대 카운터(_render_gen)로 구식 신호 필터링",
+      "수정  FrameRenderWorker: 10프레임마다 msleep(12) 추가 → ProcessPool 병렬 완료 신호 폭주 방지",
+      "수정  _draw_frame: 재생 중 FastTransformation(속도 우선), 정지 시 SmoothTransformation(품질 우선)으로 전환"
+    ]
   }
 ]

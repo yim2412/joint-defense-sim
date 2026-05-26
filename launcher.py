@@ -2,6 +2,12 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.34 — 전장 애니메이션 렉·프리즈 수정]                                   ║
+║  BUG-1  _start_render_worker: cancel 후 wait() → 메인 스레드 블로킹 수정    ║
+║         세대 카운터(_render_gen)로 구식 frame_ready 신호 필터링              ║
+║  BUG-2  FrameRenderWorker: 10프레임마다 msleep(12) → 신호 폭주 방지         ║
+║  BUG-3  _draw_frame: 재생 중 FastTransformation, 정지 시 Smooth             ║
+║                                                                              ║
 ║  [v7.33 — 차트 렌더링 전면 최적화 (메인 스레드 matplotlib 제거)]             ║
 ║  BUG-1  tab_sensitivity·tab_min_stock: MplCanvas(메인스레드) →               ║
 ║         ChartPageWidget(백그라운드) + 순수 렌더 함수 분리                    ║
@@ -1546,6 +1552,7 @@ class FrameRenderWorker(QThread):
         ex   = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_workers)
         _own = _GLOBAL_POOL is None
         futs = {ex.submit(_render_anim_frame, a): a[0] for a in args_list}
+        emit_count = 0
         for fut in as_completed(futs):
             if self._cancelled:
                 for f in futs:
@@ -1556,6 +1563,9 @@ class FrameRenderWorker(QThread):
             try:
                 idx, png = fut.result()
                 self.frame_ready.emit(idx, png)
+                emit_count += 1
+                if emit_count % 10 == 0:
+                    self.msleep(12)  # 10프레임마다 12ms 대기 → 메인 스레드 QPixmap 처리 시간 확보
             except Exception:
                 pass
         if _own:
@@ -1585,6 +1595,8 @@ class AnimationTab(QWidget):
         self._pixmaps: list    = []   # list[Optional[QPixmap]]
         self._rendered_count   = 0
         self._render_worker    = None
+        self._render_gen       = 0    # 세대 카운터 — 구식 frame_ready 신호 필터링
+        self._playing          = False
         self._build_ui()
 
     def _build_ui(self):
@@ -1710,7 +1722,6 @@ class AnimationTab(QWidget):
 
         self._play_timer = QTimer()
         self._play_timer.timeout.connect(self._step_play)
-        self._playing = False
 
     # ── 이벤트 필터 (휠 줌) ──────────────────────────────────────────────
     def eventFilter(self, obj, event):
@@ -1771,9 +1782,17 @@ class AnimationTab(QWidget):
     def _start_render_worker(self):
         if not self.frames:
             return
+        # 이전 워커 취소 — wait() 금지 (메인 스레드 블로킹 위험)
+        # 세대 카운터를 올려 구식 frame_ready 신호를 _on_frame_ready에서 필터링
+        self._render_gen += 1
         if self._render_worker and self._render_worker.isRunning():
+            try:
+                self._render_worker.frame_ready.disconnect()
+                self._render_worker.all_done.disconnect()
+            except Exception:
+                pass
             self._render_worker.cancel()
-            self._render_worker.wait()
+            # wait() 제거 — cancel 플래그만 세우고 비동기 종료
         n = len(self.frames)
         self._pixmaps = [None] * n
         self._rendered_count = 0
@@ -1788,18 +1807,22 @@ class AnimationTab(QWidget):
              'events':        list(f.events or [])}
             for f in self.frames
         ]
+        gen = self._render_gen
         self._render_worker = FrameRenderWorker(
             frame_data, self._display_range,
             self.chk_labels.isChecked(), self.chk_altitude.isChecked())
-        self._render_worker.frame_ready.connect(self._on_frame_ready)
+        self._render_worker.frame_ready.connect(
+            lambda idx, png: self._on_frame_ready(idx, png, gen))
         self._render_worker.all_done.connect(self._on_all_done)
-        self._render_worker.start(QThread.Priority.LowPriority)  # BUG-1
+        self._render_worker.start(QThread.Priority.LowPriority)
 
     def _restart_render(self):
         if self.frames:
             self._start_render_worker()
 
-    def _on_frame_ready(self, idx: int, png_bytes: bytes):
+    def _on_frame_ready(self, idx: int, png_bytes: bytes, gen: int):
+        if gen != self._render_gen:
+            return   # 이전 세대 신호 — 무시
         pm = QPixmap()
         pm.loadFromData(png_bytes, 'PNG')
         self._pixmaps[idx] = pm
@@ -1832,10 +1855,13 @@ class AnimationTab(QWidget):
         lw = max(1, self._lbl_canvas.width())
         lh = max(1, self._lbl_canvas.height())
 
+        # 재생 중: FastTransformation(nearest-neighbor) — 속도 우선
+        # 정지 시: SmoothTransformation(bilinear) — 품질 우선
+        xform = (Qt.TransformationMode.FastTransformation if self._playing
+                 else Qt.TransformationMode.SmoothTransformation)
+
         # 기본 fit (label 크기에 비율 유지하며 맞춤)
-        fitted = pm.scaled(lw, lh,
-                           Qt.AspectRatioMode.KeepAspectRatio,
-                           Qt.TransformationMode.SmoothTransformation)
+        fitted = pm.scaled(lw, lh, Qt.AspectRatioMode.KeepAspectRatio, xform)
         if abs(self._zoom - 1.0) < 0.02:
             self._lbl_canvas.setPixmap(fitted)
             return
@@ -1845,8 +1871,7 @@ class AnimationTab(QWidget):
         zw  = max(1, int(fitted.width()  * sf))
         zh  = max(1, int(fitted.height() * sf))
         zoomed = fitted.scaled(zw, zh,
-                               Qt.AspectRatioMode.IgnoreAspectRatio,
-                               Qt.TransformationMode.SmoothTransformation)
+                               Qt.AspectRatioMode.IgnoreAspectRatio, xform)
         if self._zoom < 1.0:
             # 줌인: 중앙 크롭
             fw, fh = fitted.width(), fitted.height()
