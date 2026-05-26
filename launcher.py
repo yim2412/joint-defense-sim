@@ -3885,7 +3885,7 @@ class SpecSheetPanel(QWidget):
 
         # ── 상단: 가로 사진 박스 ──────────────────────────────────────────
         self._img_lbl = QLabel()
-        self._img_lbl.setFixedHeight(175)
+        self._img_lbl.setFixedHeight(220)
         self._img_lbl.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -3907,7 +3907,7 @@ class SpecSheetPanel(QWidget):
         )
 
         self._sub_lbl = QLabel()
-        self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        self._sub_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
         self._sub_lbl.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -3944,7 +3944,7 @@ class SpecSheetPanel(QWidget):
 
         self._note_lbl = QLabel()
         self._note_lbl.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:14px; font-style:italic; padding:2px 4px;"
+            f"color:{C_SUBTEXT}; font-size:15px; font-style:italic; padding:2px 4px;"
         )
         self._note_lbl.setWordWrap(True)
 
@@ -3962,7 +3962,7 @@ class SpecSheetPanel(QWidget):
     def _add_category(self, cat_name: str, cat_fields: list):
         hdr = QLabel(f"  {cat_name.upper()}")
         hdr.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:13px; font-weight:bold;"
+            f"color:{C_ACCENT}; font-size:14px; font-weight:bold;"
             f" background:#1a2030; padding:3px 0px; margin-top:4px;"
         )
         self._scroll_vbox.addWidget(hdr)
@@ -3976,9 +3976,9 @@ class SpecSheetPanel(QWidget):
         row, col = 0, 0
         for label, value in cat_fields:
             lbl_w = QLabel(f"{label}:")
-            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
             val_w = QLabel(str(value))
-            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:600;")
+            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:600;")
             val_w.setWordWrap(True)
             gl.addWidget(lbl_w, row, col * 2)
             gl.addWidget(val_w, row, col * 2 + 1)
@@ -4010,7 +4010,7 @@ class SpecSheetPanel(QWidget):
         )
         if img_path:
             pix = QPixmap(img_path).scaled(
-                1200, 175,
+                1200, 220,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
