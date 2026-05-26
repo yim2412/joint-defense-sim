@@ -359,7 +359,7 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
 
 
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QSplitter,
+    QApplication, QMainWindow, QWidget, QDialog, QSplitter,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
     QGridLayout, QFrame,
     QLabel, QPushButton, QComboBox, QSpinBox, QTabWidget,
@@ -856,7 +856,7 @@ class FloatingMonitor(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  실행 로그 뷰어 다이얼로그
 # ════════════════════════════════════════════════════════════════════════════
-class SimLogDialog(QWidget):
+class SimLogDialog(QDialog):
     """sim_history.json 을 읽어 테이블로 표시하는 독립 창."""
 
     _COLS = [
@@ -874,8 +874,9 @@ class SimLogDialog(QWidget):
     ]
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.WindowType.Window)
+        super().__init__(parent)
         self.setWindowTitle("실행 로그 뷰어")
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.resize(1300, 620)
         self.setStyleSheet(
             f"QWidget {{ background:{C_BG}; color:{C_TEXT}; "
@@ -1053,7 +1054,6 @@ class SimLogDialog(QWidget):
         )
 
     def _export_csv(self):
-        from PyQt6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(
             self, "CSV 저장", "sim_history.csv", "CSV (*.csv)")
         if not path:
@@ -1069,7 +1069,6 @@ class SimLogDialog(QWidget):
             QMessageBox.warning(self, "오류", str(e))
 
     def _clear_log(self):
-        from PyQt6.QtWidgets import QMessageBox
         if QMessageBox.question(
             self, "로그 초기화",
             "모든 실행 기록을 삭제하시겠습니까?",
@@ -2719,7 +2718,13 @@ class MainWindow(QMainWindow):
                   activated=self._shortcut_next_frame)
 
     def _open_log_file(self):
-        if not hasattr(self, '_log_dialog') or not self._log_dialog.isVisible():
+        try:
+            alive = (hasattr(self, '_log_dialog')
+                     and self._log_dialog is not None
+                     and self._log_dialog.isVisible())
+        except RuntimeError:
+            alive = False
+        if not alive:
             self._log_dialog = SimLogDialog(self)
         else:
             self._log_dialog._load()
