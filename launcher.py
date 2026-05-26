@@ -2,6 +2,13 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v7.28 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.33 — 차트 렌더링 전면 최적화 (메인 스레드 matplotlib 제거)]             ║
+║  BUG-1  tab_sensitivity·tab_min_stock: MplCanvas(메인스레드) →               ║
+║         ChartPageWidget(백그라운드) + 순수 렌더 함수 분리                    ║
+║  BUG-2  SysMonitorTab: 숨김 상태서 matplotlib 렌더 스킵 + showEvent 즉시 갱신║
+║  BUG-3  시스템 모니터 타이머 1초 → 2초 (메인 스레드 matplotlib 부하 감소)   ║
+║  BUG-4  _fill_log: processEvents() 제거 (setUpdatesEnabled 배치로 충분)      ║
+║                                                                              ║
 ║  [v7.32 — 창 닫기 시 좀비 프로세스 완전 제거]                               ║
 ║  BUG-1  ChartRenderWorker 11개 closeEvent 미처리 → stop_worker() 추가       ║
 ║  BUG-2  WeatherWorker closeEvent 누락 → 날씨 비교 중 닫아도 즉시 종료       ║
@@ -1926,7 +1933,7 @@ class SysMonitorTab(QWidget):
         self._build_ui()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update)
-        self._timer.start(1000)
+        self._timer.start(2000)   # 2초 간격 — 1초에서 낮춤 (메인 스레드 matplotlib 부하 감소)
 
     # ── 외부 슬롯 ────────────────────────────────────────────────────────────
     def mark_sim_start(self):
@@ -2134,7 +2141,16 @@ class SysMonitorTab(QWidget):
             pct = int(self._core_pcts[i]) if i < len(self._core_pcts) else 0
             bar.setValue(pct); plbl.setText(f"{pct}%")
 
-        # 탭별 차트 갱신
+        # 탭별 차트 갱신 — 화면에 표시 중일 때만 렌더 (숨겨진 탭은 스킵)
+        if self.isVisible():
+            self._refresh_active_chart()
+
+    def showEvent(self, event):
+        """사이드바에서 이 탭으로 전환될 때 즉시 차트 갱신 (타이머 대기 불필요)."""
+        super().showEvent(event)
+        self._refresh_active_chart()
+
+    def _refresh_active_chart(self):
         idx = self._inner.currentIndex()
         if idx == 0:
             self._draw_sys_chart()
@@ -2228,6 +2244,85 @@ class SysMonitorTab(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  차트 순수 렌더 함수 (백그라운드 스레드에서 호출, Figure 반환)
 # ════════════════════════════════════════════════════════════════════════════
+
+def _render_sensitivity_chart(labels: list, lows: list, highs: list, base_rate: float) -> Figure:
+    """감도 분석 Tornado chart — 백그라운드 스레드에서 호출."""
+    fig = Figure(figsize=(12, 6), facecolor=C_BG)
+    fig.patch.set_facecolor('#0a0e1a')
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    y = list(range(len(labels)))
+    ax.barh(y, lows,  color='#e74c3c', alpha=0.8, label='낮은값')
+    ax.barh(y, highs, color='#2ecc71', alpha=0.8, label='높은값')
+    ax.axvline(0, color=C_TEXT, lw=1)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=9)
+    ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=9)
+    ax.set_title(f'감도 분석 — Tornado chart  (기준 요격률 {base_rate:.1%})',
+                 color=C_TEXT, fontsize=11)
+    ax.tick_params(colors=C_SUBTEXT)
+    from matplotlib.ticker import FuncFormatter
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:+.1%}"))
+    for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    fig.tight_layout()
+    return fig
+
+
+def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
+    """최소 재고 역산 수평 막대 차트 — 백그라운드 스레드에서 호출."""
+    fig = Figure(figsize=(13, 6), facecolor=C_BG)
+    fig.patch.set_facecolor('#0a0e1a')
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    short_names = {
+        'SM-3 Block IIA':   'SM-3 IIA',
+        'SM-6':             'SM-6',
+        'SM-2 Block IIIB':  'SM-2 IIIB',
+        'RIM-116 RAM':      'RIM-116 RAM',
+        '홍상어 (대잠)':    '홍상어',
+        '청상어 (경어뢰)':  '청상어',
+    }
+    wpn_names = list(results.keys())
+    labels   = [short_names.get(w, w) for w in wpn_names]
+    currents = [results[w]['current_stock'] for w in wpn_names]
+    mins     = [results[w]['min_stock']     for w in wpn_names]
+    achieves = [results[w]['achievable']    for w in wpn_names]
+    y = list(range(len(wpn_names)))
+    ax.barh(y, currents, color='#2a3545', height=0.55, label='현재 재고')
+    for i, (mn, cur, ach) in enumerate(zip(mins, currents, achieves)):
+        if not ach:
+            color, bar_val = '#e74c3c', cur
+        elif mn == 0:
+            color, bar_val = '#3498db', 0
+        elif mn <= cur:
+            color, bar_val = '#2ecc71', mn
+        else:
+            color, bar_val = '#e67e22', mn
+        ax.barh(i, bar_val, color=color, height=0.55, alpha=0.9)
+        if not ach:
+            txt = '달성 불가'
+        elif mn == 0:
+            txt = '불필요'
+        else:
+            saving = cur - mn
+            txt = f'최소 {mn}발  ({"▼ " + str(saving) + "발 절약" if saving > 0 else ("▲ " + str(-saving) + "발 부족" if saving < 0 else "현재 최적")})'
+        ax.text(max(cur, mn) + 0.5, i, txt, va='center', color=C_TEXT, fontsize=8.5)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=10)
+    ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=9)
+    ax.set_title(
+        f'REQ 달성 최소 재고 역산  (목표: 완전 요격 성공률 ≥ {target_rate:.0%})\n'
+        '■ 현재 재고  ■ 최소 필요  (녹색=절약 가능 / 주황=부족 / 파랑=불필요)',
+        color=C_TEXT, fontsize=10, pad=10,
+    )
+    max_x = max(currents + [m for m in mins if m >= 0], default=50)
+    ax.set_xlim(0, max_x * 1.35)
+    ax.tick_params(colors=C_SUBTEXT)
+    for sp in ax.spines.values(): sp.set_color('#1e2a3a')
+    ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
+              edgecolor='#1e2a3a', loc='lower right')
+    fig.tight_layout()
+    return fig
+
 
 def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> bytes:
     """MC 통계: plot_v7 PNG를 bytes로 직접 반환 (이중 렌더 제거)."""
@@ -3129,8 +3224,8 @@ class MainWindow(QMainWindow):
         self.tab_ammo_curve  = ChartPageWidget()
         self.tab_ci          = ChartPageWidget()
         self.tab_timeline    = ChartPageWidget()
-        self.tab_sensitivity = MplCanvas(figsize=(12, 6))  # SensitivityWorker 연동 — MplCanvas 유지
-        self.tab_min_stock   = MplCanvas(figsize=(13, 6))  # MinStockWorker 연동
+        self.tab_sensitivity = ChartPageWidget()   # 백그라운드 렌더 (MplCanvas→ChartPageWidget)
+        self.tab_min_stock   = ChartPageWidget()   # 백그라운드 렌더
         self.tab_bearing     = ChartPageWidget()
         self.tab_req_radar   = ChartPageWidget()
         self.tab_threat_type = ChartPageWidget()
@@ -3783,7 +3878,8 @@ class MainWindow(QMainWindow):
         for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
                      'tab_ammo_curve', 'tab_ci', 'tab_timeline',
                      'tab_bearing', 'tab_req_radar', 'tab_threat_type',
-                     'tab_vuln_time', 'tab_history'):
+                     'tab_vuln_time', 'tab_history',
+                     'tab_sensitivity', 'tab_min_stock'):   # ChartPageWidget으로 전환된 탭 추가
             widget = getattr(self, attr, None)
             if widget:
                 widget.stop_worker()
@@ -3847,7 +3943,6 @@ class MainWindow(QMainWindow):
             self.log_table.setItem(row, 0, t_item)
             self.log_table.setItem(row, 1, QTableWidgetItem(msg))
         self.log_table.setUpdatesEnabled(True)
-        QApplication.processEvents()
 
     def _draw_channel_heatmap(self, result: dict):
         self.tab_channel.start_render(_render_channel_heatmap, result)
@@ -3892,165 +3987,28 @@ class MainWindow(QMainWindow):
         self._ms_worker.start(QThread.Priority.LowPriority)
 
     def _sensitivity_placeholder(self):
-        """감도 분석 탭에 '계산 중' 안내 텍스트 표시."""
-        fig = self.tab_sensitivity.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-        ax.text(0.5, 0.5, '감도 분석 계산 중… ⏳\n(백그라운드 실행 중)',
-                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
-                transform=ax.transAxes)
-        ax.axis('off')
-        fig.tight_layout()
-        self.tab_sensitivity.draw_idle()
+        self.tab_sensitivity._loading_lbl.setText("  감도 분석 계산 중… ⏳")
+        self.tab_sensitivity._pane.setCurrentIndex(0)
 
     def _sensitivity_error(self, msg: str):
-        """감도 분석 오류 시 탭에 에러 메시지 표시."""
-        fig = self.tab_sensitivity.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-        ax.text(0.5, 0.5, f'감도 분석 오류\n{msg}',
-                ha='center', va='center', color='#e74c3c', fontsize=11,
-                transform=ax.transAxes)
-        ax.axis('off')
-        fig.tight_layout()
-        self.tab_sensitivity.draw_idle()
+        self.tab_sensitivity._loading_lbl.setText(f"  감도 분석 오류: {msg}")
 
     def _min_stock_placeholder(self):
-        fig = self.tab_min_stock.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-        ax.text(0.5, 0.5, '최소 재고 역산 계산 중… ⏳\n(백그라운드 이진 탐색 실행 중)',
-                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
-                transform=ax.transAxes)
-        ax.axis('off')
-        fig.tight_layout()
-        self.tab_min_stock.draw_idle()
+        self.tab_min_stock._loading_lbl.setText("  최소 재고 역산 계산 중… ⏳")
+        self.tab_min_stock._pane.setCurrentIndex(0)
 
     def _min_stock_error(self, msg: str):
-        fig = self.tab_min_stock.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-        ax.text(0.5, 0.5, f'최소 재고 계산 오류\n{msg}',
-                ha='center', va='center', color='#e74c3c', fontsize=11,
-                transform=ax.transAxes)
-        ax.axis('off')
-        fig.tight_layout()
-        self.tab_min_stock.draw_idle()
+        self.tab_min_stock._loading_lbl.setText(f"  최소 재고 계산 오류: {msg}")
 
     def _on_min_stock_progress(self, i: int, total: int, name: str):
         if i < total:
             self._lbl_status.setText(f"최소 재고 계산 중 ({i}/{total}) — {name}")
 
     def _on_min_stock_done(self, results: dict, target_rate: float):
-        self._draw_min_stock(results, target_rate)
-
-    def _draw_min_stock(self, results: dict, target_rate: float):
-        """REQ 달성 최소 재고 수평 막대 차트."""
-        fig = self.tab_min_stock.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        wpn_names = list(results.keys())
-        short_names = {
-            'SM-3 Block IIA':   'SM-3 IIA',
-            'SM-6':             'SM-6',
-            'SM-2 Block IIIB':  'SM-2 IIIB',
-            'RIM-116 RAM':      'RIM-116 RAM',
-            '홍상어 (대잠)':    '홍상어',
-            '청상어 (경어뢰)':  '청상어',
-        }
-        labels   = [short_names.get(w, w) for w in wpn_names]
-        currents = [results[w]['current_stock'] for w in wpn_names]
-        mins     = [results[w]['min_stock']     for w in wpn_names]
-        achieves = [results[w]['achievable']    for w in wpn_names]
-        y = list(range(len(wpn_names)))
-
-        # 현재 재고 — 회색 배경 막대
-        ax.barh(y, currents, color='#2a3545', height=0.55, label='현재 재고')
-
-        # 최소 필요 재고 — 색상 구분 (달성 가능 녹색, 불가 적색, 미필요 하늘색)
-        for i, (mn, cur, ach) in enumerate(zip(mins, currents, achieves)):
-            if not ach:
-                color = '#e74c3c'  # 달성 불가
-                bar_val = cur
-            elif mn == 0:
-                color = '#3498db'  # 해당 위협에 불필요
-                bar_val = 0
-            elif mn <= cur:
-                color = '#2ecc71'  # 절약 가능
-                bar_val = mn
-            else:
-                color = '#e67e22'  # 부족 (현재 < 최소)
-                bar_val = mn
-            ax.barh(i, bar_val, color=color, height=0.55, alpha=0.9)
-
-            # 라벨
-            if not ach:
-                txt = '달성 불가'
-            elif mn == 0:
-                txt = '불필요'
-            else:
-                saving = cur - mn
-                sign   = f'▼ {saving}발 절약' if saving > 0 else (f'▲ {-saving}발 부족' if saving < 0 else '현재 최적')
-                txt = f'최소 {mn}발  ({sign})'
-            ax.text(max(cur, mn) + 0.5, i, txt,
-                    va='center', color=C_TEXT, fontsize=8.5)
-
-        ax.set_yticks(y)
-        ax.set_yticklabels(labels, color=C_TEXT, fontsize=10)
-        ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=9)
-        ax.set_title(
-            f'REQ 달성 최소 재고 역산  (목표: 완전 요격 성공률 ≥ {target_rate:.0%})\n'
-            f'■ 현재 재고  ■ 최소 필요  (녹색=절약 가능 / 주황=부족 / 파랑=불필요)',
-            color=C_TEXT, fontsize=10, pad=10,
-        )
-        max_x = max(currents + [m for m in mins if m >= 0], default=50)
-        ax.set_xlim(0, max_x * 1.35)
-        ax.tick_params(colors=C_SUBTEXT)
-        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
-                  edgecolor='#1e2a3a', loc='lower right')
-        fig.tight_layout()
-        self.tab_min_stock.draw_idle()
+        self.tab_min_stock.start_render(_render_min_stock_chart, results, target_rate)
 
     def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
-        """SensitivityWorker 완료 시 Tornado chart 렌더링."""
-        self._draw_sensitivity(labels, lows, highs, base_rate)
-
-    def _draw_sensitivity(self, labels: list, lows: list, highs: list, base_rate: float):
-        """감도 분석 — 파라미터별 요격률 변화 Tornado chart (사전 계산된 데이터 사용)."""
-        fig = self.tab_sensitivity.fig
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#0a0e1a')
-        fig.patch.set_facecolor('#0a0e1a')
-
-        y = range(len(labels))
-        ax.barh(list(y), lows,  color='#e74c3c', alpha=0.8, label='낮은값')
-        ax.barh(list(y), highs, color='#2ecc71', alpha=0.8, label='높은값')
-        ax.axvline(0, color=C_TEXT, lw=1)
-        ax.set_yticks(list(y))
-        ax.set_yticklabels(labels, color=C_TEXT, fontsize=9)
-        ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=9)
-        ax.set_title(f'감도 분석 — Tornado chart  (기준 요격률 {base_rate:.1%})',
-                     color=C_TEXT, fontsize=11)
-        ax.tick_params(colors=C_SUBTEXT)
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:+.1%}"))
-        for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-        ax.legend(fontsize=8, facecolor='#0a0e1a', labelcolor=C_TEXT,
-                  edgecolor='#1e2a3a')
-        fig.tight_layout()
-        self.tab_sensitivity.draw_idle()
+        self.tab_sensitivity.start_render(_render_sensitivity_chart, labels, lows, highs, base_rate)
 
     def _draw_bearing_vulnerability(self, result: dict):
         self.tab_bearing.start_render(_render_bearing_vulnerability, result)

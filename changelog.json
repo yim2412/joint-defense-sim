@@ -590,5 +590,17 @@
       "수정  ProcessPool shutdown → kill 순서 개선 (None 먼저 설정해 새 작업 제출 차단)",
       "수정  closeEvent에서 _stop_sys_data_worker() 직접 호출 (nvidia-smi 자식 프로세스 포함)"
     ]
+  },
+  {
+    "version": "33",
+    "date": "2026-05-26",
+    "title": "차트 렌더링 전면 최적화 (메인 스레드 matplotlib 제거)",
+    "changes": [
+      "수정  감도 분석·최소 재고 탭: MplCanvas(메인 스레드 렌더) → ChartPageWidget(백그라운드 ChartRenderWorker)으로 전환",
+      "수정  SysMonitorTab: 사이드바에서 숨겨진 상태일 때 matplotlib 렌더 건너뜀 (isVisible 체크)",
+      "추가  SysMonitorTab.showEvent: 탭 전환 시 즉시 차트 갱신 (타이머 대기 없음)",
+      "수정  시스템 모니터 타이머 1초 → 2초 (메인 스레드 matplotlib 그리기 빈도 절반 감소)",
+      "수정  _fill_log: processEvents() 제거 (setUpdatesEnabled 배치 처리로 충분)"
+    ]
   }
 ]
