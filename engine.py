@@ -655,12 +655,21 @@ ENEMY_DB = {
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
          'missile_terminal_evasion':1.0},
 
-    'AGM-88 HARM':
-        {'category':'대공','type':'대방사미사일','speed_ms':825,'altitude_m':7000,
-         # 미국제 ARM. F/A-18G Growler 탑재. 사거리 150km, AARGM-ER 개량형.
-         'missile_name':None,'missile_speed_ms':None,'missile_range_km':150,
+    'LD-10 대방사미사일':
+        {'category':'대공','type':'대방사미사일','speed_ms':850,'altitude_m':7000,
+         # 중국제 ARM. J-16/JH-7A 탑재. AGM-88 HARM 대응 개발. 사거리 100km, 마하 2.5.
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':100,
          'can_fire_missile':False,'rcs_m2':0.02,'is_arm':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.05,'alt_change_m':500,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'missile_terminal_evasion':1.0},
+
+    'Kh-58U 대방사미사일':
+        {'category':'대공','type':'대방사미사일','speed_ms':1200,'altitude_m':10000,
+         # 러시아제 장거리 ARM. Su-57/Su-35 탑재. 사거리 250km, 마하 3.6 초음속.
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':250,
+         'can_fire_missile':False,'rcs_m2':0.02,'is_arm':True,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.05,'alt_change_m':600,'max_attempts':1},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
          'missile_terminal_evasion':1.0},
 }
