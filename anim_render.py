@@ -99,12 +99,10 @@ def _render_anim_frame(args):
     # ── 아군 함정 ────────────────────────────────────────────────────────
     for item in friendly_ships:
         sname, sx_, sy_, salive, shp = item[:5]
-        radar_f  = item[6] if len(item) > 6 else 1.0
-        speed_f  = item[7] if len(item) > 7 else 1.0  # item[5]=radar_f, [6]=speed_f, [7]=dis_cnt
-        dis_cnt  = item[8] if len(item) > 8 else 0
-        # 인덱스 보정: engine_v7 튜플은 [5]=radar_factor [6]=speed_factor [7]=disabled_cnt
-        if len(item) == 8:
-            radar_f, speed_f, dis_cnt = item[5], item[6], item[7]
+        # [5]=radar_factor [6]=speed_factor [7]=disabled_weapons 수 (engine_v7 _record_frame)
+        radar_f = item[5] if len(item) > 5 else 1.0
+        speed_f = item[6] if len(item) > 6 else 1.0
+        dis_cnt = item[7] if len(item) > 7 else 0
         px, py = iso(km(sx_), km(sy_), 0)
         mk, sz, _, zo = _ENT_CFG['friendly']
         # 피해 정도에 따른 색상: 정상=초록, 경미=노랑, 중간=주황, 격침=빨강

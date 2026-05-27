@@ -851,7 +851,7 @@ SHIP_DB = {
     # SPS-550K AESA 레이더 / KVLS 32셀 해궁 추가 / 채널 개선
     'FFX-II': {
         'display':      '호위함 FFX Batch II (대구급)',
-        'sensor_km':    {'대공': 120, '대함': 38, '대잠': 48},
+        'sensor_km':    {'대공': 100, '대함': 38, '대잠': 48},
         'max_channels': 10,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
@@ -867,7 +867,7 @@ SHIP_DB = {
     # 개량형 AESA + 확장 VLS / 해궁 블록 II / 채널 추가
     'FFX-III': {
         'display':      '호위함 FFX Batch III (충남급)',
-        'sensor_km':    {'대공': 150, '대함': 40, '대잠': 50},
+        'sensor_km':    {'대공': 120, '대함': 40, '대잠': 50},
         'max_channels': 12,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
