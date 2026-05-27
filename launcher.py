@@ -1247,11 +1247,13 @@ class SimWorker(QThread):
     batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
 
-    def __init__(self, cfg: dict, mc_n: int, precision_mode: bool = False):
+    def __init__(self, cfg: dict, mc_n: int, precision_mode: bool = False,
+                 sobol_npp: int = 3):
         super().__init__()
         self.cfg            = cfg
         self.mc_n           = mc_n
         self.precision_mode = precision_mode
+        self.sobol_npp      = sobol_npp
 
     def run(self):
         try:
@@ -1384,17 +1386,23 @@ class SimWorker(QThread):
             # ── Sobol 민감도 분석 (정밀 모드 전용) ──────────────────────────
             sobol_result = {}
             if _V7_OK and self.precision_mode:
-                self.progress.emit("Sobol 민감도 분석 중... (~32,768회, 수 분 소요)")
+                npp        = self.sobol_npp
+                total_est  = 32_768 * npp
+                self.progress.emit(
+                    f"Sobol 민감도 분석 중... (포인트당 {npp}회, 총 ~{total_est:,}회, 수 분 소요)")
                 sobol_t0 = time.time()
 
                 def _sobol_cb(done, total):
                     if done % max(1, total // 20) == 0:
                         ela = time.time() - sobol_t0
                         eta = ela / done * (total - done) if done > 0 else 0
-                        self.progress.emit(f"Sobol {done:,}/{total:,} | 잔여 {eta:.0f}초")
+                        self.progress.emit(
+                            f"Sobol {done:,}/{total:,} 포인트 | 잔여 {eta:.0f}초")
 
                 try:
-                    sobol_result = sobol_analysis(self.cfg, n_sobol=4096, progress_cb=_sobol_cb)
+                    sobol_result = sobol_analysis(
+                        self.cfg, n_sobol=4096, n_per_point=npp,
+                        progress_cb=_sobol_cb)
                 except Exception as ex:
                     sobol_result = {'error': str(ex)}
 
@@ -3006,7 +3014,8 @@ def _render_sobol_chart(sobol: dict) -> Figure:
     ax.grid(axis='x', color='#1e2a3a', linewidth=0.7, alpha=0.6)
 
     n_runs = sobol.get('n_runs', '?')
-    ax.set_title(f'Sobol 파라미터 민감도 분석  (총 {n_runs:,}회 시뮬레이션)',
+    npp_str = f'  •  포인트당 {sobol.get("n_per_point",1)}회 평균' if sobol.get('n_per_point',1) > 1 else ''
+    ax.set_title(f'Sobol 파라미터 민감도 분석  (총 {n_runs:,}회{npp_str})',
                  color=C_TEXT, fontsize=14)
     fig.tight_layout()
     return fig
@@ -3389,18 +3398,58 @@ class MainWindow(QMainWindow):
         lbl_mode_hint = QLabel()
         lbl_mode_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
 
+        # Sobol 포인트당 반복 수 (정밀 모드 전용)
+        lbl_npp = QLabel("Sobol 포인트당 반복:")
+        lbl_npp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        self.spn_sobol_npp = QSpinBox()
+        self.spn_sobol_npp.setRange(1, 10)
+        self.spn_sobol_npp.setValue(3)
+        self.spn_sobol_npp.setFixedWidth(52)
+        self.spn_sobol_npp.setFixedHeight(28)
+        self.spn_sobol_npp.setToolTip(
+            "Sobol 분석 시 각 파라미터 조합을 몇 번 반복해 평균낼지.\n"
+            "1회: 빠름 (~32,768회) / 3회: 권장 (~98,304회) / 5회: 고정밀 (~163,840회)\n"
+            "확률적 시뮬레이션의 노이즈를 √K배 줄여 민감도 지수 신뢰도 향상.\n"
+            "정밀 모드 선택 시에만 사용됩니다.")
+        self.spn_sobol_npp.setStyleSheet(
+            f"background:#1c2128; color:#e6edf3; border:1px solid #444c56; font-size:13px;")
+        self.spn_sobol_npp.setEnabled(False)  # 정밀 모드일 때만 활성화
+
+        lbl_mode_hint = QLabel()
+        lbl_mode_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        self._lbl_sobol_total = QLabel()
+        self._lbl_sobol_total.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+
+        def _update_sobol_total():
+            npp = self.spn_sobol_npp.value()
+            total = 32_768 * npp
+            self._lbl_sobol_total.setText(f"(총 ~{total:,}회)")
+
         def _update_mode_hint(idx):
             hints = [
                 "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 300회)",
                 "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 500회)",
-                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도 (~32,768회 추가)",
+                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도",
             ]
             lbl_mode_hint.setText(hints[idx])
+            is_precision = (idx == 2)
+            self.spn_sobol_npp.setEnabled(is_precision)
+            lbl_npp.setStyleSheet(
+                f"color:{C_TEXT if is_precision else C_SUBTEXT}; font-size:13px;")
+            self._lbl_sobol_total.setVisible(is_precision)
+
         self.cmb_sim_mode.currentIndexChanged.connect(_update_mode_hint)
+        self.spn_sobol_npp.valueChanged.connect(_update_sobol_total)
         _update_mode_hint(1)
+        _update_sobol_total()
 
         mcl.addWidget(lbl_mode)
         mcl.addWidget(self.cmb_sim_mode)
+        mcl.addSpacing(16)
+        mcl.addWidget(lbl_npp)
+        mcl.addWidget(self.spn_sobol_npp)
+        mcl.addSpacing(4)
+        mcl.addWidget(self._lbl_sobol_total)
         mcl.addSpacing(8)
         mcl.addWidget(lbl_mode_hint)
         mcl.addStretch()
@@ -3950,13 +3999,15 @@ class MainWindow(QMainWindow):
         mode_idx = self.cmb_sim_mode.currentIndex() if hasattr(self, 'cmb_sim_mode') else 1
         mc_n = [5_000, 10_000, 100_000][mode_idx]
         precision_mode = (mode_idx == 2)
+        sobol_npp = self.spn_sobol_npp.value() if hasattr(self, 'spn_sobol_npp') else 3
 
         self.btn_run.setEnabled(False)
         self._prog.setVisible(True)
         self._t0 = time.time()
         self._lbl_status.setText("실행 중...")
 
-        self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode)
+        self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode,
+                                 sobol_npp=sobol_npp)
         self._worker.progress.connect(self._on_progress)
         self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)

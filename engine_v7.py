@@ -2225,11 +2225,16 @@ def stress_test_grid(cfg: dict, n_per_cell: int = 500,
     }
 
 
-def sobol_analysis(cfg: dict, n_sobol: int = 4096,
+def sobol_analysis(cfg: dict, n_sobol: int = 4096, n_per_point: int = 1,
                    progress_cb=None) -> dict:
     """
     Sobol 1차/전체 민감도 지수 — 정밀 모드 전용.
-    총 N×(D+2) = 4096×8 ≈ 32,768회 시뮬레이션 (calc_second_order=False).
+
+    n_per_point: 각 파라미터 샘플 포인트당 시뮬레이션 반복 수.
+      - n_per_point=1 (기본): 총 N×(D+2) ≈ 32,768회. 빠르지만 확률 노이즈 있음.
+      - n_per_point=3: 총 ≈ 98,304회. 표준편차 √3 ≈ 1.7× 감소.
+      - n_per_point=5: 총 ≈ 163,840회. 표준편차 √5 ≈ 2.2× 감소.
+    확률적 시뮬레이션에서 n_per_point≥3 권장.
     """
     try:
         from SALib.sample import saltelli
@@ -2244,28 +2249,40 @@ def sobol_analysis(cfg: dict, n_sobol: int = 4096,
         'bounds':   [[p[1], p[2]] for p in _LHS_PARAM_DEFS],
     }
 
-    param_values = saltelli.sample(problem, n_sobol, calc_second_order=False)
-    total_runs   = len(param_values)
-    Y = np.zeros(total_runs)
+    param_values  = saltelli.sample(problem, n_sobol, calc_second_order=False)
+    n_sobol_pts   = len(param_values)
+    total_runs    = n_sobol_pts * n_per_point
+    Y = np.zeros(n_sobol_pts)
 
     for i, pv in enumerate(param_values):
         run_cfg = dict(cfg)
         for j, key in enumerate(param_names):
             run_cfg[key] = float(pv[j])
-        r    = run_v7_simulation(run_cfg)
-        Y[i] = r['intercept_rate']
+        if n_per_point > 1:
+            # K회 평균으로 확률 노이즈 √K배 감소
+            point_rates = []
+            for k in range(n_per_point):
+                rc = dict(run_cfg)
+                base_seed = cfg.get('sim_seed', None)
+                if base_seed:
+                    rc['sim_seed'] = int(base_seed) + i * n_per_point + k
+                point_rates.append(run_v7_simulation(rc)['intercept_rate'])
+            Y[i] = float(np.mean(point_rates))
+        else:
+            Y[i] = run_v7_simulation(run_cfg)['intercept_rate']
         if progress_cb:
-            progress_cb(i + 1, total_runs)
+            progress_cb(i + 1, n_sobol_pts)
 
     Si = sobol_analyze.analyze(
         problem, Y, calc_second_order=False, print_to_console=False)
     return {
-        'S1':      Si['S1'].tolist(),
-        'ST':      Si['ST'].tolist(),
-        'S1_conf': Si['S1_conf'].tolist(),
-        'ST_conf': Si['ST_conf'].tolist(),
-        'names':   [p[3] for p in _LHS_PARAM_DEFS],
-        'n_runs':  total_runs,
+        'S1':          Si['S1'].tolist(),
+        'ST':          Si['ST'].tolist(),
+        'S1_conf':     Si['S1_conf'].tolist(),
+        'ST_conf':     Si['ST_conf'].tolist(),
+        'names':       [p[3] for p in _LHS_PARAM_DEFS],
+        'n_runs':      total_runs,
+        'n_per_point': n_per_point,
     }
 
 
