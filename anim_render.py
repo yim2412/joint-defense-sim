@@ -99,9 +99,24 @@ def _render_anim_frame(args):
     # ── 아군 함정 ────────────────────────────────────────────────────────
     for item in friendly_ships:
         sname, sx_, sy_, salive, shp = item[:5]
+        radar_f  = item[6] if len(item) > 6 else 1.0
+        speed_f  = item[7] if len(item) > 7 else 1.0  # item[5]=radar_f, [6]=speed_f, [7]=dis_cnt
+        dis_cnt  = item[8] if len(item) > 8 else 0
+        # 인덱스 보정: engine_v7 튜플은 [5]=radar_factor [6]=speed_factor [7]=disabled_cnt
+        if len(item) == 8:
+            radar_f, speed_f, dis_cnt = item[5], item[6], item[7]
         px, py = iso(km(sx_), km(sy_), 0)
-        mk, sz, col, zo = _ENT_CFG['friendly']
-        ax.scatter([px], [py], s=sz, c=col, marker=mk,
+        mk, sz, _, zo = _ENT_CFG['friendly']
+        # 피해 정도에 따른 색상: 정상=초록, 경미=노랑, 중간=주황, 격침=빨강
+        if not salive:
+            ship_col = '#ff4444'
+        elif radar_f < 0.5 or speed_f < 0.5 or dis_cnt >= 2:
+            ship_col = '#ff7700'   # 주황: 심각 피해
+        elif radar_f < 0.85 or speed_f < 0.85 or dis_cnt >= 1:
+            ship_col = '#ffcc00'   # 노랑: 경미 피해
+        else:
+            ship_col = '#2ecc71'   # 초록: 정상
+        ax.scatter([px], [py], s=sz, c=ship_col, marker=mk,
                    edgecolors='#ff0000' if not salive else 'none',
                    linewidths=2.5 if not salive else 0, zorder=zo)
         if show_labels:
@@ -137,10 +152,10 @@ def _render_anim_frame(args):
 
     # ── 범례 ─────────────────────────────────────────────────────────────
     legend_items = [
-        ('Friendly Ship', '#2ecc71'), ('Enemy Aircraft', '#ff6b6b'),
-        ('Enemy Ship',    '#ff8c8c'), ('Enemy Sub',      '#e74c3c'),
-        ('Friendly SAM',  '#55ff99'), ('Enemy Missile',  '#ff2222'),
-        ('Enemy BM',      '#ff4444'),
+        ('Friendly (정상)', '#2ecc71'), ('Friendly (경미)',  '#ffcc00'),
+        ('Friendly (중손)',  '#ff7700'), ('Enemy Aircraft', '#ff6b6b'),
+        ('Enemy Ship',      '#ff8c8c'), ('Enemy Sub',      '#e74c3c'),
+        ('Friendly SAM',    '#55ff99'), ('Enemy Missile',  '#ff2222'),
     ]
     lx_leg = cx * 0.90
     ly_leg = y_top * 0.95

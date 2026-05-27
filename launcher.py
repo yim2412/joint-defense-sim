@@ -3576,6 +3576,7 @@ class MainWindow(QMainWindow):
         self.tab_history     = ChartPageWidget()
         self.tab_stress      = ChartPageWidget()   # 스트레스 테스트 히트맵
         self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
+        self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -3613,6 +3614,7 @@ class MainWindow(QMainWindow):
             "🧭  방위각 취약점", "🎯  REQ 충족률", "📊  위협 유형별",
             "⏰  취약 시간대", "🔄  이전 비교",
             "🔥  스트레스 테스트", "🎛  Sobol 민감도",
+            "🛡  서브시스템 피해",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -3640,6 +3642,7 @@ class MainWindow(QMainWindow):
             self.tab_history,     # 17
             self.tab_stress,      # 18
             self.tab_sobol,       # 19
+            self.tab_subsystem,   # 20
         ]:
             self._stack.addWidget(w)
 
@@ -3696,6 +3699,7 @@ class MainWindow(QMainWindow):
             17: lambda: self._draw_history_compare(self._result, self._mc),
             18: lambda: self._draw_stress_test(self._mc),
             19: lambda: self._draw_sobol_chart(self._mc),
+            20: lambda: self._draw_subsystem_damage(self._result),
         }
         if idx in render_map:
             render_map[idx]()
@@ -3801,6 +3805,74 @@ class MainWindow(QMainWindow):
             f"background-color: {C_BG};")
         layout.addWidget(self.log_table)
         return w
+
+    def _build_subsystem_tab(self) -> QWidget:
+        """서브시스템 피해 현황 탭 — 함정별 레이더/추진/무장 손상 상태 테이블."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        hdr = QLabel("  🛡  함정별 서브시스템 피해 현황 (단일 시뮬레이션 기준)")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+
+        self._subsystem_table = QTableWidget(0, 6)
+        self._subsystem_table.setHorizontalHeaderLabels([
+            "함정", "HP", "레이더", "추진", "채널", "비활성 무기"
+        ])
+        hh = self._subsystem_table.horizontalHeader()
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self._subsystem_table.setColumnWidth(0, 160)
+        self._subsystem_table.setColumnWidth(1, 60)
+        self._subsystem_table.setColumnWidth(2, 90)
+        self._subsystem_table.setColumnWidth(3, 90)
+        self._subsystem_table.setColumnWidth(4, 90)
+        self._subsystem_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._subsystem_table.setAlternatingRowColors(True)
+        self._subsystem_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self._subsystem_table, stretch=1)
+
+        note = QLabel("  레이더·추진·채널: 1.00=정상 / 낮을수록 손상. 빨간색=임계 손상(≤0.50)")
+        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
+        layout.addWidget(note)
+        return w
+
+    def _draw_subsystem_damage(self, result: dict):
+        if result is None:
+            return
+        data = result.get('ship_subsystem_damage', {})
+        self._subsystem_table.setRowCount(0)
+        for ship_name, info in data.items():
+            row = self._subsystem_table.rowCount()
+            self._subsystem_table.insertRow(row)
+            hp_str = f"{info['hp']} / {info['max_hp']}" if info['alive'] else f"격침 (HP {info['hp']})"
+            dis_wpns = ', '.join(info['disabled_weapons']) if info['disabled_weapons'] else '—'
+
+            items = [
+                QTableWidgetItem(ship_name),
+                QTableWidgetItem(hp_str),
+                QTableWidgetItem(f"{info['radar_factor']:.2f}"),
+                QTableWidgetItem(f"{info['speed_factor']:.2f}"),
+                QTableWidgetItem(f"{info['channel_factor']:.2f}"),
+                QTableWidgetItem(dis_wpns),
+            ]
+            for col, item in enumerate(items):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                # 임계 손상(≤0.50) 또는 격침 → 빨간색 강조
+                if col in (2, 3, 4):
+                    try:
+                        val = float(item.text())
+                        if val <= 0.50:
+                            item.setForeground(QColor('#ff4444'))
+                        elif val <= 0.80:
+                            item.setForeground(QColor('#ffaa00'))
+                    except ValueError:
+                        pass
+                if not info['alive']:
+                    item.setForeground(QColor('#ff4444'))
+                self._subsystem_table.setItem(row, col, item)
 
     # ── 툴팁 / 편성 표시 ────────────────────────────────────────────────────
 
@@ -4083,7 +4155,7 @@ class MainWindow(QMainWindow):
         self._pending_mc_n = mc_n
 
         # 모든 차트 페이지를 dirty로 표시 (11·12는 탭 방문 시 워커 기동)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({

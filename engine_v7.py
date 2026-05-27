@@ -1745,7 +1745,8 @@ class TimeStepEngine:
                                 continue
                     # 포팅 B: 함정 회피 기동 — 어뢰 전용
                     if m.is_torpedo and self.cfg.get('enable_evasion', True):
-                        if random.random() < SHIP_EVASION_PK:
+                        # 추진 피탄 시 speed_factor만큼 회피 기동 성공률 저하
+                        if random.random() < SHIP_EVASION_PK * tgt.speed_factor:
                             self._log(f"[회피] {tgt.name} 회피 기동 성공 — {m.name}")
                             continue
                     # 서브시스템 피해 롤 (enable_subsystem_damage=True 시)
@@ -1789,7 +1790,11 @@ class TimeStepEngine:
     def _record_frame(self):
         frame = SimFrame(self.t)
         for s in self.friendly_ships:
-            frame.friendly_ships.append((s.name, s.pos.x, s.pos.y, s.alive, s.hp))
+            # [5]=radar_factor [6]=speed_factor [7]=disabled_weapons 수 (애니메이션 피해 표시용)
+            frame.friendly_ships.append((
+                s.name, s.pos.x, s.pos.y, s.alive, s.hp,
+                s.radar_factor, s.speed_factor, len(s.disabled_weapons)
+            ))
             frame.ship_channels.append((s.name, s.channels_used, s.max_channels))
         for et in self.enemy_threats:
             frame.enemy_ships.append(
@@ -1899,6 +1904,19 @@ class TimeStepEngine:
                 remaining_inv[wpn] = remaining_inv.get(wpn, 0) + cnt
         total_channels = sum(s.max_channels for s in self.friendly_ships)
 
+        ship_subsystem_damage = {
+            s.name: {
+                'radar_factor':    round(s.radar_factor, 3),
+                'speed_factor':    round(s.speed_factor, 3),
+                'channel_factor':  round(s.channel_factor, 3),
+                'disabled_weapons': sorted(s.disabled_weapons),
+                'alive':           s.alive,
+                'hp':              s.hp,
+                'max_hp':          s._max_hp,
+            }
+            for s in self.friendly_ships
+        }
+
         return {
             **self.stats,
             'intercept_rate':    intercept_rate,
@@ -1910,6 +1928,7 @@ class TimeStepEngine:
             'remaining_inventory': remaining_inv,
             'total_channels':      total_channels,
             'used_seed':           self.cfg.get('sim_seed', None),
+            'ship_subsystem_damage': ship_subsystem_damage,
         }
 
 
