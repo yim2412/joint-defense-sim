@@ -40,7 +40,14 @@ a = Analysis(
         'numpy.core._multiarray_umath',
         'scipy',
         'scipy.stats',
+        'scipy.stats.qmc',
         'openpyxl',
+        # SALib (Sobol 민감도 분석)
+        'SALib',
+        'SALib.sample',
+        'SALib.sample.saltelli',
+        'SALib.analyze',
+        'SALib.analyze.sobol',
         'openpyxl.styles',
         'openpyxl.drawing.image',
         # psutil / wmi

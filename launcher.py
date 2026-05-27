@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.41 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.42 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v7.42 — 분석 고도화 + 시뮬레이션 모드 선택 UI]                            ║
+║  NEW-A  시뮬레이션 모드 선택 (빠름 5,000회 / 표준 10,000회 / 정밀 100,000회)║
+║  NEW-B  LHS 샘플링 + CVaR(최악 5%) 카드 — 불확실 파라미터 5종 반영          ║
+║  NEW-C  스트레스 테스트 탭 — 채널 감소 × 레이더 성능 감소 2D 히트맵         ║
+║  NEW-D  Sobol 민감도 분석 탭 — 정밀 모드 전용 (~57,344회)                   ║
+║                                                                              ║
 ║  [v7.41 — DB 탭 개편 + 설명 텍스트 간소화]                                  ║
 ║  NEW-A  적군/아군 DB 탭을 전투기·함정·무기·잠수함·항공 세부 탭으로 분리      ║
 ║  NEW-B  무기 탭 내 대공·대함·대잠 색상 구분 범례 추가                        ║
@@ -462,6 +468,8 @@ try:
         SHIP_DB as V7_SHIP_DB,
         FRIENDLY_AIRCRAFT_DB as V7_AIRCRAFT_DB,
         normalize_enemy_db as _normalize_enemy_db,
+        monte_carlo_lhs, stress_test_grid, sobol_analysis, compute_cvar,
+        _LHS_PARAM_DEFS, STRESS_DIMS,
     )
     _V7_OK = True
 except ImportError as e:
@@ -1239,10 +1247,11 @@ class SimWorker(QThread):
     batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
 
-    def __init__(self, cfg: dict, mc_n: int):
+    def __init__(self, cfg: dict, mc_n: int, precision_mode: bool = False):
         super().__init__()
-        self.cfg  = cfg
-        self.mc_n = mc_n
+        self.cfg            = cfg
+        self.mc_n           = mc_n
+        self.precision_mode = precision_mode
 
     def run(self):
         try:
@@ -1326,6 +1335,72 @@ class SimWorker(QThread):
                     'full_pass_rate':       float((arr == 1.0).mean()),
                     'n':                    len(all_rates),
                 }
+
+            # ── CVaR: 기존 MC rates에서 직접 계산 (추가 시뮬 불필요) ─────────
+            if _V7_OK:
+                try:
+                    mc['cvar'] = compute_cvar(mc.get('intercept_rates', []))
+                except Exception:
+                    mc['cvar'] = 0.0
+
+            # ── LHS 파라미터 불확실성 분석 (중간 규모, 병렬 MC와 별개) ────────
+            # 빠름=1,000  표준=2,000  정밀=10,000
+            lhs_result = {}
+            if _V7_OK:
+                lhs_n_map  = {5_000: 1_000, 10_000: 2_000, 100_000: 10_000}
+                lhs_n      = lhs_n_map.get(self.mc_n, 2_000)
+                self.progress.emit(f"LHS 파라미터 불확실성 분석 중... ({lhs_n:,}회)")
+                lhs_t0 = time.time()
+
+                def _lhs_cb(done, total):
+                    if done % max(1, total // 10) == 0:
+                        ela = time.time() - lhs_t0
+                        eta = ela / done * (total - done) if done > 0 else 0
+                        self.progress.emit(f"LHS {done:,}/{total:,} | 잔여 {eta:.0f}초")
+
+                try:
+                    lhs_result = monte_carlo_lhs(self.cfg, n=lhs_n, progress_cb=_lhs_cb)
+                except Exception as ex:
+                    lhs_result = {'error': str(ex)}
+
+            # ── 스트레스 테스트 (모든 모드, n_per_cell 가변) ─────────────────
+            stress_result = {}
+            if _V7_OK:
+                n_cell_map = {5_000: 300, 10_000: 500, 100_000: 3_000}
+                n_per_cell = n_cell_map.get(self.mc_n, 500)
+                total_stress = len(STRESS_DIMS['channel_degrade']['values']) * \
+                               len(STRESS_DIMS['radar_degrade']['values'])
+                self.progress.emit(f"스트레스 테스트 중... (셀당 {n_per_cell}회, 총 {total_stress}셀)")
+
+                def _stress_cb(done, total):
+                    self.progress.emit(f"스트레스 테스트 {done}/{total} 셀 완료")
+
+                try:
+                    stress_result = stress_test_grid(
+                        self.cfg, n_per_cell=n_per_cell, progress_cb=_stress_cb)
+                except Exception as ex:
+                    stress_result = {'error': str(ex)}
+
+            # ── Sobol 민감도 분석 (정밀 모드 전용) ──────────────────────────
+            sobol_result = {}
+            if _V7_OK and self.precision_mode:
+                self.progress.emit("Sobol 민감도 분석 중... (~57,344회, 수 분 소요)")
+                sobol_t0 = time.time()
+
+                def _sobol_cb(done, total):
+                    if done % max(1, total // 20) == 0:
+                        ela = time.time() - sobol_t0
+                        eta = ela / done * (total - done) if done > 0 else 0
+                        self.progress.emit(f"Sobol {done:,}/{total:,} | 잔여 {eta:.0f}초")
+
+                try:
+                    sobol_result = sobol_analysis(self.cfg, n_sobol=4096, progress_cb=_sobol_cb)
+                except Exception as ex:
+                    sobol_result = {'error': str(ex)}
+
+            mc['lhs']    = lhs_result
+            mc['stress'] = stress_result
+            mc['sobol']  = sobol_result
 
             elapsed = time.time() - t0
             rate    = self.mc_n / elapsed if elapsed > 0 else 0.0
@@ -2843,6 +2918,100 @@ def _render_history_compare(history: list) -> Figure:
     return fig
 
 
+def _render_stress_test(stress: dict) -> Figure:
+    """스트레스 테스트 2D 히트맵 — 채널 감소 × 레이더 성능 감소 → 요격률."""
+    fig = Figure(figsize=(13, 6), facecolor='#0a0e1a')
+    if not stress or 'error' in stress:
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        msg = stress.get('error', '스트레스 테스트 결과 없음') if stress else '스트레스 테스트 결과 없음'
+        ax.text(0.5, 0.5, msg, ha='center', va='center',
+                color=C_SUBTEXT, fontsize=11, transform=ax.transAxes)
+        return fig
+
+    import numpy as _np
+    grid      = _np.array(stress['grid'])
+    cvar_grid = _np.array(stress.get('cvar_grid', grid))
+    ch_vals   = stress['ch_vals']
+    rad_vals  = stress['rad_vals']
+
+    axes = fig.subplots(1, 2)
+    titles = ['평균 요격률', 'CVaR (하위 5%)']
+    for ax, data, title in zip(axes, [grid, cvar_grid], titles):
+        ax.set_facecolor('#0a0e1a')
+        im = ax.imshow(data, cmap='RdYlGn', aspect='auto',
+                       vmin=0.0, vmax=1.0, origin='lower')
+        ax.set_xticks(range(len(rad_vals)))
+        ax.set_xticklabels([f'{v}%' for v in rad_vals], color=C_SUBTEXT, fontsize=11)
+        ax.set_yticks(range(len(ch_vals)))
+        ax.set_yticklabels([f'{v}%' for v in ch_vals], color=C_SUBTEXT, fontsize=11)
+        ax.set_xlabel(stress.get('rad_label', '레이더 성능 감소'), color=C_SUBTEXT, fontsize=11)
+        ax.set_ylabel(stress.get('ch_label', '유도 채널 감소'), color=C_SUBTEXT, fontsize=11)
+        ax.set_title(title, color=C_TEXT, fontsize=13)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+        ax.tick_params(colors=C_SUBTEXT)
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                val = data[i, j]
+                txt_col = 'black' if val > 0.5 else C_TEXT
+                ax.text(j, i, f'{val:.0%}', ha='center', va='center',
+                        color=txt_col, fontsize=12, fontweight='bold')
+        fig.colorbar(im, ax=ax, format='%.0%%')
+
+    n_cell = stress.get('n_per_cell', '?')
+    fig.suptitle(f'스트레스 테스트 — 셀당 {n_cell}회 시뮬레이션',
+                 color=C_TEXT, fontsize=14, y=0.98)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    return fig
+
+
+def _render_sobol_chart(sobol: dict) -> Figure:
+    """Sobol 1차·전체 민감도 지수 수평 막대 차트."""
+    fig = Figure(figsize=(12, 6), facecolor='#0a0e1a')
+    ax  = fig.add_subplot(111, facecolor='#0a0e1a')
+
+    if not sobol or 'error' in sobol:
+        msg = sobol.get('error', 'Sobol 분석 결과 없음\n(정밀 모드에서만 실행됩니다)') \
+              if sobol else 'Sobol 분석 결과 없음\n(정밀 모드에서만 실행됩니다)'
+        ax.text(0.5, 0.5, msg, ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        ax.set_facecolor('#0a0e1a')
+        return fig
+
+    import numpy as _np
+    names   = sobol.get('names', [])
+    S1      = _np.array(sobol.get('S1', []))
+    ST      = _np.array(sobol.get('ST', []))
+    S1_conf = _np.array(sobol.get('S1_conf', _np.zeros_like(S1)))
+    ST_conf = _np.array(sobol.get('ST_conf', _np.zeros_like(ST)))
+
+    y = _np.arange(len(names))
+    h = 0.35
+    bars1 = ax.barh(y + h/2, S1, h, xerr=S1_conf, label='S1 (1차)',
+                    color='#3498db', alpha=0.85, capsize=4,
+                    error_kw={'ecolor': '#7fb3e3', 'linewidth': 1.5})
+    barsT = ax.barh(y - h/2, ST, h, xerr=ST_conf, label='ST (전체)',
+                    color='#e74c3c', alpha=0.85, capsize=4,
+                    error_kw={'ecolor': '#f1948a', 'linewidth': 1.5})
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, color=C_TEXT, fontsize=12)
+    ax.set_xlabel('민감도 지수', color=C_SUBTEXT, fontsize=12)
+    ax.set_xlim(0, max(1.0, float(ST.max()) * 1.2) if len(ST) else 1.0)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.legend(fontsize=11, facecolor='#1c2128', labelcolor=C_TEXT,
+              edgecolor='#444c56')
+    ax.grid(axis='x', color='#1e2a3a', linewidth=0.7, alpha=0.6)
+
+    n_runs = sobol.get('n_runs', '?')
+    ax.set_title(f'Sobol 파라미터 민감도 분석  (총 {n_runs:,}회 시뮬레이션)',
+                 color=C_TEXT, fontsize=14)
+    fig.tight_layout()
+    return fig
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  메인 윈도우
 # ════════════════════════════════════════════════════════════════════════════
@@ -3196,12 +3365,45 @@ class MainWindow(QMainWindow):
         cdl.addWidget(lbl_cd_fixed)
         layout.addWidget(grp_cd)
 
-        # ── MC 설정 ────────────────────────────────────────────────────────
-        grp_mc = QGroupBox("📊 몬테카를로")
+        # ── 시뮬레이션 모드 선택 ─────────────────────────────────────────────
+        grp_mc = QGroupBox("📊 시뮬레이션 모드")
         mcl = QHBoxLayout(grp_mc)
-        lbl_mc_fixed = QLabel("반복 횟수  1000회  (고정)")
-        lbl_mc_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        mcl.addWidget(lbl_mc_fixed)
+        mcl.setSpacing(12)
+        lbl_mode = QLabel("정밀도:")
+        lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        self.cmb_sim_mode = QComboBox()
+        self.cmb_sim_mode.addItems(["⚡ 빠름  (5,000회)", "📊 표준  (10,000회)", "🔬 정밀  (100,000회)"])
+        self.cmb_sim_mode.setCurrentIndex(1)
+        self.cmb_sim_mode.setFixedHeight(32)
+        self.cmb_sim_mode.setStyleSheet(f"""
+            QComboBox {{
+                background: #1c2128; color: #e6edf3;
+                border: 1px solid #444c56; border-radius: 4px;
+                font-size: 14px; padding: 2px 8px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: #161b22; color: #e6edf3;
+                selection-background-color: #3498db;
+            }}
+        """)
+        lbl_mode_hint = QLabel()
+        lbl_mode_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+
+        def _update_mode_hint(idx):
+            hints = [
+                "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 300회)",
+                "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 500회)",
+                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도 (~57,344회 추가)",
+            ]
+            lbl_mode_hint.setText(hints[idx])
+        self.cmb_sim_mode.currentIndexChanged.connect(_update_mode_hint)
+        _update_mode_hint(1)
+
+        mcl.addWidget(lbl_mode)
+        mcl.addWidget(self.cmb_sim_mode)
+        mcl.addSpacing(8)
+        mcl.addWidget(lbl_mode_hint)
+        mcl.addStretch()
         layout.addWidget(grp_mc)
 
 
@@ -3243,6 +3445,7 @@ class MainWindow(QMainWindow):
         card_defs = [
             ('요격률 (MC)',      'intercept'),
             ('완전 요격 비율',   'full_pass'),
+            ('CVaR (최악 5%)',   'cvar'),
             ('아군 피격',        'friendly_hit'),
             ('적 격침',          'enemy_dest'),
             ('총 비용',          'cost'),
@@ -3306,6 +3509,8 @@ class MainWindow(QMainWindow):
         self.tab_threat_type = ChartPageWidget()
         self.tab_vuln_time   = ChartPageWidget()
         self.tab_history     = ChartPageWidget()
+        self.tab_stress      = ChartPageWidget()   # 스트레스 테스트 히트맵
+        self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -3342,6 +3547,7 @@ class MainWindow(QMainWindow):
             "🔬  최소 재고",
             "🧭  방위각 취약점", "🎯  REQ 충족률", "📊  위협 유형별",
             "⏰  취약 시간대", "🔄  이전 비교",
+            "🔥  스트레스 테스트", "🎛  Sobol 민감도",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -3367,6 +3573,8 @@ class MainWindow(QMainWindow):
             self.tab_threat_type, # 15
             self.tab_vuln_time,   # 16
             self.tab_history,     # 17
+            self.tab_stress,      # 18
+            self.tab_sobol,       # 19
         ]:
             self._stack.addWidget(w)
 
@@ -3421,6 +3629,8 @@ class MainWindow(QMainWindow):
             15: lambda: self._draw_threat_type(self._result, self._mc),
             16: lambda: self._draw_vuln_time(self._result),
             17: lambda: self._draw_history_compare(self._result, self._mc),
+            18: lambda: self._draw_stress_test(self._mc),
+            19: lambda: self._draw_sobol_chart(self._mc),
         }
         if idx in render_map:
             render_map[idx]()
@@ -3737,14 +3947,16 @@ class MainWindow(QMainWindow):
             'cd_time_s':      10,
             'confirm_time_s': 3,
         }
-        mc_n = 1000
+        mode_idx = self.cmb_sim_mode.currentIndex() if hasattr(self, 'cmb_sim_mode') else 1
+        mc_n = [5_000, 10_000, 100_000][mode_idx]
+        precision_mode = (mode_idx == 2)
 
         self.btn_run.setEnabled(False)
         self._prog.setVisible(True)
         self._t0 = time.time()
         self._lbl_status.setText("실행 중...")
 
-        self._worker = SimWorker(cfg, mc_n)
+        self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode)
         self._worker.progress.connect(self._on_progress)
         self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)
@@ -3785,9 +3997,10 @@ class MainWindow(QMainWindow):
 
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
+        cvar_str = f" | CVaR {mc.get('cvar', 0):.1%}" if mc.get('cvar') is not None else ''
         self._lbl_status.setText(
             f"완료 ({elapsed:.1f}s) | "
-            f"요격률 {mc['mean_intercept']:.1%} | "
+            f"요격률 {mc['mean_intercept']:.1%}{cvar_str} | "
             f"MC {mc['n']}회")
 
         self._update_cards(result, mc)
@@ -3803,7 +4016,7 @@ class MainWindow(QMainWindow):
         self._pending_mc_n = mc_n
 
         # 모든 차트 페이지를 dirty로 표시 (11·12는 탭 방문 시 워커 기동)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -4030,6 +4243,13 @@ class MainWindow(QMainWindow):
         self._cards['intercept'].setStyleSheet(
             f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
         self._cards['full_pass'].setText(f"{mc['full_pass_rate']:.1%}")
+        cvar_val = mc.get('cvar')
+        if cvar_val is not None:
+            self._cards['cvar'].setText(f"{cvar_val:.1%}")
+            self._cards['cvar'].setStyleSheet(
+                f"color:{'#2ecc71' if cvar_val >= 0.7 else '#e74c3c'};")
+        else:
+            self._cards['cvar'].setText("—")
         self._cards['friendly_hit'].setText(str(result['friendly_hits']))
         self._cards['friendly_hit'].setStyleSheet(
             f"color:{'#2ecc71' if result['friendly_hits'] == 0 else '#e74c3c'};")
@@ -4141,6 +4361,12 @@ class MainWindow(QMainWindow):
 
     def _draw_history_compare(self, result: dict, mc: dict):
         self.tab_history.start_render(_render_history_compare, list(self._history))
+
+    def _draw_stress_test(self, mc: dict):
+        self.tab_stress.start_render(_render_stress_test, mc.get('stress', {}))
+
+    def _draw_sobol_chart(self, mc: dict):
+        self.tab_sobol.start_render(_render_sobol_chart, mc.get('sobol', {}))
 
     # ── 보고서 내보내기 ──────────────────────────────────────────────────────
 

@@ -776,7 +776,7 @@ class TimeStepEngine:
                         name     = name,
                         pos      = pos,
                         target   = primary,
-                        speed_ms = info['speed_ms'],
+                        speed_ms = info['speed_ms'] * self.cfg.get('threat_spd_scale', 1.0),
                         pk_base  = _MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),  # MED-5
                         owner_id = -1,
                         t_spawn  = 0.0,
@@ -795,6 +795,7 @@ class TimeStepEngine:
                     self.stats['total_threats'] += 1
                 else:
                     et = EnemyThreatObj(name, pos)
+                    et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
                     # 전술 기동 대형: V자 or 포위 초기 배치 오프셋
                     if _tactics == 'v_formation':
                         # 선두(idx=0)는 앞쪽, 나머지는 V자 양익
@@ -872,7 +873,8 @@ class TimeStepEngine:
             if ttype in _STANDALONE_MISSILE_TYPES:
                 m = MissileObj(
                     mtype='enemy_strike', name=name, pos=pos,
-                    target=primary, speed_ms=info['speed_ms'],
+                    target=primary,
+                    speed_ms=info['speed_ms'] * self.cfg.get('threat_spd_scale', 1.0),
                     pk_base=_MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),
                     owner_id=-1, t_spawn=self.t,
                 )
@@ -888,6 +890,7 @@ class TimeStepEngine:
                 self.missiles.append(m)
             else:
                 et = EnemyThreatObj(name, pos)
+                et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
                 self.enemy_threats.append(et)
             self.stats['total_threats'] += 1
             self._log(f"[{name}] {self.t:.0f}s 파도 스폰")
@@ -910,7 +913,7 @@ class TimeStepEngine:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
         # 함정 부분 피해: 레이더 성능 저하 반영
-        return base_km * 1000 * factor * ship.radar_factor
+        return base_km * 1000 * factor * ship.radar_factor * self.cfg.get('detect_scale', 1.0)
 
     def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
         """
@@ -1088,7 +1091,7 @@ class TimeStepEngine:
         """
         if target_key not in self._cd_fire_time:
             cd_factor = self.wx.get('cd_time_factor', 1.0)
-            cd     = self.cfg.get('cd_time_s', 10) * cd_factor
+            cd     = self.cfg.get('cd_time_s', 10) * cd_factor * self.cfg.get('cd_scale', 1.0)
             conf   = self.cfg.get('confirm_time_s', 3)
             dwell  = random.uniform(1, 3)   # 레이더 빔 드웰 타임
             jitter = random.uniform(2, 10)  # 위협 분류 랜덤 편차
@@ -1670,6 +1673,9 @@ class TimeStepEngine:
                 if self.cfg.get('enable_evasion', True) and remaining_m < 10_000:  # BUG 수정: 20km→10km
                     eff_pk *= tgt.terminal_evasion_factor
 
+            # pk_scale: LHS/Sobol 분석용 불확실 파라미터 반영
+            if sam.mtype == 'friendly_sam':
+                eff_pk = min(1.0, eff_pk * self.cfg.get('pk_scale', 1.0))
             if random.random() < eff_pk:
                 tgt.alive       = False
                 tgt.intercepted = True
@@ -1726,7 +1732,8 @@ class TimeStepEngine:
                     # BUG-6: 아군 ECM(AN/SLQ-32) — 적 미사일 유도부 교란, Pk 30% 감소
                     # 탄도/HGV는 레이더 유도가 아니므로 ECM 무효
                     if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
-                        m.pk_base = max(0.0, m.pk_base * 0.70)
+                        ecm_red = 0.30 * self.cfg.get('ecm_scale', 1.0)
+                        m.pk_base = max(0.0, m.pk_base * (1.0 - ecm_red))
                     # 포팅 B: 음향 기만기 AN/SLQ-25 — 어뢰 전용
                     if m.is_torpedo and self.cfg.get('enable_decoy', True):
                         if tgt.decoy_stock > 0:
@@ -2074,6 +2081,192 @@ def _mc_batch_worker(args: tuple) -> tuple:
             ship_hits_mc.setdefault(ship.name, []).append(
                 getattr(ship, 'hits_taken', 0))
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  분석 고도화: LHS / CVaR / Stress Test / Sobol 민감도
+# ════════════════════════════════════════════════════════════════════════════
+
+# LHS 샘플링 대상 불확실 파라미터: (cfg_key, 하한, 상한, 표시명)
+_LHS_PARAM_DEFS = [
+    ('pk_scale',         0.70, 1.30, 'SAM Pk 배율'),
+    ('detect_scale',     0.70, 1.30, '탐지거리 배율'),
+    ('cd_scale',         0.80, 1.50, 'C&D 시간 배율'),
+    ('ecm_scale',        0.50, 1.50, 'ECM 효과 배율'),
+    ('threat_spd_scale', 0.80, 1.30, '위협 속도 배율'),
+    ('decoy_stock',      0.0,  4.0,  '기만기 재고'),
+]
+
+# 스트레스 테스트 2D 그리드 정의
+STRESS_DIMS = {
+    'channel_degrade': {
+        'label':  '유도 채널 감소 (%)',
+        'values': [0, 25, 50, 75],
+    },
+    'radar_degrade': {
+        'label':  '레이더 성능 감소 (%)',
+        'values': [0, 25, 50],
+    },
+}
+
+
+def compute_cvar(rates: list, alpha: float = 0.05) -> float:
+    """하위 alpha% 요격률의 평균 (Conditional Value at Risk — 최악 시나리오 평균)."""
+    if not rates:
+        return 0.0
+    sorted_r = sorted(rates)
+    n_tail   = max(1, int(len(sorted_r) * alpha))
+    return float(np.mean(sorted_r[:n_tail]))
+
+
+def monte_carlo_lhs(cfg: dict, n: int = 10_000,
+                    progress_cb=None) -> dict:
+    """
+    Latin Hypercube Sampling 기반 MC.
+    불확실 파라미터 6종을 LHS로 공간 균등 샘플링하여 순수 MC 대비 3~5× 빠른 수렴.
+
+    반환: monte_carlo_v7 형식 dict + 'cvar', 'method' 키
+    """
+    try:
+        from scipy.stats.qmc import LatinHypercube
+        d = len(_LHS_PARAM_DEFS)
+        seed_val = cfg.get('sim_seed', None)
+        sampler  = LatinHypercube(d=d, seed=int(seed_val) if seed_val else None)
+        samples  = sampler.random(n=n)   # (n, d) in [0,1]
+    except ImportError:
+        # scipy 미설치 시 균등 랜덤으로 폴백
+        samples = np.random.rand(n, len(_LHS_PARAM_DEFS))
+
+    rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    weapon_usage: dict = {}
+    ship_hits_mc: dict = {}
+
+    for i, sample in enumerate(samples):
+        run_cfg = dict(cfg)
+        for j, (key, lo, hi, _) in enumerate(_LHS_PARAM_DEFS):
+            run_cfg[key] = float(lo + sample[j] * (hi - lo))
+        r = run_v7_simulation(run_cfg)
+        rates.append(r['intercept_rate'])
+        f_hits.append(r['friendly_hits'])
+        e_dest.append(r['enemy_ships_destroyed'])
+        f_lost.append(r['friendly_ships_lost'])
+        costs.append(r['total_cost'])
+        for wpn, remaining in r.get('remaining_inventory', {}).items():
+            weapon_usage.setdefault(wpn, []).append(remaining)
+        for ship in r.get('friendly_ships', []):
+            ship_hits_mc.setdefault(ship.name, []).append(
+                getattr(ship, 'hits_taken', 0))
+        if progress_cb:
+            progress_cb(i + 1, n)
+
+    arr = np.array(rates)
+    return {
+        'intercept_rates':      rates,
+        'friendly_hits':        f_hits,
+        'enemy_destroyed':      e_dest,
+        'friendly_lost':        f_lost,
+        'total_costs':          costs,
+        'weapon_avg_remaining': {k: float(np.mean(v)) for k, v in weapon_usage.items()},
+        'ship_avg_hits':        {k: float(np.mean(v)) for k, v in ship_hits_mc.items()},
+        'mean_intercept':       float(arr.mean()),
+        'std_intercept':        float(arr.std()),
+        'full_pass_rate':       float((arr == 1.0).mean()),
+        'cvar':                 compute_cvar(rates),
+        'n':                    n,
+        'method':               'LHS',
+    }
+
+
+def stress_test_grid(cfg: dict, n_per_cell: int = 500,
+                     progress_cb=None) -> dict:
+    """
+    2D 스트레스 테스트: 채널 감소(%) × 레이더 성능 감소(%) 그리드 요격률 매트릭스.
+
+    n_per_cell: 셀당 시뮬 횟수 (빠름=300, 표준=500, 정밀=3000)
+    """
+    ch_vals  = STRESS_DIMS['channel_degrade']['values']   # [0, 25, 50, 75]
+    rad_vals = STRESS_DIMS['radar_degrade']['values']     # [0, 25, 50]
+    grid       = np.zeros((len(ch_vals), len(rad_vals)))
+    cvar_grid  = np.zeros_like(grid)
+    total_cells = len(ch_vals) * len(rad_vals)
+    done = 0
+
+    for i, ch in enumerate(ch_vals):
+        for j, rad in enumerate(rad_vals):
+            cell_cfg = dict(cfg)
+            # 레이더 성능 감소 → detect_scale 감소
+            cell_cfg['detect_scale'] = 1.0 - rad / 100.0
+            # 채널 감소 → Pk 비례 감소로 근사 (75% 채널 감소 → Pk 약 37.5% 감소)
+            cell_cfg['pk_scale'] = max(0.1, 1.0 - ch / 200.0)
+
+            cell_rates = []
+            for k in range(n_per_cell):
+                run_cfg = dict(cell_cfg)
+                base_seed = cfg.get('sim_seed', None)
+                if base_seed:
+                    run_cfg['sim_seed'] = int(base_seed) + done * n_per_cell + k
+                r = run_v7_simulation(run_cfg)
+                cell_rates.append(r['intercept_rate'])
+
+            grid[i, j]      = float(np.mean(cell_rates))
+            cvar_grid[i, j] = compute_cvar(cell_rates)
+            done += 1
+            if progress_cb:
+                progress_cb(done, total_cells)
+
+    return {
+        'grid':      grid.tolist(),
+        'cvar_grid': cvar_grid.tolist(),
+        'ch_vals':   ch_vals,
+        'rad_vals':  rad_vals,
+        'ch_label':  STRESS_DIMS['channel_degrade']['label'],
+        'rad_label': STRESS_DIMS['radar_degrade']['label'],
+        'n_per_cell': n_per_cell,
+    }
+
+
+def sobol_analysis(cfg: dict, n_sobol: int = 4096,
+                   progress_cb=None) -> dict:
+    """
+    Sobol 1차/전체 민감도 지수 — 정밀 모드 전용.
+    총 N×(2D+2) = 4096×14 ≈ 57,344회 시뮬레이션.
+    """
+    try:
+        from SALib.sample import saltelli
+        from SALib.analyze import sobol as sobol_analyze
+    except ImportError:
+        return {'error': 'SALib 미설치 — pip install SALib'}
+
+    param_names = [p[0] for p in _LHS_PARAM_DEFS]
+    problem = {
+        'num_vars': len(_LHS_PARAM_DEFS),
+        'names':    param_names,
+        'bounds':   [[p[1], p[2]] for p in _LHS_PARAM_DEFS],
+    }
+
+    param_values = saltelli.sample(problem, n_sobol, calc_second_order=False)
+    total_runs   = len(param_values)
+    Y = np.zeros(total_runs)
+
+    for i, pv in enumerate(param_values):
+        run_cfg = dict(cfg)
+        for j, key in enumerate(param_names):
+            run_cfg[key] = float(pv[j])
+        r    = run_v7_simulation(run_cfg)
+        Y[i] = r['intercept_rate']
+        if progress_cb:
+            progress_cb(i + 1, total_runs)
+
+    Si = sobol_analyze.analyze(
+        problem, Y, calc_second_order=False, print_to_console=False)
+    return {
+        'S1':      Si['S1'].tolist(),
+        'ST':      Si['ST'].tolist(),
+        'S1_conf': Si['S1_conf'].tolist(),
+        'ST_conf': Si['ST_conf'].tolist(),
+        'names':   [p[3] for p in _LHS_PARAM_DEFS],
+        'n_runs':  total_runs,
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════════
