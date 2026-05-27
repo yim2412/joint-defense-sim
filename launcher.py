@@ -461,6 +461,7 @@ try:
         _mc_batch_worker,
         FRIENDLY_DB as V7_FRIENDLY_DB,
         SHIP_DB as V7_SHIP_DB,
+        FRIENDLY_AIRCRAFT_DB as V7_AIRCRAFT_DB,
         normalize_enemy_db as _normalize_enemy_db,
     )
     _V7_OK = True
@@ -4781,6 +4782,81 @@ class SplashWindow(QWidget):
         layout.addWidget(tbl)
         return w
 
+    # ── DB 탭 공통 헬퍼 ──────────────────────────────────────────────────────
+    # 카테고리별 배경/전경색
+    _CAT_BG  = {'대공': '#2a1010', '대함': '#2a1a08', '대잠': '#0a1228'}
+    _CAT_FG  = {'대공': '#ff8080', '대함': '#ffaa55', '대잠': '#6699ff'}
+    _LIST_SS = f"""
+        QListWidget {{
+            background:{C_BG}; border:none; outline:none; font-size:13px;
+        }}
+        QListWidget::item {{
+            padding:5px 10px; border-bottom:1px solid {C_BORDER};
+        }}
+        QListWidget::item:selected {{
+            background:{C_ACCENT}; color:#000; font-weight:bold;
+        }}
+        QListWidget::item:hover:!selected {{ background:{C_PANEL}; }}
+    """
+
+    def _make_list_panel(self, entries: list, mode: str,
+                         cat_color: bool = False,
+                         display_key: str | None = None,
+                         tooltip_fn=None) -> tuple:
+        """
+        왼쪽 QListWidget + 오른쪽 SpecSheetPanel QSplitter를 생성해 반환.
+        entries: [(key, info), ...]
+        mode: 'enemy' | 'weapon' | 'ship' | 'aircraft'
+        cat_color: True면 category 필드 기반 행 색상 적용
+        display_key: info 안에서 표시 이름으로 쓸 키 (None이면 항목 key 사용)
+        """
+        name_list = QListWidget()
+        name_list.setStyleSheet(self._LIST_SS)
+
+        for key, info in entries:
+            label = info.get(display_key, key) if display_key else key
+            it = QListWidgetItem(f"  {label}")
+            if cat_color:
+                cats = info.get('category', '대공')
+                # FRIENDLY_DB는 리스트, ENEMY_DB는 문자열
+                c = cats[0] if isinstance(cats, list) else cats
+                it.setBackground(QColor(self._CAT_BG.get(c, C_BG)))
+                it.setForeground(QColor(self._CAT_FG.get(c, C_TEXT)))
+            else:
+                it.setForeground(QColor(C_ACCENT))
+            if tooltip_fn:
+                it.setToolTip(tooltip_fn(key, info))
+            name_list.addItem(it)
+
+        spec_panel = SpecSheetPanel()
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }")
+        splitter.addWidget(name_list)
+        splitter.addWidget(spec_panel)
+        splitter.setSizes([230, 9999])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        def _on_select(row):
+            if row < 0 or row >= len(entries):
+                spec_panel.clear()
+                return
+            k, e = entries[row]
+            spec_panel.show_unit(k, e, _SPEC_DETAIL_DB.get(k, {}), mode)
+
+        name_list.currentRowChanged.connect(_on_select)
+        return splitter, name_list, spec_panel
+
+    def _wrap_splitter(self, splitter) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(4)
+        lay.addWidget(splitter, stretch=1)
+        return w
+
     # ── 적군 DB 탭 ─────────────────────────────────────────────────────────
     def _build_enemy_db_tab(self) -> QWidget:
         w = QWidget()
@@ -4795,121 +4871,61 @@ class SplashWindow(QWidget):
         _normalize_enemy_db()
         db = V7_ENEMY_DB
 
-        # ── 필터 토글 버튼 ────────────────────────────────────────────────
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(8)
+        # 유형별 분류
+        _AIRCRAFT_T = {'전투기', '폭격기', '전폭기'}
+        _SHIP_T     = {'고속정', '초계함', '호위함', '구축함'}
+        _MISSILE_T  = {'순항미사일', '탄도미사일', '극초음속활공체', '저고도기동탄도', '대방사미사일'}
+        _SUB_T      = {'잠수함'}
 
-        _cat_defs = {
-            '대공': ('🔴', '#ff8080', '#5c1a1a', '#2a1010'),
-            '대함': ('🟠', '#ffaa55', '#5c3a1a', '#2a1a08'),
-            '대잠': ('🔵', '#6699ff', '#1a2a5c', '#0a1228'),
-        }
-        filter_btns: dict[str, QPushButton] = {}
-        for cat, (emoji, fg, act_bg, _) in _cat_defs.items():
-            btn = QPushButton(f"{emoji} {cat}")
-            btn.setCheckable(True)
-            btn.setChecked(True)
-            btn.setFixedHeight(26)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background:{act_bg}; color:{fg};
-                    border:1px solid {fg}55; border-radius:4px;
-                    padding:0px 12px; font-size:12px; font-weight:bold;
-                }}
-                QPushButton:!checked {{
-                    background:{C_BG}; color:{C_SUBTEXT};
-                    border:1px solid {C_BORDER};
-                    font-weight:normal;
-                }}
-                QPushButton:hover {{ opacity:0.85; }}
-            """)
-            filter_btns[cat] = btn
-            filter_row.addWidget(btn)
+        def _split(types):
+            return [(k, v) for k, v in db.items() if v.get('type','') in types]
 
-        filter_row.addStretch()
-        lbl_count = QLabel(f"총 {len(db)}종")
-        lbl_count.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
-        filter_row.addWidget(lbl_count)
-        layout.addLayout(filter_row)
+        aircraft_e = _split(_AIRCRAFT_T)
+        ship_e     = _split(_SHIP_T)
+        missile_e  = _split(_MISSILE_T)
+        sub_e      = _split(_SUB_T)
 
-        _cat_bg = {c: v[3] for c, v in _cat_defs.items()}
-        _cat_fg = {c: v[1] for c, v in _cat_defs.items()}
-
-        sorted_entries = sorted(db.items(), key=lambda kv: kv[1].get('category', '대공'))
-
-        # ── 왼쪽: 이름 목록 ──────────────────────────────────────────────
-        name_list = QListWidget()
-        name_list.setStyleSheet(f"""
-            QListWidget {{
-                background:{C_BG}; border:none; outline:none;
-                font-size:13px;
-            }}
-            QListWidget::item {{
-                padding:5px 10px;
-                border-bottom:1px solid {C_BORDER};
-            }}
-            QListWidget::item:selected {{
-                background:{C_ACCENT}; color:#000; font-weight:bold;
-            }}
-            QListWidget::item:hover:!selected {{
-                background:{C_PANEL};
-            }}
+        inner_tabs = QTabWidget()
+        inner_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border:none; }}
+            QTabBar::tab {{ background:{C_PANEL}; color:{C_TEXT}; padding:4px 14px; }}
+            QTabBar::tab:selected {{ background:{C_ACCENT}; color:#000; }}
         """)
-        for name, info in sorted_entries:
-            cat = info.get('category', '대공')
-            it = QListWidgetItem(f"  {name}")
-            it.setBackground(QColor(_cat_bg.get(cat, C_BG)))
-            it.setForeground(QColor(_cat_fg.get(cat, C_TEXT)))
-            it.setData(Qt.ItemDataRole.UserRole, cat)
-            name_list.addItem(it)
 
-        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
-        spec_panel = SpecSheetPanel()
+        # ── 전투기 탭 ─────────────────────────────────────────────────────
+        sp, _, _ = self._make_list_panel(aircraft_e, 'enemy', cat_color=False)
+        inner_tabs.addTab(self._wrap_splitter(sp), f"✈  전투기  ({len(aircraft_e)})")
 
-        # ── 좌우 QSplitter ────────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet(
-            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
-        )
-        splitter.addWidget(name_list)
-        splitter.addWidget(spec_panel)
-        splitter.setSizes([230, 9999])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # ── 함정 탭 ───────────────────────────────────────────────────────
+        sp, _, _ = self._make_list_panel(ship_e, 'enemy', cat_color=False)
+        inner_tabs.addTab(self._wrap_splitter(sp), f"⚓  함정  ({len(ship_e)})")
 
-        layout.addWidget(splitter, stretch=1)
+        # ── 무기 탭 (카테고리 색상) ────────────────────────────────────────
+        sp, nl, _ = self._make_list_panel(missile_e, 'enemy', cat_color=True)
+        # 범례 행 추가
+        legend = QHBoxLayout()
+        legend.setSpacing(12)
+        for cat, fg in self._CAT_FG.items():
+            bg = self._CAT_BG[cat]
+            lbl = QLabel(f"  {cat}  ")
+            lbl.setStyleSheet(
+                f"background:{bg}; color:{fg}; border-radius:3px;"
+                f" font-size:11px; padding:1px 4px;")
+            legend.addWidget(lbl)
+        legend.addStretch()
+        mw = QWidget()
+        ml = QVBoxLayout(mw)
+        ml.setContentsMargins(6, 6, 6, 6)
+        ml.setSpacing(4)
+        ml.addLayout(legend)
+        ml.addWidget(sp, stretch=1)
+        inner_tabs.addTab(mw, f"🚀  무기  ({len(missile_e)})")
 
-        def _apply_filter():
-            visible = 0
-            for i in range(name_list.count()):
-                it = name_list.item(i)
-                cat = it.data(Qt.ItemDataRole.UserRole)
-                hide = not filter_btns.get(cat, filter_btns['대공']).isChecked()
-                it.setHidden(hide)
-                if not hide:
-                    visible += 1
-            lbl_count.setText(f"{visible}종 표시")
-            cur = name_list.currentRow()
-            if cur >= 0:
-                cur_it = name_list.item(cur)
-                if cur_it and cur_it.isHidden():
-                    spec_panel.clear()
+        # ── 잠수함 탭 ─────────────────────────────────────────────────────
+        sp, _, _ = self._make_list_panel(sub_e, 'enemy', cat_color=False)
+        inner_tabs.addTab(self._wrap_splitter(sp), f"🤿  잠수함  ({len(sub_e)})")
 
-        for btn in filter_btns.values():
-            btn.toggled.connect(lambda _checked: _apply_filter())
-
-        def _on_enemy_select(row):
-            if row < 0 or row >= len(sorted_entries):
-                spec_panel.clear()
-                return
-            it = name_list.item(row)
-            if it and it.isHidden():
-                return
-            uname, uentry = sorted_entries[row]
-            spec_panel.show_unit(uname, uentry, _SPEC_DETAIL_DB.get(uname, {}), 'enemy')
-
-        name_list.currentRowChanged.connect(_on_enemy_select)
+        layout.addWidget(inner_tabs, stretch=1)
         return w
 
     # ── 아군 DB 탭 ─────────────────────────────────────────────────────────
@@ -4929,136 +4945,98 @@ class SplashWindow(QWidget):
             QTabBar::tab {{ background:{C_PANEL}; color:{C_TEXT}; padding:4px 14px; }}
             QTabBar::tab:selected {{ background:{C_ACCENT}; color:#000; }}
         """)
-        inner_tabs.addTab(self._build_weapon_sub_tab(),  "🚀  무기 DB")
-        inner_tabs.addTab(self._build_ship_sub_tab(),    "⚓  함정 DB")
+
+        # 무기 DB (카테고리 색상)
+        inner_tabs.addTab(self._build_weapon_sub_tab(), f"🚀  무기  ({len(V7_FRIENDLY_DB)})")
+
+        # 함정 DB (잠수함 제외)
+        surface_ships = [(k, v) for k, v in V7_SHIP_DB.items()
+                         if not v.get('is_submarine', False)]
+        inner_tabs.addTab(self._build_ship_sub_tab(surface_ships),
+                          f"⚓  함정  ({len(surface_ships)})")
+
+        # 잠수함 DB
+        subs = [(k, v) for k, v in V7_SHIP_DB.items()
+                if v.get('is_submarine', False)]
+        inner_tabs.addTab(self._build_ship_sub_tab(subs),
+                          f"🤿  잠수함  ({len(subs)})")
+
+        # 항공 DB
+        aircraft_e = list(V7_AIRCRAFT_DB.items())
+        sp, _, _ = self._make_list_panel(aircraft_e, 'aircraft', cat_color=False)
+        inner_tabs.addTab(self._wrap_splitter(sp),
+                          f"🚁  항공  ({len(aircraft_e)})")
+
         layout.addWidget(inner_tabs, stretch=1)
         return w
 
     def _build_weapon_sub_tab(self) -> QWidget:
+        wpn_entries = list(V7_FRIENDLY_DB.items())
+
+        # 범례 행
+        legend = QHBoxLayout()
+        legend.setSpacing(12)
+        for cat, fg in self._CAT_FG.items():
+            bg = self._CAT_BG[cat]
+            lbl = QLabel(f"  {cat}  ")
+            lbl.setStyleSheet(
+                f"background:{bg}; color:{fg}; border-radius:3px;"
+                f" font-size:11px; padding:1px 4px;")
+            legend.addWidget(lbl)
+        legend.addStretch()
+
+        sp, _, _ = self._make_list_panel(wpn_entries, 'weapon', cat_color=True)
         w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
-
-        db = V7_FRIENDLY_DB
-        wpn_entries = list(db.items())
-
-        # ── 왼쪽: 무기 이름 목록 ─────────────────────────────────────────
-        name_list = QListWidget()
-        name_list.setStyleSheet(f"""
-            QListWidget {{
-                background:{C_BG}; border:none; outline:none;
-                font-size:13px;
-            }}
-            QListWidget::item {{
-                padding:5px 10px;
-                border-bottom:1px solid {C_BORDER};
-                color:{C_ACCENT};
-            }}
-            QListWidget::item:selected {{
-                background:{C_ACCENT}; color:#000; font-weight:bold;
-            }}
-            QListWidget::item:hover:!selected {{
-                background:{C_PANEL};
-            }}
-        """)
-        for name, _ in wpn_entries:
-            name_list.addItem(QListWidgetItem(f"  {name}"))
-
-        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
-        spec_panel = SpecSheetPanel()
-
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet(
-            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
-        )
-        splitter.addWidget(name_list)
-        splitter.addWidget(spec_panel)
-        splitter.setSizes([230, 9999])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-
-        layout.addWidget(splitter, stretch=1)
-
-        def _on_weapon_select(row):
-            if row < 0 or row >= len(wpn_entries):
-                spec_panel.clear()
-                return
-            wname, wentry = wpn_entries[row]
-            spec_panel.show_unit(wname, wentry, _SPEC_DETAIL_DB.get(wname, {}), 'weapon')
-
-        name_list.currentRowChanged.connect(_on_weapon_select)
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(4)
+        lay.addLayout(legend)
+        lay.addWidget(sp, stretch=1)
         return w
 
-    def _build_ship_sub_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+    def _build_ship_sub_tab(self, ship_entries: list | None = None) -> QWidget:
+        if ship_entries is None:
+            ship_entries = list(V7_SHIP_DB.items())
 
-        db = V7_SHIP_DB
-        ship_entries = list(db.items())
+        def _tip(key, info):
+            display = info.get('display', key)
+            inv = info.get('default_inventory', {})
+            lines = [f"【{display} 기본 탑재】"]
+            for wname, cnt in inv.items():
+                lines.append(f"  • {wname}: {'무한' if cnt >= 9999 else cnt}발")
+            return "\n".join(lines)
 
-        # ── 왼쪽: 함정 이름 목록 ─────────────────────────────────────────
-        _ship_bg = ['#0d1a2a', '#0a1a14', '#1a0d2a']
-
+        # display 필드로 표시
+        disp_entries = [(k, v) for k, v in ship_entries]
         name_list = QListWidget()
-        name_list.setStyleSheet(f"""
-            QListWidget {{
-                background:{C_BG}; border:none; outline:none;
-                font-size:13px;
-            }}
-            QListWidget::item {{
-                padding:5px 10px;
-                border-bottom:1px solid {C_BORDER};
-                color:{C_ACCENT};
-            }}
-            QListWidget::item:selected {{
-                background:{C_ACCENT}; color:#000; font-weight:bold;
-            }}
-            QListWidget::item:hover:!selected {{
-                background:{C_PANEL};
-            }}
-        """)
-        for r, (key, info) in enumerate(ship_entries):
+        name_list.setStyleSheet(self._LIST_SS)
+        for key, info in disp_entries:
             display = info.get('display', key)
             it = QListWidgetItem(f"  {display}")
-            it.setBackground(QColor(_ship_bg[r % len(_ship_bg)]))
             it.setForeground(QColor(C_ACCENT))
-            # 탑재 무기 툴팁 유지
-            inv = info.get('default_inventory', {})
-            tip_lines = [f"【{display} 기본 탑재】"]
-            for wname, cnt in inv.items():
-                tip_lines.append(f"  • {wname}: {'무한' if cnt >= 9999 else cnt}발")
-            it.setToolTip("\n".join(tip_lines))
+            it.setToolTip(_tip(key, info))
             name_list.addItem(it)
 
-        # ── 오른쪽: 스펙시트 패널 ────────────────────────────────────────
         spec_panel = SpecSheetPanel()
-
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.setStyleSheet(
-            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }"
-        )
+            "QSplitter::handle { background: " + C_BORDER + "; width: 2px; }")
         splitter.addWidget(name_list)
         splitter.addWidget(spec_panel)
         splitter.setSizes([230, 9999])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
-        layout.addWidget(splitter, stretch=1)
-
-        def _on_ship_select(row):
-            if row < 0 or row >= len(ship_entries):
+        def _on_select(row):
+            if row < 0 or row >= len(disp_entries):
                 spec_panel.clear()
                 return
-            skey, sentry = ship_entries[row]
+            skey, sentry = disp_entries[row]
             spec_panel.show_unit(skey, sentry, _SPEC_DETAIL_DB.get(skey, {}), 'ship')
 
-        name_list.currentRowChanged.connect(_on_ship_select)
-        return w
+        name_list.currentRowChanged.connect(_on_select)
+        return self._wrap_splitter(splitter)
 
 
 # ════════════════════════════════════════════════════════════════════════════
