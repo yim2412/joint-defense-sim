@@ -642,6 +642,27 @@ ENEMY_DB = {
          'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.06,'speed_boost_max':0.12,'depth_change_m':-60,'max_attempts':2,'alt_change_m':0},
          'self_defense_pk':0.03,'enemy_ciws_pk':0.0},
+
+    # ════ 대방사미사일(ARM) — 레이더 전파 추적 대방사 미사일 ═══════════════════
+    # 레이더 전파(전자기파)를 역추적해 레이더 자체를 파괴. ECM 무효 (역으로 재밍이 표적이 됨).
+    # 아군 레이더가 활성화 상태일수록 ARM Pk 높음.
+    'Kh-31P 대방사미사일':
+        {'category':'대공','type':'대방사미사일','speed_ms':1000,'altitude_m':8000,
+         # 러시아제 ARM. MiG-29/Su-30 탑재. 사거리 110km, 마하 3 초음속.
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':110,
+         'can_fire_missile':False,'rcs_m2':0.02,'is_arm':True,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.05,'alt_change_m':500,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'missile_terminal_evasion':1.0},
+
+    'AGM-88 HARM':
+        {'category':'대공','type':'대방사미사일','speed_ms':825,'altitude_m':7000,
+         # 미국제 ARM. F/A-18G Growler 탑재. 사거리 150km, AARGM-ER 개량형.
+         'missile_name':None,'missile_speed_ms':None,'missile_range_km':150,
+         'can_fire_missile':False,'rcs_m2':0.02,'is_arm':True,
+         'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0.05,'alt_change_m':500,'max_attempts':1},
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'missile_terminal_evasion':1.0},
 }
 
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
@@ -1210,17 +1231,20 @@ def normalize_enemy_db():
         '탄도미사일':1.00,'극초음속활공체':1.00,'저고도기동탄도':1.00,
         '순항미사일':0.87,'고속정':0.98,'초계함':0.98,
         '호위함':0.97,'구축함':0.97,'잠수함':0.95,'어뢰':0.95,
+        '대방사미사일':0.85,  # ARM: 레이더 전파 역추적, 요격 어려움
     }
     TYPE_ECM = {
         '전투기':0.10,'전폭기':0.10,'폭격기':0.05,
         '탄도미사일':0.00,'극초음속활공체':0.00,'저고도기동탄도':0.00,
         '순항미사일':0.05,'고속정':0.08,'초계함':0.10,
         '호위함':0.15,'구축함':0.20,'잠수함':0.00,'어뢰':0.00,
+        '대방사미사일':0.00,  # ARM: ECM 재밍이 오히려 표적이 됨 — 무효
     }
     for _, e in ENEMY_DB.items():
         et = e.get('type','')
         e.setdefault('is_hgv', False)
         e.setdefault('is_qbm', False)
+        e.setdefault('is_arm', False)
         e.setdefault('terminal_evasion_factor', TYPE_TEV.get(et, 1.0))
         e.setdefault('ecm_power',               TYPE_ECM.get(et, 0.0))
         e.setdefault('self_defense_pk',   0.0)
@@ -1232,6 +1256,7 @@ def normalize_enemy_db():
             '탄도미사일':'none','극초음속활공체':'none','저고도기동탄도':'none',
             '순항미사일':'radar','고속정':'radar','초계함':'radar',
             '호위함':'combined','구축함':'combined','잠수함':'none','어뢰':'none',
+            '대방사미사일':'none',  # ARM: 레이더 전파 역추적 — 일반 ECM 무효
         }
         e.setdefault('ecm_susceptibility', TYPE_ECM_SUSC.get(et, 'radar'))
         # v6.8: 방위각 (0~360°, 0=정면) — 시뮬 실행 시 동적 할당

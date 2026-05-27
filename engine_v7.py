@@ -217,7 +217,7 @@ ENEMY_SHIP_SAM_LOADOUT = {
 }
 
 # 독립 미사일 유형 (EnemyThreatObj 대신 MissileObj로 직접 생성)
-_STANDALONE_MISSILE_TYPES = ('탄도미사일', '순항미사일', '극초음속활공체', '저고도기동탄도')
+_STANDALONE_MISSILE_TYPES = ('탄도미사일', '순항미사일', '극초음속활공체', '저고도기동탄도', '대방사미사일')
 
 # MED-5: 미사일 명칭별 함체 명중 Pk (0.80 하드코드 → 유형 기반 매핑)
 # 아음속 대함미사일은 요격 쉬움(Pk 높음), 초음속·어뢰는 요격 어려움(Pk 낮음)
@@ -255,6 +255,9 @@ _MISSILE_PK_MAP = {
     'Kalibr 3M54 잠대함':        0.68,
     '북극성-1 (SLBM)':           0.70,
     'Kh-31A 대함미사일':         0.68,
+    # ARM: 레이더 활성 상태 추적 — 기본 Pk 높음
+    'Kh-31P 대방사미사일':       0.88,
+    'AGM-88 HARM':               0.85,
 }
 _MISSILE_PK_DEFAULT = 0.72  # 미등록 미사일 기본값
 
@@ -338,6 +341,7 @@ class MissileObj:
         # 포팅 B: 전술 속성
         self.terminal_evasion_factor: float = 1.0  # 종말 회피 계수 (< 20km 적용)
         self.is_torpedo:              bool  = False # 어뢰 여부 (기만기/회피 판정용)
+        self.is_arm:                  bool  = False # 대방사미사일 여부 (레이더 직격)
 
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
@@ -470,9 +474,11 @@ class FriendlyShipObj:
         self.total_cost    = 0.0
         self.channels_used = 0
         self.decoy_stock   = 4  # 포팅 B: AN/SLQ-25 음향 기만기 기본 재고
-        # 부분 피해: 레이더/채널 성능 배율 (0.0~1.0)
-        self.radar_factor  = 1.0
-        self.channel_factor= 1.0
+        # 피해 연동: 서브시스템별 성능 배율 (0.0~1.0)
+        self.radar_factor   = 1.0  # 레이더 계통 (탐지거리 반영)
+        self.channel_factor = 1.0  # 무장 채널 계통 (SAM 동시 교전 수 반영)
+        self.speed_factor   = 1.0  # 추진 계통 (회피 기동 효율 반영)
+        self.disabled_weapons: set = set()  # 무장 피탄으로 사용 불가 무기 목록
         self._vls_depleted = False  # 탄약 완전 소진 플래그
 
     @property
@@ -485,20 +491,45 @@ class FriendlyShipObj:
     def operational(self) -> bool:
         return self.alive
 
-    def take_hit(self, weapon_name: str, t: float):
+    def available(self, wpn: str) -> int:
+        """무기 가용 재고 (무장 피탄 비활성화 반영)."""
+        if wpn in self.disabled_weapons:
+            return 0
+        return self.inventory.get(wpn, 0)
+
+    def take_hit(self, weapon_name: str, t: float, subsystem: str | None = None):
+        """
+        subsystem: 'radar' | 'propulsion' | 'weapons' | None
+          None이면 서브시스템 피해 없이 HP만 감소 (하위호환).
+        """
         self.hit_count  += 1
         self.hits_taken += 1
         self.hp -= 1
-        # 부분 피해 모델: HP가 줄수록 성능 저하
-        # HP 절반 이하: 레이더 80%, 채널 80%
-        # HP 1 남음: 레이더 60%, 채널 60%
-        ratio = self.hp / self._max_hp
-        if ratio <= 0.25:
-            self.radar_factor   = 0.60
-            self.channel_factor = 0.60
-        elif ratio <= 0.50:
-            self.radar_factor   = 0.80
-            self.channel_factor = 0.80
+
+        if subsystem == 'radar':
+            self.radar_factor = max(0.20, self.radar_factor * 0.50)
+        elif subsystem == 'propulsion':
+            self.speed_factor = max(0.30, self.speed_factor * 0.70)
+        elif subsystem == 'weapons':
+            self.channel_factor = max(0.40, self.channel_factor * 0.70)
+            _candidates = [w for w in [
+                'SM-3 Block IIA', 'SM-6', 'SM-6 Block IB',
+                'SM-2 Block IIIB', 'ESSM Block II',
+                'RIM-116 RAM', '해궁 (K-SAAM)', 'CIWS-II (Phalanx)',
+            ] if self.inventory.get(w, 0) > 0 and w not in self.disabled_weapons]
+            if _candidates:
+                self.disabled_weapons.add(random.choice(_candidates))
+
+        if self.hp <= 0:
+            self.alive = False
+
+    def take_arm_hit(self, t: float):
+        """대방사미사일(ARM) 레이더 직격 — 레이더 계통 심각 손상."""
+        self.hit_count  += 1
+        self.hits_taken += 1
+        self.hp -= 1
+        # ARM: 레이더 전파를 역추적해 레이더 안테나 직격 → 탐지거리 대폭 감소
+        self.radar_factor = max(0.10, self.radar_factor * 0.30)
         if self.hp <= 0:
             self.alive = False
 
@@ -753,6 +784,7 @@ class TimeStepEngine:
                     m.is_hgv                 = bool(info.get('is_hgv', False))
                     m.is_qbm                 = bool(info.get('is_qbm', False))
                     m.is_ballistic           = (ttype == '탄도미사일')
+                    m.is_arm                 = bool(info.get('is_arm', False))
                     m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
                     m.is_torpedo             = False
                     # 3D 시각화용: 포물선 궤도 계산에 사용할 초기 거리·정점 고도 저장
@@ -847,6 +879,7 @@ class TimeStepEngine:
                 m.is_hgv                  = bool(info.get('is_hgv', False))
                 m.is_qbm                  = bool(info.get('is_qbm', False))
                 m.is_ballistic            = (ttype == '탄도미사일')
+                m.is_arm                  = bool(info.get('is_arm', False))
                 m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
                 m.is_torpedo              = False
                 m._init_dist              = m.pos.dist_to(primary.pos)
@@ -920,7 +953,8 @@ class TimeStepEngine:
                 )
                 if close:
                     angle = random.uniform(0, 2 * math.pi)
-                    evade_m = random.uniform(300, 800)  # 300~800m 순간 회피
+                    # 추진 피탄 시 speed_factor만큼 회피 거리 감소
+                    evade_m = random.uniform(300, 800) * ship.speed_factor
                     ship.pos.x += math.cos(angle) * evade_m
                     ship.pos.y += math.sin(angle) * evade_m
 
@@ -1226,73 +1260,73 @@ class TimeStepEngine:
 
     def _select_defense_wpn(self, ship: FriendlyShipObj, m: MissileObj,
                             dist_m: float) -> Optional[str]:
-        """미사일 위협 요격 무기 선택. 고도·유형 인식."""
-        inv = ship.inventory
+        """미사일 위협 요격 무기 선택. 고도·유형 인식. 무장 피탄 비활성화 반영."""
         alt          = m.altitude_m
         is_hgv       = m.is_hgv
         is_qbm       = m.is_qbm
         is_ballistic = m.is_ballistic
 
+        def ok(wpn):
+            return ship.available(wpn) > 0
+
         # HGV / 고고도 탄도 중간단계 → SM-3 (BUG-2: 사거리 500km, 기존 1200km 과대)
         if (is_hgv or (is_ballistic and alt >= 40_000)) and dist_m <= 500_000:
-            if inv.get('SM-3 Block IIA', 0) > 0:
-                return 'SM-3 Block IIA'
+            if ok('SM-3 Block IIA'): return 'SM-3 Block IIA'
 
         # QBM (저고도 기동탄도) → SM-6 우선 (SM-3 무효)
         if is_qbm and dist_m <= 240_000:
-            if inv.get('SM-6', 0) > 0:
-                return 'SM-6'
+            if ok('SM-6'): return 'SM-6'
 
         # 근거리→원거리 표준 다층 (SM-2는 조명기 가용 시에만)
-        if dist_m <= 2_000   and inv.get('CIWS-II (Phalanx)', 0) > 0: return 'CIWS-II (Phalanx)'
-        if dist_m <= 9_000   and inv.get('RIM-116 RAM',        0) > 0: return 'RIM-116 RAM'
-        if dist_m <= 50_000  and inv.get('ESSM Block II',      0) > 0: return 'ESSM Block II'
+        if dist_m <= 2_000   and ok('CIWS-II (Phalanx)'): return 'CIWS-II (Phalanx)'
+        if dist_m <= 9_000   and ok('RIM-116 RAM'):        return 'RIM-116 RAM'
+        if dist_m <= 50_000  and ok('ESSM Block II'):      return 'ESSM Block II'
+        if dist_m <= 50_000  and ok('해궁 (K-SAAM)'):      return '해궁 (K-SAAM)'
         # LOW-11: SM-2 조명기 채널 확인
-        if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and self._sm2_illuminator_ok(ship):
+        if dist_m <= 170_000 and ok('SM-2 Block IIIB') and self._sm2_illuminator_ok(ship):
             return 'SM-2 Block IIIB'
-        if dist_m <= 240_000 and inv.get('SM-6',               0) > 0: return 'SM-6'
-        if dist_m <= 240_000 and inv.get('SM-6 Block IB',      0) > 0: return 'SM-6 Block IB'
-        if dist_m <= 500_000 and inv.get('SM-3 Block IIA',     0) > 0: return 'SM-3 Block IIA'  # BUG-2
+        if dist_m <= 240_000 and ok('SM-6'):          return 'SM-6'
+        if dist_m <= 240_000 and ok('SM-6 Block IB'): return 'SM-6 Block IB'
+        if dist_m <= 500_000 and ok('SM-3 Block IIA'): return 'SM-3 Block IIA'  # BUG-2
         return None
 
     def _select_aa_wpn(self, ship: FriendlyShipObj, et: EnemyThreatObj,
                        dist_m: float) -> Optional[str]:
         """
-        항공기 목표 대공 무기 선택 (고도 3단 구분).
+        항공기 목표 대공 무기 선택 (고도 3단 구분). 무장 피탄 비활성화 반영.
 
         SM-3는 대기권 외 BMD 전용 → 항공기 요격 불가.
           ≥ 10,000m (고고도): SM-2 → SM-6 (RAM 불필요, 사거리 초과 시 교전 불가)
           3,000–10,000m (중고도): SM-2 → SM-6 → RAM (근접 시)
           < 3,000m (저고도 침투): RAM 우선 → SM-2 → SM-6
         """
-        inv = ship.inventory
-        alt = et.altitude_m
+        alt    = et.altitude_m
+        sm2_ok = self._sm2_illuminator_ok(ship)
 
-        sm2_ok = self._sm2_illuminator_ok(ship)  # LOW-11: 조명기 가용 여부
+        def ok(wpn):
+            return ship.available(wpn) > 0
 
         if alt >= 10_000:
-            # 고고도: SM-2/SM-6만 유효, SM-3 배정 금지
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
-            if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
-            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
-            return None  # 사거리 초과 → 교전 불가
+            if dist_m <= 170_000 and ok('SM-2 Block IIIB') and sm2_ok: return 'SM-2 Block IIIB'
+            if dist_m <= 240_000 and ok('SM-6'):                        return 'SM-6'
+            if dist_m <= 240_000 and ok('SM-6 Block IB'):               return 'SM-6 Block IB'
+            return None
 
         elif alt >= 3_000:
-            # 중고도: SM-2 → SM-6, 접근 시 RAM/ESSM 보조
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
-            if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
-            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
-            if dist_m <= 50_000  and inv.get('ESSM Block II',   0) > 0: return 'ESSM Block II'
-            if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
+            if dist_m <= 170_000 and ok('SM-2 Block IIIB') and sm2_ok: return 'SM-2 Block IIIB'
+            if dist_m <= 240_000 and ok('SM-6'):                        return 'SM-6'
+            if dist_m <= 240_000 and ok('SM-6 Block IB'):               return 'SM-6 Block IB'
+            if dist_m <= 50_000  and ok('ESSM Block II'):               return 'ESSM Block II'
+            if dist_m <= 9_000   and ok('RIM-116 RAM'):                 return 'RIM-116 RAM'
             return None
 
         else:
-            # 저고도 침투 (JH-7A 등 해면 근접): RAM 우선, ESSM/SM-2/SM-6 원거리 커버
-            if dist_m <= 9_000   and inv.get('RIM-116 RAM',     0) > 0: return 'RIM-116 RAM'
-            if dist_m <= 50_000  and inv.get('ESSM Block II',   0) > 0: return 'ESSM Block II'
-            if dist_m <= 170_000 and inv.get('SM-2 Block IIIB', 0) > 0 and sm2_ok: return 'SM-2 Block IIIB'
-            if dist_m <= 240_000 and inv.get('SM-6',            0) > 0: return 'SM-6'
-            if dist_m <= 240_000 and inv.get('SM-6 Block IB',   0) > 0: return 'SM-6 Block IB'
+            if dist_m <= 9_000   and ok('RIM-116 RAM'):                 return 'RIM-116 RAM'
+            if dist_m <= 50_000  and ok('ESSM Block II'):               return 'ESSM Block II'
+            if dist_m <= 50_000  and ok('해궁 (K-SAAM)'):               return '해궁 (K-SAAM)'
+            if dist_m <= 170_000 and ok('SM-2 Block IIIB') and sm2_ok: return 'SM-2 Block IIIB'
+            if dist_m <= 240_000 and ok('SM-6'):                        return 'SM-6'
+            if dist_m <= 240_000 and ok('SM-6 Block IB'):               return 'SM-6 Block IB'
             return None
 
     # ── 4단계: 아군 공격 TEWA ─────────────────────────────────────────────────
@@ -1676,6 +1710,18 @@ class TimeStepEngine:
             if m.mtype == 'enemy_strike':
                 tgt = m.target
                 if isinstance(tgt, FriendlyShipObj) and tgt.alive:
+                    # ARM: ECM 무효 (레이더 전파 역추적 — 재밍이 오히려 표적이 됨)
+                    if m.is_arm:
+                        if random.random() < m.pk_base:
+                            tgt.take_arm_hit(self.t)
+                            self.stats['friendly_hits'] += 1
+                            self._log(
+                                f"[ARM 피격] {tgt.name} 레이더 직격! "
+                                f"(레이더 {tgt.radar_factor:.0%}, HP {tgt.hp})")
+                        else:
+                            self._log(f"[ARM 실패] {m.name} -> {tgt.name} 불발")
+                        continue
+
                     # BUG-6: 아군 ECM(AN/SLQ-32) — 적 미사일 유도부 교란, Pk 30% 감소
                     # 탄도/HGV는 레이더 유도가 아니므로 ECM 무효
                     if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
@@ -1694,10 +1740,19 @@ class TimeStepEngine:
                         if random.random() < SHIP_EVASION_PK:
                             self._log(f"[회피] {tgt.name} 회피 기동 성공 — {m.name}")
                             continue
+                    # 서브시스템 피해 롤 (enable_subsystem_damage=True 시)
+                    subsystem = None
+                    if self.cfg.get('enable_subsystem_damage', True):
+                        r = random.random()
+                        subsystem = 'radar' if r < 0.35 else ('propulsion' if r < 0.60 else 'weapons')
                     if random.random() < m.pk_base:
-                        tgt.take_hit(m.name, self.t)
+                        tgt.take_hit(m.name, self.t, subsystem)
                         self.stats['friendly_hits'] += 1
-                        self._log(f"[피격] {tgt.name} <- {m.name} 명중! (HP {tgt.hp})")
+                        _dmg = {'radar': f'레이더 피탄 (탐지 {tgt.radar_factor:.0%})',
+                                'propulsion': f'추진 피탄 (속도 {tgt.speed_factor:.0%})',
+                                'weapons': f'무장 피탄 (비활성: {", ".join(tgt.disabled_weapons) or "채널 저하"})'}
+                        _detail = f' — {_dmg[subsystem]}' if subsystem else ''
+                        self._log(f"[피격] {tgt.name} <- {m.name} 명중! HP {tgt.hp}{_detail}")
                     else:
                         self._log(f"[피격 실패] {m.name} -> {tgt.name} 근접 불발")
 
