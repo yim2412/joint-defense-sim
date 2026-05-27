@@ -425,6 +425,117 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
     _save_json_log(records)
 
 
+_SIM_MODE_NAMES = {0: '빠름', 1: '표준', 2: '정밀'}
+
+
+def _db_path() -> str:
+    return os.path.join(_log_base(), 'sim_history.db')
+
+
+def _ensure_db():
+    import sqlite3
+    con = sqlite3.connect(_db_path())
+    con.execute('''CREATE TABLE IF NOT EXISTS sim_history (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        datetime         TEXT    NOT NULL,
+        fleet            TEXT,
+        weather          TEXT,
+        mc_n             INTEGER,
+        sim_mode         TEXT,
+        enemy            TEXT,
+        total_threats    INTEGER,
+        mean_intercept   REAL,
+        std_intercept    REAL,
+        full_pass_rate   REAL,
+        cvar             REAL,
+        avg_friendly_hits   REAL,
+        avg_enemy_destroyed REAL,
+        total_cost       REAL,
+        req_pass         INTEGER,
+        cfg_json         TEXT
+    )''')
+    con.commit()
+    con.close()
+
+
+def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
+    import sqlite3
+    from datetime import datetime as _dt
+    _ensure_db()
+    now = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    enemy_parts = [f"{e.get('preset','?')} ×{e.get('count',1)}"
+                   for e in cfg.get('enemy_fleet', [])]
+    enemy_str = ', '.join(enemy_parts) if enemy_parts else cfg.get('enemy_fleet_preset', '?')
+    n = max(mc.get('n', 1), 1)
+    avg_hits  = sum(mc.get('friendly_hits',  [])) / n
+    avg_edest = sum(mc.get('enemy_destroyed', [])) / n
+    cvar_val  = mc.get('cvar', None)
+    # REQ 전체 통과 여부 (평가 실패 시 None)
+    req_pass = None
+    try:
+        from engine_v7 import evaluate_req_v7, REQ_ITEMS_V7
+        verdicts, _ = evaluate_req_v7(result, mc)
+        req_pass = int(all(verdicts))
+    except Exception:
+        pass
+    # cfg 저장: enemy_fleet 리스트는 enemy_str 컬럼에 이미 있으므로 제외
+    safe_cfg = {k: v for k, v in cfg.items() if k != 'enemy_fleet'}
+    try:
+        con = sqlite3.connect(_db_path())
+        con.execute('''INSERT INTO sim_history
+            (datetime, fleet, weather, mc_n, sim_mode, enemy, total_threats,
+             mean_intercept, std_intercept, full_pass_rate, cvar,
+             avg_friendly_hits, avg_enemy_destroyed, total_cost, req_pass, cfg_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (now,
+             cfg.get('fleet_preset', '?'),
+             cfg.get('weather', '?'),
+             mc.get('n', 0),
+             _SIM_MODE_NAMES.get(sim_mode_idx, '표준'),
+             enemy_str,
+             result.get('total_threats', 0),
+             round(mc.get('mean_intercept', 0), 4),
+             round(mc.get('std_intercept', 0), 4),
+             round(mc.get('full_pass_rate', 0), 4),
+             round(cvar_val, 4) if cvar_val is not None else None,
+             round(avg_hits, 2),
+             round(avg_edest, 2),
+             result.get('total_cost', 0),
+             req_pass,
+             json.dumps(safe_cfg, ensure_ascii=False)))
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+
+
+def _load_sim_db(limit: int = 500) -> list:
+    import sqlite3
+    _ensure_db()
+    try:
+        con = sqlite3.connect(_db_path())
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            'SELECT * FROM sim_history ORDER BY id DESC LIMIT ?', (limit,)
+        ).fetchall()
+        con.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _clear_sim_db():
+    import sqlite3
+    _ensure_db()
+    try:
+        con = sqlite3.connect(_db_path())
+        con.execute('DELETE FROM sim_history')
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog, QSplitter,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
@@ -930,17 +1041,22 @@ class FloatingMonitor(QWidget):
 #  실행 로그 뷰어 다이얼로그
 # ════════════════════════════════════════════════════════════════════════════
 class SimLogDialog(QDialog):
-    """sim_history.json 을 읽어 테이블로 표시하는 독립 창."""
+    """sim_history.db (SQLite)를 읽어 테이블로 표시하는 독립 창."""
+
+    restore_requested = pyqtSignal(dict)   # cfg_json 딕셔너리 emit
 
     _COLS = [
         ('날짜/시각',    'datetime',           180),
         ('편대',         'fleet',              140),
         ('날씨',         'weather',            110),
+        ('모드',         'sim_mode',            55),
         ('MC',           'mc_n',                55),
         ('총 위협',      'total_threats',       70),
         ('요격률',       'mean_intercept',      80),
         ('±',            'std_intercept',       60),
         ('완전요격',     'full_pass_rate',      75),
+        ('CVaR',         'cvar',                70),
+        ('REQ',          'req_pass',            50),
         ('아군 피격',    'avg_friendly_hits',   75),
         ('비용 ($M)',    'total_cost',          90),
         ('적군 구성',    'enemy',                0),   # 0 = stretch
@@ -996,6 +1112,17 @@ class SimLogDialog(QDialog):
         btn_csv.setStyleSheet(btn_refresh.styleSheet())
         btn_csv.clicked.connect(self._export_csv)
 
+        self._btn_restore = QPushButton("⬅  설정 복원")
+        self._btn_restore.setFixedHeight(28)
+        self._btn_restore.setEnabled(False)
+        self._btn_restore.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_ACCENT}; border:1px solid #1a3a5c;"
+            f" border-radius:4px; padding:0 12px; }}"
+            f"QPushButton:hover {{ background:#0a1a2a; }}"
+            f"QPushButton:disabled {{ color:{C_SUBTEXT}; border-color:{C_BORDER}; }}"
+        )
+        self._btn_restore.clicked.connect(self._restore_selected)
+
         btn_clear = QPushButton("로그 초기화")
         btn_clear.setFixedHeight(28)
         btn_clear.setStyleSheet(
@@ -1010,6 +1137,7 @@ class SimLogDialog(QDialog):
 
         bar.addWidget(self._search, stretch=1)
         bar.addWidget(btn_refresh)
+        bar.addWidget(self._btn_restore)
         bar.addWidget(btn_csv)
         bar.addWidget(btn_clear)
         bar.addWidget(self._lbl_count)
@@ -1049,13 +1177,15 @@ class SimLogDialog(QDialog):
         self._detail.setFixedHeight(72)
 
         self._tbl.currentRowChanged.connect(self._show_detail)
+        self._tbl.currentRowChanged.connect(
+            lambda row: self._btn_restore.setEnabled(row >= 0))
 
         root.addWidget(self._tbl, stretch=1)
         root.addWidget(self._detail)
 
     # ── 데이터 처리 ────────────────────────────────────────────────────────
     def _load(self):
-        self._records = list(reversed(_load_json_log()))   # 최신순
+        self._records = _load_sim_db()   # SQLite — 이미 최신순(DESC)
         self._apply_filter(self._search.text())
 
     def _apply_filter(self, text: str):
@@ -1073,32 +1203,43 @@ class SimLogDialog(QDialog):
         for rec in records:
             row = self._tbl.rowCount()
             self._tbl.insertRow(row)
+            cvar = rec.get('cvar')
+            req  = rec.get('req_pass')
             values = [
                 rec.get('datetime', ''),
                 rec.get('fleet', ''),
                 rec.get('weather', ''),
+                rec.get('sim_mode', '—'),
                 str(rec.get('mc_n', '')),
                 str(rec.get('total_threats', '')),
                 f"{rec.get('mean_intercept', 0):.1%}",
                 f"±{rec.get('std_intercept', 0):.1%}",
                 f"{rec.get('full_pass_rate', 0):.1%}",
+                f"{cvar:.1%}" if cvar is not None else '—',
+                ('✅' if req == 1 else '❌' if req == 0 else '—'),
                 f"{rec.get('avg_friendly_hits', 0):.1f}",
                 f"{rec.get('total_cost', 0) / 1e6:.1f}",
                 rec.get('enemy', ''),
             ]
             for col, val in enumerate(values):
                 item = QTableWidgetItem(val)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter
-                                      if col != len(self._COLS) - 1
-                                      else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                # 요격률 컬러
-                if col == 5:
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignCenter
+                    if col != len(self._COLS) - 1
+                    else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                # 요격률 컬러 (col 6)
+                if col == 6:
                     rate = rec.get('mean_intercept', 0)
                     item.setForeground(QColor(
                         C_GREEN if rate >= 0.8 else
                         '#f39c12' if rate >= 0.5 else
-                        '#e74c3c'
-                    ))
+                        '#e74c3c'))
+                # CVaR 컬러 (col 9)
+                if col == 9 and cvar is not None:
+                    item.setForeground(QColor(
+                        C_GREEN if cvar >= 0.7 else
+                        '#f39c12' if cvar >= 0.4 else
+                        '#e74c3c'))
                 self._tbl.setItem(row, col, item)
             self._tbl.item(row, 0).setData(Qt.ItemDataRole.UserRole, rec)
         self._tbl.setSortingEnabled(True)
@@ -1112,19 +1253,45 @@ class SimLogDialog(QDialog):
         rec = item.data(Qt.ItemDataRole.UserRole)
         if not rec:
             return
+        cvar = rec.get('cvar')
+        req  = rec.get('req_pass')
+        cvar_str = f"{cvar:.1%}" if cvar is not None else '—'
+        req_str  = ('✅ PASS' if req == 1 else '❌ FAIL' if req == 0 else '—')
         self._detail.setText(
             f"<b>{rec.get('datetime','')}</b> &nbsp;|&nbsp; "
             f"편대: <b>{rec.get('fleet','')}</b> &nbsp;|&nbsp; "
             f"날씨: {rec.get('weather','')} &nbsp;|&nbsp; "
-            f"MC: {rec.get('mc_n','')}회 &nbsp;|&nbsp; "
+            f"모드: {rec.get('sim_mode','—')} / MC: {rec.get('mc_n','')}회 &nbsp;|&nbsp; "
             f"위협: {rec.get('total_threats','')}발/기<br>"
             f"요격률: <b>{rec.get('mean_intercept',0):.1%}</b> "
             f"(±{rec.get('std_intercept',0):.1%}) &nbsp;|&nbsp; "
             f"완전요격: {rec.get('full_pass_rate',0):.1%} &nbsp;|&nbsp; "
-            f"아군 피격: {rec.get('avg_friendly_hits',0):.1f}회 &nbsp;|&nbsp; "
+            f"CVaR: {cvar_str} &nbsp;|&nbsp; REQ: {req_str} &nbsp;|&nbsp; "
             f"비용: ${rec.get('total_cost',0):,.0f}<br>"
             f"<span style='color:{C_SUBTEXT}'>적군: {rec.get('enemy','')}</span>"
         )
+
+    def _restore_selected(self):
+        row = self._tbl.currentRow()
+        if row < 0:
+            return
+        item = self._tbl.item(row, 0)
+        if not item:
+            return
+        rec = item.data(Qt.ItemDataRole.UserRole)
+        if not rec:
+            return
+        cfg_str = rec.get('cfg_json', '')
+        if not cfg_str:
+            QMessageBox.warning(self, "복원 불가", "이 기록에는 설정 정보가 없습니다.")
+            return
+        try:
+            cfg = json.loads(cfg_str)
+        except Exception:
+            QMessageBox.warning(self, "복원 오류", "설정 JSON 파싱 실패.")
+            return
+        self.restore_requested.emit(cfg)
+        self.accept()
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -1148,6 +1315,8 @@ class SimLogDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) != QMessageBox.StandardButton.Yes:
             return
+        _clear_sim_db()
+        # 레거시 JSON/텍스트 로그도 함께 초기화
         _save_json_log([])
         try:
             open(_log_path(), 'w', encoding='utf-8').close()
@@ -1248,12 +1417,13 @@ class SimWorker(QThread):
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
 
     def __init__(self, cfg: dict, mc_n: int, precision_mode: bool = False,
-                 sobol_npp: int = 3):
+                 sobol_npp: int = 3, sim_mode_idx: int = 1):
         super().__init__()
         self.cfg            = cfg
         self.mc_n           = mc_n
         self.precision_mode = precision_mode
         self.sobol_npp      = sobol_npp
+        self.sim_mode_idx   = sim_mode_idx
 
     def run(self):
         try:
@@ -3104,11 +3274,49 @@ class MainWindow(QMainWindow):
             alive = False
         if not alive:
             self._log_dialog = SimLogDialog(self)
+            self._log_dialog.restore_requested.connect(self._restore_cfg)
         else:
             self._log_dialog._load()
         self._log_dialog.show()
         self._log_dialog.raise_()
         self._log_dialog.activateWindow()
+
+    def _restore_cfg(self, cfg: dict):
+        """실행 기록에서 설정을 복원한다 — 편대·날씨·적군 모드 복원."""
+        # 아군 편대
+        fleet = cfg.get('fleet_preset', '')
+        if fleet and hasattr(self, 'cmb_fleet'):
+            idx = self.cmb_fleet.findText(fleet)
+            if idx >= 0:
+                self.cmb_fleet.setCurrentIndex(idx)
+        # 날씨
+        weather = cfg.get('weather', '')
+        if weather and hasattr(self, 'cmb_weather'):
+            idx = self.cmb_weather.findText(weather)
+            if idx >= 0:
+                self.cmb_weather.setCurrentIndex(idx)
+        # 적군 모드 — preset / random / manual
+        enemy_mode = cfg.get('enemy_fleet_mode', '')
+        mode_reverse = {'preset': '편대 프리셋', 'random': '랜덤 편성', 'manual': '직접 구성'}
+        mode_label = mode_reverse.get(enemy_mode, '')
+        if mode_label and hasattr(self, 'cmb_enemy_mode'):
+            idx = self.cmb_enemy_mode.findText(mode_label)
+            if idx >= 0:
+                self.cmb_enemy_mode.setCurrentIndex(idx)
+        # 적군 프리셋
+        enemy_preset = cfg.get('enemy_fleet_preset', '')
+        if enemy_preset and hasattr(self, 'cmb_fleet_preset_e'):
+            idx = self.cmb_fleet_preset_e.findText(enemy_preset)
+            if idx >= 0:
+                self.cmb_fleet_preset_e.setCurrentIndex(idx)
+        # 전술 체크박스
+        if hasattr(self, 'chk_multibearing'):
+            self.chk_multibearing.setChecked(cfg.get('enable_multibearing', False))
+        if hasattr(self, 'chk_cec_jammed'):
+            self.chk_cec_jammed.setChecked(cfg.get('enable_cec_jammed', False))
+        if hasattr(self, 'chk_ship_evasion'):
+            self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
+        self._lbl_status.setText("✅ 설정 복원 완료")
 
     def _shortcut_play_pause(self):
         if hasattr(self, 'tab_anim'):
@@ -4095,7 +4303,7 @@ class MainWindow(QMainWindow):
         self._lbl_status.setText("실행 중...")
 
         self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode,
-                                 sobol_npp=sobol_npp)
+                                 sobol_npp=sobol_npp, sim_mode_idx=mode_idx)
         self._worker.progress.connect(self._on_progress)
         self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)
@@ -4170,7 +4378,9 @@ class MainWindow(QMainWindow):
 
         self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환
         self._on_page_changed(1)       # BUG-1: 이미 row 1이면 currentRowChanged 미발화 → 수동 트리거
+        sim_mode_idx = getattr(self._worker, 'sim_mode_idx', 1)
         _write_sim_log(cfg, result, mc)
+        _write_sim_db(cfg, result, mc, sim_mode_idx)
 
     def _fill_req(self, result: dict, mc: dict):
         """포팅 D: REQ 판정 테이블 채우기."""
