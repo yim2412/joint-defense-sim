@@ -3126,9 +3126,16 @@ class MainWindow(QMainWindow):
                 min(self.tab_anim.slider.maximum(), v + 1))
 
     def _build_config_panel(self) -> QWidget:
+        # 컨테이너: 스크롤(위) + 고정 하단(모드·실행버튼)으로 구성
+        container = QWidget()
+        container.setFixedWidth(430)
+        container.setStyleSheet(f"background: {C_PANEL};")
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(430)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_PANEL}; }}")
 
@@ -3453,23 +3460,6 @@ class MainWindow(QMainWindow):
         mcl.addSpacing(8)
         mcl.addWidget(lbl_mode_hint)
         mcl.addStretch()
-        layout.addWidget(grp_mc)
-
-
-        # ── 실행 버튼 ─────────────────────────────────────────────────────
-        self.btn_run = QPushButton("🚀  시뮬레이션 실행")
-        self.btn_run.setFixedHeight(44)
-        self.btn_run.setFont(QFont('Malgun Gothic', 15))
-        self.btn_run.clicked.connect(self._run_sim)
-        layout.addWidget(self.btn_run)
-
-        if not _V7_OK:
-            err_lbl = QLabel(f"⚠️ engine_v7 로드 실패\n{_V7_ERR}")
-            err_lbl.setStyleSheet(f"color:{C_RED}; font-size:15px;")
-            err_lbl.setWordWrap(True)
-            layout.addWidget(err_lbl)
-            self.btn_run.setEnabled(False)
-
         # 초기 함대 편성 + 탐지 정보 레이블
         if _V7_OK and self.cmb_fleet.count():
             self._update_fleet_detail(self.cmb_fleet.currentText())
@@ -3477,7 +3467,33 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
         scroll.setWidget(inner)
-        return scroll
+
+        # ── 고정 하단 영역 (스크롤 밖 — 항상 표시) ───────────────────────
+        bottom = QWidget()
+        bottom.setStyleSheet(
+            f"background:{C_PANEL}; border-top: 1px solid #2a3a4a;")
+        bottom_layout = QVBoxLayout(bottom)
+        bottom_layout.setContentsMargins(8, 6, 8, 8)
+        bottom_layout.setSpacing(6)
+
+        bottom_layout.addWidget(grp_mc)
+
+        self.btn_run = QPushButton("🚀  시뮬레이션 실행")
+        self.btn_run.setFixedHeight(44)
+        self.btn_run.setFont(QFont('Malgun Gothic', 15))
+        self.btn_run.clicked.connect(self._run_sim)
+        bottom_layout.addWidget(self.btn_run)
+
+        if not _V7_OK:
+            err_lbl = QLabel(f"⚠️ engine_v7 로드 실패\n{_V7_ERR}")
+            err_lbl.setStyleSheet(f"color:{C_RED}; font-size:15px;")
+            err_lbl.setWordWrap(True)
+            bottom_layout.addWidget(err_lbl)
+            self.btn_run.setEnabled(False)
+
+        container_layout.addWidget(scroll, stretch=1)
+        container_layout.addWidget(bottom)
+        return container
 
     def _build_result_panel(self) -> QWidget:
         panel = QWidget()
