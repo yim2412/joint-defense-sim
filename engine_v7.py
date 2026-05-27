@@ -2229,7 +2229,7 @@ def sobol_analysis(cfg: dict, n_sobol: int = 4096,
                    progress_cb=None) -> dict:
     """
     Sobol 1차/전체 민감도 지수 — 정밀 모드 전용.
-    총 N×(2D+2) = 4096×14 ≈ 57,344회 시뮬레이션.
+    총 N×(D+2) = 4096×8 ≈ 32,768회 시뮬레이션 (calc_second_order=False).
     """
     try:
         from SALib.sample import saltelli

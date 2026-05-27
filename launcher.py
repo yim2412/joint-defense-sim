@@ -6,7 +6,7 @@
 ║  NEW-A  시뮬레이션 모드 선택 (빠름 5,000회 / 표준 10,000회 / 정밀 100,000회)║
 ║  NEW-B  LHS 샘플링 + CVaR(최악 5%) 카드 — 불확실 파라미터 5종 반영          ║
 ║  NEW-C  스트레스 테스트 탭 — 채널 감소 × 레이더 성능 감소 2D 히트맵         ║
-║  NEW-D  Sobol 민감도 분석 탭 — 정밀 모드 전용 (~57,344회)                   ║
+║  NEW-D  Sobol 민감도 분석 탭 — 정밀 모드 전용 (~32,768회)                   ║
 ║                                                                              ║
 ║  [v7.41 — DB 탭 개편 + 설명 텍스트 간소화]                                  ║
 ║  NEW-A  적군/아군 DB 탭을 전투기·함정·무기·잠수함·항공 세부 탭으로 분리      ║
@@ -1384,7 +1384,7 @@ class SimWorker(QThread):
             # ── Sobol 민감도 분석 (정밀 모드 전용) ──────────────────────────
             sobol_result = {}
             if _V7_OK and self.precision_mode:
-                self.progress.emit("Sobol 민감도 분석 중... (~57,344회, 수 분 소요)")
+                self.progress.emit("Sobol 민감도 분석 중... (~32,768회, 수 분 소요)")
                 sobol_t0 = time.time()
 
                 def _sobol_cb(done, total):
@@ -3393,7 +3393,7 @@ class MainWindow(QMainWindow):
             hints = [
                 "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 300회)",
                 "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 500회)",
-                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도 (~57,344회 추가)",
+                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도 (~32,768회 추가)",
             ]
             lbl_mode_hint.setText(hints[idx])
         self.cmb_sim_mode.currentIndexChanged.connect(_update_mode_hint)
