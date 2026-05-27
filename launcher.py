@@ -3319,6 +3319,8 @@ class MainWindow(QMainWindow):
             self.chk_cec_jammed.setChecked(cfg.get('enable_cec_jammed', False))
         if hasattr(self, 'chk_ship_evasion'):
             self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
+        if hasattr(self, 'chk_radar_off'):
+            self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
         self._lbl_status.setText("✅ 설정 복원 완료")
 
     def _shortcut_play_pause(self):
@@ -3547,6 +3549,15 @@ class MainWindow(QMainWindow):
             "아군 함정이 지그재그 회피 기동으로 피탄율을 낮춥니다."
         )
 
+        self.chk_radar_off = QCheckBox("레이더 OFF 전술  (ARM 탐지 시 8초 레이더 차단)")
+        self.chk_radar_off.setChecked(True)
+        self.chk_radar_off.setToolTip(
+            "적 대방사미사일(ARM)이 탐지 범위 내 진입 시\n"
+            "레이더를 8초간 꺼서 ARM의 유도 신호를 차단합니다.\n"
+            "레이더 OFF 중에는 신규 위협 탐지 불가 (기존 추적은 유지).\n"
+            "OFF하지 않으면 ARM이 레이더를 직격할 수 있습니다."
+        )
+
         # 적 편대 전술 기동
         tactics_row = QHBoxLayout()
         lbl_tactics = QLabel("적 전술 기동:")
@@ -3562,7 +3573,7 @@ class MainWindow(QMainWindow):
         tactics_row.addWidget(self.cmb_enemy_tactics, stretch=1)
 
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
-                    self.chk_cec_jammed, self.chk_ship_evasion]:
+                    self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -4284,6 +4295,7 @@ class MainWindow(QMainWindow):
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
+            'enable_radar_off':          self.chk_radar_off.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -5297,11 +5309,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v7.x", "높음", "레이더 역할 세분화",
-             "현재는 레이더 하나가 '찾기·추적·미사일 유도'를 동시에 담당. "
-             "앞으로는 세 역할을 분리해 각 단계마다 처리 시간을 부여. "
-             "적이 레이더 전파를 따라 날아오는 대방사미사일에 대응해 "
-             "레이더를 껐다 켜는 전술이 실제로 효과 있게 작동."),
             ("v7.x", "높음", "최적 무기 조합 추천",
              "탑재할 수 있는 미사일 수 제한 안에서 가장 높은 요격률을 내는 무기 조합을 자동으로 찾아줌. "
              "수백 가지 조합을 자동 비교해 최적 구성과 예상 요격률을 결과로 표시."),

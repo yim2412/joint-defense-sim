@@ -501,6 +501,7 @@ class FriendlyShipObj:
         self.speed_factor   = 1.0  # 추진 계통 (회피 기동 효율 반영)
         self.disabled_weapons: set = set()  # 무장 피탄으로 사용 불가 무기 목록
         self._vls_depleted = False  # 탄약 완전 소진 플래그
+        self.radar_off_until: float = 0.0  # ARM 회피 전술: 이 시각까지 레이더 OFF
 
     @property
     def max_channels(self):
@@ -553,6 +554,53 @@ class FriendlyShipObj:
         self.radar_factor = max(0.10, self.radar_factor * 0.30)
         if self.hp <= 0:
             self.alive = False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  레이더 역할 세분화: 수색 → 추적 → 유도 3단계 파이프라인
+# ════════════════════════════════════════════════════════════════════════════
+class SearchRadar:
+    """편대 수색 레이더 — 신규 위협 초기 탐지 지연 (SPY-1D 빔 회전 주기 6초)."""
+    scan_interval: float = 6.0
+
+    def __init__(self):
+        self._detect_t: dict[str, float] = {}
+
+    def try_detect(self, uid: str, t: float, radar_off: bool = False) -> bool:
+        """처음 호출 시 0~scan_interval 랜덤 딜레이 후 탐지 확정.
+        radar_off=True 이면 미탐지 위협은 새로 탐지 불가."""
+        if uid in self._detect_t:
+            return t >= self._detect_t[uid]
+        if radar_off:
+            return False
+        self._detect_t[uid] = t + random.uniform(0.0, self.scan_interval)
+        return False
+
+
+class TrackRadar:
+    """편대 추적 레이더 — 동시 추적 채널 및 획득 지연 관리 (SPY-1D: 18채널)."""
+    max_ch:   int   = 18
+    acq_time: float = 3.0  # 신규 위협 추적 획득 시간 (초)
+
+    def __init__(self):
+        self._track_t: dict[str, float] = {}
+        self._ch_used: int = 0
+
+    def try_track(self, uid: str, t: float) -> bool:
+        """uid 추적 가능 여부. 처음이면 채널 할당 후 acq_time 딜레이."""
+        if uid in self._track_t:
+            return t >= self._track_t[uid]
+        if self._ch_used >= self.max_ch:
+            return False   # 채널 포화 — 추적 거부
+        self._ch_used += 1
+        self._track_t[uid] = t + self.acq_time
+        return False       # 획득 중
+
+    def release(self, uid: str):
+        """위협 소멸 시 추적 채널 반환."""
+        if uid in self._track_t:
+            del self._track_t[uid]
+            self._ch_used = max(0, self._ch_used - 1)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -619,6 +667,11 @@ class TimeStepEngine:
 
         MissileObj.reset_counter()
         EnemyThreatObj.reset_counter()
+
+        # 레이더 3단계 파이프라인
+        self.search_radar = SearchRadar()  # 1단계: 수색 (탐지 지연)
+        self.track_radar  = TrackRadar()   # 2단계: 추적 (채널 한계 + 획득 지연)
+        # 3단계: 유도 채널은 FriendlyShipObj.channels_used / max_channels 로 관리
 
         # C&D 딜레이: {target_id → t_fire_allowed}
         # 탐지 시각 + cd_time_s + confirm_time_s + uniform(2,10)s 이후 발사 허용
@@ -1124,6 +1177,31 @@ class TimeStepEngine:
         last = self._vls_last_fire.get(id(ship), -999.0)
         return (self.t - last) >= 2.5
 
+    def _arm_radar_off_check(self):
+        """ARM 탐지 시 표적 함정 레이더 일시 차단 (ARM 회피 전술, 8초).
+        각 ARM 미사일당 레이더 OFF는 한 번만 트리거.
+        레이더 OFF 중 ARM은 유도 신호 소실로 빗나감 — _check_hits()에서 처리."""
+        if not self.cfg.get('enable_radar_off', True):
+            return
+        off_dur  = 8.0
+        warn_m   = 120_000.0   # ARM이 120km 이내 접근 시 레이더 OFF 결심
+        for m in self.missiles:
+            if not (m.alive and m.is_arm):
+                continue
+            if getattr(m, '_radar_off_triggered', False):
+                continue   # 이 ARM은 이미 레이더 OFF를 트리거했음
+            tgt = m.target
+            if not isinstance(tgt, FriendlyShipObj) or not tgt.alive:
+                continue
+            dist_m = m.pos.dist_to(tgt.pos)
+            if dist_m < warn_m:
+                m._radar_off_triggered = True
+                tgt.radar_off_until = self.t + off_dur
+                self._log(
+                    f"[레이더 OFF] {tgt.name} ARM {dist_m/1000:.0f}km 접근 탐지 — "
+                    f"레이더 {off_dur:.0f}초 차단 ({m.name})"
+                )
+
     def _friendly_defense(self):
         """
         다층 방어 (enable_layered_defense=True, 기본 ON):
@@ -1161,13 +1239,23 @@ class TimeStepEngine:
             _rnd.shuffle(_ships)
             sorted_ships = _ships
 
+        # 주요 함정 레이더 OFF 여부 (ARM 회피 전술)
+        primary_ship = self._primary()
+        is_radar_off = self.t < primary_ship.radar_off_until
+
         # (A) 적 대함 미사일 요격 — 긴급도 순 정렬
         sorted_missiles = sorted(
             [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike'],
             key=_urgency, reverse=True
         )
         for m in sorted_missiles:
-            # C&D 딜레이: 탐지 후 충분한 시간이 지나야 발사
+            # 1단계: 수색 레이더 탐지 확정 (SPY-1D 빔 회전 0~6초 지연)
+            if not self.search_radar.try_detect(m.uid, self.t, radar_off=is_radar_off):
+                continue
+            # 2단계: 추적 채널 획득 (18채널 한계 + 3초 획득 지연)
+            if not self.track_radar.try_track(m.uid, self.t):
+                continue
+            # 3단계(C&D): 분류·교전 결심 딜레이
             if not self._cd_allowed(id(m)):
                 continue
             sams_on = sum(
@@ -1204,7 +1292,13 @@ class TimeStepEngine:
             key=_urgency, reverse=True
         )
         for et in sorted_ac:
-            # C&D 딜레이: 항공기도 동일 적용
+            # 1단계: 수색 레이더 탐지 확정
+            if not self.search_radar.try_detect(et.uid, self.t, radar_off=is_radar_off):
+                continue
+            # 2단계: 추적 채널 획득
+            if not self.track_radar.try_track(et.uid, self.t):
+                continue
+            # 3단계(C&D): 분류·교전 결심 딜레이
             if not self._cd_allowed(id(et)):
                 continue
             sams_on = sum(
@@ -1739,6 +1833,13 @@ class TimeStepEngine:
                 if isinstance(tgt, FriendlyShipObj) and tgt.alive:
                     # ARM: ECM 무효 (레이더 전파 역추적 — 재밍이 오히려 표적이 됨)
                     if m.is_arm:
+                        # 레이더 OFF 시 유도 신호 소실 → ARM 빗나감
+                        if self.t < tgt.radar_off_until:
+                            self._log(
+                                f"[ARM 회피] {tgt.name} 레이더 OFF — "
+                                f"{m.name} 유도 실패 빗나감"
+                            )
+                            continue
                         if random.random() < m.pk_base:
                             tgt.take_arm_hit(self.t)
                             self.stats['friendly_hits'] += 1
@@ -1871,6 +1972,7 @@ class TimeStepEngine:
 
             self._update_positions()
             self._enemy_fire()
+            self._arm_radar_off_check()   # ARM 탐지 → 레이더 OFF 전술
             self._friendly_defense()
             self._friendly_strike()
             self._aircraft_asw()        # 포팅 C: 항공 대잠
@@ -1878,6 +1980,10 @@ class TimeStepEngine:
             self._check_intercepts()
             self._check_hits()
 
+            # 소멸·요격 미사일의 추적 채널 반환
+            for m in self.missiles:
+                if not m.alive or m.intercepted:
+                    self.track_radar.release(m.uid)
             self.missiles = [m for m in self.missiles
                              if m.alive and not m.intercepted]
 
