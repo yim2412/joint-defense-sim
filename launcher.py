@@ -584,6 +584,7 @@ try:
         normalize_enemy_db as _normalize_enemy_db,
         monte_carlo_lhs, stress_test_grid, sobol_analysis, compute_cvar,
         _LHS_PARAM_DEFS, STRESS_DIMS,
+        optimize_weapon_loadout_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -1385,6 +1386,32 @@ class MinStockWorker(QThread):
             results = find_all_min_stocks_v7(
                 self.cfg, self.target_rate, self.mc_n, _cb)
             self.finished.emit(results, self.target_rate)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class OptimizeWorker(QThread):
+    """최적 무기 조합 탐색을 백그라운드에서 실행."""
+    progress = pyqtSignal(int, int, str)   # (done, total, phase)
+    finished = pyqtSignal(list)            # results list
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg: dict, budget: int = 64, step: int = 16):
+        super().__init__()
+        self.cfg    = cfg
+        self.budget = budget
+        self.step   = step
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            def _cb(i, total, phase):
+                self.progress.emit(i, total, phase)
+            results = optimize_weapon_loadout_v7(
+                self.cfg, budget=self.budget, step=self.step,
+                coarse_n=20, fine_n=200, progress_cb=_cb)
+            self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -2647,6 +2674,58 @@ def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
     return fig
 
 
+def _render_optimize_chart(results: list) -> Figure:
+    """최적 무기 조합 수평 막대 차트 (백그라운드 렌더링)."""
+    fig = Figure(figsize=(13, 7), facecolor='#0a0e1a')
+    fig.patch.set_facecolor('#0a0e1a')
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+
+    if not results:
+        ax.text(0.5, 0.5, '탐색 결과 없음', transform=ax.transAxes,
+                ha='center', va='center', color=C_TEXT, fontsize=14)
+        return fig
+
+    labels, rates, stds, clrs = [], [], [], []
+    for i, r in enumerate(results):
+        c = r['combo']
+        parts = []
+        for wpn, key in [('SM-3', 'SM-3 Block IIA'), ('SM-6', 'SM-6'),
+                         ('SM-2', 'SM-2 Block IIIB'), ('RAM', 'RIM-116 RAM')]:
+            if c.get(key, 0) > 0:
+                parts.append(f'{wpn}×{c[key]}')
+        total = r['total']
+        labels.append(f"{'  |  '.join(parts)}   [{total}발]")
+        rates.append(r['rate'] * 100)
+        stds.append(r['std'] * 100)
+        clrs.append('#2ecc71' if i == 0 else '#3498db')
+
+    y = list(range(len(results)))
+    ax.barh(y, rates, xerr=stds, color=clrs, height=0.55,
+            error_kw={'elinewidth': 1.5, 'ecolor': '#ffffff50', 'capsize': 4})
+
+    max_std = max(stds) if stds else 0
+    for i, (rate, std) in enumerate(zip(rates, stds)):
+        ax.text(rate + max_std + 1.0, i, f'{rate:.1f}% ± {std:.1f}%',
+                va='center', color=C_TEXT, fontsize=11)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=11)
+    ax.set_xlabel('요격률 (%)', color=C_SUBTEXT, fontsize=12)
+    ax.set_title(
+        '최적 무기 조합 추천  (상위 5개 — 정밀 검증 완료)\n'
+        '■ 최적 조합 (녹색)  ■ 차선 조합 (파랑)  |  오차막대 = ±1σ',
+        color=C_TEXT, fontsize=13, pad=10,
+    )
+    ax.set_xlim(0, 115)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    if rates:
+        ax.axvline(rates[0], color='#2ecc71', linestyle='--', alpha=0.25, linewidth=1)
+    fig.tight_layout()
+    return fig
+
+
 def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> bytes:
     """MC 통계: plot_v7 PNG를 bytes로 직접 반환 (이중 렌더 제거)."""
     import tempfile, uuid as _uuid
@@ -3799,6 +3878,7 @@ class MainWindow(QMainWindow):
         self.tab_stress      = ChartPageWidget()   # 스트레스 테스트 히트맵
         self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
         self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
+        self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -3837,6 +3917,7 @@ class MainWindow(QMainWindow):
             "⏰  취약 시간대", "🔄  이전 비교",
             "🔥  스트레스 테스트", "🎛  Sobol 민감도",
             "🛡  서브시스템 피해",
+            "🔧  최적 조합 추천",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -3865,6 +3946,7 @@ class MainWindow(QMainWindow):
             self.tab_stress,      # 18
             self.tab_sobol,       # 19
             self.tab_subsystem,   # 20
+            self.tab_optimize,    # 21
         ]:
             self._stack.addWidget(w)
 
@@ -3922,6 +4004,7 @@ class MainWindow(QMainWindow):
             18: lambda: self._draw_stress_test(self._mc),
             19: lambda: self._draw_sobol_chart(self._mc),
             20: lambda: self._draw_subsystem_damage(self._result),
+            21: lambda: self._lazy_start_optimize(),
         }
         if idx in render_map:
             render_map[idx]()
@@ -4560,6 +4643,14 @@ class MainWindow(QMainWindow):
             if not ms.wait(1000):
                 ms.terminate()
                 ms.wait(500)
+        # OptimizeWorker 중단
+        opt = getattr(self, '_opt_worker', None)
+        if opt and opt.isRunning():
+            opt.requestInterruption()
+            opt.quit()
+            if not opt.wait(1000):
+                opt.terminate()
+                opt.wait(500)
         # WeatherWorker 중단
         ww = getattr(self, '_weather_worker', None)
         if ww and ww.isRunning():
@@ -4573,7 +4664,7 @@ class MainWindow(QMainWindow):
                      'tab_ammo_curve', 'tab_ci', 'tab_timeline',
                      'tab_bearing', 'tab_req_radar', 'tab_threat_type',
                      'tab_vuln_time', 'tab_history',
-                     'tab_sensitivity', 'tab_min_stock'):   # ChartPageWidget으로 전환된 탭 추가
+                     'tab_sensitivity', 'tab_min_stock', 'tab_optimize'):
             widget = getattr(self, attr, None)
             if widget:
                 widget.stop_worker()
@@ -4710,6 +4801,41 @@ class MainWindow(QMainWindow):
 
     def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
         self.tab_sensitivity.start_render(_render_sensitivity_chart, labels, lows, highs, base_rate)
+
+    def _lazy_start_optimize(self):
+        """최적 조합 탭 첫 방문 시 OptimizeWorker 기동 (lazy-start)."""
+        if not hasattr(self, '_pending_cfg'):
+            return
+        opt = getattr(self, '_opt_worker', None)
+        if opt and opt.isRunning():
+            return
+        self._optimize_placeholder()
+        self._opt_worker = OptimizeWorker(self._pending_cfg)
+        self._opt_worker.progress.connect(self._on_optimize_progress)
+        self._opt_worker.finished.connect(self._on_optimize_done)
+        self._opt_worker.error.connect(lambda e: self._optimize_error(e))
+        self._opt_worker.start(QThread.Priority.LowPriority)
+
+    def _optimize_placeholder(self):
+        self.tab_optimize._loading_lbl.setText(
+            "  최적 조합 탐색 중… (예산 64발 / 16발 단위 그리드 서치 + 정밀 검증) ⏳")
+        self.tab_optimize._pane.setCurrentIndex(0)
+
+    def _optimize_error(self, msg: str):
+        self.tab_optimize._loading_lbl.setText(f"  최적 조합 탐색 오류: {msg}")
+
+    def _on_optimize_progress(self, done: int, total: int, phase: str):
+        phase_lbl = '정밀 검증' if phase == 'fine' else '1차 탐색'
+        self._lbl_status.setText(f"최적 조합 탐색 중 ({done}/{total}) — {phase_lbl}")
+
+    def _on_optimize_done(self, results: list):
+        self.tab_optimize.start_render(_render_optimize_chart, results)
+        best = results[0] if results else None
+        if best:
+            self._lbl_status.setText(
+                f"최적 조합: 요격률 {best['rate']:.1%} | "
+                + '  '.join(f"{k.split()[0]}×{v}"
+                            for k, v in best['combo'].items() if v > 0))
 
     def _draw_bearing_vulnerability(self, result: dict):
         self.tab_bearing.start_render(_render_bearing_vulnerability, result)
@@ -5309,9 +5435,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            ("v7.x", "높음", "최적 무기 조합 추천",
-             "탑재할 수 있는 미사일 수 제한 안에서 가장 높은 요격률을 내는 무기 조합을 자동으로 찾아줌. "
-             "수백 가지 조합을 자동 비교해 최적 구성과 예상 요격률을 결과로 표시."),
             ("v8.x", "높음", "중국 항모전단 시나리오",
              "중국 랴오닝·산둥·푸젠 항모전단(항모 + 대형 구축함 + 호위함 + 잠수함) 시나리오 추가. "
              "전단 내 함정들이 서로를 방어하고, 함재기 공격과 대함미사일 공격 시나리오 모두 지원."),

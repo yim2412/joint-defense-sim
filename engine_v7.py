@@ -2432,6 +2432,74 @@ def sobol_analysis(cfg: dict, n_sobol: int = 4096, n_per_point: int = 1,
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  최적 무기 조합 추천 — 그리드 서치 + 정밀 검증
+# ════════════════════════════════════════════════════════════════════════════
+
+def optimize_weapon_loadout_v7(cfg: dict,
+                                budget:     int = 64,
+                                step:       int = 8,
+                                max_per:    int = 32,
+                                coarse_n:   int = 20,
+                                fine_n:     int = 200,
+                                top_k:      int = 5,
+                                progress_cb = None) -> list:
+    """
+    VLS 예산 안에서 최적 무기 조합 탐색 (그리드 서치 + 정밀 검증).
+
+    1단계: 모든 조합을 coarse_n 회 MC로 빠르게 평가
+    2단계: 상위 top_k 조합을 fine_n 회 MC로 정밀 검증
+    반환: [{'combo': dict, 'rate': float, 'std': float, 'total': int}, ...]
+    """
+    import itertools as _it
+
+    WEAPONS = [
+        ('SM-3 Block IIA',  'sm3_stock'),
+        ('SM-6',            'sm6_stock'),
+        ('SM-2 Block IIIB', 'sm2_stock'),
+        ('RIM-116 RAM',     'ram_stock'),
+    ]
+
+    vals   = list(range(0, max_per + 1, step))          # [0, 8, 16, 24, 32]
+    combos = [
+        c for c in _it.product(vals, repeat=len(WEAPONS))
+        if sum(c) <= budget and sum(c) > 0              # 0발 조합 제외
+    ]
+
+    # 1단계: 조악한 MC로 빠른 탐색
+    coarse_results: list = []
+    total = len(combos)
+    for i, combo in enumerate(combos):
+        if progress_cb:
+            progress_cb(i, total, 'coarse')
+        run_cfg = {**cfg}
+        for (_, key), val in zip(WEAPONS, combo):
+            run_cfg[key] = val
+        mc = monte_carlo_v7(run_cfg, n=coarse_n)
+        coarse_results.append((mc['mean_intercept'], combo))
+
+    coarse_results.sort(reverse=True)
+
+    # 2단계: 상위 top_k 정밀 검증
+    final: list = []
+    for rank, (_, combo) in enumerate(coarse_results[:top_k]):
+        if progress_cb:
+            progress_cb(total + rank, total + top_k, 'fine')
+        run_cfg = {**cfg}
+        for (_, key), val in zip(WEAPONS, combo):
+            run_cfg[key] = val
+        mc = monte_carlo_v7(run_cfg, n=fine_n)
+        combo_dict = {wpn: val for (wpn, _), val in zip(WEAPONS, combo)}
+        final.append({
+            'combo': combo_dict,
+            'rate':  mc['mean_intercept'],
+            'std':   mc['std_intercept'],
+            'total': sum(combo),
+        })
+
+    return sorted(final, key=lambda x: -x['rate'])
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  포팅 D: REQ 요구조건 판정
 # ════════════════════════════════════════════════════════════════════════════
 
