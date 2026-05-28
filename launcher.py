@@ -5980,8 +5980,32 @@ class SplashWindow(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  진입점
 # ════════════════════════════════════════════════════════════════════════════
+def _install_crash_handler():
+    """미처리 예외 발생 시 로그 기록 후 프로세스 강제 종료."""
+    import traceback
+
+    def _on_exception(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            os._exit(0)
+        try:
+            msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            _write_log(f'[CRASH] {msg}')
+        except Exception:
+            pass
+        os._exit(1)
+
+    def _on_thread_exception(args):
+        if args.exc_type is SystemExit:
+            os._exit(0)
+        _on_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
+    sys.excepthook = _on_exception
+    threading.excepthook = _on_thread_exception
+
+
 def main():
     global CHART_DPI
+    _install_crash_handler()
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
@@ -6027,7 +6051,7 @@ def main():
     splash = SplashWindow()
     splash.launch_requested.connect(_launch)
     splash.show()
-    sys.exit(app.exec())
+    os._exit(app.exec())
 
 
 if __name__ == '__main__':
