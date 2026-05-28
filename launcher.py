@@ -1,9 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.46 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v7.50 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v7.46 — 미사일 Pk 매핑 누락 13종 수정]                                    ║
-║  BUG-6  _MISSILE_PK_MAP 누락 항목 13종 추가 (기본값 0.72 오적용 수정)       ║
+║  [v7.50 — 용어 툴팁 추가]                                                   ║
+║  NEW-A  향후 계획·탑재 기능 탭에 군사·기술 용어 마우스오버 툴팁 (~35종)     ║
 ║                                                                              ║
 ║  [v7.42 — 분석 고도화 + 시뮬레이션 모드 선택 UI]                            ║
 ║  NEW-A  시뮬레이션 모드 선택 (빠름 5,000회 / 표준 10,000회 / 정밀 100,000회)║
@@ -4998,6 +4998,46 @@ class MainWindow(QMainWindow):
 #  SplashWindow — 런처 화면
 # ════════════════════════════════════════════════════════════════════════════
 
+TERM_TOOLTIPS: dict[str, str] = {
+    'ARM':      '대방사미사일(Anti-Radiation Missile) — 적 레이더가 내뿜는 전파를 역추적해 레이더 자체를 파괴하는 미사일.',
+    'CIWS':     '근접방어무기체계(Close-In Weapon System) — 함정 최후 방어선. 분당 수천 발 기관포로 수 km 내 목표를 요격.',
+    'CEC':      '협동교전능력(Cooperative Engagement Capability) — 여러 함정이 탐지 정보를 실시간 공유해 단일 지휘처럼 교전.',
+    'RCS':      '레이더 반사 면적(Radar Cross Section) — 값이 작을수록 레이더에 잘 안 잡힘. 스텔스 설계의 핵심 지표.',
+    'ECM':      '전자방해(Electronic Countermeasure) — 적 레이더·유도장치를 전파로 교란해 탐지거리·명중률을 떨어뜨림.',
+    'VLS':      '수직발사시스템(Vertical Launch System) — 함정 갑판 아래 수직으로 배치된 미사일 발사관. 전방향 즉시 발사 가능.',
+    'BMD':      '탄도미사일방어(Ballistic Missile Defense) — 대기권 밖에서 재진입하는 탄도미사일을 추적·요격하는 체계.',
+    'OTH':      '수평선 너머 표적(Over-The-Horizon) — 직접 시선 밖의 먼 거리 표적을 위성·헬기·데이터링크로 공격하는 방식.',
+    'HGV':      '극초음속 활공체(Hypersonic Glide Vehicle) — 마하 5+ 속도로 활공하며 기동, 기존 방공망 회피에 특화.',
+    'QBM':      '준탄도미사일(Quasi-Ballistic Missile) — 탄도궤도와 순항궤도를 혼합, 종말 단계에서 급기동해 요격 어렵게 설계.',
+    'DEM':      '수치표고모델(Digital Elevation Model) — 지형 고도 데이터. 산·섬이 레이더를 가리는 음영 구역 계산에 활용.',
+    'SM-2':     '스탠더드 미사일 2 — 함대공미사일. 유효 사거리 90~180km, 항공기·순항미사일 요격 전담.',
+    'SM-3':     '스탠더드 미사일 3 — 대기권 밖에서 탄도미사일을 충돌 요격(Hit-to-Kill). BMD 핵심 무기.',
+    'SM-6':     '스탠더드 미사일 6 — SM-2 후계. 수평선 너머 표적(OTH) 교전 및 탄도미사일 말단 단계 요격 겸용.',
+    'RAM':      'RIM-116 롤링 에어프레임 미사일 — CIWS급 단거리 함대공미사일. 순항미사일·헬기 최후 방어에 사용.',
+    'REQ':      '요구조건(Requirement) — 작전 성공 기준. 예: "요격률 85% 이상" 달성 여부로 시뮬레이션 합격·불합격 판정.',
+    'CVaR':     '조건부 위험값(Conditional Value at Risk) — 최악 5% 시나리오의 평균 성과. 극단적 상황에서의 방어력 하한선.',
+    'LHS':      '라틴 하이퍼큐브 샘플링 — 파라미터 불확실성 분석 기법. 전체 입력 공간을 균등하게 탐색해 편향 없는 통계 생성.',
+    'Sobol':    'Sobol 민감도 분석 — 어떤 입력 파라미터가 결과에 가장 큰 영향을 미치는지 수치로 분해하는 글로벌 민감도 방법.',
+    'SPY-1D':   'AN/SPY-1D — 이지스 함정의 4면 고정 위상배열 레이더. 360° 동시 탐색·추적, 빔 회전 주기 약 6초.',
+    'Kh-31P':   'Kh-31P — 러시아제 대방사미사일. 마하 3.5+, 110km 사거리. 레이더 전파를 수동 추적해 직격.',
+    'LD-10':    'LD-10 — 중국 PLAAF 대방사미사일. Kh-31P와 유사한 역할, J-16·JH-7 운용.',
+    'Kh-58U':   'Kh-58U — 러시아제 대방사미사일. 마하 3.6, 250km 장거리. Su-24·Su-34에서 운용.',
+    'YJ-21':    'YJ-21(鷹擊-21) — 중국 극초음속 대함미사일. 마하 10, 1500km 사거리. 항모 킬러.',
+    'IRBM':     '중거리 탄도미사일(Intermediate-Range Ballistic Missile) — 사거리 3,000~5,500km. 북한 화성-12 등.',
+    'HAD':      '항모전단 방어권(Carrier Group Air Defense) — 항모를 중심으로 호위함들이 다층 방어망을 구성하는 개념.',
+    '055형':    '055형 구축함(Type 055) — 중국 최신예 대형 구축함. 1만 2천 톤급, 112셀 VLS. 미 알레이버크급 능가 설계.',
+    '054A형':   '054A형 호위함(Type 054A) — 중국 4000톤급 호위함. HHQ-16 함대공미사일, 어뢰 탑재.',
+    'FFX':      '차기 호위함(FFX) — 한국 해군 미래 호위함. FFX-I(인천급) → FFX-II → FFX-III로 능력 단계 향상.',
+    'KDX':      '한국형 구축함(KDX) — KDX-II(충무공이순신급) 4,500t, KDX-III(세종대왕급) 1만t 이지스 구축함.',
+    'C2':       '지휘통제(Command & Control) — 교전 결심·자원 배분·정보 공유를 총괄하는 지휘 체계.',
+}
+
+def _apply_term_tooltip(item: 'QTableWidgetItem', text: str) -> None:
+    hits = [tip for kw, tip in TERM_TOOLTIPS.items() if kw in text]
+    if hits:
+        item.setToolTip('\n\n'.join(hits))
+
+
 _FEATURES = [
     ("🗺️  전장 애니메이션",
      "전투 상황을 입체적인 2.5D 영상으로 재생. 마우스 휠·버튼으로 줌인/줌아웃, "
@@ -5361,6 +5401,8 @@ class SplashWindow(QWidget):
             desc_item = QTableWidgetItem(desc)
             desc_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            _apply_term_tooltip(ni, name + ' ' + desc)
+            _apply_term_tooltip(desc_item, desc)
             tbl.setItem(row, 0, ni)
             tbl.setItem(row, 1, desc_item)
         tbl.verticalHeader().setDefaultSectionSize(68)
@@ -5456,9 +5498,6 @@ class SplashWindow(QWidget):
             ("v9.x", "높음", "지형·해상 환경 반영",
              "실제 지형 데이터를 적용해 산이나 섬 뒤에 있으면 레이더가 탐지 못하는 음영 구역 구현. "
              "바닷속 수온층 데이터를 적용해 수온에 따라 음파 탐지 거리가 달라지는 현실적 대잠 환경 구현."),
-            ("v7.x", "낮음", "용어 툴팁",
-             "향후 계획·기능 목록에 등장하는 군사·기술 용어에 마우스를 올리면 "
-             "쉬운 말로 설명하는 작은 창이 뜨도록 추가."),
         ]
 
         tbl = QTableWidget(len(_PLANS), 4)
@@ -5486,9 +5525,12 @@ class SplashWindow(QWidget):
             desc_item = QTableWidgetItem(f"  {desc}")
             desc_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            title_item = QTableWidgetItem(f"  {title}")
+            _apply_term_tooltip(title_item, title + ' ' + desc)
+            _apply_term_tooltip(desc_item, desc)
             tbl.setItem(r, 0, vi)
             tbl.setItem(r, 1, di)
-            tbl.setItem(r, 2, QTableWidgetItem(f"  {title}"))
+            tbl.setItem(r, 2, title_item)
             tbl.setItem(r, 3, desc_item)
         tbl.verticalHeader().setDefaultSectionSize(68)
 
