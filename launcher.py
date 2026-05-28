@@ -1,9 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.05 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.06 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.06 — 코드 안정성 3종 수정]                                             ║
+║  BUG-1  plot_v7() fig.clf() 누락 → 장기 사용 시 RAM 지속 증가 수정         ║
+║  BUG-2  SimWorker 좀비 — 재실행 전 이전 워커 종료 보장                      ║
+║  BUG-3  REQ 평가·DB 저장 except → _write_log로 에러 기록                   ║
+║                                                                              ║
 ║  [v8.05 — 향후 계획에 코드 안정성 감사 항목 추가]                           ║
-║  NEW-A  matplotlib plt.close() 누락·SimWorker 좀비·except 로깅 3종 추가    ║
 ║                                                                              ║
 ║  [v8.04 — 향후 계획 전면 개편: 교정 항목 추가 + 16개 재정렬]                ║
 ║  NEW-A  교정 4종 신규 추가: REQ 체계·위협 임박도·SAM 살보·Pk 경고 UI       ║
@@ -237,7 +241,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp
+import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
@@ -509,7 +513,7 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
         verdicts, _ = evaluate_req_v7(result, mc)
         req_pass = int(all(verdicts))
     except Exception:
-        pass
+        _write_log(f'[WARN] evaluate_req_v7 실패: {traceback.format_exc()}')
     # cfg 저장: enemy_fleet 리스트는 enemy_str 컬럼에 이미 있으므로 제외
     safe_cfg = {k: v for k, v in cfg.items() if k != 'enemy_fleet'}
     try:
@@ -538,7 +542,7 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
         con.commit()
         con.close()
     except Exception:
-        pass
+        _write_log(f'[WARN] sim_history DB 저장 실패: {traceback.format_exc()}')
 
 
 def _load_sim_db(limit: int = 500) -> list:
@@ -4441,6 +4445,14 @@ class MainWindow(QMainWindow):
         self._t0 = time.time()
         self._lbl_status.setText("실행 중...")
 
+        # BUG-1: 이전 워커가 살아 있으면 종료 후 교체
+        if self._worker and self._worker.isRunning():
+            self._worker.requestInterruption()
+            self._worker.quit()
+            if not self._worker.wait(2000):
+                self._worker.terminate()
+                self._worker.wait(500)
+
         self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode,
                                  sobol_npp=sobol_npp, sim_mode_idx=mode_idx)
         self._worker.progress.connect(self._on_progress)
@@ -5672,12 +5684,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            # ── v8.x : 코드 안정성 ───────────────────────────────────────────
-            ("v8.x", "낮음", "코드 안정성 감사",
-             "① matplotlib Figure 해제 누락 — engine_v7.py plot_v7()·launcher.py 차트 함수에서 "
-             "plt.close(fig) 미호출로 장기 사용 시 RAM 지속 증가. "
-             "② 이전 SimWorker 미취소 — 빠른 재실행 시 이전 워커가 좀비로 백그라운드에 잔존. "
-             "③ except Exception 핵심 경로 로깅 추가 — 조용히 삼켜진 에러 탐지 불가 구조 개선."),
             # ── v8.x : 교정 / 개선 ───────────────────────────────────────────
             ("v8.x", "낮음", "REQ 체계 개선",
              "REQ-03(평균 > 0%) 삭제 — 항상 패스되는 무의미한 기준. "

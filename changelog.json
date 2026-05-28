@@ -845,5 +845,15 @@
       "추가  향후 계획 탭: 이전 SimWorker 미취소 — 빠른 재실행 시 좀비 워커 잔존 방지",
       "추가  향후 계획 탭: except Exception 핵심 경로 로깅 — 조용히 삼켜진 에러 탐지 불가 구조 개선"
     ]
+  },
+  {
+    "version": "55",
+    "date": "2026-05-28",
+    "title": "코드 안정성 3종 수정 (v8.06)",
+    "changes": [
+      "수정  plot_v7() fig.clf() 누락 — 장기 사용 시 matplotlib Figure가 메모리에 잔존하는 문제 해결",
+      "수정  SimWorker 좀비 — 재실행 시 이전 워커 requestInterruption+quit+terminate 후 교체",
+      "수정  REQ 평가·DB 저장 except Exception pass → _write_log로 에러 내용 기록"
+    ]
   }
 ]

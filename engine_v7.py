@@ -2948,6 +2948,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         y -= 0.075
 
     fig.savefig(img_path, dpi=150, bbox_inches='tight', facecolor=_BG)
+    fig.clf()
     print(f"  그래프 저장: '{img_path}'")
     return img_path
 
