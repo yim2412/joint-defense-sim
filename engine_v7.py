@@ -2504,46 +2504,66 @@ def optimize_weapon_loadout_v7(cfg: dict,
 # ════════════════════════════════════════════════════════════════════════════
 
 REQ_ITEMS_V7 = [
-    {'id': 'REQ-01', 'name': '전탄 요격 (단일)',   'desc': '단일 시뮬에서 모든 위협 요격'},
-    {'id': 'REQ-02', 'name': '응답시간 충족',      'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'},
-    {'id': 'REQ-03', 'name': '요격 가능성 확인',   'desc': 'MC 평균 요격률 > 0%'},
-    {'id': 'REQ-04', 'name': '생존율 ≥ 90%',       'desc': 'MC 완전 요격 성공률 ≥ 90%'},
-    {'id': 'REQ-05', 'name': '아군 무피격 (단일)', 'desc': '단일 시뮬에서 아군 피격 0회'},
-    {'id': 'REQ-06', 'name': '다층 방어 확인',     'desc': '발사 미사일 수 ≥ 위협 수 (재교전 여력)'},
-    {'id': 'REQ-07', 'name': '재고 충분',          'desc': '교전 후 주요 무기 잔여 ≥ 1발'},
-    {'id': 'REQ-08', 'name': '채널 한계 미초과',   'desc': '최대 동시 위협 ≤ 편대 총 채널'},
+    {'id': 'REQ-01', 'name': 'MC 평균 요격률 ≥ 95%',  'desc': 'MC 평균 요격률 ≥ 95% (운 배제, 실력 기준)'},
+    {'id': 'REQ-02', 'name': '응답시간 충족',          'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'},
+    {'id': 'REQ-04', 'name': '완전 요격 달성률 ≥ 90%', 'desc': 'MC 완전 요격(100%) 달성 비율 ≥ 90%'},
+    {'id': 'REQ-05', 'name': '아군 무피격 (MC)',        'desc': 'MC 시뮬의 85% 이상에서 아군 피격 0회'},
+    {'id': 'REQ-06', 'name': '다층 방어 확인',          'desc': '발사 미사일 수 ≥ 위협 수 (재교전 여력)'},
+    {'id': 'REQ-07', 'name': '주요 SAM 잔여 ≥ 20%',    'desc': 'SM-3·SM-6·SM-2 합산 잔여 ≥ 초기 재고 20%'},
+    {'id': 'REQ-08', 'name': '채널 한계 미초과',        'desc': '최대 동시 위협 ≤ 편대 총 채널'},
 ]
 
 
-def evaluate_req_v7(result: dict, mc: dict) -> tuple:
-    """REQ_ITEMS_V7 8항목 판정. (verdicts: list[bool], details: list[str]) 반환."""
-    ir       = result['intercept_rate']
+_SAM_STOCK_KEYS = {
+    'SM-3 Block IIA':  'sm3_stock',
+    'SM-6':            'sm6_stock',
+    'SM-2 Block IIIB': 'sm2_stock',
+}
+
+
+def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
+    """REQ_ITEMS_V7 7항목 판정. (verdicts: list[bool], details: list[str]) 반환."""
     tfirst   = result.get('t_first_fire', -1.0)
     fired    = result.get('total_missiles_fired', 0)
     threats  = result['total_threats']
-    f_hits   = result['friendly_hits']
     peak_et  = result.get('peak_concurrent_threats', 0)
     tot_ch   = result.get('total_channels', 16)
     rem_inv  = result.get('remaining_inventory', {})
 
-    req1 = ir >= 1.0
+    # REQ-01: MC 평균 요격률 ≥ 95% (단일 시뮬 운 배제)
+    req1 = mc['mean_intercept'] >= 0.95
+
     req2 = 0 <= tfirst <= MAX_RESPONSE_TIME_S
-    req3 = mc['mean_intercept'] > 0.0
+
     req4 = mc['full_pass_rate'] >= 0.90
-    req5 = f_hits == 0
+
+    # REQ-05: MC 시뮬의 85% 이상에서 아군 피격 0회
+    hits_list = mc.get('friendly_hits', [])
+    zero_hit_rate = (sum(1 for h in hits_list if h == 0) / len(hits_list)) if hits_list else 1.0
+    req5 = zero_hit_rate >= 0.85
+
     req6 = (fired >= threats) if threats > 0 else True
-    req7 = any(v > 0 for v in rem_inv.values())
+
+    # REQ-07: 주요 SAM(SM-3·SM-6·SM-2) 잔여 ≥ 초기 재고 20%
+    if cfg:
+        init_sam = sum(cfg.get(v, 0) for v in _SAM_STOCK_KEYS.values())
+        rem_sam  = sum(rem_inv.get(k, 0) for k in _SAM_STOCK_KEYS)
+        req7 = (rem_sam / init_sam >= 0.20) if init_sam > 0 else True
+        req7_detail = f"주요 SAM 잔여 {rem_sam}발 / 초기 {init_sam}발 ({rem_sam/init_sam:.0%})" if init_sam > 0 else "재고 없음"
+    else:
+        req7 = any(v > 0 for v in rem_inv.values())
+        req7_detail = f"잔여 {'확보됨' if req7 else '전량 소진!'} ({sum(rem_inv.values())}발)"
+
     req8 = peak_et <= tot_ch
 
-    verdicts = [req1, req2, req3, req4, req5, req6, req7, req8]
+    verdicts = [req1, req2, req4, req5, req6, req7, req8]
     details  = [
-        f"요격률 {ir:.1%} {'≥' if req1 else '<'} 100%",
+        f"MC 평균 요격률 {mc['mean_intercept']:.1%} {'≥' if req1 else '<'} 95%",
         f"첫 발사 {tfirst:.0f}s ≤ {MAX_RESPONSE_TIME_S}s" if tfirst >= 0 else "발사 없음",
-        f"MC 평균 요격률 {mc['mean_intercept']:.1%}",
         f"MC 완전 성공률 {mc['full_pass_rate']:.1%} {'≥' if req4 else '<'} 90%",
-        f"아군 피격 {f_hits}회",
+        f"MC 무피격 비율 {zero_hit_rate:.1%} {'≥' if req5 else '<'} 85%",
         f"발사 {fired}발 / 위협 {threats}개",
-        f"잔여 {'확보됨' if req7 else '전량 소진!'} ({sum(rem_inv.values())}발)",
+        req7_detail,
         f"최대 동시 위협 {peak_et} ≤ 채널 {tot_ch}",
     ]
     return verdicts, details

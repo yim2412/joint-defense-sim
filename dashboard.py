@@ -869,7 +869,7 @@ if 'v7_sim_data' in st.session_state and use_v7:
     # ── Tab 3: REQ 판정 (포팅 D) ────────────────────────────────────────────
     with _vt3:
         if _V7_OK:
-            _verdicts, _details = evaluate_req_v7(_vr, _vm)
+            _verdicts, _details = evaluate_req_v7(_vr, _vm, _vcfg)
             _req_rows = [
                 {'ID': r['id'], '요구조건': r['name'],
                  '판정': '✅ PASS' if v else '❌ FAIL', '상세': d}

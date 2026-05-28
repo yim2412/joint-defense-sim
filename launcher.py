@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.06 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.07 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.07 — REQ 체계 개선]                                                    ║
+║  NEW-A  REQ-03 삭제 — MC 평균 > 0% 는 항상 PASS, 무의미한 기준 제거        ║
+║  NEW-B  REQ-01 단일 시뮬 → MC 평균 요격률 ≥ 95% (운 배제, 실력 판정)      ║
+║  NEW-C  REQ-05 단일 시뮬 → MC 무피격 비율 ≥ 85%                            ║
+║  NEW-D  REQ-07 잔여 ≥ 1발 → 주요 SAM 잔여 ≥ 초기 재고 20%                 ║
+║                                                                              ║
 ║  [v8.06 — 코드 안정성 3종 수정]                                             ║
 ║  BUG-1  plot_v7() fig.clf() 누락 → 장기 사용 시 RAM 지속 증가 수정         ║
 ║  BUG-2  SimWorker 좀비 — 재실행 전 이전 워커 종료 보장                      ║
@@ -510,7 +516,7 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
     req_pass = None
     try:
         from engine_v7 import evaluate_req_v7, REQ_ITEMS_V7
-        verdicts, _ = evaluate_req_v7(result, mc)
+        verdicts, _ = evaluate_req_v7(result, mc, cfg)
         req_pass = int(all(verdicts))
     except Exception:
         _write_log(f'[WARN] evaluate_req_v7 실패: {traceback.format_exc()}')
@@ -3035,7 +3041,7 @@ def _render_bearing_vulnerability(result: dict) -> Figure:
     return fig
 
 
-def _render_req_radar(result: dict, mc: dict) -> Figure:
+def _render_req_radar(result: dict, mc: dict, cfg: dict = None) -> Figure:
     fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
     if not _V7_OK:
         ax = fig.add_subplot(111)
@@ -3043,7 +3049,7 @@ def _render_req_radar(result: dict, mc: dict) -> Figure:
                 color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
         return fig
     try:
-        verdicts, _ = evaluate_req_v7(result, mc)
+        verdicts, _ = evaluate_req_v7(result, mc, cfg)
     except Exception:
         return fig
     ax = fig.add_subplot(111, polar=True)
@@ -4537,7 +4543,7 @@ class MainWindow(QMainWindow):
         """포팅 D: REQ 판정 테이블 채우기."""
         if not _V7_OK:
             return
-        verdicts, details = evaluate_req_v7(result, mc)
+        verdicts, details = evaluate_req_v7(result, mc, self._worker.cfg if self._worker else None)
         self.req_table.setRowCount(0)
         for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
             row = self.req_table.rowCount()
@@ -4894,7 +4900,8 @@ class MainWindow(QMainWindow):
         self.tab_bearing.start_render(_render_bearing_vulnerability, result)
 
     def _draw_req_radar(self, result: dict, mc: dict):
-        self.tab_req_radar.start_render(_render_req_radar, result, mc)
+        cfg = self._worker.cfg if self._worker else None
+        self.tab_req_radar.start_render(_render_req_radar, result, mc, cfg)
 
     def _draw_threat_type(self, result: dict, mc: dict):
         self.tab_threat_type.start_render(_render_threat_type, result, mc)
@@ -5685,11 +5692,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v8.x : 교정 / 개선 ───────────────────────────────────────────
-            ("v8.x", "낮음", "REQ 체계 개선",
-             "REQ-03(평균 > 0%) 삭제 — 항상 패스되는 무의미한 기준. "
-             "REQ-01·05를 단일 시뮬 → MC 기반 판정으로 교체 (운이 아닌 실력 판정). "
-             "REQ-07 '잔여 ≥ 1발' → '주요 SAM 잔여 ≥ 20%'로 강화. "
-             "REQ-04 90% 기준을 위협 수 대비 정규화 검토."),
             ("v8.x", "낮음", "VLS 재고 추적",
              "함정별 VLS 발사관 수를 실제 장착량으로 제한 (세종대왕급 SM-3 ×8, SM-6 ×16, SM-2 ×24 등). "
              "현실 탑재량 잠금 옵션 ON 시 슬라이더 최댓값 자동 제한. "

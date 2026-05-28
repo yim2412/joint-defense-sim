@@ -855,5 +855,16 @@
       "수정  SimWorker 좀비 — 재실행 시 이전 워커 requestInterruption+quit+terminate 후 교체",
       "수정  REQ 평가·DB 저장 except Exception pass → _write_log로 에러 내용 기록"
     ]
+  },
+  {
+    "version": "56",
+    "date": "2026-05-28",
+    "title": "REQ 체계 개선 (v8.07)",
+    "changes": [
+      "삭제  REQ-03 (MC 평균 요격률 > 0%) — 사실상 항상 패스되는 무의미한 기준 제거",
+      "수정  REQ-01 단일 시뮬 전탄 요격 → MC 평균 요격률 ≥ 95% (운이 아닌 실력 판정)",
+      "수정  REQ-05 단일 시뮬 무피격 → MC 시뮬의 85% 이상에서 아군 피격 0회",
+      "수정  REQ-07 잔여 ≥ 1발 → SM-3·SM-6·SM-2 합산 잔여 ≥ 초기 재고 20%"
+    ]
   }
 ]
