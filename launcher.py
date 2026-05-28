@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.50 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.00 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.00 — 도움말/튜토리얼 탭 추가]                                          ║
+║  NEW-A  런처 스플래시에 도움말 탭 추가 (용어 설명 / 실행 순서 / FAQ)        ║
+║  NEW-B  최초 실행 시 도움말 탭 자동 선택, 이후엔 마지막 탭 위치 복원        ║
+║                                                                              ║
 ║  [v7.50 — 용어 툴팁 추가]                                                   ║
 ║  NEW-A  향후 계획·탑재 기능 탭에 군사·기술 용어 마우스오버 툴팁 (~35종)     ║
 ║                                                                              ║
@@ -347,6 +351,23 @@ def _log_base() -> str:
 
 def _log_path()  -> str: return os.path.join(_log_base(), 'sim_history.log')
 def _json_log_path() -> str: return os.path.join(_log_base(), 'sim_history.json')
+def _app_state_path() -> str: return os.path.join(_log_base(), 'app_state.json')
+
+
+def _load_app_state() -> dict:
+    try:
+        with open(_app_state_path(), encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_app_state(state: dict):
+    try:
+        with open(_app_state_path(), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def _write_log(line: str):
@@ -5362,24 +5383,178 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v7.21  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v8.00  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
 
         tabs = QTabWidget()
         layout.addWidget(tabs, stretch=1)
+        tabs.addTab(self._build_help_tab(),         "❓  도움말")
         tabs.addTab(self._build_feature_tab(),      "📋  탑재 기능")
         tabs.addTab(self._build_changelog_tab(),   "📝  패치 내역")
         tabs.addTab(self._build_plan_tab(),        "🗓️  향후 계획")
         tabs.addTab(self._build_enemy_db_tab(),    "🔴  적군 DB")
         tabs.addTab(self._build_friendly_db_tab(), "🔵  아군 DB")
 
+        # 최초 실행 시 도움말 탭(0); 이후엔 마지막 선택 탭 복원
+        saved_tab = _load_app_state().get('splash_tab', 0)
+        tabs.setCurrentIndex(saved_tab)
+        tabs.currentChanged.connect(
+            lambda idx: _save_app_state({**_load_app_state(), 'splash_tab': idx})
+        )
+
         btn = QPushButton("🚀  시뮬레이터 시작")
         btn.setFixedHeight(46)
         btn.clicked.connect(self.launch_requested.emit)
         layout.addWidget(btn)
 
+    # ── 도움말 / 튜토리얼 탭 ──────────────────────────────────────────────
+    def _build_help_tab(self) -> QWidget:
+        _GLOSSARY = [
+            ("Pk (Kill Probability)",    "교전 1회에서 위협을 격추할 확률 (0~1). 값이 높을수록 방어 성능이 우수."),
+            ("RCS (Radar Cross Section)", "레이더에 반사되는 등가 면적 (㎡). 값이 작을수록 탐지가 어려운 스텔스 표적."),
+            ("CEP (Circular Error Probable)", "유도탄의 유도 오차 반경 (m). 값이 작을수록 정밀한 무기."),
+            ("ECM (Electronic Counter Measures)", "전자 방해 장치. ECM 지수가 높을수록 아군 레이더·유도탄 Pk 감소."),
+            ("몬테카를로 시뮬레이션",   "동일 조건을 수천~수만 회 반복해 확률 분포를 추정하는 기법."),
+            ("CVaR (Conditional VaR)",   "최악 5% 시나리오의 평균 생존율. 극단 상황 대비 지표."),
+            ("REQ (Requirements)",        "요구조건. 생존율·격추율 임계값을 충족하는지 판정."),
+            ("SM-2 / SM-6",               "함대공 미사일. SM-2는 중거리, SM-6는 장거리 및 탄도미사일 요격 가능."),
+            ("CIWS (근접 방어 체계)",     "최후 방어선. 20mm 기관포로 근거리 위협을 자동 요격."),
+            ("SAM (함대공 미사일)",        "Surface-to-Air Missile. 함정에서 발사하는 대공 미사일."),
+            ("이지스 (Aegis)",            "위상 배열 레이더 기반 통합 전투 체계. 동시 다수 표적 추적·교전 가능."),
+            ("HGV (극초음속 활공체)",     "마하 5 이상으로 날아오는 활공 탄도체. 기동성이 높아 요격이 매우 어려움."),
+            ("교전 음영구역",             "레이더 사각지대 또는 최소 교전 거리 이내의 구역."),
+            ("파고 / 해상 상태",          "Sea State 0~6. 파고가 높을수록 센서·무기 명중률 저하."),
+        ]
+
+        _STEPS = [
+            ("1", "시뮬레이터 시작", "이 창 하단의 [🚀 시뮬레이터 시작] 버튼을 클릭합니다."),
+            ("2", "아군 함정 선택",   "좌측 패널 상단에서 단독함 또는 편대 프리셋을 선택합니다."),
+            ("3", "위협 설정",        "적군 위협 종류, 공격 수, 파고·날씨 조건을 설정합니다."),
+            ("4", "반복 횟수 설정",   "몬테카를로 반복 횟수를 설정합니다. (빠른 확인 1,000 / 표준 10,000 / 정밀 100,000)"),
+            ("5", "시뮬레이션 실행",  "[▶ 시뮬레이션 실행] 버튼을 클릭하고 진행 바를 기다립니다."),
+            ("6", "결과 확인",        "결과 탭에서 격추율, 생존율, REQ 충족 여부, CVaR 등을 확인합니다."),
+            ("7", "보고서 내보내기",  "결과 탭 하단 버튼으로 Excel(.xlsx) 또는 PNG 보고서를 저장합니다."),
+            ("8", "실행 기록 재사용", "실행 기록 탭에서 이전 시뮬레이션 설정을 불러와 재실행할 수 있습니다."),
+        ]
+
+        _FAQ = [
+            ("몬테카를로 횟수를 얼마로 설정해야 하나요?",
+             "빠른 확인 1,000회 · 표준 분석 10,000회 · 정밀 분석 100,000회를 권장합니다.\n"
+             "횟수가 많을수록 결과가 안정적이나 시간이 오래 걸립니다."),
+            ("Pk가 0으로 나옵니다. 왜인가요?",
+             "선택한 무기의 사거리 밖이거나 RCS가 너무 작아 탐지 자체가 불가능한 경우입니다.\n"
+             "위협의 접근 거리와 해당 무기의 최대 사거리를 비교해 보세요."),
+            ("REQ가 빨간색(미달)으로 표시됩니다.",
+             "격추율 또는 생존율이 요구조건 임계값 미만입니다.\n"
+             "함정 수를 늘리거나 SM-6 등 장거리 무기 탑재 수를 늘려 보세요."),
+            ("엑셀 보고서는 어디에 저장되나요?",
+             "실행 파일(또는 launcher.py)과 같은 폴더에 자동 저장됩니다.\n"
+             "파일명에 날짜·시각이 포함되므로 여러 번 실행해도 덮어쓰이지 않습니다."),
+            ("애니메이션이 느리게 재생됩니다.",
+             "반복 횟수를 줄이거나, 애니메이션 탭에서 [속도] 슬라이더를 조정하세요.\n"
+             "고성능 PC에서도 100,000회 이상의 애니메이션은 부드럽지 않을 수 있습니다."),
+            ("편대 모드와 단독함 모드의 차이는 무엇인가요?",
+             "단독함 모드는 이지스함 1척의 방어 성능을 분석합니다.\n"
+             "편대 모드는 이지스함 + 호위함 등 다중 함정이 협력해 방어하는 시나리오를 시뮬레이션합니다."),
+        ]
+
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(8, 8, 8, 8)
+
+        inner_tabs = QTabWidget()
+        outer.addWidget(inner_tabs)
+
+        # ── 용어 설명 탭
+        gw = QWidget()
+        gl = QVBoxLayout(gw)
+        gl.setContentsMargins(4, 4, 4, 4)
+        gtbl = QTableWidget(len(_GLOSSARY), 2)
+        gtbl.setHorizontalHeaderLabels(["용어", "설명"])
+        gtbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        gtbl.setColumnWidth(0, 240)
+        gtbl.setWordWrap(True)
+        gtbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        gtbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        gtbl.verticalHeader().setVisible(False)
+        gtbl.setAlternatingRowColors(True)
+        gtbl.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        for r, (term, desc) in enumerate(_GLOSSARY):
+            ti = QTableWidgetItem(term)
+            ti.setForeground(QColor(C_ACCENT))
+            di = QTableWidgetItem(desc)
+            di.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            gtbl.setItem(r, 0, ti)
+            gtbl.setItem(r, 1, di)
+        gtbl.verticalHeader().setDefaultSectionSize(52)
+        gl.addWidget(gtbl)
+        inner_tabs.addTab(gw, "📖  용어 설명")
+
+        # ── 실행 순서 탭
+        sw = QWidget()
+        sl = QVBoxLayout(sw)
+        sl.setContentsMargins(4, 4, 4, 4)
+        stbl = QTableWidget(len(_STEPS), 3)
+        stbl.setHorizontalHeaderLabels(["단계", "항목", "안내"])
+        stbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        stbl.setColumnWidth(0, 50)
+        stbl.setColumnWidth(1, 160)
+        stbl.setWordWrap(True)
+        stbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        stbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        stbl.verticalHeader().setVisible(False)
+        stbl.setAlternatingRowColors(True)
+        stbl.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        for r, (step, title, desc) in enumerate(_STEPS):
+            si = QTableWidgetItem(step)
+            si.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            si.setForeground(QColor(C_ORANGE))
+            ti = QTableWidgetItem(title)
+            ti.setForeground(QColor(C_ACCENT))
+            di = QTableWidgetItem(desc)
+            di.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            stbl.setItem(r, 0, si)
+            stbl.setItem(r, 1, ti)
+            stbl.setItem(r, 2, di)
+        stbl.verticalHeader().setDefaultSectionSize(52)
+        sl.addWidget(stbl)
+        inner_tabs.addTab(sw, "🗺️  실행 순서")
+
+        # ── FAQ 탭
+        fw = QWidget()
+        fl = QVBoxLayout(fw)
+        fl.setContentsMargins(4, 4, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
+        faq_w = QWidget()
+        faq_l = QVBoxLayout(faq_w)
+        faq_l.setContentsMargins(8, 8, 8, 8)
+        faq_l.setSpacing(10)
+        for q, a in _FAQ:
+            q_lbl = QLabel(f"Q.  {q}")
+            q_lbl.setWordWrap(True)
+            q_lbl.setStyleSheet(
+                f"color: {C_ACCENT}; font-weight: bold; font-size: 15px; "
+                f"padding: 6px 8px; background: {C_PANEL}; border-radius: 4px;")
+            a_lbl = QLabel(a)
+            a_lbl.setWordWrap(True)
+            a_lbl.setStyleSheet(
+                f"color: {C_TEXT}; font-size: 14px; padding: 4px 14px 10px 14px;")
+            faq_l.addWidget(q_lbl)
+            faq_l.addWidget(a_lbl)
+        faq_l.addStretch()
+        scroll.setWidget(faq_w)
+        fl.addWidget(scroll)
+        inner_tabs.addTab(fw, "❓  FAQ")
+
+        return w
+
+    # ─────────────────────────────────────────────────────────────────────────
     def _build_feature_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -5487,10 +5662,6 @@ class SplashWindow(QWidget):
             ("v8.x", "높음", "한미 연합 작전",
              "한미 연합 작전 시 미 해군은 탄도미사일, 한국 해군은 순항미사일을 각각 담당하는 임무 분담 구현. "
              "결과 화면에 한국·미국 기여도를 분리해서 표시."),
-            ("v8.x", "낮음", "도움말 / 튜토리얼 탭",
-             "처음 쓰는 사람도 바로 따라할 수 있도록 탭 추가. "
-             "주요 용어 설명, 시뮬레이션 실행 순서 안내, 자주 묻는 질문(FAQ) 포함. "
-             "처음 실행 시 이 탭이 자동으로 열림."),
             ("v9.x", "매우 높음", "완전 양방향 교전",
              "현재는 아군만 미사일을 막지만, 앞으로는 적 함정·항공기도 "
              "아군 미사일을 자체 방공으로 요격. "
