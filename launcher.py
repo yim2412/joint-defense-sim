@@ -1103,7 +1103,6 @@ class SimLogDialog(QDialog):
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}"
         )
         self._build_ui()
-        self._load()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1223,51 +1222,53 @@ class SimLogDialog(QDialog):
         self._lbl_count.setText(f"총 {len(filtered)}건")
 
     def _fill_table(self, records: list):
-        self._tbl.setSortingEnabled(False)
-        self._tbl.setRowCount(0)
-        for rec in records:
-            row = self._tbl.rowCount()
-            self._tbl.insertRow(row)
-            cvar = rec.get('cvar')
-            req  = rec.get('req_pass')
-            values = [
-                rec.get('datetime', ''),
-                rec.get('fleet', ''),
-                rec.get('weather', ''),
-                rec.get('sim_mode', '—'),
-                str(rec.get('mc_n', '')),
-                str(rec.get('total_threats', '')),
-                f"{rec.get('mean_intercept', 0):.1%}",
-                f"±{rec.get('std_intercept', 0):.1%}",
-                f"{rec.get('full_pass_rate', 0):.1%}",
-                f"{cvar:.1%}" if cvar is not None else '—',
-                ('✅' if req == 1 else '❌' if req == 0 else '—'),
-                f"{rec.get('avg_friendly_hits', 0):.1f}",
-                f"{rec.get('total_cost', 0) / 1e6:.1f}",
-                rec.get('enemy', ''),
-            ]
-            for col, val in enumerate(values):
-                item = QTableWidgetItem(val)
-                item.setTextAlignment(
-                    Qt.AlignmentFlag.AlignCenter
-                    if col != len(self._COLS) - 1
-                    else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                # 요격률 컬러 (col 6)
-                if col == 6:
-                    rate = rec.get('mean_intercept', 0)
-                    item.setForeground(QColor(
-                        C_GREEN if rate >= 0.8 else
-                        '#f39c12' if rate >= 0.5 else
-                        '#e74c3c'))
-                # CVaR 컬러 (col 9)
-                if col == 9 and cvar is not None:
-                    item.setForeground(QColor(
-                        C_GREEN if cvar >= 0.7 else
-                        '#f39c12' if cvar >= 0.4 else
-                        '#e74c3c'))
-                self._tbl.setItem(row, col, item)
-            self._tbl.item(row, 0).setData(Qt.ItemDataRole.UserRole, rec)
-        self._tbl.setSortingEnabled(True)
+        tbl = self._tbl
+        tbl.setSortingEnabled(False)
+        tbl.setUpdatesEnabled(False)
+        try:
+            tbl.setRowCount(len(records))
+            for row, rec in enumerate(records):
+                cvar = rec.get('cvar')
+                req  = rec.get('req_pass')
+                values = [
+                    rec.get('datetime', ''),
+                    rec.get('fleet', ''),
+                    rec.get('weather', ''),
+                    rec.get('sim_mode', '—'),
+                    str(rec.get('mc_n', '')),
+                    str(rec.get('total_threats', '')),
+                    f"{rec.get('mean_intercept', 0):.1%}",
+                    f"±{rec.get('std_intercept', 0):.1%}",
+                    f"{rec.get('full_pass_rate', 0):.1%}",
+                    f"{cvar:.1%}" if cvar is not None else '—',
+                    ('✅' if req == 1 else '❌' if req == 0 else '—'),
+                    f"{rec.get('avg_friendly_hits', 0):.1f}",
+                    f"{rec.get('total_cost', 0) / 1e6:.1f}",
+                    rec.get('enemy', ''),
+                ]
+                last_col = len(self._COLS) - 1
+                for col, val in enumerate(values):
+                    item = QTableWidgetItem(val)
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignCenter
+                        if col != last_col
+                        else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    if col == 6:
+                        rate = rec.get('mean_intercept', 0)
+                        item.setForeground(QColor(
+                            C_GREEN if rate >= 0.8 else
+                            '#f39c12' if rate >= 0.5 else
+                            '#e74c3c'))
+                    if col == 9 and cvar is not None:
+                        item.setForeground(QColor(
+                            C_GREEN if cvar >= 0.7 else
+                            '#f39c12' if cvar >= 0.4 else
+                            '#e74c3c'))
+                    tbl.setItem(row, col, item)
+                tbl.item(row, 0).setData(Qt.ItemDataRole.UserRole, rec)
+        finally:
+            tbl.setUpdatesEnabled(True)
+            tbl.setSortingEnabled(True)
 
     def _show_detail(self, row: int):
         if row < 0:
@@ -3378,11 +3379,18 @@ class MainWindow(QMainWindow):
         if not alive:
             self._log_dialog = SimLogDialog(self)
             self._log_dialog.restore_requested.connect(self._restore_cfg)
+            self._log_dialog.show()
+            self._log_dialog.raise_()
+            self._log_dialog.activateWindow()
+            # 창이 그려진 뒤 데이터 로드 (메인 스레드 블로킹 방지)
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._log_dialog._load)
         else:
-            self._log_dialog._load()
-        self._log_dialog.show()
-        self._log_dialog.raise_()
-        self._log_dialog.activateWindow()
+            self._log_dialog.show()
+            self._log_dialog.raise_()
+            self._log_dialog.activateWindow()
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._log_dialog._load)
 
     def _restore_cfg(self, cfg: dict):
         """실행 기록에서 설정을 복원한다 — 편대·날씨·적군 모드 복원."""
@@ -3705,8 +3713,8 @@ class MainWindow(QMainWindow):
 
         # ── 시뮬레이션 모드 선택 ─────────────────────────────────────────────
         grp_mc = QGroupBox("📊 시뮬레이션 모드")
-        mcl = QHBoxLayout(grp_mc)
-        mcl.setSpacing(12)
+        mcl = QVBoxLayout(grp_mc)
+        mcl.setSpacing(6)
         lbl_mode = QLabel("정밀도:")
         lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         self.cmb_sim_mode = QComboBox()
@@ -3772,16 +3780,20 @@ class MainWindow(QMainWindow):
         _update_mode_hint(1)
         _update_sobol_total()
 
-        mcl.addWidget(lbl_mode)
-        mcl.addWidget(self.cmb_sim_mode)
-        mcl.addSpacing(16)
-        mcl.addWidget(lbl_npp)
-        mcl.addWidget(self.spn_sobol_npp)
-        mcl.addSpacing(4)
-        mcl.addWidget(self._lbl_sobol_total)
-        mcl.addSpacing(8)
+        row1 = QHBoxLayout()
+        row1.addWidget(lbl_mode)
+        row1.addWidget(self.cmb_sim_mode)
+        row1.addStretch()
+        mcl.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(lbl_npp)
+        row2.addWidget(self.spn_sobol_npp)
+        row2.addWidget(self._lbl_sobol_total)
+        row2.addStretch()
+        mcl.addLayout(row2)
+
         mcl.addWidget(lbl_mode_hint)
-        mcl.addStretch()
         # 초기 함대 편성 + 탐지 정보 레이블
         if _V7_OK and self.cmb_fleet.count():
             self._update_fleet_detail(self.cmb_fleet.currentText())
