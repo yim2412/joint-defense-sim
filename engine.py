@@ -77,7 +77,7 @@ CAT_PARAMS = {
 SUB_DEPTH_M = {
     '039형 잠수함 (송급)':        -250,
     '041형 잠수함 (위안급 개량)': -280,
-    '093형 잠수함 (위안급)':      -350,
+    '093형 잠수함 (상급)':        -350,
     '094형 잠수함 (진급)':        -400,
 }
 
@@ -428,7 +428,7 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.50,'enemy_ciws_pk':0.45,
          'hp':5,'high_value_target':True,
-         'carrier_aircraft':'J-35 (스텔스 함재기)','carrier_wave_interval':80},
+         'carrier_aircraft':'J-35 (백상어)','carrier_wave_interval':80},
 
     # ════ 대잠: 잠수함 (5종) ══════════════════════════════════════════════════
     # altitude_m = 잠항 수심 (음수 = 수면 아래)
@@ -595,7 +595,7 @@ ENEMY_DB = {
 
     '우달로이급 구축함':
         {'category':'대함','type':'구축함','speed_ms':16.0,'altitude_m':30,
-         'missile_name':'P-800 오닉스 (야혼트)','missile_speed_ms':2000,'missile_range_km':300,
+         'missile_name':'P-800 오닉스 (야혼트)','missile_speed_ms':824,'missile_range_km':300,
          'can_fire_missile':True,'rcs_m2':1800.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
          'missile_terminal_evasion':0.82,
@@ -604,7 +604,7 @@ ENEMY_DB = {
 
     '슬라바급 순양함':
         {'category':'대함','type':'구축함','speed_ms':17.0,'altitude_m':30,
-         'missile_name':'P-1000 (벌칸)','missile_speed_ms':2000,'missile_range_km':700,
+         'missile_name':'P-1000 (벌칸)','missile_speed_ms':824,'missile_range_km':700,
          'can_fire_missile':True,'rcs_m2':4000.0,
          'missile_salvo_min':8,'missile_salvo_max':16,
          'missile_terminal_evasion':0.82,
@@ -760,7 +760,7 @@ FRIENDLY_DB = {
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
     # NEW-B2: 국산 단거리 함대공 해궁 (K-SAAM, KVLS 탑재 — FFX-II/III 전용)
     '해궁 (K-SAAM)':
-        {'speed_ms':720,'range_km':15,'cost_usd':180000,'stock':0,
+        {'speed_ms':720,'range_km':20,'cost_usd':180000,'stock':0,
          'category':['대공','근접'],
          'pk_dist':{'alpha':10,'beta':3,'mean':0.769},'requires_illuminator':False},
     # NEW-P1: 미국 해군 무기 추가 (한미 연합 작전용)
@@ -825,7 +825,7 @@ SHIP_DB = {
     # SPY-1D(V) / Mk.41 VLS 80셀 / SM-3 미탑재 (BMD 불가)
     'KDX-III-B1': {
         'display':      '이지스 구축함 KDX-III Batch I (세종대왕급)',
-        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},
+        'sensor_km':    {'대공': 900, '대함': 45, '대잠': 50},
         'max_channels': 18,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
@@ -841,7 +841,7 @@ SHIP_DB = {
     # 개량형 SPY-1D(V) / VLS 증설 / SM-3 Block IIA 32셀 / BMD 가능
     'KDX-III-B2': {
         'display':      '이지스 구축함 KDX-III Batch II (정조대왕급)',
-        'sensor_km':    {'대공': 800, '대함': 45, '대잠': 50},
+        'sensor_km':    {'대공': 900, '대함': 45, '대잠': 50},
         'max_channels': 24,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'default_inventory': {
@@ -858,7 +858,7 @@ SHIP_DB = {
     # ── 구축함 (KDX-II 충무공이순신급) ──────────────────────────────────────
     'KDX-II': {
         'display':      '구축함 (KDX-II 충무공이순신급)',
-        'sensor_km':    {'대공': 120, '대함': 40, '대잠': 40},
+        'sensor_km':    {'대공': 250, '대함': 40, '대잠': 40},
         'max_channels': 12,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
@@ -1027,7 +1027,7 @@ SHIP_DB = {
     # DDG-51 Flight III: SPY-6 AMDR 탑재, MK-41 96셀
     'DDG-51': {
         'display':      '이지스 구축함 (DDG-51 Arleigh Burke Flight III)',
-        'sensor_km':    {'대공': 850, '대함': 50, '대잠': 50},
+        'sensor_km':    {'대공': 1000, '대함': 50, '대잠': 50},
         'max_channels': 24,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
@@ -1045,7 +1045,7 @@ SHIP_DB = {
     # CG-47 Ticonderoga: SPY-1B, MK-41 122셀 — 최대 채널 32
     'CG-47': {
         'display':      '이지스 순양함 (CG-47 Ticonderoga)',
-        'sensor_km':    {'대공': 850, '대함': 50, '대잠': 55},
+        'sensor_km':    {'대공': 450, '대함': 50, '대잠': 55},
         'max_channels': 32,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
@@ -1431,7 +1431,7 @@ ENEMY_FLEET_PRESETS = {
     ],
     # 대잠 복합 — 잠수함 2척 동시 위협
     '대잠 복합': [
-        {'preset': '093형 잠수함 (위안급)', 'count': 1},
+        {'preset': '093형 잠수함 (상급)', 'count': 1},
         {'preset': '039형 잠수함 (송급)',   'count': 1},
     ],
     # BMD 탄도 포화 — 순수 탄도·HGV 방어 전용 (SM-3/SM-6 BMD 성능 평가)
@@ -1447,7 +1447,7 @@ ENEMY_FLEET_PRESETS = {
         {'preset': 'DF-17 (극초음속 활공)', 'count': 1},
         {'preset': '055형 대형 구축함',     'count': 1},
         {'preset': 'DF-21D (대함 탄도)',    'count': 1},
-        {'preset': '093형 잠수함 (위안급)', 'count': 1},
+        {'preset': '093형 잠수함 (상급)', 'count': 1},
     ],
     # 북한 탄도 포화 — 화성 계열 + 순항
     '북한 탄도 포화': [
@@ -1464,7 +1464,7 @@ ENEMY_FLEET_PRESETS = {
     # 잠수함 복합 — 다중 잠수함 대잠 압박
     '잠수함 복합 포화': [
         {'preset': '039형 잠수함 (송급)',   'count': 3},
-        {'preset': '093형 잠수함 (위안급)', 'count': 1},
+        {'preset': '093형 잠수함 (상급)', 'count': 1},
     ],
     # 중국 항모전단 — 랴오닝 전단 (PLAN CV-16 전단)
     '랴오닝 항모전단': [
@@ -1591,7 +1591,7 @@ ENEMY_FLEET_RANDOM_CFG = {
         'pool': ['J-20 (위룡)', 'H-6 (폭격기)', 'DF-15 (단거리 탄도)',
                  'DF-21D (대함 탄도)', 'DF-17 (극초음속 활공)',
                  '055형 대형 구축함', '022형 미사일 고속정',
-                 '093형 잠수함 (위안급)'],
+                 '093형 잠수함 (상급)'],
         'max_types': 4,
     },
     '극한':   {
