@@ -390,6 +390,7 @@ class EnemyThreatObj:
         '잠수함': 3,
         '고속정': 2, '초계함': 2,
         '호위함': 3, '구축함': 4,
+        '항모': 5,
     }
 
     def __init__(self, preset_name: str, pos: Vec2):
@@ -410,7 +411,13 @@ class EnemyThreatObj:
         self.is_ship     = cat == '대함'
         self.is_sub      = cat == '대잠'
 
-        self.hp = self._HP_MAP.get(ttype, 2)
+        # ENEMY_DB hp 필드 우선, 없으면 _HP_MAP 기본값
+        _db_hp = self.info.get('hp', None)
+        self.hp = _db_hp if _db_hp is not None else self._HP_MAP.get(ttype, 2)
+        self.high_value_target    = self.info.get('high_value_target', False)
+        self.carrier_aircraft     = self.info.get('carrier_aircraft', None)
+        self.carrier_wave_interval = self.info.get('carrier_wave_interval', 0)
+        self._last_wave_t         = 0.0   # 마지막 함재기 발진 시각
 
         if self.is_ship:
             loadout = ENEMY_SHIP_SAM_LOADOUT.get(preset_name, [])
@@ -478,6 +485,7 @@ class FriendlyShipObj:
         self.strike_inventory: dict = {}
 
         self.is_submarine  = spec.get('is_submarine', False)
+        self.nation        = spec.get('nation', 'KOR')  # v8.16: 한미 연합 작전
 
         # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
         _hp_map = {
@@ -693,6 +701,11 @@ class TimeStepEngine:
             'peak_concurrent_threats': 0,
             't_first_fire':            -1.0,
             'total_missiles_fired':    0,
+            # v8.16: 한미 연합 기여도
+            'kor_shots':               0,
+            'usa_shots':               0,
+            'kor_cost':                0.0,
+            'usa_cost':                0.0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
@@ -789,6 +802,41 @@ class TimeStepEngine:
         surface_det_km = self.cfg.get('surface_detect_km', self.cfg.get('detect_km', 45))
         sub_det_km     = self.cfg.get('sub_detect_km', 50)
         primary    = self._primary()  # 독립 미사일 표적
+
+        # ── 적 전술 AI 전처리 ────────────────────────────────────────────────
+        _ai_tactic = self.cfg.get('ai_tactic', None)
+        _FAST_TYPES = {'탄도미사일', '극초음속활공체'}
+
+        if _ai_tactic == 'saturation':
+            # 채널 포화: 아군 총 교전 채널 ×1.5 가 될 때까지 위협 수 증폭
+            total_ch = max(sum(s.max_channels for s in self.friendly_ships if s.alive), 1)
+            target   = int(total_ch * 1.5)
+            current  = max(sum(s.get('count', 1) for s in fleet_cfg), 1)
+            if target > current:
+                scale    = target / current
+                fleet_cfg = [{'preset': s['preset'],
+                               'count':  max(1, round(s.get('count', 1) * scale))}
+                              for s in fleet_cfg]
+
+        elif _ai_tactic == 'stagger':
+            # 시차 공격: 고속(탄도·HGV≥1500 m/s) 선발 → 중속+30초 → 저속+60초
+            new_fleet: list = []
+            for spec in fleet_cfg:
+                info  = ENEMY_DB.get(spec.get('preset', ''), {})
+                speed = info.get('speed_ms', 300)
+                ttype = info.get('type', '')
+                if speed >= 1500 or ttype in _FAST_TYPES:
+                    new_fleet.append(spec)                             # 즉시
+                elif speed >= 600:
+                    self._pending_threats.append((30.0, dict(spec)))   # +30초
+                else:
+                    self._pending_threats.append((60.0, dict(spec)))   # +60초
+            # 즉시 위협이 아예 없으면 첫 항목은 즉시 등장
+            fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]
+
+        elif _ai_tactic == 'exploit_weakness':
+            # 약점 공략: 단일 방향 집중 (다방위 억제)
+            self.cfg['enable_multibearing'] = False
 
         threats: List[EnemyThreatObj] = []
         total = sum(s.get('count', 1) for s in fleet_cfg)
@@ -1364,6 +1412,13 @@ class TimeStepEngine:
         self.stats['total_missiles_fired'] += 1
         if self.stats['t_first_fire'] < 0:
             self.stats['t_first_fire'] = self.t
+        # v8.16: 한미 연합 기여도 카운트
+        if ship.nation == 'USA':
+            self.stats['usa_shots'] += 1
+            self.stats['usa_cost']  += wpn_info['cost_usd']
+        else:
+            self.stats['kor_shots'] += 1
+            self.stats['kor_cost']  += wpn_info['cost_usd']
         sam = MissileObj(
             mtype    = 'friendly_sam',
             name     = wpn,
@@ -1997,6 +2052,18 @@ class TimeStepEngine:
                 for spec in due:
                     self._spawn_pending_threat(spec)
 
+            # v8.15: 항모 함재기 파도 스폰
+            for et in self.enemy_threats:
+                if (et.alive and et.carrier_aircraft
+                        and et.carrier_wave_interval > 0
+                        and self.t > 0
+                        and self.t - et._last_wave_t >= et.carrier_wave_interval):
+                    et._last_wave_t = self.t
+                    self._pending_threats.append(
+                        (self.t + 10.0,          # 10초 후 출격
+                         {'preset': et.carrier_aircraft, 'count': 2})
+                    )
+
             self._update_positions()
             self._enemy_fire()
             self._arm_radar_off_check()   # ARM 탐지 → 레이더 OFF 전술
@@ -2523,11 +2590,19 @@ def optimize_weapon_loadout_v7(cfg: dict,
             run_cfg[key] = val
         mc = monte_carlo_v7(run_cfg, n=fine_n)
         combo_dict = {wpn: val for (wpn, _), val in zip(WEAPONS, combo)}
+        combo_cost = sum(cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
+                         for wpn, cnt in combo_dict.items())
+        mean_e_dest = float(sum(mc.get('enemy_destroyed', [0])) /
+                            max(len(mc.get('enemy_destroyed', [1])), 1))
         final.append({
-            'combo': combo_dict,
-            'rate':  mc['mean_intercept'],
-            'std':   mc['std_intercept'],
-            'total': sum(combo),
+            'combo':      combo_dict,
+            'rate':       mc['mean_intercept'],
+            'std':        mc['std_intercept'],
+            'total':      sum(combo),
+            'combo_cost': combo_cost,
+            'mean_cost':  mc.get('mean_cost', 0),
+            'cost_per_kill': (mc.get('mean_cost', 0) / mean_e_dest
+                              if mean_e_dest > 0 else float('inf')),
         })
 
     return sorted(final, key=lambda x: -x['rate'])
@@ -2822,6 +2897,31 @@ def scenario_comparison_v7(cfg: dict, n: int = 200) -> dict:
         results[label] = {
             **mc,
             'mean_cost': float(np.mean(mc['total_costs'])),
+        }
+    return results
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  CEC 효과 비교
+# ════════════════════════════════════════════════════════════════════════════
+
+def cec_comparison_v7(cfg: dict, n: int = 200) -> dict:
+    """
+    CEC ON/OFF/두절 3종 MC 비교.
+    반환: {'CEC ON': mc_dict, 'CEC OFF (독립교전)': mc_dict, 'CEC 두절 (재밍)': mc_dict}
+    """
+    results = {}
+    scenarios = [
+        ('CEC ON',            {'enable_cec_preassign': True,  'enable_cec_jammed': False}),
+        ('CEC OFF (독립교전)', {'enable_cec_preassign': False, 'enable_cec_jammed': False}),
+        ('CEC 두절 (재밍)',   {'enable_cec_preassign': False, 'enable_cec_jammed': True}),
+    ]
+    for label, overrides in scenarios:
+        c = {**cfg, **overrides}
+        mc = monte_carlo_v7(c, n=n, desc=f'CEC: {label}')
+        results[label] = {
+            **mc,
+            'mean_cost': float(np.mean(mc['total_costs'])) if mc.get('total_costs') else 0.0,
         }
     return results
 

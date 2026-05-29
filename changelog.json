@@ -904,5 +904,67 @@
       "추가  VLS 소진 경고 레이블: SM-3·SM-6·SM-2 소진률 ≥50%→빨강, ≥20%→주황 경고",
       "수정  _mc_batch_worker 반환값 tuple에 weapon_zero 추가 (하위 호환 유지)"
     ]
+  },
+  {
+    "version": "60",
+    "date": "2026-05-29",
+    "title": "비용-효과 분석 개선 (v8.11)",
+    "changes": [
+      "추가  교전 비용 ±30% 단가 불확실성 범위 표시 (억원 환산 포함)",
+      "추가  최적 조합 차트에 조달 비용 주석 표시",
+      "추가  optimize_weapon_loadout_v7에 combo_cost/mean_cost/cost_per_kill 반환"
+    ]
+  },
+  {
+    "version": "61",
+    "date": "2026-05-29",
+    "title": "적 전술 AI 강화 (v8.12)",
+    "changes": [
+      "추가  채널 포화 전술: 아군 총 채널 수 ×1.5 위협 자동 증폭",
+      "추가  시차 공격 전술: 고속(탄도·HGV) 선발 → 중속+30초 → 저속+60초",
+      "추가  약점 공략 전술: 단일 방향 집중 접근 (다방위 억제)",
+      "추가  launcher UI 전술 AI 콤보박스 추가"
+    ]
+  },
+  {
+    "version": "62",
+    "date": "2026-05-29",
+    "title": "CEC 협동 교전 효과 비교 탭 (v8.13)",
+    "changes": [
+      "추가  cec_comparison_v7() 함수: CEC ON/OFF/두절 3종 MC 비교",
+      "추가  CEC 효과 비교 사이드바 탭 (사이드바 인덱스 23)",
+      "추가  CECCompareWorker 백그라운드 워커 클래스"
+    ]
+  },
+  {
+    "version": "63",
+    "date": "2026-05-29",
+    "title": "북한 탄도탄 포화 공격 시나리오 (v8.14)",
+    "changes": [
+      "추가  북한 포화 공격 (20발) 편대 프리셋",
+      "추가  북한 포화 공격 (40발) 편대 프리셋 (화성-12/15/17/18·KN-23/24)"
+    ]
+  },
+  {
+    "version": "64",
+    "date": "2026-05-29",
+    "title": "중국 항모전단 시나리오 (v8.15)",
+    "changes": [
+      "추가  랴오닝·산둥·푸젠 항모 ENEMY_DB 항목 (hp=5, high_value_target)",
+      "추가  랴오닝·산둥·푸젠 항모전단 3개 ENEMY_FLEET_PRESETS",
+      "추가  항모 함재기 파도 자동 스폰 (carrier_wave_interval 주기)",
+      "수정  EnemyThreatObj: ENEMY_DB hp 필드 우선 적용, 항모 타입 추가"
+    ]
+  },
+  {
+    "version": "65",
+    "date": "2026-05-29",
+    "title": "한미 연합 작전 (v8.16)",
+    "changes": [
+      "추가  SHIP_DB DDG-51/CG-47/CVN에 nation=\"USA\" 필드",
+      "추가  FriendlyShipObj.nation 속성",
+      "추가  발사 통계 kor_shots/usa_shots/kor_cost/usa_cost 추적",
+      "추가  비용-효과 탭에 한미 기여도 서브차트 (한미 편대 선택 시 자동 표시)"
+    ]
   }
 ]

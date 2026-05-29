@@ -393,6 +393,43 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.04,'speed_boost_max':0.08,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.38,'enemy_ciws_pk':0.33},  # NEW-F (중국 최강 자체방어)
 
+    # ── 중국 항모 (3종) ───────────────────────────────────────────────────────
+    # hp=5: 항모는 5발 이상 피격 시 격침 (호위함대 포함 집단 방어 반영)
+    # self_defense_pk: 호위 전단 방어 + 항모 자체 CIWS 합산 (높게 설정)
+    # carrier_wave_interval: 함재기 발진 주기 (초)
+    '랴오닝 (항모)':
+        {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'can_fire_missile':True,'rcs_m2':50000.0,
+         'missile_salvo_min':4,'missile_salvo_max':8,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.45,'enemy_ciws_pk':0.40,
+         'hp':5,'high_value_target':True,
+         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90},
+
+    '산둥 (항모)':
+        {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'can_fire_missile':True,'rcs_m2':55000.0,
+         'missile_salvo_min':4,'missile_salvo_max':8,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.47,'enemy_ciws_pk':0.42,
+         'hp':5,'high_value_target':True,
+         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90},
+
+    '푸젠 (항모)':
+        {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'can_fire_missile':True,'rcs_m2':60000.0,
+         'missile_salvo_min':6,'missile_salvo_max':10,
+         'missile_terminal_evasion':0.75,
+         'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
+         'self_defense_pk':0.50,'enemy_ciws_pk':0.45,
+         'hp':5,'high_value_target':True,
+         'carrier_aircraft':'J-35 (스텔스 함재기)','carrier_wave_interval':80},
+
     # ════ 대잠: 잠수함 (5종) ══════════════════════════════════════════════════
     # altitude_m = 잠항 수심 (음수 = 수면 아래)
     # 수온약층(thermocline): 100~300m 구간 소나 탐지 가장 어려움
@@ -993,6 +1030,7 @@ SHIP_DB = {
         'sensor_km':    {'대공': 850, '대함': 50, '대잠': 50},
         'max_channels': 24,
         'role':         ['대공', '대함', '대잠', 'BMD'],
+        'nation':       'USA',
         'default_inventory': {
             'SM-3 Block IIA':    32,
             'SM-6 Block IB':     32,
@@ -1010,6 +1048,7 @@ SHIP_DB = {
         'sensor_km':    {'대공': 850, '대함': 50, '대잠': 55},
         'max_channels': 32,
         'role':         ['대공', '대함', '대잠', 'BMD'],
+        'nation':       'USA',
         'default_inventory': {
             'SM-3 Block IIA':    40,
             'SM-6 Block IB':     40,
@@ -1027,6 +1066,7 @@ SHIP_DB = {
         'sensor_km':    {'대공': 500, '대함': 60, '대잠': 80},
         'max_channels': 12,
         'role':         ['대공', '대잠'],
+        'nation':       'USA',
         'default_inventory': {
             'RIM-116 RAM':       84,   # RAM 21셀 × 4기
             'CIWS-II (Phalanx)': 9999,
@@ -1256,8 +1296,12 @@ def normalize_enemy_db():
         e.setdefault('is_arm', False)
         e.setdefault('terminal_evasion_factor', TYPE_TEV.get(et, 1.0))
         e.setdefault('ecm_power',               TYPE_ECM.get(et, 0.0))
-        e.setdefault('self_defense_pk',   0.0)
-        e.setdefault('enemy_ciws_pk',     0.0)
+        e.setdefault('self_defense_pk',      0.0)
+        e.setdefault('enemy_ciws_pk',        0.0)
+        e.setdefault('hp',                   None)   # None → EnemyThreatObj._HP_MAP 사용
+        e.setdefault('high_value_target',    False)
+        e.setdefault('carrier_aircraft',     None)
+        e.setdefault('carrier_wave_interval', 0)
         # v6.8: ECM 취약도 (seeker 유형별 차등)
         # radar=레이더 유도(full), ir=적외선 유도(약), combined=복합(중간), none=무효
         TYPE_ECM_SUSC = {
@@ -1421,6 +1465,43 @@ ENEMY_FLEET_PRESETS = {
     '잠수함 복합 포화': [
         {'preset': '039형 잠수함 (송급)',   'count': 3},
         {'preset': '093형 잠수함 (위안급)', 'count': 1},
+    ],
+    # 중국 항모전단 — 랴오닝 전단 (PLAN CV-16 전단)
+    '랴오닝 항모전단': [
+        {'preset': '랴오닝 (항모)',     'count': 1},
+        {'preset': '055형 대형 구축함', 'count': 1},
+        {'preset': '052D형 구축함',     'count': 2},
+        {'preset': '054A형 호위함',     'count': 2},
+        {'preset': '093형 잠수함 (상급)', 'count': 1},
+    ],
+    # 중국 항모전단 — 산둥 전단 (PLAN CV-17 전단)
+    '산둥 항모전단': [
+        {'preset': '산둥 (항모)',       'count': 1},
+        {'preset': '055형 대형 구축함', 'count': 1},
+        {'preset': '052D형 구축함',     'count': 3},
+        {'preset': '039형 잠수함 (송급)', 'count': 1},
+    ],
+    # 중국 항모전단 — 푸젠 전단 (PLAN CV-18 전단, 최강 전력)
+    '푸젠 항모전단': [
+        {'preset': '푸젠 (항모)',       'count': 1},
+        {'preset': '055형 대형 구축함', 'count': 2},
+        {'preset': '052D형 구축함',     'count': 3},
+        {'preset': '093형 잠수함 (상급)', 'count': 2},
+    ],
+    # 북한 포화 공격 20발 — 화성·KN 계열 대규모 일제 발사 (SM-3 재고 한계 시험)
+    '북한 포화 공격 (20발)': [
+        {'preset': 'KN-23 (북한 이스칸데르)',  'count': 8},
+        {'preset': 'KN-24 (단거리 기동탄도)', 'count': 4},
+        {'preset': '화성-12 (IRBM)',          'count': 4},
+        {'preset': '화성-15 (북한 ICBM급)',   'count': 4},
+    ],
+    # 북한 포화 공격 40발 — 전면전 수준 포화 공격 (최고 난이도)
+    '북한 포화 공격 (40발)': [
+        {'preset': 'KN-23 (북한 이스칸데르)',  'count': 16},
+        {'preset': 'KN-24 (단거리 기동탄도)', 'count': 8},
+        {'preset': '화성-12 (IRBM)',          'count': 8},
+        {'preset': '화성-15 (북한 ICBM급)',   'count': 4},
+        {'preset': '화성-18 (ICBM 고체연료)', 'count': 4},
     ],
 }
 

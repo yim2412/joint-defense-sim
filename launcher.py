@@ -641,6 +641,7 @@ try:
         _LHS_PARAM_DEFS, STRESS_DIMS,
         optimize_weapon_loadout_v7,
         compare_ab_v7,
+        cec_comparison_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -1509,6 +1510,26 @@ class ABCompareWorker(QThread):
             return
         try:
             result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class CECCompareWorker(QThread):
+    """CEC ON/OFF/두절 3종 비교 MC를 백그라운드에서 실행."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg: dict, n: int = 500):
+        super().__init__()
+        self.cfg = cfg
+        self.n   = n
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            result = cec_comparison_v7(self.cfg, n=self.n)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -2756,9 +2777,78 @@ def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
     return fig
 
 
+def _render_cec_compare(cec_results: dict) -> Figure:
+    """CEC ON/OFF/두절 3종 비교 차트."""
+    fig = Figure(figsize=(13, 6), facecolor=C_BG)
+    fig.patch.set_facecolor(C_BG)
+
+    if not cec_results:
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=14, transform=ax.transAxes)
+        return fig
+
+    labels   = list(cec_results.keys())
+    rates    = [cec_results[l].get('mean_intercept', 0) * 100 for l in labels]
+    stds     = [cec_results[l].get('std_intercept',  0) * 100 for l in labels]
+    costs    = [cec_results[l].get('mean_cost',       0)       for l in labels]
+    clrs     = ['#2ecc71', '#3498db', '#e74c3c']
+
+    gs  = fig.add_gridspec(1, 2, wspace=0.38)
+    ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+    ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+
+    # 왼쪽: 요격률 막대
+    x = list(range(len(labels)))
+    bars = ax1.bar(x, rates, color=clrs[:len(labels)], width=0.5,
+                   yerr=stds, capsize=5,
+                   error_kw={'elinewidth': 1.5, 'ecolor': '#ffffff60'})
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, color=C_TEXT, fontsize=11)
+    ax1.set_ylabel('요격률 (%)', color=C_SUBTEXT, fontsize=12)
+    ax1.set_ylim(0, 110)
+    ax1.set_title('CEC 설정별 요격률 비교  (±1σ)', color=C_TEXT, fontsize=13)
+    ax1.tick_params(colors=C_SUBTEXT, labelsize=11)
+    for sp in ax1.spines.values():
+        sp.set_color('#1e2a3a')
+    for bar, rate, std in zip(bars, rates, stds):
+        ax1.text(bar.get_x() + bar.get_width() / 2,
+                 rate + std + 1.5,
+                 f'{rate:.1f}%', ha='center', color=C_TEXT, fontsize=11)
+
+    # 오른쪽: 비용 막대
+    _KRW = 1_350
+    cost_krw = [c * _KRW / 1e8 for c in costs]
+    bars2 = ax2.bar(x, cost_krw, color=clrs[:len(labels)], width=0.5, alpha=0.8)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels, color=C_TEXT, fontsize=11)
+    ax2.set_ylabel('평균 교전 비용 (억 원)', color=C_SUBTEXT, fontsize=12)
+    ax2.set_title('CEC 설정별 교전 비용 비교', color=C_TEXT, fontsize=13)
+    ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
+    for sp in ax2.spines.values():
+        sp.set_color('#1e2a3a')
+    for bar, krw in zip(bars2, cost_krw):
+        ax2.text(bar.get_x() + bar.get_width() / 2,
+                 bar.get_height() + 0.2,
+                 f'{krw:.1f}억', ha='center', color=C_TEXT, fontsize=11)
+
+    # CEC 효과 요약 텍스트
+    if len(rates) >= 2:
+        delta = rates[0] - rates[1]
+        sign  = '+' if delta >= 0 else ''
+        fig.text(0.5, 0.02,
+                 f"CEC ON vs OFF: 요격률 {sign}{delta:.1f}%p 차이  ·  "
+                 "⚠  단가 개략 추정 ±30%",
+                 ha='center', color='#e67e22', fontsize=10)
+
+    fig.tight_layout(rect=[0, 0.05, 1, 1])
+    return fig
+
+
 def _render_optimize_chart(results: list) -> Figure:
     """최적 무기 조합 수평 막대 차트 (백그라운드 렌더링)."""
-    fig = Figure(figsize=(13, 7), facecolor='#0a0e1a')
+    _KRW = 1_350
+    fig = Figure(figsize=(14, 7), facecolor='#0a0e1a')
     fig.patch.set_facecolor('#0a0e1a')
     ax = fig.add_subplot(111, facecolor='#0a0e1a')
 
@@ -2767,7 +2857,7 @@ def _render_optimize_chart(results: list) -> Figure:
                 ha='center', va='center', color=C_TEXT, fontsize=14)
         return fig
 
-    labels, rates, stds, clrs = [], [], [], []
+    labels, rates, stds, clrs, costs = [], [], [], [], []
     for i, r in enumerate(results):
         c = r['combo']
         parts = []
@@ -2780,25 +2870,29 @@ def _render_optimize_chart(results: list) -> Figure:
         rates.append(r['rate'] * 100)
         stds.append(r['std'] * 100)
         clrs.append('#2ecc71' if i == 0 else '#3498db')
+        costs.append(r.get('combo_cost', 0))
 
     y = list(range(len(results)))
     ax.barh(y, rates, xerr=stds, color=clrs, height=0.55,
             error_kw={'elinewidth': 1.5, 'ecolor': '#ffffff50', 'capsize': 4})
 
     max_std = max(stds) if stds else 0
-    for i, (rate, std) in enumerate(zip(rates, stds)):
-        ax.text(rate + max_std + 1.0, i, f'{rate:.1f}% ± {std:.1f}%',
-                va='center', color=C_TEXT, fontsize=11)
+    for i, (rate, std, cost) in enumerate(zip(rates, stds, costs)):
+        cost_krw = cost * _KRW / 1e8
+        cost_lbl = f"  {cost_krw:.0f}억원" if cost_krw > 0 else ""
+        ax.text(rate + max_std + 1.0, i,
+                f'{rate:.1f}% ± {std:.1f}%{cost_lbl}',
+                va='center', color=C_TEXT, fontsize=10.5)
 
     ax.set_yticks(y)
     ax.set_yticklabels(labels, color=C_TEXT, fontsize=11)
     ax.set_xlabel('요격률 (%)', color=C_SUBTEXT, fontsize=12)
     ax.set_title(
         '최적 무기 조합 추천  (상위 5개 — 정밀 검증 완료)\n'
-        '■ 최적 조합 (녹색)  ■ 차선 조합 (파랑)  |  오차막대 = ±1σ',
-        color=C_TEXT, fontsize=13, pad=10,
+        '■ 최적 조합 (녹색)  ■ 차선 조합 (파랑)  |  오차막대 = ±1σ  ·  비용은 조달 단가 기반 개략 추정 ±30%',
+        color=C_TEXT, fontsize=12, pad=10,
     )
-    ax.set_xlim(0, 115)
+    ax.set_xlim(0, 120)
     ax.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax.spines.values():
         sp.set_color('#1e2a3a')
@@ -2862,44 +2956,122 @@ def _render_channel_heatmap(result: dict) -> Figure:
 
 
 def _render_cost_effect(result: dict, mc: dict) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    _KRW_PER_USD = 1_350          # 원/달러 환율 (개략)
+    _COST_FACTOR  = 0.30          # ±30% 단가 불확실성
+    fig = Figure(figsize=(12, 6), facecolor=C_BG)
     costs     = mc.get('total_costs', [])
     e_dest    = mc.get('enemy_destroyed', [])
     mean_cost = float(np.mean(costs)) if costs else 0.0
     mean_kill = float(np.mean(e_dest)) if e_dest else 0.0
     cost_per_kill = mean_cost / mean_kill if mean_kill > 0 else float('inf')
+
+    cost_lo  = mean_cost * (1 - _COST_FACTOR)
+    cost_hi  = mean_cost * (1 + _COST_FACTOR)
+    cpk_lo   = cost_per_kill * (1 - _COST_FACTOR)
+    cpk_hi   = cost_per_kill * (1 + _COST_FACTOR)
+
     wpn_rem = mc.get('weapon_avg_remaining', {})
-    if wpn_rem:
-        gs = fig.add_gridspec(1, 2, wspace=0.35)
+    kor_shots = result.get('kor_shots', 0)
+    usa_shots = result.get('usa_shots', 0)
+    has_alliance = (kor_shots + usa_shots > 0) and usa_shots > 0
+
+    if has_alliance:
+        gs  = fig.add_gridspec(1, 3, wspace=0.42)
         ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
         ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+        ax3 = fig.add_subplot(gs[2], facecolor='#0a0e1a')
     else:
-        ax1 = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax2 = None
+        gs  = fig.add_gridspec(1, 2, wspace=0.38)
+        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
+        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+        ax3 = None
+
+    # ── 왼쪽: 비용 수치 ──────────────────────────────────────────────────────
     ax1.axis('off')
-    lbl = f"${cost_per_kill:,.0f}" if cost_per_kill != float('inf') else "N/A"
-    ax1.text(0.5, 0.6, lbl, ha='center', va='center',
-             color=C_GREEN, fontsize=30, fontweight='bold',
-             transform=ax1.transAxes)
-    ax1.text(0.5, 0.35, '격추 1건당 평균 비용', ha='center', va='center',
-             color=C_TEXT, fontsize=14, transform=ax1.transAxes)
-    ax1.text(0.5, 0.20, f"총 평균 비용 ${mean_cost:,.0f}  |  평균 격침 {mean_kill:.1f}척",
-             ha='center', va='center', color=C_SUBTEXT, fontsize=12,
-             transform=ax1.transAxes)
     ax1.set_facecolor('#0a0e1a')
-    if ax2 and wpn_rem:
+
+    ax1.text(0.5, 0.92, '격추 1건당 평균 비용', ha='center', va='top',
+             color=C_TEXT, fontsize=13, transform=ax1.transAxes)
+
+    if cost_per_kill == float('inf'):
+        ax1.text(0.5, 0.72, 'N/A', ha='center', va='center',
+                 color=C_SUBTEXT, fontsize=28, transform=ax1.transAxes)
+    else:
+        ax1.text(0.5, 0.72, f"${cost_per_kill:,.0f}",
+                 ha='center', va='center', color=C_GREEN, fontsize=30,
+                 fontweight='bold', transform=ax1.transAxes)
+        cpk_krw_lo = cpk_lo * _KRW_PER_USD / 1e8
+        cpk_krw_hi = cpk_hi * _KRW_PER_USD / 1e8
+        ax1.text(0.5, 0.56,
+                 f"범위  ${cpk_lo:,.0f} ~ ${cpk_hi:,.0f}  "
+                 f"({cpk_krw_lo:.1f}억 ~ {cpk_krw_hi:.1f}억 원)",
+                 ha='center', va='center', color=C_SUBTEXT, fontsize=10.5,
+                 transform=ax1.transAxes)
+
+    ax1.axhline(y=0.46, xmin=0.08, xmax=0.92, color='#2a3a4a', linewidth=0.8,
+                transform=ax1.transAxes)
+
+    krw_lo  = cost_lo  * _KRW_PER_USD / 1e8
+    krw_hi  = cost_hi  * _KRW_PER_USD / 1e8
+    krw_avg = mean_cost * _KRW_PER_USD / 1e8
+    ax1.text(0.5, 0.38, f"총 소모 비용 평균  ${mean_cost:,.0f}  ({krw_avg:.1f}억 원)",
+             ha='center', va='center', color=C_SUBTEXT, fontsize=11.5,
+             transform=ax1.transAxes)
+    ax1.text(0.5, 0.27,
+             f"추정 범위  {krw_lo:.1f}억 ~ {krw_hi:.1f}억 원  ·  평균 격침 {mean_kill:.1f}척",
+             ha='center', va='center', color='#7d8590', fontsize=10.5,
+             transform=ax1.transAxes)
+    ax1.text(0.5, 0.10,
+             "⚠  단가는 공개 자료 기반 개략 추정 ±30%  —  실제 조달 비용과 상이할 수 있음",
+             ha='center', va='center', color='#e67e22', fontsize=9.5,
+             transform=ax1.transAxes)
+
+    # ── 오른쪽: 잔여 재고 막대 ───────────────────────────────────────────────
+    ax2.set_facecolor('#0a0e1a')
+    if wpn_rem:
         names = list(wpn_rem.keys())
         vals  = [wpn_rem[n] for n in names]
         colors = [C_GREEN if v > 5 else C_ORANGE if v > 0 else C_RED for v in vals]
-        y = range(len(names))
-        ax2.barh(list(y), vals, color=colors, height=0.6)
-        ax2.set_yticks(list(y))
+        y = list(range(len(names)))
+        ax2.barh(y, vals, color=colors, height=0.6)
+        ax2.set_yticks(y)
         ax2.set_yticklabels(names, color=C_TEXT, fontsize=11)
         ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=12)
         ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=13)
         ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
         for sp in ax2.spines.values():
             sp.set_color('#1e2a3a')
+    else:
+        ax2.axis('off')
+        ax2.text(0.5, 0.5, '잔여 재고 데이터 없음',
+                 ha='center', va='center', color=C_SUBTEXT,
+                 fontsize=12, transform=ax2.transAxes)
+
+    # ── 오른쪽: 한미 기여도 (한미 연합 편대 선택 시에만) ─────────────────────
+    if ax3 is not None:
+        ax3.set_facecolor('#0a0e1a')
+        kor_cost = result.get('kor_cost', 0)
+        usa_cost = result.get('usa_cost', 0)
+        nations  = ['한국 (KOR)', '미국 (USA)']
+        shots    = [kor_shots, usa_shots]
+        costs_k  = [kor_cost * _KRW_PER_USD / 1e8, usa_cost * _KRW_PER_USD / 1e8]
+        clrs     = ['#3498db', '#e74c3c']
+
+        x = [0, 1]
+        bars = ax3.bar(x, shots, color=clrs, width=0.5, alpha=0.85)
+        ax3.set_xticks(x)
+        ax3.set_xticklabels(nations, color=C_TEXT, fontsize=11)
+        ax3.set_ylabel('발사 발수', color=C_SUBTEXT, fontsize=11)
+        ax3.set_title('한미 연합 기여도', color=C_TEXT, fontsize=13)
+        ax3.tick_params(colors=C_SUBTEXT, labelsize=10)
+        for sp in ax3.spines.values():
+            sp.set_color('#1e2a3a')
+        for bar, n, c in zip(bars, shots, costs_k):
+            ax3.text(bar.get_x() + bar.get_width() / 2,
+                     bar.get_height() + 0.3,
+                     f'{n}발\n({c:.1f}억원)',
+                     ha='center', color=C_TEXT, fontsize=10)
+
     fig.tight_layout()
     return fig
 
@@ -3740,11 +3912,27 @@ class MainWindow(QMainWindow):
         tactics_row.addWidget(lbl_tactics)
         tactics_row.addWidget(self.cmb_enemy_tactics, stretch=1)
 
+        # 적 전술 AI (채널 포화 / 시차 공격 / 약점 공략)
+        ai_tactic_row = QHBoxLayout()
+        lbl_ai_tactic = QLabel("전술 AI:")
+        lbl_ai_tactic.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        self.cmb_ai_tactic = NoScrollComboBox()
+        self.cmb_ai_tactic.addItems(['없음', '채널 포화', '시차 공격', '약점 공략'])
+        self.cmb_ai_tactic.setToolTip(
+            "없음: 기본 동시 접근\n"
+            "채널 포화: 아군 교전 채널 수 ×1.5 위협 자동 증폭 — 방어망 과부하\n"
+            "시차 공격: 고속(탄도·HGV) 선발 → 채널 소모 → 순항미사일 후속 (+30~60초)\n"
+            "약점 공략: 모든 위협이 단일 방향 집중 접근 — 레이더 사각 공략"
+        )
+        ai_tactic_row.addWidget(lbl_ai_tactic)
+        ai_tactic_row.addWidget(self.cmb_ai_tactic, stretch=1)
+
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
+        defl.addLayout(ai_tactic_row)
 
         # 시뮬 시드
         seed_row = QHBoxLayout()
@@ -3992,6 +4180,7 @@ class MainWindow(QMainWindow):
         self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
         self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
+        self.tab_cec_compare = ChartPageWidget()   # CEC 효과 비교
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -4032,6 +4221,7 @@ class MainWindow(QMainWindow):
             "🛡  서브시스템 피해",
             "🔧  최적 조합 추천",
             "⚖  A/B 편대 비교",
+            "🔗  CEC 효과 비교",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -4062,6 +4252,7 @@ class MainWindow(QMainWindow):
             self.tab_subsystem,   # 20
             self.tab_optimize,    # 21
             self.tab_ab_compare,  # 22
+            self.tab_cec_compare, # 23
         ]:
             self._stack.addWidget(w)
 
@@ -4120,6 +4311,7 @@ class MainWindow(QMainWindow):
             19: lambda: self._draw_sobol_chart(self._mc),
             20: lambda: self._draw_subsystem_damage(self._result),
             21: lambda: self._lazy_start_optimize(),
+            23: lambda: self._lazy_start_cec_compare(),
         }
         if idx in render_map:
             render_map[idx]()
@@ -4604,6 +4796,10 @@ class MainWindow(QMainWindow):
                 '없음': None, 'V자 대형': 'v_formation',
                 '포위 기동': 'encirclement'
             }.get(self.cmb_enemy_tactics.currentText(), None),
+            'ai_tactic': {
+                '없음': None, '채널 포화': 'saturation',
+                '시차 공격': 'stagger', '약점 공략': 'exploit_weakness',
+            }.get(self.cmb_ai_tactic.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
             # C&D 시간
             'cd_time_s':      10,
@@ -5047,7 +5243,8 @@ class MainWindow(QMainWindow):
                      'tab_ammo_curve', 'tab_ci', 'tab_timeline',
                      'tab_bearing', 'tab_req_radar', 'tab_threat_type',
                      'tab_vuln_time', 'tab_history',
-                     'tab_sensitivity', 'tab_min_stock', 'tab_optimize'):
+                     'tab_sensitivity', 'tab_min_stock', 'tab_optimize',
+                     'tab_cec_compare'):
             widget = getattr(self, attr, None)
             if widget:
                 widget.stop_worker()
@@ -5219,6 +5416,32 @@ class MainWindow(QMainWindow):
                 f"최적 조합: 요격률 {best['rate']:.1%} | "
                 + '  '.join(f"{k.split()[0]}×{v}"
                             for k, v in best['combo'].items() if v > 0))
+
+    def _lazy_start_cec_compare(self):
+        """CEC 비교 탭 첫 방문 시 CECCompareWorker 기동 (lazy-start)."""
+        if not _V7_OK or not self._pending_cfg:
+            return
+        if getattr(self, '_cec_worker', None) and self._cec_worker.isRunning():
+            return
+        self.tab_cec_compare._loading_lbl.setText(
+            "  CEC ON/OFF/두절 3종 MC 비교 중… ⏳")
+        self.tab_cec_compare._pane.setCurrentIndex(0)
+        self._cec_worker = CECCompareWorker(self._pending_cfg, n=500)
+        self._cec_worker.finished.connect(self._on_cec_compare_done)
+        self._cec_worker.error.connect(
+            lambda e: self.tab_cec_compare._loading_lbl.setText(f"  CEC 비교 오류: {e}"))
+        self._cec_worker.start(QThread.Priority.LowPriority)
+
+    def _on_cec_compare_done(self, cec_results: dict):
+        self.tab_cec_compare.start_render(_render_cec_compare, cec_results)
+        if cec_results:
+            labels = list(cec_results.keys())
+            rates  = [cec_results[l].get('mean_intercept', 0) for l in labels]
+            if len(rates) >= 2:
+                delta = (rates[0] - rates[1]) * 100
+                sign  = '+' if delta >= 0 else ''
+                self._lbl_status.setText(
+                    f"CEC 비교 완료: CEC ON vs OFF {sign}{delta:.1f}%p")
 
     def _draw_bearing_vulnerability(self, result: dict):
         self.tab_bearing.start_render(_render_bearing_vulnerability, result)
@@ -6015,33 +6238,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            # ── v8.x : 교정 / 개선 ───────────────────────────────────────────
-            ("v8.x", "낮음", "비용-효과 분석",
-             "무기 단가 × 소모량 교전 비용 차트. "
-             "단가는 범위(최소~최대)로 표시하고 '개략 추정 ±30%' 명시 — 허구적 정밀도 방지. "
-             "최적 조합 추천 탭 연동해 비용 관점 정렬 옵션 추가."),
-            # ── v8.x : 전술 / 지휘통제 ──────────────────────────────────────
-            ("v8.x", "중간", "적 전술 AI 강화",
-             "현재 순차 파도 공격에서 실제 전술 패턴으로 업그레이드. "
-             "① 채널 포화: 아군 교전 채널 수 × 1.5배 동시 발사해 방어망 압도. "
-             "② 시차 공격: 고속 미사일 선발 → 채널 소모 → 순항미사일 후속. "
-             "③ 약점 공략: 피탄으로 레이더 손상된 방향에 집중."),
-            ("v8.x", "중간", "협동 교전 (CEC)",
-             "함정 간 Link-16 데이터링크 공유 시뮬레이션. "
-             "'A함정이 탐지 → B함정이 발사'하는 협동 교전 로직 구현. "
-             "CEC ON/OFF 비교로 이지스 네트워크의 실질 효과 측정 가능. "
-             "이지스 체계의 핵심인 Cooperative Engagement Capability 구현."),
-            # ── v8.x : 시나리오 ─────────────────────────────────────────────
-            ("v8.x", "낮음", "북한 탄도탄 포화 공격",
-             "화성·노동 계열 탄도미사일 20~40발 동시 발사 시나리오. "
-             "이지스 SM-3 단독 대응으로 범위 제한 (THAAD·PAC-3는 고정 보정값으로만). "
-             "레이어별 요격 성공률과 누락 탄두 수 통계 출력."),
-            ("v8.x", "높음", "중국 항모전단 시나리오",
-             "중국 랴오닝·산둥·푸젠 항모전단(항모 + 대형 구축함 + 호위함 + 잠수함) 시나리오 추가. "
-             "전단 내 함정들이 서로를 방어하고, 함재기 공격과 대함미사일 공격 시나리오 모두 지원."),
-            ("v8.x", "높음", "한미 연합 작전",
-             "한미 연합 작전 시 미 해군은 탄도미사일, 한국 해군은 순항미사일을 각각 담당하는 임무 분담 구현. "
-             "결과 화면에 한국·미국 기여도를 분리해서 표시."),
             # ── v9.x ────────────────────────────────────────────────────────
             ("v9.x", "중간", "아군 공격 임무 (대함 공격)",
              "현재 방어 전용에서 공격 임무 추가. "
