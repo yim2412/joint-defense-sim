@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.10 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.17 — 전장 애니메이션 → 교전 분석 탭 교체]                              ║
+║  NEW-A  EngagementAnalysisTab: 방어 Funnel / 위협 추적 테이블 / Gantt 타임라인║
+║  DEL-A  AnimationTab·FrameRenderWorker 삭제 (2.5D 등각투영 폐기)            ║
+║                                                                              ║
 ║  [v8.10 — SAM 살보·Pk 경고·VLS 소진 추적 3종 패치]                         ║
 ║  NEW-A  SAM 살보 로직: HGV→3발, 탄도탄·QBM·초음속→2발, 기타→1발            ║
 ║         항공기도 동일 기준 세분화 / CEC +1발 / CEC 두절 1발 고정            ║
@@ -1936,431 +1940,263 @@ class ChartPageWidget(QWidget):
         self._update_display()
 
 
-# 서브프로세스 안전 렌더 함수: anim_render.py에서 임포트 (launcher.py는 QtAgg 백엔드 사용)
-from anim_render import _render_anim_frame
+# ════════════════════════════════════════════════════════════════════════════
+#  교전 분석 렌더 함수
+# ════════════════════════════════════════════════════════════════════════════
+
+_LAYER_ORDER = ['SM-3', 'SM-6', 'SM-2', 'ESSM', '해궁', 'RAM', 'CIWS',
+                '홍상어', '청상어', 'Mk.46', '기만/회피']
+
+def _classify_weapon(wpn: str) -> str:
+    if not wpn:
+        return '기타'
+    for layer in _LAYER_ORDER:
+        if layer in wpn:
+            return layer
+    if '기만' in wpn or '회피' in wpn:
+        return '기만/회피'
+    return wpn.split(' ')[0]
+
+def _render_engagement_funnel(active_events: list) -> 'Figure':
+    from matplotlib.figure import Figure as _Fig
+    fig = _Fig(figsize=(10, 6), facecolor=C_BG)
+    ax  = fig.add_subplot(111, facecolor='#0a0e1a')
+
+    if not active_events:
+        ax.text(0.5, 0.5, '교전 데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=13, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+
+    total = len([e for e in active_events if e.is_active])
+    layer_counts: dict = {}
+    missed = 0
+    for ev in active_events:
+        if not ev.is_active:
+            continue
+        if not ev.intercepted:
+            missed += 1
+        else:
+            key = _classify_weapon(ev.intercept_weapon or '')
+            layer_counts[key] = layer_counts.get(key, 0) + 1
+
+    # 레이어 순서대로 정렬
+    ordered = [(l, layer_counts[l]) for l in _LAYER_ORDER if l in layer_counts]
+    for k, v in layer_counts.items():
+        if k not in _LAYER_ORDER:
+            ordered.append((k, v))
+
+    labels  = [l for l, _ in ordered] + (['미격추'] if missed else [])
+    counts  = [c for _, c in ordered] + ([missed]  if missed else [])
+    colors  = [('#2ecc71' if l != '미격추' else '#e74c3c') for l in labels]
+
+    remaining = total
+    bar_data   = []
+    for lbl, cnt, col in zip(labels, counts, colors):
+        bar_data.append((lbl, remaining, cnt, col))
+        remaining -= cnt if lbl != '미격추' else 0
+
+    # 가로 Funnel 바
+    y_pos = list(range(len(bar_data)))
+    for i, (lbl, rem, cnt, col) in enumerate(bar_data):
+        ax.barh(i, rem, color='#1e2a3a', height=0.6, edgecolor='none')
+        ax.barh(i, cnt, left=rem - cnt, color=col, height=0.6,
+                edgecolor='none', alpha=0.85)
+        ax.text(rem - cnt / 2, i, f'{cnt}건',
+                ha='center', va='center', color='white',
+                fontsize=11, fontweight='bold',
+                fontfamily='Malgun Gothic')
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, color=C_TEXT, fontsize=12,
+                       fontfamily='Malgun Gothic')
+    ax.set_xlabel('위협 수', color=C_SUBTEXT, fontsize=11,
+                  fontfamily='Malgun Gothic')
+    ax.set_title(f'방어 레이어별 격추 Funnel  (총 {total}건)',
+                 color=C_TEXT, fontsize=14, fontfamily='Malgun Gothic')
+    ax.tick_params(colors=C_SUBTEXT, labelsize=10)
+    ax.set_xlim(0, total + 1)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.grid(axis='x', color='#1e2a3a', lw=0.5)
+    ax.invert_yaxis()
+    fig.tight_layout()
+    return fig
+
+
+def _render_engagement_gantt(active_events: list) -> 'Figure':
+    from matplotlib.figure import Figure as _Fig
+    evs = [e for e in active_events if e.is_active and e.gantt_bars]
+    fig_h = max(4, len(evs) * 0.45 + 1.5)
+    fig = _Fig(figsize=(14, fig_h), facecolor=C_BG)
+    ax  = fig.add_subplot(111, facecolor='#0a0e1a')
+
+    if not evs:
+        ax.text(0.5, 0.5, '교전 데이터 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=13, transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+
+    color_legend = {
+        '#2ecc71': '요격 성공', '#e74c3c': '피격/통과',
+        '#f39c12': '채널 없음', '#95a5a6': '교전 불가',
+        '#16A085': '기만/회피', '#808080': '탐지 중',
+    }
+    seen_colors: set = set()
+
+    for yi, ev in enumerate(evs):
+        for (lbl, t_s, t_e, col) in ev.gantt_bars:
+            dur = max(t_e - t_s, 0.5)
+            ax.barh(yi, dur, left=t_s, height=0.55, color=col,
+                    edgecolor='white', linewidth=0.5, alpha=0.88)
+            seen_colors.add(col)
+        # 위협 이름 왼쪽 표시
+        ax.text(-1, yi, ev.label[:18], ha='right', va='center',
+                color=C_TEXT, fontsize=8, fontfamily='Malgun Gothic')
+
+    ax.set_yticks(range(len(evs)))
+    ax.set_yticklabels([''] * len(evs))
+    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=11,
+                  fontfamily='Malgun Gothic')
+    ax.set_title('교전 타임라인 (위협별 교전 구간)',
+                 color=C_TEXT, fontsize=14, fontfamily='Malgun Gothic')
+    ax.tick_params(colors=C_SUBTEXT, labelsize=10)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    ax.grid(axis='x', color='#1e2a3a', lw=0.5)
+    ax.invert_yaxis()
+
+    handles = [
+        __import__('matplotlib.patches', fromlist=['Patch']).Patch(
+            facecolor=col, label=lbl, alpha=0.88)
+        for col, lbl in color_legend.items()
+        if col in seen_colors
+    ]
+    if handles:
+        ax.legend(handles=handles, fontsize=9, facecolor='#0a0e1a',
+                  labelcolor=C_TEXT, edgecolor='#1e2a3a',
+                  loc='lower right', ncol=3,
+                  prop={'family': 'Malgun Gothic', 'size': 9})
+    fig.tight_layout()
+    return fig
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  전장 애니메이션 프레임 사전 렌더 워커
+#  교전 분석 탭
 # ════════════════════════════════════════════════════════════════════════════
-class FrameRenderWorker(QThread):
-    frame_ready = pyqtSignal(int, bytes)
-    all_done    = pyqtSignal()
 
-    def __init__(self, frame_data, display_range, show_labels, show_alt):
-        super().__init__()
-        self._frame_data    = frame_data
-        self._display_range = display_range
-        self._show_labels   = show_labels
-        self._show_alt      = show_alt
-        self._cancelled     = False
+class EngagementAnalysisTab(QWidget):
+    """교전 분석 탭: 방어 Funnel / 위협 추적 테이블 / 교전 타임라인 Gantt"""
 
-    def cancel(self):
-        self._cancelled = True
-
-    def run(self):
-        n = len(self._frame_data)
-        if n == 0:
-            self.all_done.emit()
-            return
-        n_workers = min(os.cpu_count() or 4, 8)
-        args_list = [
-            (i, fd['t'], fd['enemy_ships'], fd['friendly_ships'],
-             fd['missiles'], fd['events'],
-             self._display_range, self._show_labels, self._show_alt)
-            for i, fd in enumerate(self._frame_data)
-        ]
-        ex   = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_workers)
-        _own = _GLOBAL_POOL is None
-        futs = {ex.submit(_render_anim_frame, a): a[0] for a in args_list}
-        emit_count = 0
-        for fut in as_completed(futs):
-            if self._cancelled:
-                for f in futs:
-                    f.cancel()
-                if _own:
-                    ex.shutdown(wait=False)
-                return
-            try:
-                idx, png = fut.result()
-                self.frame_ready.emit(idx, png)
-                emit_count += 1
-                if emit_count % 10 == 0:
-                    self.msleep(12)  # 10프레임마다 12ms 대기 → 메인 스레드 QPixmap 처리 시간 확보
-            except Exception:
-                pass
-        if _own:
-            ex.shutdown(wait=False)
-        if not self._cancelled:
-            self.all_done.emit()
-
-
-# ════════════════════════════════════════════════════════════════════════════
-#  전장 애니메이션 탭 (QPixmap 사전 렌더링 방식)
-# ════════════════════════════════════════════════════════════════════════════
-class AnimationTab(QWidget):
-    """
-    2.5D 등각투영 전장 애니메이션.
-    FrameRenderWorker가 모든 프레임을 PNG→QPixmap으로 사전 렌더링하고,
-    재생 시 QLabel.setPixmap() 으로 즉시 표시한다.
-    """
+    _COL_HEADERS = ["위협명", "유형", "탐지거리(km)", "결과", "격추무기", "격추거리(km)", "격추시각(s)"]
+    _TBL_STYLE = (
+        "QTableWidget { background:#0d1117; color:#e6edf3; "
+        "gridline-color:#21262d; border:none; font-size:13px; "
+        "font-family:'Malgun Gothic'; }"
+        "QTableWidget::item { padding:4px 8px; }"
+        "QHeaderView::section { background:#161b22; color:#7d8590; "
+        "font-size:12px; padding:4px; border:none; "
+        "border-bottom:1px solid #30363d; font-family:'Malgun Gothic'; }"
+        "QTableWidget::item:selected { background:#1f3a5f; }"
+    )
 
     def __init__(self):
         super().__init__()
-        self.frames            = []
-        self._display_range    = 350.0
-        self._cur_idx          = 0
-        self._zoom             = 1.0
-        self._kill_frames      = []
-        self._play_interval    = 80
-        self._pixmaps: list    = []   # list[Optional[QPixmap]]
-        self._rendered_count   = 0
-        self._render_worker    = None
-        self._render_gen       = 0    # 세대 카운터 — 구식 frame_ready 신호 필터링
-        self._playing          = False
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # ── QLabel 디스플레이 (FigureCanvas 대체) ─────────────────────────
-        self._lbl_canvas = QLabel()
-        self._lbl_canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lbl_canvas.setStyleSheet("background: #0d1117;")
-        self._lbl_canvas.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._lbl_canvas.installEventFilter(self)
-        layout.addWidget(self._lbl_canvas)
+        tabs = QTabWidget()
+        tabs.setStyleSheet(
+            f"QTabWidget::pane {{ border:1px solid #30363d; background:{C_BG}; }}"
+            f"QTabBar::tab {{ background:#161b22; color:#7d8590; "
+            f"padding:6px 14px; font-size:14px; font-family:'Malgun Gothic'; }}"
+            f"QTabBar::tab:selected {{ background:{C_BG}; color:{C_ACCENT}; "
+            f"border-bottom:2px solid {C_ACCENT}; }}"
+        )
 
-        # 사전 렌더 진행률 바
-        self._prog_render = QProgressBar()
-        self._prog_render.setFixedHeight(6)
-        self._prog_render.setRange(0, 100)
-        self._prog_render.setValue(0)
-        self._prog_render.setTextVisible(False)
-        self._prog_render.setStyleSheet(
-            f"QProgressBar {{ background:{C_PANEL}; border:none; border-radius:3px; }}"
-            f"QProgressBar::chunk {{ background:{C_ACCENT}; border-radius:3px; }}")
-        self._prog_render.hide()
-        layout.addWidget(self._prog_render)
+        # ── Sub-tab 1: Funnel ──────────────────────────────────────────────
+        self._tab_funnel = ChartPageWidget()
+        tabs.addTab(self._tab_funnel, "🔻  방어 Funnel")
 
-        # ── 옵션 행 ──────────────────────────────────────────────────────
-        _bs = (f"background:{C_PANEL}; color:{C_TEXT}; "
-               f"border:1px solid #3a5a7a; font-size:15px; padding:2px 7px;")
-        opt_row = QHBoxLayout()
+        # ── Sub-tab 2: 위협 추적 테이블 ────────────────────────────────────
+        tbl_widget = QWidget()
+        tbl_layout = QVBoxLayout(tbl_widget)
+        tbl_layout.setContentsMargins(4, 4, 4, 4)
+        self._table = QTableWidget(0, len(self._COL_HEADERS))
+        self._table.setHorizontalHeaderLabels(self._COL_HEADERS)
+        self._table.setStyleSheet(self._TBL_STYLE)
+        self._table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet(self._TBL_STYLE +
+            "QTableWidget { alternate-background-color:#0f1620; }")
+        tbl_layout.addWidget(self._table)
+        tabs.addTab(tbl_widget, "📋  위협 추적")
 
-        self.chk_labels = QCheckBox("이름 표시")
-        self.chk_labels.setChecked(True)
-        self.chk_labels.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
-        self.chk_labels.stateChanged.connect(self._restart_render)
+        # ── Sub-tab 3: Gantt ───────────────────────────────────────────────
+        self._tab_gantt = ChartPageWidget()
+        tabs.addTab(self._tab_gantt, "⏱  교전 타임라인")
 
-        self.chk_altitude = QCheckBox("고도선 표시")
-        self.chk_altitude.setChecked(True)
-        self.chk_altitude.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
-        self.chk_altitude.stateChanged.connect(self._restart_render)
+        layout.addWidget(tabs)
 
-        lbl_spd = QLabel("속도:")
-        lbl_spd.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self._spd_btns = []
-        for label, ms in [("0.5x", 160), ("1x", 80), ("2x", 40), ("4x", 20)]:
-            b = QPushButton(label)
-            b.setFixedHeight(24); b.setFixedWidth(36)
-            b.setStyleSheet(_bs)
-            b.clicked.connect(lambda _, m=ms: self._set_speed(m))
-            self._spd_btns.append(b)
+        # 초기 안내
+        self._lbl_empty = QLabel("시뮬레이션을 실행하면 교전 분석이 표시됩니다.")
+        self._lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_empty.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:14px; font-family:'Malgun Gothic';")
+        layout.addWidget(self._lbl_empty)
+        tabs.hide()
+        self._tabs_widget = tabs
 
-        btn_shot = QPushButton("📷")
-        btn_shot.setFixedHeight(24); btn_shot.setFixedWidth(30)
-        btn_shot.setStyleSheet(_bs)
-        btn_shot.setToolTip("현재 프레임 PNG 저장")
-        btn_shot.clicked.connect(self._save_screenshot)
+    def load_result(self, result: dict):
+        active_events = result.get('active_events', [])
+        self._lbl_empty.hide()
+        self._tabs_widget.show()
 
-        lbl_zoom = QLabel("  줌:")
-        lbl_zoom.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self._btn_zout  = QPushButton("−")
-        self._btn_zin   = QPushButton("+")
-        self._btn_zreset = QPushButton("1:1")
-        for b, tip, fn in [
-            (self._btn_zout,  "줌 아웃 (휠 아래)", lambda: self._zoom_step(1.15)),
-            (self._btn_zin,   "줌 인 (휠 위)",     lambda: self._zoom_step(0.85)),
-            (self._btn_zreset,"줌 초기화",          self._reset_zoom),
-        ]:
-            b.setFixedHeight(24); b.setFixedWidth(36)
-            b.setStyleSheet(_bs)
-            b.setToolTip(tip)
-            b.clicked.connect(fn)
+        # Funnel & Gantt — 백그라운드 렌더
+        self._tab_funnel.start_render(_render_engagement_funnel, active_events)
+        self._tab_gantt.start_render(_render_engagement_gantt, active_events)
 
-        lbl_hint = QLabel("  2.5D 등각투영")
-        lbl_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+        # 위협 추적 테이블 — 메인 스레드 직접 채움
+        self._fill_table(active_events)
 
-        opt_row.addWidget(self.chk_labels)
-        opt_row.addWidget(self.chk_altitude)
-        opt_row.addWidget(lbl_spd)
-        for b in self._spd_btns:
-            opt_row.addWidget(b)
-        opt_row.addWidget(btn_shot)
-        opt_row.addWidget(lbl_zoom)
-        opt_row.addWidget(self._btn_zout)
-        opt_row.addWidget(self._btn_zin)
-        opt_row.addWidget(self._btn_zreset)
-        opt_row.addWidget(lbl_hint)
-        opt_row.addStretch()
-        layout.addLayout(opt_row)
+    def _fill_table(self, active_events: list):
+        evs = [e for e in active_events if e.is_active]
+        self._table.setRowCount(len(evs))
+        for row, ev in enumerate(evs):
+            ok      = ev.intercepted
+            result_str = '✅ 요격' if ok else '❌ 피격'
+            bg      = QColor('#1a3a2a') if ok else QColor('#3a1a1a')
 
-        # ── 재생 컨트롤 ───────────────────────────────────────────────────
-        ctrl = QHBoxLayout()
-        self.lbl_time = QLabel("t = 0s")
-        self.lbl_time.setStyleSheet(
-            f"color:{C_ACCENT}; font-weight:bold; font-size:16px;")
-        self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setMinimum(0); self.slider.setMaximum(0)
-        self.slider.valueChanged.connect(self._on_slider)
-        self.btn_play = QPushButton("▶ 재생")
-        self.btn_play.setFixedWidth(90)
-        self.btn_play.clicked.connect(self._toggle_play)
-        self.btn_play.setEnabled(False)
+            cells = [
+                ev.label,
+                ev.enemy_info.get('type', '?'),
+                f"{ev.detect_m / 1000:.0f}",
+                result_str,
+                ev.intercept_weapon or '—',
+                f"{ev.intercept_km:.1f}" if ev.intercept_km else '—',
+                f"{ev.t_intercepted:.0f}" if ev.t_intercepted else '—',
+            ]
+            for col, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                item.setBackground(bg)
+                item.setForeground(QColor(C_TEXT))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self._table.setItem(row, col, item)
+        self._table.resizeRowsToContents()
 
-        self.btn_prev_kill = QPushButton("◀ 격추")
-        self.btn_next_kill = QPushButton("격추 ▶")
-        for b in [self.btn_prev_kill, self.btn_next_kill]:
-            b.setFixedWidth(65); b.setFixedHeight(26)
-            b.setStyleSheet(_bs)
-        self.btn_prev_kill.clicked.connect(self._prev_kill)
-        self.btn_next_kill.clicked.connect(self._next_kill)
-
-        self.lbl_events = QLabel("")
-        self.lbl_events.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        self.lbl_events.setFixedHeight(28)  # 고정 높이 — 텍스트 변경 시 캔버스 크기 변동(진동) 방지
-
-        ctrl.addWidget(self.btn_prev_kill)
-        ctrl.addWidget(self.btn_next_kill)
-        ctrl.addWidget(self.lbl_time)
-        ctrl.addWidget(self.slider, stretch=1)
-        ctrl.addWidget(self.btn_play)
-        layout.addLayout(ctrl)
-        layout.addWidget(self.lbl_events)
-
-        self._play_timer = QTimer()
-        self._play_timer.timeout.connect(self._step_play)
-
-    # ── 이벤트 필터 (휠 줌) ──────────────────────────────────────────────
-    def eventFilter(self, obj, event):
-        from PyQt6.QtCore import QEvent
-        if obj is self._lbl_canvas and event.type() == QEvent.Type.Wheel:
-            delta = event.angleDelta().y()
-            self._zoom_step(0.85 if delta > 0 else 1.15)
-            return True
-        return super().eventFilter(obj, event)
-
-    def _zoom_step(self, factor: float):
-        self._zoom *= factor
-        self._zoom = max(0.2, min(5.0, self._zoom))
-        self._draw_frame(self._cur_idx)
-
-    def _reset_zoom(self):
-        self._zoom = 1.0
-        self._draw_frame(self._cur_idx)
-
-    # ── 공개 API ──────────────────────────────────────────────────────────
-    _MAX_ANIM_FRAMES = 300  # 초과 시 서브샘플링 — 메인 스레드 시그널 폭주 방지
-
-    def load_frames(self, frames):
-        if len(frames) > self._MAX_ANIM_FRAMES:
-            step = len(frames) / self._MAX_ANIM_FRAMES
-            frames = [frames[int(i * step)] for i in range(self._MAX_ANIM_FRAMES)]
-        self.frames = frames
-        self._display_range = self._calc_range(frames)
-        self._zoom = 1.0
-        self._kill_frames = [
-            i for i, f in enumerate(frames)
-            if any('격추' in e or '요격' in e or '파괴' in e
-                   for e in (f.events or []))
-        ]
-        if not frames:
-            self._pixmaps = []
-            return
-        # 재생 중이었으면 중단 후 버튼/플래그 초기화
-        if self._playing:
-            self._play_timer.stop()
-            self._playing = False
-            self.btn_play.setText("▶ 재생")
-        self.slider.setMaximum(len(frames) - 1)
-        self.slider.setValue(0)
-        self.btn_play.setEnabled(False)
-        self._lbl_canvas.setText("렌더링 준비 중…")
-        self._lbl_canvas.setStyleSheet(
-            f"background:#0d1117; color:{C_SUBTEXT}; font-size:16px;")
-        self._start_render_worker()
-
-    # ── 내부 헬퍼 ─────────────────────────────────────────────────────────
-    def _calc_range(self, frames) -> float:
-        if not frames:
-            return 350.0
-        max_r = 150.0
-        f = frames[0]
-        for item in f.enemy_ships:
-            max_r = max(max_r, abs(item[2]) / 1000, abs(item[3]) / 1000)
-        for item in f.missiles:
-            max_r = max(max_r, abs(item[1]) / 1000, abs(item[2]) / 1000)
-        return max_r * 1.12
-
-    def _start_render_worker(self):
-        if not self.frames:
-            return
-        # 이전 워커 취소 — wait() 금지 (메인 스레드 블로킹 위험)
-        # 세대 카운터를 올려 구식 frame_ready 신호를 _on_frame_ready에서 필터링
-        self._render_gen += 1
-        if self._render_worker and self._render_worker.isRunning():
-            try:
-                self._render_worker.frame_ready.disconnect()
-                self._render_worker.all_done.disconnect()
-            except Exception:
-                pass
-            self._render_worker.cancel()
-            # wait() 제거 — cancel 플래그만 세우고 비동기 종료
-        n = len(self.frames)
-        self._pixmaps = [None] * n
-        self._rendered_count = 0
-        self._prog_render.setMaximum(n)
-        self._prog_render.setValue(0)
-        self._prog_render.show()
-        frame_data = [
-            {'t': f.t,
-             'enemy_ships':   list(f.enemy_ships),
-             'friendly_ships': list(f.friendly_ships),
-             'missiles':      list(f.missiles),
-             'events':        list(f.events or [])}
-            for f in self.frames
-        ]
-        gen = self._render_gen
-        self._render_worker = FrameRenderWorker(
-            frame_data, self._display_range,
-            self.chk_labels.isChecked(), self.chk_altitude.isChecked())
-        self._render_worker.frame_ready.connect(
-            lambda idx, png: self._on_frame_ready(idx, png, gen))
-        self._render_worker.all_done.connect(self._on_all_done)
-        self._render_worker.start(QThread.Priority.LowPriority)
-
-    def _restart_render(self):
-        if self.frames:
-            self._start_render_worker()
-
-    def _on_frame_ready(self, idx: int, png_bytes: bytes, gen: int):
-        if gen != self._render_gen:
-            return   # 이전 세대 신호 — 무시
-        if idx < 0 or idx >= len(self._pixmaps):
-            return   # 범위 초과 방어
-        pm = QPixmap()
-        pm.loadFromData(png_bytes, 'PNG')
-        self._pixmaps[idx] = pm
-        self._rendered_count += 1
-        if self._rendered_count % 10 == 0 or self._rendered_count == len(self._pixmaps):
-            self._prog_render.setValue(self._rendered_count)
-        if idx == 0 or idx == self._cur_idx:
-            self._draw_frame(idx)
-
-    def _on_all_done(self):
-        self._prog_render.hide()
-        self.btn_play.setEnabled(True)
-        self._lbl_canvas.setStyleSheet("background: #0d1117;")
-        self._draw_frame(self._cur_idx)
-
-    def _draw_frame(self, idx: int):
-        self._cur_idx = idx
-        if 0 <= idx < len(self.frames):
-            f = self.frames[idx]
-            self.lbl_time.setText(f"t = {f.t:.0f}s")
-            self.lbl_events.setText('  |  '.join((f.events or [])[:4]))
-        if not self._pixmaps or idx >= len(self._pixmaps):
-            return
-        pm = self._pixmaps[idx]
-        if pm is None:
-            self._lbl_canvas.setText(
-                f"렌더링 중… ({self._rendered_count}/{len(self._pixmaps)})")
-            return
-
-        lw = max(1, self._lbl_canvas.width())
-        lh = max(1, self._lbl_canvas.height())
-
-        # 재생 중: FastTransformation(nearest-neighbor) — 속도 우선
-        # 정지 시: SmoothTransformation(bilinear) — 품질 우선
-        xform = (Qt.TransformationMode.FastTransformation if self._playing
-                 else Qt.TransformationMode.SmoothTransformation)
-
-        # 기본 fit (label 크기에 비율 유지하며 맞춤)
-        fitted = pm.scaled(lw, lh, Qt.AspectRatioMode.KeepAspectRatio, xform)
-        if abs(self._zoom - 1.0) < 0.02:
-            self._lbl_canvas.setPixmap(fitted)
-            return
-
-        # 줌 적용: 1/zoom 배율로 fitted 재스케일
-        sf  = 1.0 / self._zoom
-        zw  = max(1, int(fitted.width()  * sf))
-        zh  = max(1, int(fitted.height() * sf))
-        zoomed = fitted.scaled(zw, zh,
-                               Qt.AspectRatioMode.IgnoreAspectRatio, xform)
-        if self._zoom < 1.0:
-            # 줌인: 중앙 크롭
-            fw, fh = fitted.width(), fitted.height()
-            cx = max(0, (zoomed.width()  - fw) // 2)
-            cy = max(0, (zoomed.height() - fh) // 2)
-            zoomed = zoomed.copy(cx, cy,
-                                 min(fw, zoomed.width()),
-                                 min(fh, zoomed.height()))
-        self._lbl_canvas.setPixmap(zoomed)
-
-    def _toggle_play(self):
-        if self._playing:
-            self._play_timer.stop(); self._playing = False
-            self.btn_play.setText("▶ 재생")
-        else:
-            self._play_timer.start(self._play_interval); self._playing = True
-            self.btn_play.setText("⏸ 일시정지")
-
-    def _step_play(self):
-        v = self.slider.value()
-        if v < self.slider.maximum():
-            self.slider.setValue(v + 1)
-        else:
-            self._play_timer.stop(); self._playing = False
-            self.btn_play.setText("▶ 재생")
-
-    def _on_slider(self, val):
-        if self.frames:
-            self._draw_frame(val)
-
-    def _set_speed(self, ms: int):
-        self._play_interval = ms
-        if self._playing:
-            self._play_timer.setInterval(ms)
-
-    def _prev_kill(self):
-        if not self._kill_frames:
-            return
-        prev = [f for f in self._kill_frames if f < self._cur_idx]
-        if prev:
-            self.slider.setValue(prev[-1])
-
-    def _next_kill(self):
-        if not self._kill_frames:
-            return
-        nxt = [f for f in self._kill_frames if f > self._cur_idx]
-        if nxt:
-            self.slider.setValue(nxt[0])
-
-    def _save_screenshot(self):
-        pm = (self._pixmaps[self._cur_idx]
-              if self._pixmaps and 0 <= self._cur_idx < len(self._pixmaps)
-              else None)
-        if pm is None:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "스크린샷 저장",
-            f"전장_{self._cur_idx:04d}.png",
-            "PNG (*.png)")
-        if path:
-            pm.save(path, 'PNG')
+    def stop_worker(self):
+        self._tab_funnel.stop_worker()
+        self._tab_gantt.stop_worker()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3593,13 +3429,6 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
-        # 단축키
-        QShortcut(QKeySequence(Qt.Key.Key_Space), self,
-                  activated=self._shortcut_play_pause)
-        QShortcut(QKeySequence(Qt.Key.Key_Left), self,
-                  activated=self._shortcut_prev_frame)
-        QShortcut(QKeySequence(Qt.Key.Key_Right), self,
-                  activated=self._shortcut_next_frame)
 
     def _open_log_file(self):
         try:
@@ -3663,20 +3492,6 @@ class MainWindow(QMainWindow):
             self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
         self._lbl_status.setText("✅ 설정 복원 완료")
 
-    def _shortcut_play_pause(self):
-        if hasattr(self, 'tab_anim'):
-            self.tab_anim._toggle_play()
-
-    def _shortcut_prev_frame(self):
-        if hasattr(self, 'tab_anim'):
-            v = self.tab_anim.slider.value()
-            self.tab_anim.slider.setValue(max(0, v - 1))
-
-    def _shortcut_next_frame(self):
-        if hasattr(self, 'tab_anim'):
-            v = self.tab_anim.slider.value()
-            self.tab_anim.slider.setValue(
-                min(self.tab_anim.slider.maximum(), v + 1))
 
     def _build_config_panel(self) -> QWidget:
         # 컨테이너: 스크롤(위) + 고정 하단(모드·실행버튼)으로 구성
@@ -4157,7 +3972,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(export_row)
 
         # ── 사이드바 + QStackedWidget ─────────────────────────────────────
-        self.tab_anim        = AnimationTab()
+        self.tab_engagement  = EngagementAnalysisTab()
         self.tab_mc_canvas   = ChartPageWidget()
         self.tab_req         = self._build_req_tab()
         self.tab_weather     = self._build_weather_tab()
@@ -4210,7 +4025,7 @@ class MainWindow(QMainWindow):
             }
         """)
         for label in [
-            "🗺  전장 애니메이션", "📊  MC 통계", "✅  REQ 판정",
+            "📊  교전 분석", "📊  MC 통계", "✅  REQ 판정",
             "🌤  날씨 비교", "📜  교전 로그", "📡  채널 포화도",
             "🖥  시스템 모니터", "💰  비용 효과", "🔫  탄약 소모",
             "📈  MC 신뢰구간", "⏱  교전 타임라인", "🌪  감도 분석",
@@ -4229,7 +4044,7 @@ class MainWindow(QMainWindow):
         # QStackedWidget (사이드바와 동일 순서)
         self._stack = QStackedWidget()
         for w in [
-            self.tab_anim,        # 0
+            self.tab_engagement,  # 0
             self.tab_mc_canvas,   # 1
             self.tab_req,         # 2
             self.tab_weather,     # 3
@@ -4873,7 +4688,7 @@ class MainWindow(QMainWindow):
 
         self._update_cards(result, mc)
         self._update_vls_warning(mc)
-        self.tab_anim.load_frames(result.get('frames', []))
+        self.tab_engagement.load_result(result)
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
         cfg  = self._worker.cfg  if self._worker else {}
@@ -5248,13 +5063,9 @@ class MainWindow(QMainWindow):
             widget = getattr(self, attr, None)
             if widget:
                 widget.stop_worker()
-        # 애니메이션 렌더 워커 중단
-        rw = getattr(self.tab_anim, '_render_worker', None)
-        if rw and rw.isRunning():
-            rw.cancel()
-            if not rw.wait(1000):
-                rw.terminate()
-                rw.wait(500)
+        # 교전 분석 탭 차트 워커 중단
+        if hasattr(self, 'tab_engagement'):
+            self.tab_engagement.stop_worker()
         # 글로벌 프로세스 풀 종료 (워커 프로세스 강제 kill 포함)
         _shutdown_global_pool()
         # 시스템 모니터 워커 중단 (nvidia-smi subprocess 포함)

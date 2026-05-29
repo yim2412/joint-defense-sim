@@ -966,5 +966,16 @@
       "추가  발사 통계 kor_shots/usa_shots/kor_cost/usa_cost 추적",
       "추가  비용-효과 탭에 한미 기여도 서브차트 (한미 편대 선택 시 자동 표시)"
     ]
+  },
+  {
+    "version": "66",
+    "date": "2026-05-29",
+    "title": "전장 애니메이션 → 교전 분석 탭 교체",
+    "changes": [
+      "추가  방어 Funnel: 레이어별(SM-3→SM-6→SM-2→ESSM→CIWS) 격추 수 시각화",
+      "추가  위협 추적 테이블: 각 위협의 격추 여부·무기·거리·시각 일람",
+      "추가  교전 타임라인 Gantt: 위협별 교전 구간·결과 색상 바 표시",
+      "삭제  2.5D 등각투영 전장 애니메이션 (AnimationTab·FrameRenderWorker)"
+    ]
   }
 ]
