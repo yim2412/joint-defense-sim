@@ -624,6 +624,7 @@ try:
         monte_carlo_lhs, stress_test_grid, sobol_analysis, compute_cvar,
         _LHS_PARAM_DEFS, STRESS_DIMS,
         optimize_weapon_loadout_v7,
+        compare_ab_v7,
     )
     _V7_OK = True
 except ImportError as e:
@@ -1472,6 +1473,27 @@ class WeatherWorker(QThread):
         try:
             sc = scenario_comparison_v7(self.cfg, n=self.n)
             self.finished.emit(sc)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ABCompareWorker(QThread):
+    """A/B 편대 비교 MC를 백그라운드에서 실행."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+
+    def __init__(self, cfg_a: dict, cfg_b: dict, n: int = 500):
+        super().__init__()
+        self.cfg_a = cfg_a
+        self.cfg_b = cfg_b
+        self.n     = n
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n)
+            self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -3930,6 +3952,7 @@ class MainWindow(QMainWindow):
         self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
         self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
+        self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -3969,6 +3992,7 @@ class MainWindow(QMainWindow):
             "🔥  스트레스 테스트", "🎛  Sobol 민감도",
             "🛡  서브시스템 피해",
             "🔧  최적 조합 추천",
+            "⚖  A/B 편대 비교",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -3998,6 +4022,7 @@ class MainWindow(QMainWindow):
             self.tab_sobol,       # 19
             self.tab_subsystem,   # 20
             self.tab_optimize,    # 21
+            self.tab_ab_compare,  # 22
         ]:
             self._stack.addWidget(w)
 
@@ -4142,6 +4167,110 @@ class MainWindow(QMainWindow):
         self.weather_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
         layout.addWidget(self.weather_table)
+        return w
+
+    def _build_ab_compare_tab(self) -> QWidget:
+        """A/B 편대 구성 비교 탭 — 두 편대를 동일 위협 조건으로 MC 비교."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        hdr = QLabel("  ⚖  A/B 편대 구성 비교")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+
+        note = QLabel(
+            "  현재 시뮬레이션 설정을 A 편대 기준으로 사용합니다. "
+            "B 편대는 아래에서 다른 편대 프리셋을 선택하세요. "
+            "위협·날씨 조건은 A와 동일하게 적용됩니다."
+        )
+        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        # ── B 편대 선택 행 ─────────────────────────────────────────────────
+        sel_row = QWidget()
+        sel_layout = QHBoxLayout(sel_row)
+        sel_layout.setContentsMargins(0, 0, 0, 0)
+        sel_layout.setSpacing(8)
+
+        lbl_b = QLabel("B 편대 프리셋:")
+        lbl_b.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        sel_layout.addWidget(lbl_b)
+
+        self._cb_ab_fleet_b = QComboBox()
+        self._cb_ab_fleet_b.setMinimumWidth(220)
+        self._cb_ab_fleet_b.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
+        sel_layout.addWidget(self._cb_ab_fleet_b)
+
+        lbl_n = QLabel("MC 횟수:")
+        lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        sel_layout.addWidget(lbl_n)
+
+        self._sb_ab_n = QSpinBox()
+        self._sb_ab_n.setRange(100, 2000)
+        self._sb_ab_n.setSingleStep(100)
+        self._sb_ab_n.setValue(500)
+        self._sb_ab_n.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
+        sel_layout.addWidget(self._sb_ab_n)
+
+        self.btn_ab_run = QPushButton("⚖  A/B 비교 실행")
+        self.btn_ab_run.setFixedHeight(36)
+        self.btn_ab_run.clicked.connect(self._run_ab_compare)
+        sel_layout.addWidget(self.btn_ab_run)
+        sel_layout.addStretch()
+        layout.addWidget(sel_row)
+
+        # ── 요약 비교 테이블 ────────────────────────────────────────────────
+        lbl_tbl = QLabel("  비교 결과")
+        lbl_tbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
+        layout.addWidget(lbl_tbl)
+
+        self._ab_summary_table = QTableWidget(2, 6)
+        self._ab_summary_table.setVerticalHeaderLabels(["A 편대", "B 편대"])
+        self._ab_summary_table.setHorizontalHeaderLabels([
+            "편대 프리셋", "평균 요격률", "완전 성공률",
+            "평균 비용 ($)", "최다 소모 무기", "가장 많이 피격된 함정"
+        ])
+        hh = self._ab_summary_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        for col in [1, 2, 3]:
+            self._ab_summary_table.setColumnWidth(col, 110)
+        self._ab_summary_table.setFixedHeight(90)
+        self._ab_summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._ab_summary_table.setAlternatingRowColors(True)
+        self._ab_summary_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self._ab_summary_table)
+
+        # ── Δ 차이 레이블 ──────────────────────────────────────────────────
+        self._lbl_ab_delta = QLabel("")
+        self._lbl_ab_delta.setStyleSheet(
+            f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:6px 4px;")
+        layout.addWidget(self._lbl_ab_delta)
+
+        # ── 세부 무기 잔여 비교 테이블 ─────────────────────────────────────
+        lbl_wpn = QLabel("  무기별 평균 잔여 재고")
+        lbl_wpn.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
+        layout.addWidget(lbl_wpn)
+
+        self._ab_weapon_table = QTableWidget(0, 3)
+        self._ab_weapon_table.setHorizontalHeaderLabels(["무기", "A 잔여 (발)", "B 잔여 (발)"])
+        hh2 = self._ab_weapon_table.horizontalHeader()
+        hh2.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._ab_weapon_table.setColumnWidth(1, 120)
+        self._ab_weapon_table.setColumnWidth(2, 120)
+        self._ab_weapon_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._ab_weapon_table.setAlternatingRowColors(True)
+        self._ab_weapon_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self._ab_weapon_table, stretch=1)
+
         return w
 
     def _build_log_tab(self) -> QWidget:
@@ -4533,6 +4662,20 @@ class MainWindow(QMainWindow):
         if len(self._history) > 5:
             self._history.pop(0)
 
+        # A/B 탭 B 편대 콤보박스 갱신
+        if _V7_OK:
+            current_preset = cfg.get('fleet_preset', '')
+            all_presets = list(V7_FLEET_PRESETS.keys())
+            self._cb_ab_fleet_b.blockSignals(True)
+            prev = self._cb_ab_fleet_b.currentText()
+            self._cb_ab_fleet_b.clear()
+            for p in all_presets:
+                if p != current_preset:
+                    self._cb_ab_fleet_b.addItem(p)
+            if prev and self._cb_ab_fleet_b.findText(prev) >= 0:
+                self._cb_ab_fleet_b.setCurrentText(prev)
+            self._cb_ab_fleet_b.blockSignals(False)
+
         self._sidebar.setCurrentRow(1)  # MC 통계로 자동 전환
         self._on_page_changed(1)       # BUG-1: 이미 row 1이면 currentRowChanged 미발화 → 수동 트리거
         sim_mode_idx = getattr(self._worker, 'sim_mode_idx', 1)
@@ -4672,6 +4815,115 @@ class MainWindow(QMainWindow):
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
 
+    def _run_ab_compare(self):
+        """A/B 편대 비교 실행 (ABCompareWorker 비차단)."""
+        if not _V7_OK or not hasattr(self, '_result'):
+            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
+            return
+        cfg_a = self._worker.cfg if self._worker else {}
+        if not cfg_a:
+            return
+        preset_b = self._cb_ab_fleet_b.currentText()
+        if not preset_b or preset_b == cfg_a.get('fleet_preset', ''):
+            QMessageBox.information(self, "안내",
+                "B 편대를 A 편대와 다른 프리셋으로 선택하세요.")
+            return
+        cfg_b = dict(cfg_a)
+        cfg_b['fleet_preset'] = preset_b
+        n = self._sb_ab_n.value()
+        self.btn_ab_run.setEnabled(False)
+        self.btn_ab_run.setText(f"실행 중... (각 {n}회 MC)")
+        self._ab_worker = ABCompareWorker(cfg_a, cfg_b, n=n)
+        self._ab_worker.finished.connect(self._on_ab_done)
+        self._ab_worker.error.connect(self._on_ab_error)
+        self._ab_worker.start()
+
+    def _on_ab_done(self, result: dict):
+        mc_a = result['a']
+        mc_b = result['b']
+        cfg_a = self._worker.cfg if self._worker else {}
+        preset_a = cfg_a.get('fleet_preset', 'A')
+        preset_b = self._cb_ab_fleet_b.currentText()
+
+        def _top_wpn(mc):
+            rem = mc.get('weapon_avg_remaining', {})
+            if rem:
+                k = min(rem, key=lambda x: rem[x])
+                return f"{k} ({rem[k]:.1f}발 잔여)"
+            return "—"
+
+        def _top_ship(mc):
+            sh = mc.get('ship_avg_hits', {})
+            if sh and max(sh.values(), default=0) > 0:
+                k = max(sh, key=lambda x: sh[x])
+                return f"{k} ({sh[k]:.2f}회)"
+            return "없음"
+
+        rows = [
+            (0, preset_a, mc_a),
+            (1, preset_b, mc_b),
+        ]
+        for row, preset, mc in rows:
+            vals = [
+                preset,
+                f"{mc['mean_intercept']:.1%}",
+                f"{mc.get('full_pass_rate', 0):.1%}",
+                f"${float(__import__('numpy').mean(mc['total_costs'])):,.0f}",
+                _top_wpn(mc),
+                _top_ship(mc),
+            ]
+            for col, text in enumerate(vals):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if col == 1:
+                    item.setForeground(
+                        QColor('#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'))
+                self._ab_summary_table.setItem(row, col, item)
+
+        d_int = result['delta_intercept']
+        d_cost = result['delta_cost']
+        sign_int  = "▲" if d_int  >= 0 else "▼"
+        sign_cost = "▲" if d_cost >= 0 else "▼"
+        color_int  = '#2ecc71' if d_int  >= 0 else '#e74c3c'
+        color_cost = '#e74c3c' if d_cost >= 0 else '#2ecc71'  # 비용은 증가가 불리
+        self._lbl_ab_delta.setText(
+            f"  Δ 요격률 (B−A): "
+            f"<span style='color:{color_int};'>{sign_int} {abs(d_int):.1%}</span>"
+            f"    Δ 비용 (B−A): "
+            f"<span style='color:{color_cost};'>{sign_cost} ${abs(d_cost):,.0f}</span>"
+        )
+        self._lbl_ab_delta.setTextFormat(Qt.TextFormat.RichText)
+
+        # 무기 잔여 비교 테이블
+        wpn_a = mc_a.get('weapon_avg_remaining', {})
+        wpn_b = mc_b.get('weapon_avg_remaining', {})
+        all_wpns = sorted(set(wpn_a) | set(wpn_b))
+        self._ab_weapon_table.setRowCount(0)
+        for wpn in all_wpns:
+            r = self._ab_weapon_table.rowCount()
+            self._ab_weapon_table.insertRow(r)
+            va = wpn_a.get(wpn, 0.0)
+            vb = wpn_b.get(wpn, 0.0)
+            for col, (val, is_b) in enumerate([(wpn, False), (va, False), (vb, True)]):
+                text = f"{val:.1f}" if isinstance(val, float) else str(val)
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if is_b and isinstance(vb, float) and isinstance(va, float):
+                    if vb < va:
+                        item.setForeground(QColor('#e74c3c'))
+                    elif vb > va:
+                        item.setForeground(QColor('#2ecc71'))
+                self._ab_weapon_table.setItem(r, col, item)
+
+        self.btn_ab_run.setEnabled(True)
+        self.btn_ab_run.setText("⚖  A/B 비교 실행")
+        self._sidebar.setCurrentRow(22)
+
+    def _on_ab_error(self, msg: str):
+        QMessageBox.critical(self, "A/B 비교 오류", msg)
+        self.btn_ab_run.setEnabled(True)
+        self.btn_ab_run.setText("⚖  A/B 비교 실행")
+
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
@@ -4718,6 +4970,14 @@ class MainWindow(QMainWindow):
             if not ww.wait(800):
                 ww.terminate()
                 ww.wait(300)
+        # ABCompareWorker 중단
+        ab = getattr(self, '_ab_worker', None)
+        if ab and ab.isRunning():
+            ab.requestInterruption()
+            ab.quit()
+            if not ab.wait(800):
+                ab.terminate()
+                ab.wait(300)
         # 차트 렌더 워커 11개 중단 (ChartPageWidget._worker)
         for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
                      'tab_ammo_curve', 'tab_ci', 'tab_timeline',
@@ -5708,10 +5968,6 @@ class SplashWindow(QWidget):
              "DB 탭 및 결과 화면에 'Pk 수치는 공개 자료 기반 추정값 (±15~20%)' 고지. "
              "소수점 2자리 수치가 실측 데이터처럼 오해되지 않도록 명시. "
              "시뮬레이터 결과에 대한 과도한 신뢰 방지."),
-            ("v8.x", "낮음", "A/B 편대 구성 비교",
-             "엔진 compare_ab_v7() 함수 이미 완성 — UI 탭만 추가하면 됨. "
-             "두 편대를 동일 위협 조건으로 동시 시뮬해 요격률·비용·채널 여유 차이를 나란히 비교. "
-             "전력 기획·예산 분석에 직접 활용 가능."),
             ("v8.x", "낮음", "비용-효과 분석",
              "무기 단가 × 소모량 교전 비용 차트. "
              "단가는 범위(최소~최대)로 표시하고 '개략 추정 ±30%' 명시 — 허구적 정밀도 방지. "
