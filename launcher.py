@@ -2,6 +2,10 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.18 — 실행 로그 크래시 수정 + 탑재 기능 최신화]                         ║
+║  BUG-1  SimLogDialog._records 미초기화 → textChanged 즉시 AttributeError 팅김║
+║  NEW-A  탑재 기능 탭: 전장 애니메이션 → 교전 분석 항목으로 교체              ║
+║                                                                              ║
 ║  [v8.17 — 전장 애니메이션 → 교전 분석 탭 교체]                              ║
 ║  NEW-A  EngagementAnalysisTab: 방어 Funnel / 위협 추적 테이블 / Gantt 타임라인║
 ║  DEL-A  AnimationTab·FrameRenderWorker 삭제 (2.5D 등각투영 폐기)            ║
@@ -1129,6 +1133,7 @@ class SimLogDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._records: list = []   # BUG-1: textChanged가 _load() 전에 발화하면 AttributeError
         self.setWindowTitle("실행 로그 뷰어")
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.resize(1300, 620)
@@ -5457,9 +5462,11 @@ def _apply_term_tooltip(item: 'QTableWidgetItem', text: str) -> None:
 
 
 _FEATURES = [
-    ("🗺️  전장 애니메이션",
-     "전투 상황을 입체적인 2.5D 영상으로 재생. 마우스 휠·버튼으로 줌인/줌아웃, "
-     "재생 속도 0.5×~4× 조절, 격추·피격 장면으로 바로 이동(북마크), 화면 캡처 저장 가능."),
+    ("📊  교전 분석",
+     "시뮬레이션 결과를 세 가지 차트로 분석. "
+     "① 방어 Funnel: SM-3→SM-6→SM-2→ESSM→CIWS 레이어별 격추 수 시각화. "
+     "② 위협 추적 테이블: 각 위협이 어느 무기·거리·시각에 격추됐는지(또는 뚫렸는지) 일람. "
+     "③ 교전 타임라인: 위협별 교전 시작~종료 구간을 색상 바로 표시 (초록=요격, 빨강=피격)."),
     ("📊  반복 시뮬레이션 통계",
      "같은 시나리오를 수백~수천 번 자동 반복해 '평균적으로 몇 %를 막아내는지' 확률로 계산. "
      "결과가 운에 따라 얼마나 달라지는지 분포 그래프로 확인 가능."),
