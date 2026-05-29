@@ -1223,8 +1223,21 @@ class TimeStepEngine:
         primary_pos = self._primary().pos
 
         def _urgency(obj):
-            d = max(obj.pos.dist_to(primary_pos), 1)
-            return getattr(obj, 'speed_ms', 300) / d
+            # 임박도 = speed / 교전창 잔여 거리 (교전창 하한 근접 시 임박도 급증)
+            # floor: 해당 위협 유형의 최소 유효 교전 거리 — 이 거리 이하엔 주 요격 무기 사용 불가
+            # 기존 speed/dist 공식은 탄도탄이 SM-3 교전창 끝에 가까울수록 순항미사일 대비
+            # urgency 비율이 오히려 하락하는 역전 현상 발생 → floor 도입으로 수정
+            is_bal = getattr(obj, 'is_ballistic', False)
+            is_hgv = getattr(obj, 'is_hgv',       False)
+            is_qbm = getattr(obj, 'is_qbm',       False)
+            if is_bal or is_hgv:
+                floor = 150_000.0   # SM-3 중간단계 교전창 하한 ~150km
+            elif is_qbm:
+                floor = 20_000.0    # SM-6 최소 교전거리 ~20km
+            else:
+                floor = 5_000.0     # CIWS/RAM 최소 교전거리 ~5km
+            d_eff = max(obj.pos.dist_to(primary_pos) - floor, 200.0)
+            return getattr(obj, 'speed_ms', 300.0) / d_eff
 
         # 다층 방어 우선순위 정렬 (B2=0, B1=1, KDX-II=2, FFX-III=3, FFX-II=4, FFX-I=5, 나머지=99)
         if layered:

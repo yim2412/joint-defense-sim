@@ -879,5 +879,17 @@
       "추가  compare_ab_v7 import, closeEvent ABWorker 종료 처리",
       "삭제  향후 계획에서 'A/B 편대 구성 비교' 항목 제거 (구현 완료)"
     ]
+  },
+  {
+    "version": "58",
+    "date": "2026-05-29",
+    "title": "위협 임박도 정렬 개선 (v8.09)",
+    "changes": [
+      "수정  _urgency 공식 speed/dist → speed/(dist−floor) 로 개선",
+      "수정  탄도탄·HGV floor=150km: SM-3 중간단계 교전창 하한, 접근 시 임박도 급증",
+      "수정  QBM floor=20km: SM-6 최소 교전거리",
+      "수정  대함미사일·항공기 floor=5km: CIWS/RAM 최소 교전거리",
+      "수정  기존 공식의 역전 현상 해소 — 탄도탄이 교전창 끝 근접 시 순항미사일 대비 우선순위 비율이 하락하던 버그 수정"
+    ]
   }
 ]
