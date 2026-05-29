@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.09 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.10 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.10 — SAM 살보·Pk 경고·VLS 소진 추적 3종 패치]                         ║
+║  NEW-A  SAM 살보 로직: HGV→3발, 탄도탄·QBM·초음속→2발, 기타→1발            ║
+║         항공기도 동일 기준 세분화 / CEC +1발 / CEC 두절 1발 고정            ║
+║  NEW-B  Pk 추정값 경고: 적군·아군 DB 탭 + 결과 카드 영역에 ±15~20% 고지   ║
+║  NEW-C  VLS 소진 추적: MC별 소진률 집계 → 결과 화면에 경고(≥20%) 표시      ║
+║                                                                              ║
 ║  [v8.09 — 위협 임박도 정렬 개선]                                            ║
 ║  NEW-A  _urgency 공식 개선: speed/dist → speed/(dist−floor)                 ║
 ║         탄도탄 floor=150km, QBM=20km, 대함/항공=5km                         ║
@@ -1560,7 +1566,8 @@ class SimWorker(QThread):
                 all_rates, all_f_hits, all_e_dest = [], [], []
                 all_f_lost, all_costs = [], []
                 all_weapon: dict = {}
-                all_ship: dict = {}
+                all_ship:   dict = {}
+                all_wzero:  dict = {}
                 done_count = 0
 
                 pool = _GLOBAL_POOL or ProcessPoolExecutor(max_workers=n_cores)
@@ -1576,12 +1583,13 @@ class SimWorker(QThread):
                         if _own:
                             pool.shutdown(wait=False)
                         return
-                    rates, fh, ed, fl, cs, wu, sh = fut.result()
+                    rates, fh, ed, fl, cs, wu, sh, wz = fut.result()
                     all_rates.extend(rates);  all_f_hits.extend(fh)
                     all_e_dest.extend(ed);    all_f_lost.extend(fl)
                     all_costs.extend(cs)
                     for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
                     for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
+                    for k, v in wz.items(): all_wzero[k] = all_wzero.get(k, 0) + v
                     done_count += len(rates)
                     batch_done_n += 1
                     self.batch_done.emit(batch_done_n, len(batches))
@@ -1596,18 +1604,20 @@ class SimWorker(QThread):
                     pool.shutdown(wait=False)
 
                 arr = np.array(all_rates)
+                _n_total = max(len(all_rates), 1)
                 mc = {
-                    'intercept_rates':      all_rates,
-                    'friendly_hits':        all_f_hits,
-                    'enemy_destroyed':      all_e_dest,
-                    'friendly_lost':        all_f_lost,
-                    'total_costs':          all_costs,
-                    'weapon_avg_remaining': {k: float(np.mean(v)) for k, v in all_weapon.items()},
-                    'ship_avg_hits':        {k: float(np.mean(v)) for k, v in all_ship.items()},
-                    'mean_intercept':       float(arr.mean()),
-                    'std_intercept':        float(arr.std()),
-                    'full_pass_rate':       float((arr == 1.0).mean()),
-                    'n':                    len(all_rates),
+                    'intercept_rates':         all_rates,
+                    'friendly_hits':           all_f_hits,
+                    'enemy_destroyed':         all_e_dest,
+                    'friendly_lost':           all_f_lost,
+                    'total_costs':             all_costs,
+                    'weapon_avg_remaining':    {k: float(np.mean(v)) for k, v in all_weapon.items()},
+                    'weapon_exhaustion_rates': {k: v / _n_total for k, v in all_wzero.items()},
+                    'ship_avg_hits':           {k: float(np.mean(v)) for k, v in all_ship.items()},
+                    'mean_intercept':          float(arr.mean()),
+                    'std_intercept':           float(arr.std()),
+                    'full_pass_rate':          float((arr == 1.0).mean()),
+                    'n':                       len(all_rates),
                 }
 
             # ── CVaR: 기존 MC rates에서 직접 계산 (추가 시뮬 불필요) ─────────
@@ -3914,6 +3924,25 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.card_row)
 
+        # Pk 추정값 경고 + VLS 소진 경고
+        notice_row = QWidget()
+        notice_rl  = QHBoxLayout(notice_row)
+        notice_rl.setContentsMargins(12, 0, 12, 0)
+        notice_rl.setSpacing(12)
+
+        lbl_pk_note = QLabel(
+            "⚠  Pk 수치는 공개 자료 기반 추정값 (±15~20%) — 실측 데이터 아님")
+        lbl_pk_note.setStyleSheet(
+            f"color:#e67e22; font-size:11px;")
+        notice_rl.addWidget(lbl_pk_note)
+
+        self._lbl_vls_warn = QLabel("")
+        self._lbl_vls_warn.setStyleSheet(
+            f"color:{C_RED}; font-size:11px; font-weight:bold;")
+        notice_rl.addWidget(self._lbl_vls_warn)
+        notice_rl.addStretch()
+        layout.addWidget(notice_row)
+
         # 내보내기 버튼 행
         export_row = QWidget()
         export_rl  = QHBoxLayout(export_row)
@@ -4647,6 +4676,7 @@ class MainWindow(QMainWindow):
             f"MC {mc['n']}회")
 
         self._update_cards(result, mc)
+        self._update_vls_warning(mc)
         self.tab_anim.load_frames(result.get('frames', []))
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
@@ -4819,6 +4849,30 @@ class MainWindow(QMainWindow):
         self.btn_weather_run.setEnabled(True)
         self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
         self._sidebar.setCurrentRow(3)
+
+    def _update_vls_warning(self, mc: dict):
+        """MC 결과에서 VLS 주요 무기 소진률 확인 후 경고 레이블 갱신."""
+        key_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB']
+        rates = mc.get('weapon_exhaustion_rates', {})
+        critical, caution = [], []
+        for w in key_wpns:
+            r = rates.get(w, 0.0)
+            if r >= 0.5:
+                critical.append(f"{w} {r:.0%}")
+            elif r >= 0.2:
+                caution.append(f"{w} {r:.0%}")
+        if critical:
+            self._lbl_vls_warn.setText(
+                f"🔴 VLS 소진 경고: {' · '.join(critical)}")
+            self._lbl_vls_warn.setStyleSheet(
+                f"color:{C_RED}; font-size:11px; font-weight:bold;")
+        elif caution:
+            self._lbl_vls_warn.setText(
+                f"🟠 VLS 소진 주의: {' · '.join(caution)}")
+            self._lbl_vls_warn.setStyleSheet(
+                f"color:{C_ORANGE}; font-size:11px; font-weight:bold;")
+        else:
+            self._lbl_vls_warn.setText("")
 
     def _on_weather_error(self, msg: str):
         QMessageBox.critical(self, "날씨 비교 오류", msg)
@@ -5962,18 +6016,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v8.x : 교정 / 개선 ───────────────────────────────────────────
-            ("v8.x", "낮음", "VLS 재고 추적",
-             "함정별 VLS 발사관 수를 실제 장착량으로 제한 (세종대왕급 SM-3 ×8, SM-6 ×16, SM-2 ×24 등). "
-             "현실 탑재량 잠금 옵션 ON 시 슬라이더 최댓값 자동 제한. "
-             "탄약 소진 시 해당 무기 교전 완전 불가. 최소 재고 분석 탭과 연동."),
-            ("v8.x", "낮음", "SAM 살보 로직",
-             "현재 위협 1개당 SAM 1발 고정 → 위협 종류별 투탄 수 결정. "
-             "탄도미사일·HGV는 2발, 극초음속은 3발 동시 투탄. "
-             "채널 소모는 투탄 수만큼 반영. 고위협 요격률 현실화."),
-            ("v8.x", "낮음", "Pk 추정값 경고 UI",
-             "DB 탭 및 결과 화면에 'Pk 수치는 공개 자료 기반 추정값 (±15~20%)' 고지. "
-             "소수점 2자리 수치가 실측 데이터처럼 오해되지 않도록 명시. "
-             "시뮬레이터 결과에 대한 과도한 신뢰 방지."),
             ("v8.x", "낮음", "비용-효과 분석",
              "무기 단가 × 소모량 교전 비용 차트. "
              "단가는 범위(최소~최대)로 표시하고 '개략 추정 ±30%' 명시 — 허구적 정밀도 방지. "
@@ -6200,6 +6242,14 @@ class SplashWindow(QWidget):
         inner_tabs.addTab(self._wrap_splitter(sp), f"🤿  잠수함  ({len(sub_e)})")
 
         layout.addWidget(inner_tabs, stretch=1)
+
+        pk_note = QLabel(
+            "  ⚠  적 플랫폼별 Pk 수치는 공개 자료 기반 추정값입니다 (±15~20%). "
+            "소수점 정밀도는 상대 비교를 위한 것이며 실측 데이터가 아닙니다.")
+        pk_note.setStyleSheet(
+            f"color:#e67e22; font-size:11px; padding:3px 4px;")
+        pk_note.setWordWrap(True)
+        layout.addWidget(pk_note)
         return w
 
     # ── 아군 DB 탭 ─────────────────────────────────────────────────────────
@@ -6266,6 +6316,11 @@ class SplashWindow(QWidget):
         lay.setSpacing(4)
         lay.addLayout(legend)
         lay.addWidget(sp, stretch=1)
+        pk_note = QLabel(
+            "  ⚠  Pk 수치는 공개 자료 기반 추정값입니다 (±15~20%). 실측 데이터가 아닙니다.")
+        pk_note.setStyleSheet(
+            f"color:#e67e22; font-size:11px; padding:3px 4px;")
+        lay.addWidget(pk_note)
         return w
 
     def _build_ship_sub_tab(self, ship_entries: list | None = None) -> QWidget:

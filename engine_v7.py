@@ -1275,10 +1275,17 @@ class TimeStepEngine:
                 1 for s in self.missiles
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
             )
-            # 탄도/극초음속/초음속(≥1000m/s) 고위협은 Shoot-Look-Shoot: 2발 배정
-            # CEC 두절 시 고위협도 1발로 제한 (독립 교전)
-            is_high = m.is_ballistic or m.is_hgv or m.is_qbm or m.speed_ms >= 1000
-            max_sams = 1 if cec_jammed else (2 if (cec or is_high) else 1)
+            # 위협 유형별 살보 수 — CEC 두절 시 1발 고정
+            # HGV(극초음속 활공체): SM-3 교전창 극히 좁음 → 3발
+            # 탄도탄·QBM·초음속(≥1000m/s): Shoot-Look-Shoot → 2발
+            # 기타: 1발 / CEC 추가 협동 배정: +1발
+            if m.is_hgv:
+                _base = 3
+            elif m.is_ballistic or m.is_qbm or m.speed_ms >= 1000:
+                _base = 2
+            else:
+                _base = 1
+            max_sams = 1 if cec_jammed else (_base + (1 if cec else 0))
             if sams_on >= max_sams:
                 continue
 
@@ -1318,9 +1325,16 @@ class TimeStepEngine:
                 1 for s in self.missiles
                 if s.alive and s.target is et and s.mtype == 'friendly_sam'
             )
-            # 초음속 항공기(≥600m/s, 약 Mach 1.8+)는 2발 배정 (CEC 두절 시 1발)
-            is_high_ac = et.speed_ms >= 600
-            max_sams = 1 if cec_jammed else (2 if (cec or is_high_ac) else 1)
+            # 항공기 위협 유형별 살보 수
+            # HGV 항공기(킨잘·지르콘 등) 또는 극초음속(≥1500m/s): 3발
+            # 초음속(≥600m/s): 2발 / 기타: 1발 / CEC 추가: +1발
+            if getattr(et, 'is_hgv', False) or et.speed_ms >= 1500:
+                _base_ac = 3
+            elif et.speed_ms >= 600:
+                _base_ac = 2
+            else:
+                _base_ac = 1
+            max_sams = 1 if cec_jammed else (_base_ac + (1 if cec else 0))
             if sams_on >= max_sams:
                 continue
 
@@ -2157,6 +2171,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}   # {무기명: [회차별 소모량]}
     ship_hits_mc: dict = {}   # {함정명: [회차별 피격]}
+    weapon_zero:  dict = {}   # {무기명: 소진(잔여=0) 횟수}
 
     step = max(1, n // 5)
     if desc:
@@ -2175,11 +2190,13 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         f_lost.append(r['friendly_ships_lost'])
         costs.append(r['total_cost'])
 
-        # 무기별 소모량 (초기 재고 - 잔여 재고)
+        # 무기별 소모량 (초기 재고 - 잔여 재고) + 소진 횟수 집계
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             if wpn not in weapon_usage:
                 weapon_usage[wpn] = []
             weapon_usage[wpn].append(remaining)
+            if remaining == 0:
+                weapon_zero[wpn] = weapon_zero.get(wpn, 0) + 1
 
         # 함정별 피격 횟수
         for ship in r.get('friendly_ships', []):
@@ -2202,17 +2219,18 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     weapon_avg_remaining = {k: float(np.mean(v)) for k, v in weapon_usage.items()}
     ship_avg_hits = {k: float(np.mean(v)) for k, v in ship_hits_mc.items()}
     return {
-        'intercept_rates':       rates,
-        'friendly_hits':         f_hits,
-        'enemy_destroyed':       e_dest,
-        'friendly_lost':         f_lost,
-        'total_costs':           costs,
-        'weapon_avg_remaining':  weapon_avg_remaining,
-        'ship_avg_hits':         ship_avg_hits,
-        'mean_intercept':        float(arr.mean()),
-        'std_intercept':         float(arr.std()),
-        'full_pass_rate':        float((arr == 1.0).mean()),
-        'n':                     n,
+        'intercept_rates':         rates,
+        'friendly_hits':           f_hits,
+        'enemy_destroyed':         e_dest,
+        'friendly_lost':           f_lost,
+        'total_costs':             costs,
+        'weapon_avg_remaining':    weapon_avg_remaining,
+        'weapon_exhaustion_rates': {k: v / n for k, v in weapon_zero.items()},
+        'ship_avg_hits':           ship_avg_hits,
+        'mean_intercept':          float(arr.mean()),
+        'std_intercept':           float(arr.std()),
+        'full_pass_rate':          float((arr == 1.0).mean()),
+        'n':                       n,
     }
 
 
@@ -2221,6 +2239,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     cfg, n, seed_offset = args
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}
+    weapon_zero:  dict = {}
     ship_hits_mc: dict = {}
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -2235,10 +2254,12 @@ def _mc_batch_worker(args: tuple) -> tuple:
         costs.append(r['total_cost'])
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             weapon_usage.setdefault(wpn, []).append(remaining)
+            if remaining == 0:
+                weapon_zero[wpn] = weapon_zero.get(wpn, 0) + 1
         for ship in r.get('friendly_ships', []):
             ship_hits_mc.setdefault(ship.name, []).append(
                 getattr(ship, 'hits_taken', 0))
-    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero
 
 
 # ════════════════════════════════════════════════════════════════════════════
