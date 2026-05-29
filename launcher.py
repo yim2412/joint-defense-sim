@@ -2,6 +2,9 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.19 — 전체 감사: _page_dirty 탭 21·23 누락 수정]                        ║
+║  BUG-1  _page_dirty에 탭 21(최적 조합)·23(CEC 비교) 누락 → 시뮬 후 미갱신  ║
+║                                                                              ║
 ║  [v8.18 — 실행 로그 크래시 수정 + 탑재 기능 최신화]                         ║
 ║  BUG-1  SimLogDialog._records 미초기화 → textChanged 즉시 AttributeError 팅김║
 ║  NEW-A  탑재 기능 탭: 전장 애니메이션 → 교전 분석 항목으로 교체              ║
@@ -4705,7 +4708,7 @@ class MainWindow(QMainWindow):
         self._pending_mc_n = mc_n
 
         # 모든 차트 페이지를 dirty로 표시 (11·12는 탭 방문 시 워커 기동)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -6056,6 +6059,20 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
+            # ── v8.x 버그 수정 ───────────────────────────────────────────────
+            ("v8.x", "높음", "[A-1] 교전 분석 탭 항상 빈 화면",
+             "engine_v7.py TimeStepEngine.run() 반환 dict에 active_events 키 없음. "
+             "EnemyThreatObj를 ThreatEvent 필드(label·intercepted·intercept_weapon·intercept_km·"
+             "t_intercepted·gantt_bars·is_active·detect_m·enemy_info)로 매핑하는 어댑터 추가 필요."),
+            ("v8.x", "중간", "[B-1] Gantt 차트 위협 이름 잘림",
+             "_render_engagement_gantt에서 ax.text(-1, ...) 고정값 사용. "
+             "xlim 시작이 0이라 텍스트가 차트 왼쪽 밖으로 잘림. xlim을 텍스트 길이 기반으로 동적 조정 필요."),
+            ("v8.x", "중간", "[B-2] Funnel 차트 remaining 음수",
+             "_render_engagement_funnel에서 복수 레이어에 같은 무기명 매칭 시 카운트 초과로 remaining - cnt가 음수 가능. "
+             "max(0, remaining - cnt) 처리 필요."),
+            ("v8.x", "낮음", "[B-3] anim_render.py 불필요 패키징",
+             "_warmup_task가 anim_render.py를 참조해 삭제된 AnimationTab 코드가 exe에 포함됨. "
+             "워밍업 함수를 dummy로 교체해 의존성 제거 가능."),
             # ── v9.x ────────────────────────────────────────────────────────
             ("v9.x", "중간", "아군 공격 임무 (대함 공격)",
              "현재 방어 전용에서 공격 임무 추가. "
