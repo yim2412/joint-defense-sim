@@ -1017,5 +1017,15 @@
     "changes": [
       "추가  랴오닝·산둥·푸젠 항모 스펙시트 사진 (assets/images 추가)"
     ]
+  },
+  {
+    "version": "71",
+    "date": "2026-05-30",
+    "title": "DB 수치 3종 수정 + anim_render 의존성 제거",
+    "changes": [
+      "수정  폭풍 radar_factor 0.82→0.55 — 태풍(0.62)보다 폭풍이 탐지거리가 더 좋던 역전 현상 해소",
+      "수정  J-35 백상어 속도 450→640 m/s (Mach 1.3→1.9) — 5세대 스텔스 함재기 전술 접근 속도 기준",
+      "수정  ProcessPool 예열 함수에서 anim_render import 제거 — exe 불필요 패키징 해소"
+    ]
   }
 ]

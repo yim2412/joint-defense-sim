@@ -2,6 +2,11 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.21 — DB 수치 3종 수정 + anim_render 의존성 제거]                        ║
+║  BUG-1  폭풍 radar_factor 0.82→0.55 (태풍보다 높던 역전 현상 해소)           ║
+║  BUG-2  J-35 백상어 speed_ms 450→640 m/s (Mach 1.3→1.9, 5세대기 기준 수정)  ║
+║  BUG-3  _warmup_task: anim_render import 제거 → dummy lambda로 교체           ║
+║                                                                              ║
 ║  [v8.20 — 대규모 감사: 침묵 버그 4종 + DB 수치 6종 수정]                    ║
 ║  BUG-1  '093형 잠수함 (위안급)' → DB 없는 이름: 3개 프리셋+랜덤풀 잠수함 스폰 안 됨║
 ║  BUG-2  푸젠 항모 carrier_aircraft='J-35 (스텔스 함재기)' → DB 불일치, 함재기 0회 출격║
@@ -337,7 +342,7 @@ _SYS_CACHE: dict = {
 def _init_global_pool():
     """앱 시작 시 백그라운드 스레드에서 호출 — 워커 프로세스 예열."""
     global _GLOBAL_POOL
-    from anim_render import _warmup_task
+    _warmup_task = lambda _: None  # BUG-3: anim_render 의존성 제거
     n = min(os.cpu_count() or 4, 8)
     _GLOBAL_POOL = ProcessPoolExecutor(max_workers=n)
     try:
@@ -6075,15 +6080,6 @@ class SplashWindow(QWidget):
             ("v8.x", "중간", "[B-1] Gantt 차트 위협 이름 잘림",
              "_render_engagement_gantt에서 ax.text(-1, ...) 고정값 사용. "
              "xlim 시작이 0이라 텍스트가 차트 왼쪽 밖으로 잘림. xlim을 텍스트 길이 기반으로 동적 조정 필요."),
-            ("v8.x", "낮음", "[B-3] anim_render.py 불필요 패키징",
-             "_warmup_task가 anim_render.py를 참조해 삭제된 AnimationTab 코드가 exe에 포함됨. "
-             "워밍업 함수를 dummy lambda로 교체하면 anim_render.py 의존성 제거 가능."),
-            ("v8.x", "낮음", "[C-1] 폭풍 radar_factor 낙관적",
-             "WEATHER_DB 폭풍 radar_factor=0.82로 기준치(0.4~0.6) 대비 낙관적. "
-             "태풍(0.62)보다 폭풍이 레이더 성능이 더 좋아지는 비정상 역전 현상."),
-            ("v8.x", "낮음", "[C-2] J-35 백상어 속도 낮음",
-             "speed_ms=450 (Mach 1.3). J-20=750 m/s(Mach 2.2) 대비 크게 낮음. "
-             "5세대 함재기 전술 접근 속도 기준 600~680 m/s(Mach 1.8) 수준이 적절."),
             # ── v9.x ────────────────────────────────────────────────────────
             ("v9.x", "중간", "아군 공격 임무 (대함 공격)",
              "현재 방어 전용에서 공격 임무 추가. "

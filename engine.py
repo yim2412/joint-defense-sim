@@ -518,7 +518,7 @@ ENEMY_DB = {
     # ════ 중국 신규 추가 (7종) ═══════════════════════════════════════════════
     # J-35: Type 003 탑재 5세대 스텔스 함재기
     'J-35 (백상어)':
-        {'category':'대공','type':'전투기','speed_ms':450,'altitude_m':11000,
+        {'category':'대공','type':'전투기','speed_ms':640,'altitude_m':11000,
          'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':0.002,
          'missile_salvo_min':2,'missile_salvo_max':4,
@@ -799,7 +799,7 @@ WEATHER_DB = {
         {'detect_range_factor':0.85,'radar_factor':0.92,'sonar_factor':0.60,
          'intercept_prob_delta':-0.06,'cd_time_factor':1.20},
     '폭풍 (해상 악화)':
-        {'detect_range_factor':0.75,'radar_factor':0.82,'sonar_factor':0.40,
+        {'detect_range_factor':0.75,'radar_factor':0.55,'sonar_factor':0.40,
          'intercept_prob_delta':-0.08,'cd_time_factor':1.25},
     '태풍 (9~12등급)':
         {'detect_range_factor':0.55,'radar_factor':0.62,'sonar_factor':0.22,
