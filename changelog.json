@@ -1040,6 +1040,15 @@
     ]
   },
   {
+    "version": "v8.22 patch",
+    "date": "2026-05-30",
+    "title": "버전 표기 수정 + 적군 DB 탭 항모·순양함·상륙함 탭 표시 추가",
+    "changes": [
+      "수정  런처 헤더 버전 표기 v8.22로 갱신",
+      "추가  적군 DB 탭: 항모(랴오닝·산둥·푸젠)·순양함·상륙함 탭 표시 추가"
+    ]
+  },
+  {
     "version": "v8.23",
     "date": "2026-05-30",
     "title": "v9.x / v10.x 장기 계획 수립",
@@ -1082,6 +1091,40 @@
       "추가  v9.x: 채프·플레어·기만체계 세분화 (낮음)",
       "추가  v9.x: 이지스 어쇼어 지상 자산 연동 (중간)",
       "추가  v9.x: 교전 후 브리핑 자동 생성 (낮음)"
+    ]
+  },
+  {
+    "version": "v8.25 patch",
+    "date": "2026-05-30",
+    "title": "CLAUDE.md 전면 갱신 — v8.25 현재 상태 반영",
+    "changes": [
+      "수정  버전 v6.8.4 → v8.25",
+      "수정  파일 구조: engine.py/dashboard.py → engine.py/engine_v7.py/launcher.py/spec_db.py",
+      "수정  실행 방법: streamlit → python launcher.py / PyInstaller exe",
+      "추가  개발 워크플로우 섹션 (난이도별 설계 여부)",
+      "수정  패치 체크리스트 dist 폴더 갱신 규칙 표 형식으로 명확화",
+      "추가  향후 계획 v9.x 15개 / v10.x 3개 요약"
+    ]
+  },
+  {
+    "version": "v8.25 patch",
+    "date": "2026-05-30",
+    "title": "코드 감사 — 낡은 메모리 정리 + engine.py 데드코드 제거",
+    "changes": [
+      "삭제  낡은 메모리 파일 7개 (project_roadmap, project_files, realism_audit, detailed_plan, plan_v7x, plan_v8x, plan_analysis_enhancement)",
+      "수정  CLAUDE.md: v6 전용 함수(dynamic_kinematic_pk, max_allowed_cd) 제거 → v7 기준으로 재작성",
+      "삭제  engine.py 데드코드 1,951줄 제거 (HeloEvent, ThreatEvent, run_single_sim, monte_carlo 등 v6 시뮬 코드)",
+      "유지  engine_v7.py가 import하는 12개 심볼 전부 보존 — 시뮬 정상 동작 확인"
+    ]
+  },
+  {
+    "version": "v8.25 patch",
+    "date": "2026-05-30",
+    "title": "패치 내역 탭 버전 표기 개선",
+    "changes": [
+      "수정  changelog.json 96개 항목 버전 필드를 실제 버전 문자열로 변환 (숫자 73 → v8.23 등)",
+      "수정  launcher.py 패치 내역 탭 버전 컬럼 60px → 90px",
+      "추가  CLAUDE.md changelog version 필드 규칙 명시 (반드시 v8.xx 형식)"
     ]
   }
 ]
