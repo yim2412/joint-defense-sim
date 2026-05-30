@@ -104,12 +104,13 @@ v8.26 patch: [버그 수정 내용]
 2. **changelog.json 갱신**: 새 항목을 배열 마지막에 추가
    ```json
    {
-     "version": "76",
+     "version": "v8.26",
      "date": "YYYY-MM-DD",
      "title": "변경 내용 제목",
      "changes": ["추가  ...", "수정  ...", "삭제  ..."]
    }
    ```
+   `version` 필드는 반드시 실제 패치 버전 문자열 (`v8.26`, `v8.26 patch` 등)을 사용한다.
 
 3. **향후 계획 탭 갱신** (`launcher.py` → `_build_plan_tab()` 내 `_PLANS`):
    - 구현 완료된 항목은 **즉시 삭제**한다.

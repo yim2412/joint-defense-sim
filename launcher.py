@@ -6034,7 +6034,7 @@ class SplashWindow(QWidget):
         tbl.setHorizontalHeaderLabels(["버전", "변경 내용"])
         hh = tbl.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 60)
+        tbl.setColumnWidth(0, 90)
         tbl.verticalHeader().setDefaultSectionSize(28)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
