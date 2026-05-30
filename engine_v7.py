@@ -157,6 +157,13 @@ FRIENDLY_STRIKE_DB = {
         'cost_usd': 2_000_000,
         'pk_base':  0.80,
     },
+    # NEW-A: 현무-4 지대함 탄도미사일 (한국판 DF-21D, 지상 발사 전용)
+    '현무-4 (ASBM)': {
+        'speed_ms': 3000,   # 종말 Mach 8~10 (평균 비행 속도 근사)
+        'range_km': 800,    # 현무-4 사거리 800km
+        'cost_usd': 3_500_000,
+        'pk_base':  0.85,   # 고속 종말 — 적 SAM 요격 극히 어려움
+    },
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -718,6 +725,13 @@ class TimeStepEngine:
 
         # v9.3: 아군 공격 임무 격침 기록
         self.strike_log: list = []
+
+        # v9.4: VLS 탄약 고갈 시각 기록 {ship_name: t_depletion}
+        self.vls_depletion_t: dict = {}
+        # v9.4: 지상 발사 자산 재고 (현무-4 ASBM)
+        self.ground_inv: dict = {'현무-4 (ASBM)': cfg.get('hyunmoo4_stock', 0)}
+        self._ground_last_fire: float = -999.0  # 마지막 현무-4 발사 시각
+        self._ground_cost: float = 0.0
 
         # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
         self._pending_threats: list = []
@@ -1446,12 +1460,14 @@ class TimeStepEngine:
         prefix = '[대공 방어]' if is_aa else '[방어]'
         tgt_name = target.name if hasattr(target, 'name') else target.preset_name
         self._log(f"{prefix} {ship.name} -> {wpn} 발사 -> {tgt_name} (거리 {dist_m/1000:.1f}km)")
-        # 탄약 재보급 한계: VLS 주요 무기 완전 소진 시 경고
+        # 탄약 재보급 한계: VLS 주요 무기 완전 소진 시 경고 + 시각 기록
         vls_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB', 'RIM-116 RAM']
         if not ship._vls_depleted:
             if all(ship.inventory.get(w, 0) == 0 for w in vls_wpns):
                 ship._vls_depleted = True
                 self._log(f"[경고] {ship.name} VLS 탄약 완전 소진 — 방어 불능")
+                # v9.4: 고갈 발생 시각 기록 (최초 1회만)
+                self.vls_depletion_t.setdefault(ship.name, self.t)
 
     # LOW-11: 조명기(SPG-62) 가용 채널 (SM-2는 반능동 유도 → 조명기 필요)
     _ILLUMINATOR_MAX = {
@@ -1670,6 +1686,45 @@ class TimeStepEngine:
                         f"[대잠 공격] {ship.name} -> {wpn} -> {et.preset_name} "
                         f"(거리 {dist_m/1000:.1f}km)"
                     )
+
+        # v9.4: 지상 발사 현무-4 ASBM — 60초 쿨다운, 함정당 최대 2발 비행 중
+        _h4_wpn = '현무-4 (ASBM)'
+        if (self.cfg.get('enable_strike', True)
+                and self.ground_inv.get(_h4_wpn, 0) > 0
+                and self.t - self._ground_last_fire >= 60.0):
+            wpn_info_h4 = FRIENDLY_STRIKE_DB[_h4_wpn]
+            primary_pos  = self._primary().pos
+            for et in self.enemy_threats:
+                if not et.alive or not et.is_ship:
+                    continue
+                dist_m = primary_pos.dist_to(et.pos)
+                if dist_m > wpn_info_h4['range_km'] * 1000:
+                    continue
+                en_route = sum(
+                    1 for m in self.missiles
+                    if m.alive and m.target is et and m.name == _h4_wpn
+                )
+                if en_route >= 2:
+                    continue
+                self.ground_inv[_h4_wpn] -= 1
+                self._ground_last_fire = self.t
+                self._ground_cost += wpn_info_h4['cost_usd']
+                self.missiles.append(MissileObj(
+                    mtype    = 'friendly_strike',
+                    name     = _h4_wpn,
+                    pos      = primary_pos,
+                    target   = et,
+                    speed_ms = wpn_info_h4['speed_ms'],
+                    pk_base  = wpn_info_h4['pk_base'],
+                    owner_id = 0,
+                    t_spawn  = self.t,
+                ))
+                self._log(
+                    f"[지상공격] {_h4_wpn} -> {et.preset_name} "
+                    f"(거리 {dist_m/1000:.0f}km)"
+                )
+                if self.ground_inv.get(_h4_wpn, 0) <= 0:
+                    break
 
     # ── 4.5단계: 항공 자산 대잠 (포팅 C) ─────────────────────────────────────
 
@@ -2137,6 +2192,7 @@ class TimeStepEngine:
         self.stats['total_cost']       = (
             sum(s.total_cost for s in self.friendly_ships)
             + sum(ac.total_cost for ac in self.aircraft)
+            + self._ground_cost  # v9.4: 지상 발사 자산 비용
         )
 
         intercept_rate = (
@@ -2178,6 +2234,8 @@ class TimeStepEngine:
             'ship_subsystem_damage': ship_subsystem_damage,
             'active_events':     self._build_active_events(),  # A-1
             'strike_log':        self.strike_log,              # v9.3
+            'vls_depletion_t':   dict(self.vls_depletion_t),  # v9.4
+            'ground_remaining':  dict(self.ground_inv),        # v9.4
         }
 
     def _build_active_events(self) -> list:
@@ -2293,6 +2351,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     weapon_usage: dict = {}   # {무기명: [회차별 소모량]}
     ship_hits_mc: dict = {}   # {함정명: [회차별 피격]}
     weapon_zero:  dict = {}   # {무기명: 소진(잔여=0) 횟수}
+    # v9.4: VLS 고갈 통계
+    vls_dep_count: int = 0
+    vls_dep_times: list = []
 
     step = max(1, n // 5)
     if desc:
@@ -2327,6 +2388,12 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
                 ship_hits_mc[sname] = []
             ship_hits_mc[sname].append(hits)
 
+        # v9.4: VLS 고갈 시각 수집
+        dep_t = r.get('vls_depletion_t', {})
+        if dep_t:
+            vls_dep_count += 1
+            vls_dep_times.extend(dep_t.values())
+
         if desc and (i + 1) % step == 0:
             print(f'{(i + 1) * 100 // n}%', end=' ', flush=True)
         if progress_cb:
@@ -2356,6 +2423,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         # v9.3: 공격 임무 격침 통계
         'mean_enemy_destroyed':    float(dest_arr.mean()),
         'max_enemy_destroyed':     int(dest_arr.max()) if len(dest_arr) else 0,
+        # v9.4: VLS 고갈 통계
+        'vls_depletion_rate':      vls_dep_count / n,
+        'vls_depletion_t_mean':    float(np.mean(vls_dep_times)) if vls_dep_times else None,
     }
 
 

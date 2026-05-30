@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.25 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.4 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.4 — VLS 탄약 고갈 현실화 + 현무-4 대함탄도미사일]                      ║
+║  NEW-A  현무-4 (ASBM) 지상 발사 — FRIENDLY_STRIKE_DB 추가, UI 재고 설정    ║
+║  NEW-B  VLS 고갈 시각 기록 (vls_depletion_t) + MC 고갈 확률·시각 집계      ║
+║  NEW-C  공격 임무 UI: 현무-4 재고 스핀박스 추가                              ║
+║  NEW-D  VLS 경고 레이블: 고갈 확률 + 평균 고갈 시각 표시                    ║
+║                                                                              ║
 ║  [v8.25 patch — 코드 감사 + 패치 내역 버전 표기 개선]                        ║
 ║  DEL-A  engine.py 데드코드 1,951줄 제거 (v6 시뮬 코드 — HeloEvent 등)       ║
 ║  DEL-B  낡은 메모리 파일 7개 삭제 (v7.x 계획 등 완료된 항목)                ║
@@ -3881,6 +3887,16 @@ class MainWindow(QMainWindow):
         self.spn_harpoon.setToolTip("함정당 하푼 Block II 재고. 기본 4발.")
         strl.addRow("하푼 재고 (함당)", self.spn_harpoon)
 
+        # v9.4: 현무-4 지상 발사 재고
+        self.spn_hyunmoo4 = NoScrollSpinBox()
+        self.spn_hyunmoo4.setRange(0, 20); self.spn_hyunmoo4.setValue(0)
+        self.spn_hyunmoo4.setToolTip(
+            "현무-4 ASBM 지상 발사 재고. 기본 0발 (비활성).\n"
+            "사거리 800km, Mach 8~10 종말 속도 — 적 SAM 요격 극히 어려움.\n"
+            "60초 간격으로 1발씩 발사 (재보급 준비 시간)."
+        )
+        strl.addRow("현무-4 재고 (지상 발사)", self.spn_hyunmoo4)
+
         grp_strike.hide()
         layout.addWidget(grp_strike)
 
@@ -4597,9 +4613,15 @@ class MainWindow(QMainWindow):
         mean_dest = mc.get('mean_enemy_destroyed', 0.0)
         max_dest  = mc.get('max_enemy_destroyed', 0)
         n         = mc.get('n', 0)
+        # v9.4: 현무-4 발사 수 (단일 시뮬)
+        ground_rem = result.get('ground_remaining', {})
+        h4_init    = getattr(self, 'spn_hyunmoo4', None)
+        h4_stock   = h4_init.value() if h4_init else 0
+        h4_fired   = h4_stock - ground_rem.get('현무-4 (ASBM)', h4_stock)
+        h4_str     = f"  |  현무-4 발사: {h4_fired}발" if h4_stock > 0 else ""
         self._strike_mc_lbl.setText(
             f"  MC {n}회 평균 적 격침: {mean_dest:.2f}척  |  최대: {max_dest}척  |"
-            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척"
+            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}"
         )
 
         # MC 격침 분포 차트
@@ -4817,9 +4839,11 @@ class MainWindow(QMainWindow):
             }.get(self.cmb_ai_tactic.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
             # v9.3: 공격 임무
-            'enable_strike':  self.chk_strike.isChecked(),
-            'haesong2_stock': self.spn_haesong2.value(),
-            'harpoon_stock':  self.spn_harpoon.value(),
+            'enable_strike':   self.chk_strike.isChecked(),
+            'haesong2_stock':  self.spn_haesong2.value(),
+            'harpoon_stock':   self.spn_harpoon.value(),
+            # v9.4: 현무-4 지상 발사 재고
+            'hyunmoo4_stock':  self.spn_hyunmoo4.value(),
             # C&D 시간
             'cd_time_s':      10,
             'confirm_time_s': 3,
@@ -5066,7 +5090,7 @@ class MainWindow(QMainWindow):
         self._sidebar.setCurrentRow(3)
 
     def _update_vls_warning(self, mc: dict):
-        """MC 결과에서 VLS 주요 무기 소진률 확인 후 경고 레이블 갱신."""
+        """MC 결과에서 VLS 주요 무기 소진률 + 고갈 확률·시각 확인 후 경고 레이블 갱신."""
         key_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB']
         rates = mc.get('weapon_exhaustion_rates', {})
         critical, caution = [], []
@@ -5076,16 +5100,30 @@ class MainWindow(QMainWindow):
                 critical.append(f"{w} {r:.0%}")
             elif r >= 0.2:
                 caution.append(f"{w} {r:.0%}")
+
+        # v9.4: VLS 완전 고갈 확률 + 평균 고갈 시각
+        dep_rate = mc.get('vls_depletion_rate', 0.0)
+        dep_t    = mc.get('vls_depletion_t_mean', None)
+        dep_suffix = ''
+        if dep_rate > 0:
+            dep_suffix = f"  |  VLS 완전 고갈 {dep_rate:.0%}"
+            if dep_t is not None:
+                dep_suffix += f" (평균 {dep_t:.0f}s)"
+
         if critical:
             self._lbl_vls_warn.setText(
-                f"🔴 VLS 소진 경고: {' · '.join(critical)}")
+                f"🔴 VLS 소진 경고: {' · '.join(critical)}{dep_suffix}")
             self._lbl_vls_warn.setStyleSheet(
                 f"color:{C_RED}; font-size:11px; font-weight:bold;")
         elif caution:
             self._lbl_vls_warn.setText(
-                f"🟠 VLS 소진 주의: {' · '.join(caution)}")
+                f"🟠 VLS 소진 주의: {' · '.join(caution)}{dep_suffix}")
             self._lbl_vls_warn.setStyleSheet(
                 f"color:{C_ORANGE}; font-size:11px; font-weight:bold;")
+        elif dep_suffix:
+            self._lbl_vls_warn.setText(f"🟡{dep_suffix.strip()}")
+            self._lbl_vls_warn.setStyleSheet(
+                f"color:{C_ORANGE}; font-size:11px;")
         else:
             self._lbl_vls_warn.setText("")
 
@@ -6256,14 +6294,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.x", "낮음", "VLS 탄약 고갈 현실화",
-             "현재 재고 0이 되면 단순히 발사 불가 처리. "
-             "탄약 고갈 시 작전 지속성 저하→임무 중단 판정 흐름 추가. "
-             "MC 기준 VLS 고갈 확률·고갈 시각 분포 결과 탭 표시. 아군 공격 임무와 묶어서 구현."),
-            ("v9.x", "낮음", "현무-4 대함탄도미사일 (ASBM)",
-             "한국판 DF-21D. 지대함 탄도미사일로 적 수상함·항모 타격. "
-             "KSS-III 현무-3C와 별개로 지상 발사 FRIENDLY_STRIKE_DB 추가. "
-             "아군 공격 임무 확장 시 자연스럽게 묶어서 구현."),
             ("v9.x", "중간", "생존성 히트맵",
              "편대 구성 × 위협 종류를 2D 격자로 MC 돌려 '어떤 편대가 어떤 위협에 취약한가' 시각화. "
              "현재 스트레스 테스트(채널감소×레이더감소)와 별개로 편대 차원 추가. "

@@ -1166,5 +1166,22 @@
       "추가  launcher: _render_strike_chart() — MC 적 격침 수 히스토그램",
       "수정  launcher: _page_dirty에 24 추가"
     ]
+  },
+  {
+    "version": "v9.4",
+    "date": "2026-05-31",
+    "title": "VLS 탄약 고갈 현실화 + 현무-4 대함탄도미사일 (ASBM)",
+    "changes": [
+      "추가  engine_v7: FRIENDLY_STRIKE_DB — 현무-4 (ASBM) (Mach 8~10, 800km, Pk 0.85)",
+      "추가  engine_v7: SimV7.vls_depletion_t — 함정별 VLS 완전 고갈 시각 기록",
+      "추가  engine_v7: SimV7.ground_inv / _ground_cost — 지상 발사 자산 재고·비용 추적",
+      "추가  engine_v7: _friendly_strike() — ground_inv에서 현무-4 60초 쿨다운 자동 발사",
+      "추가  engine_v7: _compile() — vls_depletion_t, ground_remaining 반환",
+      "추가  engine_v7: monte_carlo_v7() — vls_depletion_rate, vls_depletion_t_mean 집계",
+      "추가  launcher: 공격 임무 UI — 현무-4 재고 스핀박스",
+      "수정  launcher: _update_vls_warning() — VLS 완전 고갈 확률·평균 시각 표시",
+      "수정  launcher: _draw_strike_result() — 현무-4 발사 수 단일 시뮬 표시",
+      "삭제  launcher: _build_plan_tab() — 완료된 VLS 고갈·현무-4 항목 제거"
+    ]
   }
 ]
