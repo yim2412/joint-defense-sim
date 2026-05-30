@@ -1,6 +1,6 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.22 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  [v8.22 — 교전 분석 탭 완전 동작 + Gantt 이름 잘림 수정]                     ║
 ║  NEW-A  engine_v7 _build_active_events(): MissileObj→EngagementAnalysis 어댑터║
@@ -5813,7 +5813,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v8.00  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v8.22  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -6230,7 +6230,7 @@ class SplashWindow(QWidget):
 
         # 유형별 분류
         _AIRCRAFT_T = {'전투기', '폭격기', '전폭기'}
-        _SHIP_T     = {'고속정', '초계함', '호위함', '구축함'}
+        _SHIP_T     = {'고속정', '초계함', '호위함', '구축함', '항모', '순양함', '상륙함'}
         _MISSILE_T  = {'순항미사일', '탄도미사일', '극초음속활공체', '저고도기동탄도', '대방사미사일'}
         _SUB_T      = {'잠수함'}
 
