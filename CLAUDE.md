@@ -173,6 +173,14 @@ v8.26 patch: [버그 수정 내용]
 - 전역 DB를 시뮬레이션 실행 중 직접 수정하지 않는다. 로컬 사본(`dict(enemy_info)`)을 만들어 사용한다.
 - `_mc_batch_worker` 반환 tuple 인덱스 변경 시 `monte_carlo_v7` / `monte_carlo_lhs` 수신부도 함께 수정한다.
 
+### engine.py 주요 유틸 함수 (v7에서 import해서 사용)
+
+| 함수 | 역할 |
+|------|------|
+| `normalize_enemy_db()` | ENEMY_DB 누락 필드 자동 설정 (파일 로드 시 1회 실행) |
+| `calculate_detect_range_by_rcs()` | RCS 기반 탐지거리 계산 |
+| `generate_random_enemy_fleet()` | 랜덤 적군 편대 생성 |
+
 ### engine_v7.py 주요 클래스·함수
 
 | 항목 | 역할 |
