@@ -115,14 +115,21 @@ v8.26 patch: [버그 수정 내용]
    - 구현 완료된 항목은 **즉시 삭제**한다.
    - 새 계획 생기면 추가한다.
 
-4. **dist 폴더 갱신**:
-   - `.py` 변경 시: `python -m PyInstaller launcher.spec --noconfirm`
-   - `changelog.json`만 변경 시: `dist\_internal` 폴더에 파일 복사만
+4. **dist 폴더 갱신 (빠뜨리지 말 것)**:
+
+   | 변경 파일 | 처리 |
+   |-----------|------|
+   | `.py` 파일 변경 | **전체 빌드** `python -m PyInstaller launcher.spec --noconfirm` |
+   | `changelog.json`만 변경 | `_internal` 폴더에 복사만 |
+   | `spec_db.py`만 변경 | `_internal` 폴더에 복사만 |
+   | `.py` + json 동시 변경 | **전체 빌드** 후 복사 불필요 (빌드 시 자동 포함) |
 
    ```powershell
-   # changelog.json만 변경 시
+   # .py 변경 시 — 전체 빌드
+   python -m PyInstaller launcher.spec --noconfirm
+
+   # json/spec_db만 변경 시 — 복사만
    Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
-   # spec_db.py만 변경 시
    Copy-Item spec_db.py "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
    ```
 
