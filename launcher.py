@@ -2,6 +2,11 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v8.17 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v8.22 — 교전 분석 탭 완전 동작 + Gantt 이름 잘림 수정]                     ║
+║  NEW-A  engine_v7 _build_active_events(): MissileObj→EngagementAnalysis 어댑터║
+║  NEW-B  _compile()에 active_events 키 추가 — Funnel/테이블/Gantt 전부 표시   ║
+║  BUG-1  Gantt xlim 동적 조정 — 위협 이름 잘림 해소                           ║
+║                                                                              ║
 ║  [v8.21 — DB 수치 3종 수정 + anim_render 의존성 제거]                        ║
 ║  BUG-1  폭풍 radar_factor 0.82→0.55 (태풍보다 높던 역전 현상 해소)           ║
 ║  BUG-2  J-35 백상어 speed_ms 450→640 m/s (Mach 1.3→1.9, 5세대기 기준 수정)  ║
@@ -2072,11 +2077,16 @@ def _render_engagement_gantt(active_events: list) -> 'Figure':
                     edgecolor='white', linewidth=0.5, alpha=0.88)
             seen_colors.add(col)
         # 위협 이름 왼쪽 표시
-        ax.text(-1, yi, ev.label[:18], ha='right', va='center',
+        ax.text(-0.5, yi, ev.label[:18], ha='right', va='center',
                 color=C_TEXT, fontsize=8, fontfamily='Malgun Gothic')
 
     ax.set_yticks(range(len(evs)))
     ax.set_yticklabels([''] * len(evs))
+    # B-1: 이름 텍스트가 잘리지 않도록 x축 왼쪽 여백을 이름 최대 길이 기준으로 확보
+    max_t = max((max(t_e for _, _, t_e, _ in ev.gantt_bars) for ev in evs), default=100)
+    label_chars = max((len(ev.label[:18]) for ev in evs), default=10)
+    x_margin = label_chars * 1.2   # 글자당 약 1.2초 여유
+    ax.set_xlim(-x_margin, max_t * 1.05)
     ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=11,
                   fontfamily='Malgun Gothic')
     ax.set_title('교전 타임라인 (위협별 교전 구간)',
@@ -6073,13 +6083,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v8.x 버그 수정 ───────────────────────────────────────────────
-            ("v8.x", "높음", "[A-1] 교전 분석 탭 항상 빈 화면",
-             "engine_v7.py TimeStepEngine.run() 반환 dict에 active_events 키 없음. "
-             "EnemyThreatObj를 ThreatEvent 필드(label·intercepted·intercept_weapon·intercept_km·"
-             "t_intercepted·gantt_bars·is_active·detect_m·enemy_info)로 매핑하는 어댑터 추가 필요."),
-            ("v8.x", "중간", "[B-1] Gantt 차트 위협 이름 잘림",
-             "_render_engagement_gantt에서 ax.text(-1, ...) 고정값 사용. "
-             "xlim 시작이 0이라 텍스트가 차트 왼쪽 밖으로 잘림. xlim을 텍스트 길이 기반으로 동적 조정 필요."),
             # ── v9.x ────────────────────────────────────────────────────────
             ("v9.x", "중간", "아군 공격 임무 (대함 공격)",
              "현재 방어 전용에서 공격 임무 추가. "

@@ -364,6 +364,12 @@ class MissileObj:
         self.is_torpedo:              bool  = False # 어뢰 여부 (기만기/회피 판정용)
         self.is_arm:                  bool  = False # 대방사미사일 여부 (레이더 직격)
 
+        # EngagementAnalysis 추적 (A-1)
+        self.intercept_weapon: Optional[str] = None  # 격추 무기명
+        self.intercept_km:     float         = 0.0   # 격추 거리 (km)
+        self.detect_m:         float         = 0.0   # 탐지 시 거리 (m)
+        self.enemy_info:       dict          = {}     # ENEMY_DB 원본
+
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
         if not self.alive:
@@ -912,6 +918,8 @@ class TimeStepEngine:
                     # 3D 시각화용: 포물선 궤도 계산에 사용할 초기 거리·정점 고도 저장
                     m._init_dist  = m.pos.dist_to(primary.pos)
                     m._peak_alt_m = m.altitude_m  # DB 고도 = 정점 고도
+                    m.detect_m    = m._init_dist   # A-1: 스폰 거리 = 탐지 거리 근사
+                    m.enemy_info  = info.copy()    # A-1: ENEMY_DB 원본
                     self.missiles.append(m)
                     self.stats['total_threats'] += 1
                 else:
@@ -1008,6 +1016,8 @@ class TimeStepEngine:
                 m.is_torpedo              = False
                 m._init_dist              = m.pos.dist_to(primary.pos)
                 m._peak_alt_m             = m.altitude_m
+                m.detect_m                = m._init_dist
+                m.enemy_info              = info.copy()
                 self.missiles.append(m)
             else:
                 et = EnemyThreatObj(name, pos)
@@ -1882,6 +1892,9 @@ class TimeStepEngine:
                     # MissileObj만 intercepted_threats에 집계 (BUG 수정: 항공기 플랫폼 격추는 enemy_ships_destroyed로)
                     if isinstance(tgt, MissileObj):
                         self.stats['intercepted_threats'] += 1
+                        # A-1: EngagementAnalysis 추적
+                        tgt.intercept_weapon = sam.name
+                        tgt.intercept_km     = sam.pos.dist_to(tgt.pos) / 1000
                     for ship in self.friendly_ships:
                         if id(ship) == sam.owner_id:
                             ship.channels_used = max(0, ship.channels_used - 1)
@@ -2149,7 +2162,33 @@ class TimeStepEngine:
             'total_channels':      total_channels,
             'used_seed':           self.cfg.get('sim_seed', None),
             'ship_subsystem_damage': ship_subsystem_damage,
+            'active_events':     self._build_active_events(),  # A-1
         }
+
+    def _build_active_events(self) -> list:
+        """A-1: enemy_strike MissileObj → EngagementAnalysisTab 어댑터 리스트."""
+        class _EvAdapter:
+            __slots__ = ('label','is_active','intercepted','intercept_weapon',
+                         'intercept_km','t_intercepted','gantt_bars','detect_m','enemy_info')
+        evs = []
+        for m in self.missiles:
+            if m.mtype != 'enemy_strike':
+                continue
+            ev = _EvAdapter()
+            ev.label            = m.name
+            ev.is_active        = True
+            ev.intercepted      = m.intercepted
+            ev.intercept_weapon = m.intercept_weapon
+            ev.intercept_km     = m.intercept_km if m.intercept_km else None
+            ev.t_intercepted    = m.t_intercept
+            ev.detect_m         = m.detect_m
+            ev.enemy_info       = m.enemy_info
+            # gantt_bars: 위협 비행 전 구간 단일 바
+            t_end   = m.t_intercept or self.t
+            color   = '#2ecc71' if m.intercepted else '#e74c3c'
+            ev.gantt_bars = [(m.name, m.t_spawn, t_end, color)]
+            evs.append(ev)
+        return evs
 
 
 # ════════════════════════════════════════════════════════════════════════════
