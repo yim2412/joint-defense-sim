@@ -4,29 +4,34 @@
 
 한국 해군 이지스 기동전단의 다층 방어 시뮬레이터. 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행한다.
 
-**현재 버전: v6.8.4**
+**현재 버전: v8.25**
 
 ### 파일 구조
 
 | 파일 | 역할 |
 |------|------|
-| `engine.py` | 시뮬레이션 엔진 (DB, 물리모델, 교전 로직, 출력) |
-| `dashboard.py` | Streamlit 실시간 대시보드 |
+| `engine.py` | 핵심 DB (ENEMY_DB 63종·FRIENDLY_DB 14종·SHIP_DB 21종 등), 물리모델, 탐지·교전 로직 |
+| `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진. engine.py DB를 import해서 사용 |
+| `launcher.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
+| `spec_db.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
+| `changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
+| `launcher.spec` | PyInstaller 빌드 스펙 |
+| `anim_render.py` | 현재 미사용 (애니메이션 탭 폐기 후 잔존, 추후 정리 예정) |
 
 ### 실행 방법
 
-```
-# 대시보드 실행
-python -m streamlit run dashboard.py
+```powershell
+# 런처 실행 (개발 중)
+python launcher.py
 
-# 엔진 단독 실행
-python engine.py
+# exe 빌드
+python -m PyInstaller launcher.spec --noconfirm
 ```
 
 ### 필수 패키지
 
 ```
-pip install matplotlib numpy scipy openpyxl pillow streamlit pandas
+pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 psutil
 ```
 
 ---
@@ -36,43 +41,29 @@ pip install matplotlib numpy scipy openpyxl pillow streamlit pandas
 ### 버전 체계
 
 ```
-v{major}.{minor}.{patch}
+v{major}.{minor} / v{major}.{minor} patch
 
-major : 엔진 전면 재설계 (v7.0 = 양방향 교전 엔진 + PyQt6 UI)
-minor : 신기능 추가 (NEW-X 레이블)
-patch : 버그 수정 전용
+major : 아키텍처 전환 (v7 = PyQt6 + 시간스텝 엔진, v8 = 현재 시대)
+minor : 신기능 추가 또는 대규모 패치
+patch : 버그 수정 전용 (기능 추가 없음)
 ```
 
-### 파일 이름 규칙
+### 버전 번호 갱신 규칙
 
-파일명은 버전을 포함하지 않는다. 버전은 git 태그로만 관리한다.
-
-```
-engine.py      # 시뮬레이션 엔진 (고정)
-dashboard.py   # 대시보드 (고정)
-```
-
-버전 태그 방법:
-```
-git tag v6.8.5
-```
-
-### 버전 번호 규칙
-
-헤더의 버전 숫자(`v6.8.4` 등)는 **수동으로 수정하지 않는다.** 버전 번호 갱신은 별도 프로그램이 처리한다.
+`launcher.py` 최상단 헤더의 버전 번호(`v8.xx`)는 **패치 완료 시 수동으로 직접 수정**한다.
 
 ### 헤더 주석 규칙
 
-launcher.py 최상단 헤더에 현재 버전과 주요 변경 내용을 기록한다.
+`launcher.py` 최상단 헤더에 현재 버전과 최근 변경 내용을 기록한다.
 
 ```python
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v7.6 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v8.25 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v7.6 — 변경 내용 한 줄 요약]                                              ║
-║  NEW-X  추가 기능                                                            ║
-║  BUG-X  버그 수정                                                            ║
+║  [v8.25 — 변경 내용 한 줄 요약]                                              ║
+║  NEW-A  추가 기능                                                            ║
+║  BUG-1  버그 수정                                                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 ```
@@ -92,60 +83,68 @@ INTERCEPT_DIST_M = 200
 |--------|------|
 | `NEW-A`, `NEW-B`, ... | 신기능 (알파벳 순서로 누적) |
 | `BUG-1`, `BUG-2`, ... | 버그 수정 (버전 내 번호 재시작) |
-| `미구현-N` | 발견된 미구현 항목 (수정 시 헤더에 명시) |
-| `DEAD-N` | 데드코드 정리 |
+| `DEL-A`, `DEL-B`, ... | 코드·기능 제거 |
 
 ### Git 커밋 규칙
 
-버전이 완성될 때마다 커밋한다.
+기능 단위로 완성 후 커밋한다. 작업 중간 상태는 커밋하지 않는다.
 
 ```
 커밋 메시지 형식:
-v6.8.5: [변경 내용 한 줄 요약]
-
-예시:
-v6.8.5: 양방향 교전 초기 구현 (적 SM-2 요격 로직)
-v6.8.5 patch: HeloEvent.xxx 오류 수정
+v8.26: [변경 내용 한 줄 요약]
+v8.26 patch: [버그 수정 내용]
 ```
-
-작업 중간 상태는 커밋하지 않는다. 기능 단위로 완성 후 커밋한다.
 
 ### 패치 완료 시 필수 체크리스트 (매번 반드시 수행)
 
-**어떤 코드를 수정하든 패치 완료 후 아래 두 가지를 반드시 처리한다.**
+**어떤 코드를 수정하든 패치 완료 후 아래를 반드시 처리한다.**
 
-1. **changelog.json 갱신**: 새 버전 항목을 배열 마지막에 추가한다.
+1. **launcher.py 헤더 버전 번호 갱신** (v8.xx → v8.xx+1)
+
+2. **changelog.json 갱신**: 새 항목을 배열 마지막에 추가
    ```json
    {
-     "version": "28",
+     "version": "76",
      "date": "YYYY-MM-DD",
      "title": "변경 내용 제목",
-     "changes": ["수정  ...", "추가  ..."]
+     "changes": ["추가  ...", "수정  ...", "삭제  ..."]
    }
    ```
 
-2. **향후 계획 탭 갱신** (`launcher.py` → `_build_plan_tab()` 내 `_PLANS` 리스트):
-   - 이번 패치로 구현 완료된 항목은 **즉시 삭제**한다.
-   - 새로운 계획이 생기면 추가한다.
+3. **향후 계획 탭 갱신** (`launcher.py` → `_build_plan_tab()` 내 `_PLANS`):
+   - 구현 완료된 항목은 **즉시 삭제**한다.
+   - 새 계획 생기면 추가한다.
 
-### exe 빌드 규칙
+4. **dist 폴더 갱신**:
+   - `.py` 변경 시: `python -m PyInstaller launcher.spec --noconfirm`
+   - `changelog.json`만 변경 시: `dist\_internal` 폴더에 파일 복사만
 
-패치 완료 후 **항상** exe를 갱신한다. 파일 종류에 따라 방법이 다르다.
-
-| 변경 파일 | 처리 방법 |
-|-----------|-----------|
-| `.py` 파일 변경 | `python -m PyInstaller launcher.spec --noconfirm` (전체 빌드) |
-| `changelog.json`만 변경 | dist `_internal` 폴더에 파일 복사만 (빌드 불필요) |
-
-```powershell
-# .py 변경 시
-python -m PyInstaller launcher.spec --noconfirm
-
-# changelog.json만 변경 시 (_internal 경로가 올바른 위치)
-Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
-```
+   ```powershell
+   # changelog.json만 변경 시
+   Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
+   # spec_db.py만 변경 시
+   Copy-Item spec_db.py "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
+   ```
 
 빌드 후 git 커밋은 소스 파일만 한다. `dist/`, `build/` 폴더는 커밋하지 않는다.
+
+---
+
+## 개발 워크플로우
+
+### 난이도별 작업 방식
+
+| 난이도 | 방식 |
+|--------|------|
+| 낮음 | 설계 없이 바로 구현 |
+| 중간 이상 | 설계 먼저 → 합의 후 구현 → 설계 메모리 저장 |
+
+### 중간 이상 설계 포함 항목
+
+- 수정할 파일 목록
+- 핵심 변경 내용 (함수명, 반환값 변경 등)
+- 의존성 / 주의사항 (하위 호환 등)
+- 필요 시 핵심 코드 스니펫
 
 ---
 
@@ -153,41 +152,47 @@ Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\
 
 ### DB 구조 원칙
 
-- `ENEMY_DB` : 적군 43종. 신규 추가 시 `normalize_enemy_db()`가 누락 필드를 자동 보완하므로 필수 필드만 정의해도 된다.
-- `FRIENDLY_DB` : 아군 무기 8종. `pk_dist`는 Beta 분포 파라미터(`alpha`, `beta`, `mean`).
-- `SHIP_DB` / `FLEET_PRESETS` : 아군 함정·편대 스펙. 실제 한국 해군 함명 사용.
-- `FRIENDLY_AIRCRAFT_DB` : 함재 헬기·해상초계기. `base_type='ship'` 또는 `'land'` 구분.
+- `ENEMY_DB` (engine.py): 적군 63종. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.
+- `FRIENDLY_DB` (engine.py): 아군 방어 무기 14종. `pk_dist`는 Beta 분포 파라미터.
+- `FRIENDLY_STRIKE_DB` (engine_v7.py): 아군 공격 무기 (해성·하푼·현무-3C 등).
+- `SHIP_DB` / `FLEET_PRESETS` (engine.py): 아군 함정 21종·편대 프리셋 15종.
+- `ENEMY_FLEET_PRESETS` (engine.py): 적군 편대 프리셋 14종.
+- `FRIENDLY_AIRCRAFT_DB` (engine.py): 함재 헬기·해상초계기 4종.
+- `SPEC_DETAIL_DB` (spec_db.py): DB 탭 스펙시트 표시용 상세 설명.
 
 ### 신기능 추가 시 체크리스트
 
-1. `ENEMY_DB` / `FRIENDLY_DB` 등 DB 수정이 있으면 `normalize_enemy_db()` 확인
-2. 새 이벤트 클래스(HeloEvent 등) 추가 시 `_id_counter` 리셋 로직 필수 (`run_single_sim` 진입부)
-3. `HeloEvent`에 접근하는 모든 속성은 `getattr(ev, 'attr', default)` 패턴 사용 (ThreatEvent와 인터페이스 혼용 환경)
-4. 신기능은 `enable_xxx` 플래그로 ON/OFF 가능하게 만든다 (하위 호환 유지)
-5. Dashboard import 목록에 새 심볼 추가
+1. `ENEMY_DB` / `FRIENDLY_DB` 등 DB 수정 시 `normalize_enemy_db()` 확인
+2. 새 클래스 추가 시 `_id_counter` 리셋 로직 필수 (`run_v7_simulation` 진입부)
+3. 신기능은 `enable_xxx` 플래그로 ON/OFF 가능하게 만든다 (하위 호환 유지)
+4. engine_v7.py 새 심볼은 launcher.py import 목록에 추가
+5. spec_db.py에 없는 신규 DB 항목은 동시에 스펙 설명 추가
 
 ### 하위 호환 원칙
 
-- `enable_fleet=False` 시 기존 단독함 엔진이 100% 그대로 동작해야 한다.
-- 전역 DB(`ENEMY_DB` 등)를 시뮬레이션 실행 중 직접 수정하지 않는다. 대신 로컬 사본(`dict(enemy_info)`)을 만들어 사용한다 (BUG-3 선례).
+- 전역 DB를 시뮬레이션 실행 중 직접 수정하지 않는다. 로컬 사본(`dict(enemy_info)`)을 만들어 사용한다.
+- `_mc_batch_worker` 반환 tuple 인덱스 변경 시 `monte_carlo_v7` / `monte_carlo_lhs` 수신부도 함께 수정한다.
 
-### 물리 모델 주요 함수
+### engine_v7.py 주요 클래스·함수
 
-| 함수 | 역할 |
+| 항목 | 역할 |
 |------|------|
-| `dynamic_kinematic_pk()` | 운동학적 Pk 보정 (ECM·종말회피·HGV·QBM 포함) |
-| `calculate_detect_range_by_rcs()` | RCS 기반 탐지거리 계산 |
-| `max_allowed_cd()` | 최대 허용 C&D 시간 계산 |
-| `normalize_enemy_db()` | ENEMY_DB 누락 필드 자동 설정 (파일 로드 시 1회 실행) |
+| `SimV7` | 메인 시뮬레이션 클래스 |
+| `_friendly_defense()` | 아군 SAM/CIWS로 적 미사일 요격 |
+| `_friendly_strike()` | 아군 함정/잠수함 → 적 수상함 공격 |
+| `_enemy_defense()` | 적 수상함 SAM/CIWS로 아군 미사일 요격 |
+| `_aircraft_asw()` | 함재 헬기·초계기 대잠 공격 |
+| `_arm_radar_off_check()` | ARM 탐지 시 레이더 OFF 전술 |
+| `monte_carlo_v7()` | 표준 MC 분석 |
+| `monte_carlo_lhs()` | LHS 샘플링 기반 고속 MC |
+| `_compile()` | 시뮬 결과 dict 반환 |
 
 ---
 
-## 향후 계획
+## 향후 계획 요약
 
-| 순위 | 버전 | 계획 | 난이도 |
-|------|------|------|--------|
-| 1 | v7.0 | 완전 양방향 교전 엔진 (적도 아군 미사일 요격) | 매우 높음 |
-| 2 | v7.0 | PyQt6 네이티브 UI 전환 (런처·애니메이션·CPU/RAM 모니터링) | 매우 높음 |
-| 3 | v7.x | 지형·해상 환경 모델 (DEM/수온층 데이터 연동) | 높음 |
+향후 계획 전체 목록은 `launcher.py` → `_build_plan_tab()` → `_PLANS` 리스트가 정본이다.
 
-**전환 전략**: v6.x는 Streamlit 유지 + 엔진 개발 집중. 양방향 엔진 완성 시점에 PyQt6 UI 병행 개발 시작.
+**v9.x** (15개): 다층위협 프리셋 → 야간악천후 → 아군공격임무 → VLS고갈 → 현무-4 → 생존성히트맵 → 잠수함기습 → 헬기대잠 → P-8A → 전자전강화 → 채프플레어 → 이지스어쇼어 → 지형환경 → 해협시나리오 → 교전후브리핑
+
+**v10.x** (3개): 완전 양방향 교전 → 적 항모 타격 작전 → 전술 의사결정 모드
