@@ -1151,5 +1151,20 @@
       "추가  항공기 날씨 제한 목록(_HELO_WX, _P3C_WX)에 복합 환경 4종 추가",
       "정리  향후 계획 탭에서 야간·악천후 복합 시나리오 항목 제거 (구현 완료)"
     ]
+  },
+  {
+    "version": "v9.3",
+    "date": "2026-05-30",
+    "title": "아군 공격 임무 (대함 공격) — UI + 결과 탭 + MC 집계",
+    "changes": [
+      "추가  engine_v7: enable_strike 플래그 — False 시 _friendly_strike() 비활성화",
+      "추가  engine_v7: strike_log — 명중 시 표적·무기·시각·격침여부 기록",
+      "추가  engine_v7: _compile() 반환에 strike_log 포함",
+      "추가  engine_v7: monte_carlo_v7/lhs 반환에 mean_enemy_destroyed, max_enemy_destroyed 추가",
+      "추가  launcher: ⚙️ 공격 임무 그룹 (enable_strike 체크박스 + 해성-II·하푼 재고 SpinBox)",
+      "추가  launcher: ⚔ 공격 결과 탭 #24 — 격침 테이블 + MC 분포 차트",
+      "추가  launcher: _render_strike_chart() — MC 적 격침 수 히스토그램",
+      "수정  launcher: _page_dirty에 24 추가"
+    ]
   }
 ]

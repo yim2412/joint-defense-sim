@@ -3415,6 +3415,46 @@ def _render_sobol_chart(sobol: dict) -> Figure:
     return fig
 
 
+def _render_strike_chart(mc: dict) -> Figure:
+    """v9.3: MC 적 격침 수 분포 히스토그램 + 평균선."""
+    fig = Figure(figsize=(12, 5), facecolor='#0a0e1a')
+    ax  = fig.add_subplot(111, facecolor='#0a0e1a')
+
+    e_dest = mc.get('enemy_destroyed', [])
+    if not e_dest or all(v == 0 for v in e_dest):
+        ax.text(0.5, 0.5,
+                "공격 임무 비활성화 또는\n적 수상함 없음",
+                ha='center', va='center', color=C_SUBTEXT,
+                fontsize=13, transform=ax.transAxes)
+        ax.set_facecolor('#0a0e1a')
+        return fig
+
+    import numpy as _np
+    arr   = _np.array(e_dest, dtype=float)
+    mean  = arr.mean()
+    mx    = int(arr.max())
+    bins  = _np.arange(-0.5, mx + 1.5, 1)
+    counts, edges = _np.histogram(arr, bins=bins)
+    centers = (edges[:-1] + edges[1:]) / 2
+
+    bars = ax.bar(centers, counts / len(arr) * 100,
+                  width=0.7, color='#e74c3c', alpha=0.80,
+                  edgecolor='#c0392b', linewidth=0.8)
+    ax.axvline(mean, color='#f1c40f', lw=2, ls='--',
+               label=f'평균 {mean:.2f}척')
+
+    ax.set_xlabel('격침 적 함정 수', color=C_SUBTEXT, fontsize=12)
+    ax.set_ylabel('비율 (%)',       color=C_SUBTEXT, fontsize=12)
+    ax.set_title(f'MC 적 격침 수 분포  (n={len(arr)}회)',
+                 color=C_TEXT, fontsize=13, pad=8)
+    ax.set_xticks(range(mx + 2))
+    ax.tick_params(colors=C_SUBTEXT)
+    ax.spines[:].set_color('#21262d')
+    ax.legend(fontsize=11, facecolor='#161b22', labelcolor=C_TEXT)
+    fig.tight_layout()
+    return fig
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  메인 윈도우
 # ════════════════════════════════════════════════════════════════════════════
@@ -3817,6 +3857,34 @@ class MainWindow(QMainWindow):
         grp_def.hide()
         layout.addWidget(grp_def)
 
+        # ── 공격 임무 옵션 (v9.3) ─────────────────────────────────────────────
+        grp_strike = QGroupBox("⚔️ 공격 임무 (아군 대함 공격)")
+        strl = QFormLayout(grp_strike)
+        strl.setSpacing(6)
+
+        self.chk_strike = QCheckBox("공격 임무 활성화 (적 수상함 자동 공격)")
+        self.chk_strike.setChecked(True)
+        self.chk_strike.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+        self.chk_strike.setToolTip(
+            "ON: 아군 함정이 탐지 범위 내 적 수상함을 해성·하푼으로 자동 공격합니다.\n"
+            "OFF: 방어 전용 모드 (공격 임무 비활성화)."
+        )
+        strl.addRow("", self.chk_strike)
+
+        self.spn_haesong2 = NoScrollSpinBox()
+        self.spn_haesong2.setRange(0, 32); self.spn_haesong2.setValue(8)
+        self.spn_haesong2.setToolTip("함정당 해성-II 재고. 기본 8발.")
+        strl.addRow("해성-II 재고 (함당)", self.spn_haesong2)
+
+        self.spn_harpoon = NoScrollSpinBox()
+        self.spn_harpoon.setRange(0, 16); self.spn_harpoon.setValue(4)
+        self.spn_harpoon.setToolTip("함정당 하푼 Block II 재고. 기본 4발.")
+        strl.addRow("하푼 재고 (함당)", self.spn_harpoon)
+
+        grp_strike.hide()
+        layout.addWidget(grp_strike)
+
+
         # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
         grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
         cdl = QHBoxLayout(grp_cd)
@@ -4048,6 +4116,7 @@ class MainWindow(QMainWindow):
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
         self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
         self.tab_cec_compare = ChartPageWidget()   # CEC 효과 비교
+        self.tab_strike      = self._build_strike_tab()  # v9.3 공격 결과
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -4089,6 +4158,7 @@ class MainWindow(QMainWindow):
             "🔧  최적 조합 추천",
             "⚖  A/B 편대 비교",
             "🔗  CEC 효과 비교",
+            "⚔  공격 결과",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -4120,6 +4190,7 @@ class MainWindow(QMainWindow):
             self.tab_optimize,    # 21
             self.tab_ab_compare,  # 22
             self.tab_cec_compare, # 23
+            self.tab_strike,      # 24
         ]:
             self._stack.addWidget(w)
 
@@ -4179,6 +4250,7 @@ class MainWindow(QMainWindow):
             20: lambda: self._draw_subsystem_damage(self._result),
             21: lambda: self._lazy_start_optimize(),
             23: lambda: self._lazy_start_cec_compare(),
+            24: lambda: self._draw_strike_result(self._result, self._mc),
         }
         if idx in render_map:
             render_map[idx]()
@@ -4457,6 +4529,82 @@ class MainWindow(QMainWindow):
                     item.setForeground(QColor('#ff4444'))
                 self._subsystem_table.setItem(row, col, item)
 
+    # ── v9.3: 공격 결과 탭 ───────────────────────────────────────────────────
+
+    def _build_strike_tab(self) -> QWidget:
+        """공격 결과 탭 — 격침 테이블 (상단) + MC 격침 분포 차트 (하단)."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        hdr = QLabel("  ⚔  아군 공격 결과 (단일 시뮬레이션 기준)")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+
+        # 격침 테이블
+        self._strike_table = QTableWidget(0, 4)
+        self._strike_table.setHorizontalHeaderLabels(["표적 함정", "사용 무기", "격침 시각(s)", "결과"])
+        hh = self._strike_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._strike_table.setColumnWidth(1, 140)
+        self._strike_table.setColumnWidth(2, 90)
+        self._strike_table.setColumnWidth(3, 70)
+        self._strike_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._strike_table.setAlternatingRowColors(True)
+        self._strike_table.setStyleSheet(
+            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
+        layout.addWidget(self._strike_table, stretch=1)
+
+        # MC 격침 통계 레이블 + 차트
+        self._strike_mc_lbl = QLabel("  MC 격침 통계: 시뮬레이션 실행 후 표시됩니다.")
+        self._strike_mc_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; padding:2px 0;")
+        layout.addWidget(self._strike_mc_lbl)
+
+        self.tab_strike_chart = ChartPageWidget()
+        layout.addWidget(self.tab_strike_chart, stretch=1)
+        return w
+
+    def _draw_strike_result(self, result: dict, mc: dict):
+        """공격 결과 탭 갱신."""
+        # 격침 테이블
+        logs = result.get('strike_log', [])
+        self._strike_table.setRowCount(0)
+        if not logs:
+            self._strike_table.insertRow(0)
+            msg = QTableWidgetItem("공격 임무 비활성화 또는 교전 없음")
+            msg.setForeground(QColor(C_SUBTEXT))
+            self._strike_table.setItem(0, 0, msg)
+        else:
+            for entry in logs:
+                row = self._strike_table.rowCount()
+                self._strike_table.insertRow(row)
+                sunk = entry.get('sunk', False)
+                result_str = '격침' if sunk else f"손상 (HP {entry.get('hp_remaining', '?')})"
+                items = [
+                    QTableWidgetItem(entry.get('target', '?')),
+                    QTableWidgetItem(entry.get('weapon', '?')),
+                    QTableWidgetItem(str(entry.get('t', '?'))),
+                    QTableWidgetItem(result_str),
+                ]
+                for col, item in enumerate(items):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if sunk:
+                        item.setForeground(QColor('#2ecc71'))
+                    self._strike_table.setItem(row, col, item)
+
+        # MC 통계 레이블
+        mean_dest = mc.get('mean_enemy_destroyed', 0.0)
+        max_dest  = mc.get('max_enemy_destroyed', 0)
+        n         = mc.get('n', 0)
+        self._strike_mc_lbl.setText(
+            f"  MC {n}회 평균 적 격침: {mean_dest:.2f}척  |  최대: {max_dest}척  |"
+            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척"
+        )
+
+        # MC 격침 분포 차트
+        self.tab_strike_chart.start_render(_render_strike_chart, mc)
+
     # ── 툴팁 / 편성 표시 ────────────────────────────────────────────────────
 
     _SHIP_DISPLAY = {
@@ -4668,6 +4816,10 @@ class MainWindow(QMainWindow):
                 '시차 공격': 'stagger', '약점 공략': 'exploit_weakness',
             }.get(self.cmb_ai_tactic.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
+            # v9.3: 공격 임무
+            'enable_strike':  self.chk_strike.isChecked(),
+            'haesong2_stock': self.spn_haesong2.value(),
+            'harpoon_stock':  self.spn_harpoon.value(),
             # C&D 시간
             'cd_time_s':      10,
             'confirm_time_s': 3,
@@ -4752,7 +4904,7 @@ class MainWindow(QMainWindow):
         self._pending_mc_n = mc_n
 
         # 모든 차트 페이지를 dirty로 표시 (11·12는 탭 방문 시 워커 기동)
-        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23}
+        self._page_dirty = {1, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24}
 
         # 히스토리 저장 (최대 5개)
         self._history.append({
@@ -6104,12 +6256,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.x", "중간", "아군 공격 임무 (대함 공격)",
-             "FRIENDLY_STRIKE_DB·_friendly_strike()·_enemy_defense()는 이미 구현됨 (엔진 70%). "
-             "남은 것: ① 공격 무기 재고 설정 UI (런처 사이드바) "
-             "② MC 적 격침 통계(mean_enemy_destroyed) 집계 "
-             "③ 공격 결과 전용 탭 (격침 테이블 + 분포 차트) "
-             "④ enable_strike 플래그."),
             ("v9.x", "낮음", "VLS 탄약 고갈 현실화",
              "현재 재고 0이 되면 단순히 발사 불가 처리. "
              "탄약 고갈 시 작전 지속성 저하→임무 중단 판정 흐름 추가. "

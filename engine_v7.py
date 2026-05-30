@@ -716,6 +716,9 @@ class TimeStepEngine:
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
 
+        # v9.3: 아군 공격 임무 격침 기록
+        self.strike_log: list = []
+
         # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
         self._pending_threats: list = []
 
@@ -1546,6 +1549,8 @@ class TimeStepEngine:
         수상함 → 해성/하푼 (strike_inventory)
         잠수함 → 홍상어/청상어 (inventory)
         """
+        if not self.cfg.get('enable_strike', True):
+            return
         for ship in self.friendly_ships:
             if not ship.alive:
                 continue
@@ -1996,8 +2001,17 @@ class TimeStepEngine:
                     if random.random() < eff_pk:
                         tgt.take_hit(m.name, self.t)
                         self.stats['enemy_hits'] += 1
-                        status = '격침' if not tgt.alive else f'손상 (HP {tgt.hp})'
+                        sunk = not tgt.alive
+                        status = '격침' if sunk else f'손상 (HP {tgt.hp})'
                         self._log(f"[적 피격] {tgt.preset_name} <- {m.name} 명중! {status}")
+                        # v9.3: 격침 기록
+                        self.strike_log.append({
+                            'target': tgt.preset_name,
+                            'weapon': m.name,
+                            't': round(self.t, 1),
+                            'sunk': sunk,
+                            'hp_remaining': tgt.hp,
+                        })
                     else:
                         self._log(f"[적 피격 실패] {m.name} -> {tgt.preset_name} 회피")
 
@@ -2163,6 +2177,7 @@ class TimeStepEngine:
             'used_seed':           self.cfg.get('sim_seed', None),
             'ship_subsystem_damage': ship_subsystem_damage,
             'active_events':     self._build_active_events(),  # A-1
+            'strike_log':        self.strike_log,              # v9.3
         }
 
     def _build_active_events(self) -> list:
@@ -2324,6 +2339,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     # 무기별 평균 잔여 재고 (소모량 = 초기 - 평균 잔여)
     weapon_avg_remaining = {k: float(np.mean(v)) for k, v in weapon_usage.items()}
     ship_avg_hits = {k: float(np.mean(v)) for k, v in ship_hits_mc.items()}
+    dest_arr = np.array(e_dest, dtype=float)
     return {
         'intercept_rates':         rates,
         'friendly_hits':           f_hits,
@@ -2337,6 +2353,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'std_intercept':           float(arr.std()),
         'full_pass_rate':          float((arr == 1.0).mean()),
         'n':                       n,
+        # v9.3: 공격 임무 격침 통계
+        'mean_enemy_destroyed':    float(dest_arr.mean()),
+        'max_enemy_destroyed':     int(dest_arr.max()) if len(dest_arr) else 0,
     }
 
 
@@ -2459,6 +2478,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'cvar':                 compute_cvar(rates),
         'n':                    n,
         'method':               'LHS',
+        # v9.3
+        'mean_enemy_destroyed': float(np.mean(e_dest)) if e_dest else 0.0,
+        'max_enemy_destroyed':  int(max(e_dest)) if e_dest else 0,
     }
 
 
