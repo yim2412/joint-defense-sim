@@ -808,6 +808,24 @@ WEATHER_DB = {
         # LOW-12: radar_factor 0.96→0.80 (농무는 레이더 흡수·산란 심각)
         {'detect_range_factor':0.88,'radar_factor':0.80,'sonar_factor':0.94,
          'intercept_prob_delta':-0.03,'cd_time_factor':1.10},
+    # ── v9.2: 야간·악천후 복합 시나리오 ──────────────────────────────────────
+    # 야간 modifier: detect_range×0.88 / radar×0.95 / cd_time×1.10 / delta-0.02
+    '폭풍 (야간)':
+        # 폭풍(레이더 교란·해상 악화) + 야간(광학 불가·식별 지연) 복합
+        {'detect_range_factor':0.66,'radar_factor':0.52,'sonar_factor':0.40,
+         'intercept_prob_delta':-0.10,'cd_time_factor':1.38},
+    '태풍 (야간)':
+        # 최악 기상 + 야간 — 레이더·광학 모두 극한 저하
+        {'detect_range_factor':0.48,'radar_factor':0.59,'sonar_factor':0.22,
+         'intercept_prob_delta':-0.17,'cd_time_factor':1.65},
+    '농무 (야간)':
+        # 농무(시정 0) + 야간(광학 불가) — 사실상 레이더만 의존
+        {'detect_range_factor':0.62,'radar_factor':0.76,'sonar_factor':0.94,
+         'intercept_prob_delta':-0.05,'cd_time_factor':1.27},
+    '황사 (새벽)':
+        # 황사(레이더 흡수) + 새벽(광학 저하) — 봄철 황해 전형적 복합 환경
+        {'detect_range_factor':0.86,'radar_factor':0.70,'sonar_factor':1.00,
+         'intercept_prob_delta':-0.03,'cd_time_factor':1.16},
 }
 
 SHIP_SPEC = {
@@ -1348,6 +1366,9 @@ _HELO_WX = {
     '황사 (봄철 황사)':True,'풍랑 (7~8등급)':False,
     '폭풍 (해상 악화)':False,'태풍 (9~12등급)':False,
     '농무 (시정 200m 이하)':False,
+    # v9.2 복합 환경
+    '폭풍 (야간)':False,'태풍 (야간)':False,
+    '농무 (야간)':False,'황사 (새벽)':True,
 }
 # P-3C 날씨 제한 (태풍만 불가, 계기비행 가능)
 _P3C_WX  = {
@@ -1355,6 +1376,9 @@ _P3C_WX  = {
     '황사 (봄철 황사)':True,'풍랑 (7~8등급)':True,
     '폭풍 (해상 악화)':True,'태풍 (9~12등급)':False,
     '농무 (시정 200m 이하)':True,
+    # v9.2 복합 환경
+    '폭풍 (야간)':True,'태풍 (야간)':False,
+    '농무 (야간)':True,'황사 (새벽)':True,
 }
 
 FRIENDLY_AIRCRAFT_DB = {
