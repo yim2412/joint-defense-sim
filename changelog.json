@@ -1197,5 +1197,21 @@
       "추가  launcher: closeEvent — HeatmapWorker 종료 처리",
       "삭제  launcher: _build_plan_tab() — 완료된 생존성 히트맵 항목 제거"
     ]
+  },
+  {
+    "version": "v9.6",
+    "date": "2026-05-31",
+    "title": "북한 잠수함 선제 기습 — 은닉 → 어뢰+해성-3 동시 발사",
+    "changes": [
+      "추가  engine.py: 신포급 잠수함 (기습) DB — is_ambush/ambush_hidden_s/dual_weapon 필드",
+      "추가  engine.py: ENEMY_FLEET_PRESETS — '북한 잠수함 선제 기습'·'북한 잠수함 기습 (소형)' 2종",
+      "추가  engine_v7: EnemyThreatObj — hidden_until·ambush_revealed 속성",
+      "수정  engine_v7: _build_enemies — 기습 잠수함 20km 스폰, hidden_until 설정",
+      "수정  engine_v7: _enemy_fire — 은닉 중 발사 금지 + dual_weapon 어뢰+순항 동시 발사",
+      "수정  engine_v7: _friendly_strike — 은닉 잠수함 ASW 탐지 스킵",
+      "수정  engine_v7: _aircraft_asw — 은닉 잠수함 항공 대잠 탐지 스킵",
+      "추가  engine_v7: _step 루프 — 은닉 해제 시 '기습 탐지!' 교전 로그",
+      "삭제  launcher: _build_plan_tab() — 완료된 잠수함 기습 항목 제거"
+    ]
   }
 ]

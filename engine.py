@@ -680,6 +680,24 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.06,'speed_boost_max':0.12,'depth_change_m':-60,'max_attempts':2,'alt_change_m':0},
          'self_defense_pk':0.03,'enemy_ciws_pk':0.0},
 
+    # v9.6: 신포급 기습 특화 — 수온약층 내 잠복 후 어뢰+해성-3 동시 기습 발사
+    # 은닉 120초 후 탐지, 탐지 즉시 어뢰(Yu-6 ×2~4) + 해성-3(×1~2) 동시 발사
+    '신포급 잠수함 (기습)':
+        {'category':'대잠','type':'잠수함','speed_ms':6.0,'altitude_m':-200,
+         'missile_name':'Yu-6 중어뢰','missile_speed_ms':21.0,'missile_range_km':18,
+         'can_fire_missile':True,'rcs_m2':None,
+         'missile_salvo_min':2,'missile_salvo_max':4,
+         'missile_terminal_evasion':0.90,
+         'evasion_profile':{'speed_boost_min':0.04,'speed_boost_max':0.10,'depth_change_m':-80,'max_attempts':2,'alt_change_m':0},
+         'self_defense_pk':0.03,'enemy_ciws_pk':0.0,
+         # 기습 파라미터
+         'is_ambush':True,'ambush_hidden_s':120,'ambush_start_km':20,
+         # 어뢰와 동시에 해성-3 순항미사일도 발사 (이중 위협)
+         'dual_weapon':True,
+         'dual_missile_name':'해성-3 (잠수함발사 순항)',
+         'dual_missile_speed_ms':250,'dual_missile_range_km':1500,
+         'dual_salvo_min':1,'dual_salvo_max':2},
+
     # ════ 대방사미사일(ARM) — 레이더 전파 추적 대방사 미사일 ═══════════════════
     # 레이더 전파(전자기파)를 역추적해 레이더 자체를 파괴. ECM 무효 (역으로 재밍이 표적이 됨).
     # 아군 레이더가 활성화 상태일수록 ARM Pk 높음.
@@ -1553,6 +1571,16 @@ ENEMY_FLEET_PRESETS = {
         {'preset': 'Tu-22M3 (백파이어)',       'count': 1},  # 공중: Kh-32 초음속 대함
         {'preset': '슬라바급 순양함',          'count': 1},  # 수상: P-1000 × 16 + S-300F
         {'preset': '킬로급 잠수함 (Project 636)', 'count': 1},  # 수중: Kalibr 대함
+    ],
+    # ── v9.6: 북한 잠수함 선제 기습 프리셋 ──────────────────────────────────────
+    # 신포급(기습) — 수온약층 내 잠복 120초 후 어뢰+해성-3 동시 기습 발사
+    '북한 잠수함 선제 기습': [
+        {'preset': '신포급 잠수함 (기습)',  'count': 2},  # 수중: 기습 어뢰+해성-3
+        {'preset': '039형 잠수함 (송급)',   'count': 3},  # 수중: 어뢰 압박
+    ],
+    '북한 잠수함 기습 (소형)': [
+        {'preset': '신포급 잠수함 (기습)',  'count': 1},  # 수중: 기습
+        {'preset': '039형 잠수함 (송급)',   'count': 2},  # 수중: 어뢰
     ],
 }
 

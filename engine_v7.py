@@ -458,6 +458,10 @@ class EnemyThreatObj:
         self.reattack_count = 0
         self.max_reattacks  = 1 if self.is_aircraft else 0
 
+        # v9.6: 잠수함 기습 은닉 상태 — hidden_until 초까지 탐지 불가
+        self.hidden_until    = 0.0
+        self.ambush_revealed = False
+
     def take_hit(self, weapon_name: str, t: float):
         self.hit_count += 1
         self.hit_by.append((weapon_name, t))
@@ -901,7 +905,10 @@ class TimeStepEngine:
 
                 # BUG-3 연계: 수상함은 대함 레이더 탐지거리(45km)에서 시작
                 # 항공·독립미사일은 대공 탐지거리, 잠수함은 소나 탐지거리 유지
-                if info.get('category') == '대잠':
+                # v9.6: 기습 잠수함은 ambush_start_km (기본 20km) 에서 시작 — 이미 탐지권 내
+                if info.get('is_ambush') and info.get('category') == '대잠':
+                    start_m = info.get('ambush_start_km', 20) * 1000
+                elif info.get('category') == '대잠':
                     start_m = sub_det_km * 1000
                 elif info.get('category') == '대함':
                     start_m = surface_det_km * 1000
@@ -961,6 +968,9 @@ class TimeStepEngine:
                         enc_bearing = math.radians((idx / max(total, 1)) * 360)
                         et.pos.x = math.cos(enc_bearing) * (detect_km * 1000)
                         et.pos.y = math.sin(enc_bearing) * (detect_km * 1000)
+                    # v9.6: 기습 잠수함 — hidden_until 설정 (은닉 시간 동안 탐지·교전 불가)
+                    if info.get('is_ambush') and et.is_sub:
+                        et.hidden_until = float(info.get('ambush_hidden_s', 120))
                     threats.append(et)
 
                 idx += 1
@@ -1155,6 +1165,9 @@ class TimeStepEngine:
                 continue
             if not et.info.get('can_fire_missile'):
                 continue
+            # v9.6: 기습 잠수함 은닉 중 — 발사 불가
+            if et.is_sub and self.t < et.hidden_until:
+                continue
 
             in_flight = sum(
                 1 for m in self.missiles
@@ -1211,6 +1224,35 @@ class TimeStepEngine:
                     f"(거리 {dist_m/1000:.0f}km), 이탈 개시"
                 )
             elif et.is_sub:
+                # v9.6: dual_weapon — 어뢰 발사 직후 해성-3 순항미사일 동시 발사
+                if et.info.get('dual_weapon'):
+                    d_name  = et.info.get('dual_missile_name', '')
+                    d_spd   = et.info.get('dual_missile_speed_ms', 250)
+                    d_salvo = random.randint(
+                        et.info.get('dual_salvo_min', 1),
+                        et.info.get('dual_salvo_max', 2),
+                    )
+                    for _ in range(d_salvo):
+                        _dm = MissileObj(
+                            mtype    = 'enemy_strike',
+                            name     = d_name,
+                            pos      = Vec2(et.pos.x + random.uniform(-300, 300),
+                                           et.pos.y + random.uniform(-300, 300)),
+                            target   = primary,
+                            speed_ms = d_spd,
+                            pk_base  = _MISSILE_PK_MAP.get(d_name, _MISSILE_PK_DEFAULT),
+                            owner_id = id(et),
+                            t_spawn  = self.t,
+                        )
+                        _dm.terminal_evasion_factor = 0.87  # 해성-3: 스텔스 저고도 순항
+                        _dm.is_torpedo = False
+                        self.missiles.append(_dm)
+                    self.stats['total_threats'] += d_salvo
+                    self._log(
+                        f"[기습 동시발사] {et.preset_name} -> {d_name} {d_salvo}발 "
+                        f"(어뢰+순항 동시)"
+                    )
+
                 # LOW-18: 잠수함 발사 후 회피 기동 (발사 후 반대 방향 50km 이탈)
                 et.is_retreating = True
                 angle = et.pos.bearing_to(primary.pos) + math.pi
@@ -1576,6 +1618,9 @@ class TimeStepEngine:
                     continue
                 if not (et.is_ship or et.is_sub):
                     continue
+                # v9.6: 기습 잠수함 은닉 중 — 아군 탐지·교전 불가
+                if et.is_sub and self.t < et.hidden_until:
+                    continue
 
                 dist_m   = ship.pos.dist_to(et.pos)
                 category = et.category
@@ -1748,6 +1793,9 @@ class TimeStepEngine:
 
             for et in self.enemy_threats:
                 if not et.alive or not et.is_sub:
+                    continue
+                # v9.6: 기습 잠수함 은닉 중 — 항공 대잠 탐지 불가
+                if self.t < et.hidden_until:
                     continue
                 # 이미 어뢰가 이 잠수함으로 향하고 있으면 패스
                 already = any(
@@ -2144,6 +2192,17 @@ class TimeStepEngine:
                     self._pending_threats.append(
                         (self.t + 10.0,          # 10초 후 출격
                          {'preset': et.carrier_aircraft, 'count': 2})
+                    )
+
+            # v9.6: 기습 잠수함 은닉 해제 탐지 이벤트
+            for et in self.enemy_threats:
+                if (et.is_sub and not et.ambush_revealed
+                        and et.hidden_until > 0 and self.t >= et.hidden_until):
+                    et.ambush_revealed = True
+                    dist_km = self._primary().pos.dist_to(et.pos) / 1000
+                    self._log(
+                        f"[⚠ 기습 탐지!] {et.preset_name} 잠수함 은닉 해제 "
+                        f"(거리 {dist_km:.0f}km) — 즉시 교전 개시!"
                     )
 
             self._update_positions()
