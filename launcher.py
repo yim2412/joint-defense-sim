@@ -1,12 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.4 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.5 — PyQt6 런처                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v9.4 — VLS 탄약 고갈 현실화 + 현무-4 대함탄도미사일]                      ║
-║  NEW-A  현무-4 (ASBM) 지상 발사 — FRIENDLY_STRIKE_DB 추가, UI 재고 설정    ║
-║  NEW-B  VLS 고갈 시각 기록 (vls_depletion_t) + MC 고갈 확률·시각 집계      ║
-║  NEW-C  공격 임무 UI: 현무-4 재고 스핀박스 추가                              ║
-║  NEW-D  VLS 경고 레이블: 고갈 확률 + 평균 고갈 시각 표시                    ║
+║  [v9.5 — 생존성 히트맵: 편대 × 위협 2D MC 격자 시각화]                      ║
+║  NEW-A  HeatmapWorker — 편대×위협 조합별 monte_carlo_lhs 배치 실행          ║
+║  NEW-B  생존성 히트맵 탭 — 체크박스 선택, 진행률, matplotlib imshow 렌더링  ║
+║  NEW-C  PNG 저장 버튼, 사이드바 항목 추가 (인덱스 25)                        ║
 ║                                                                              ║
 ║  [v8.25 patch — 코드 감사 + 패치 내역 버전 표기 개선]                        ║
 ║  DEL-A  engine.py 데드코드 1,951줄 제거 (v6 시뮬 코드 — HeloEvent 등)       ║
@@ -1588,6 +1587,43 @@ class CECCompareWorker(QThread):
         try:
             result = cec_comparison_v7(self.cfg, n=self.n)
             self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class HeatmapWorker(QThread):
+    """편대 × 위협 2D 생존성 히트맵 MC — 각 셀마다 monte_carlo_lhs 실행."""
+    cell_done = pyqtSignal(int, int, float)   # (row, col, mean_intercept)
+    finished  = pyqtSignal(list)              # list[list[float]]  rows×cols
+    error     = pyqtSignal(str)
+
+    def __init__(self, base_cfg: dict, fleet_presets: list[str],
+                 enemy_presets: list[str], n: int = 200):
+        super().__init__()
+        self.base_cfg      = base_cfg
+        self.fleet_presets = fleet_presets   # Y 축 (행)
+        self.enemy_presets = enemy_presets   # X 축 (열)
+        self.n             = n
+
+    def run(self):
+        if not _V7_OK:
+            return
+        try:
+            rows, cols = len(self.fleet_presets), len(self.enemy_presets)
+            grid = [[0.0] * cols for _ in range(rows)]
+            for r, fp in enumerate(self.fleet_presets):
+                for c, ep in enumerate(self.enemy_presets):
+                    if self.isInterruptionRequested():
+                        return
+                    cfg = dict(self.base_cfg)
+                    cfg['fleet_preset']       = fp
+                    cfg['enemy_fleet_mode']   = 'preset'
+                    cfg['enemy_fleet_preset'] = ep
+                    mc = monte_carlo_lhs(cfg, n=self.n)
+                    val = float(mc.get('mean_intercept', 0.0))
+                    grid[r][c] = val
+                    self.cell_done.emit(r, c, val)
+            self.finished.emit(grid)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -4133,6 +4169,7 @@ class MainWindow(QMainWindow):
         self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
         self.tab_cec_compare = ChartPageWidget()   # CEC 효과 비교
         self.tab_strike      = self._build_strike_tab()  # v9.3 공격 결과
+        self.tab_heatmap     = self._build_heatmap_tab()  # v9.5 생존성 히트맵
 
         # 사이드바 (QListWidget)
         self._sidebar = QListWidget()
@@ -4175,6 +4212,7 @@ class MainWindow(QMainWindow):
             "⚖  A/B 편대 비교",
             "🔗  CEC 효과 비교",
             "⚔  공격 결과",
+            "🗺  생존성 히트맵",
         ]:
             self._sidebar.addItem(label)
         self._sidebar.setCurrentRow(0)
@@ -4207,6 +4245,7 @@ class MainWindow(QMainWindow):
             self.tab_ab_compare,  # 22
             self.tab_cec_compare, # 23
             self.tab_strike,      # 24
+            self.tab_heatmap,     # 25
         ]:
             self._stack.addWidget(w)
 
@@ -4456,6 +4495,140 @@ class MainWindow(QMainWindow):
         self._ab_weapon_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
         layout.addWidget(self._ab_weapon_table, stretch=1)
+
+        return w
+
+    def _build_heatmap_tab(self) -> QWidget:
+        """v9.5 생존성 히트맵 — 편대(행) × 위협(열) 2D MC 격자."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        hdr = QLabel("  🗺  생존성 히트맵 — 편대 × 위협 조합별 요격률")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+
+        note = QLabel(
+            "  아군 편대(행)와 적군 위협(열)의 모든 조합에 대해 MC를 돌려 "
+            "요격률을 색상 격자로 시각화합니다. 시뮬레이션 실행 없이 독립 실행 가능합니다."
+        )
+        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        # ── 설정 행 ────────────────────────────────────────────────────────
+        ctrl_row = QWidget()
+        ctrl_layout = QHBoxLayout(ctrl_row)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
+        ctrl_layout.setSpacing(10)
+
+        lbl_n = QLabel("셀당 MC:")
+        lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        ctrl_layout.addWidget(lbl_n)
+
+        self._hm_sb_n = QSpinBox()
+        self._hm_sb_n.setRange(50, 1000)
+        self._hm_sb_n.setSingleStep(50)
+        self._hm_sb_n.setValue(200)
+        self._hm_sb_n.setStyleSheet(
+            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
+        ctrl_layout.addWidget(self._hm_sb_n)
+
+        self.btn_hm_run = QPushButton("🗺  히트맵 실행")
+        self.btn_hm_run.setFixedHeight(34)
+        self.btn_hm_run.clicked.connect(self._run_heatmap)
+        ctrl_layout.addWidget(self.btn_hm_run)
+
+        self.btn_hm_save = QPushButton("💾 PNG 저장")
+        self.btn_hm_save.setFixedHeight(34)
+        self.btn_hm_save.setEnabled(False)
+        self.btn_hm_save.clicked.connect(self._save_heatmap_png)
+        ctrl_layout.addWidget(self.btn_hm_save)
+
+        self._hm_progress_lbl = QLabel("")
+        self._hm_progress_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        ctrl_layout.addWidget(self._hm_progress_lbl)
+        ctrl_layout.addStretch()
+        layout.addWidget(ctrl_row)
+
+        # ── 편대 / 위협 선택 체크박스 패널 ────────────────────────────────
+        sel_splitter = QSplitter(Qt.Orientation.Horizontal)
+        sel_splitter.setFixedHeight(160)
+
+        # 아군 편대 (행)
+        fleet_box = QGroupBox("아군 편대 (행)")
+        fleet_box.setStyleSheet(
+            f"QGroupBox {{ color:{C_TEXT}; border:1px solid #30363d;"
+            f" border-radius:4px; margin-top:6px; padding:4px; }}"
+            f"QGroupBox::title {{ subcontrol-origin:margin; left:8px; color:{C_SUBTEXT}; }}")
+        fleet_inner = QVBoxLayout(fleet_box)
+        fleet_inner.setSpacing(2)
+        fleet_scroll = QScrollArea()
+        fleet_scroll.setWidgetResizable(True)
+        fleet_scroll.setStyleSheet(
+            f"QScrollArea {{ border:none; background:{C_BG}; }}")
+        fleet_content = QWidget()
+        fleet_content_layout = QVBoxLayout(fleet_content)
+        fleet_content_layout.setSpacing(1)
+        fleet_content_layout.setContentsMargins(2, 2, 2, 2)
+
+        self._hm_fleet_checks: list[QCheckBox] = []
+        default_fleets = ['단독 작전', '기동전단 기본', 'BMD 중점', '대잠 중점',
+                          '이지스 기동전단', '이지스 기동전단 (강화)', '최대 편대']
+        for name in (list(V7_FLEET_PRESETS.keys()) if _V7_OK else default_fleets):
+            chk = QCheckBox(name)
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
+            chk.setChecked(name in default_fleets[:4])
+            fleet_content_layout.addWidget(chk)
+            self._hm_fleet_checks.append(chk)
+
+        fleet_scroll.setWidget(fleet_content)
+        fleet_inner.addWidget(fleet_scroll)
+        sel_splitter.addWidget(fleet_box)
+
+        # 적군 위협 (열)
+        enemy_box = QGroupBox("적군 위협 (열)")
+        enemy_box.setStyleSheet(
+            f"QGroupBox {{ color:{C_TEXT}; border:1px solid #30363d;"
+            f" border-radius:4px; margin-top:6px; padding:4px; }}"
+            f"QGroupBox::title {{ subcontrol-origin:margin; left:8px; color:{C_SUBTEXT}; }}")
+        enemy_inner = QVBoxLayout(enemy_box)
+        enemy_inner.setSpacing(2)
+        enemy_scroll = QScrollArea()
+        enemy_scroll.setWidgetResizable(True)
+        enemy_scroll.setStyleSheet(
+            f"QScrollArea {{ border:none; background:{C_BG}; }}")
+        enemy_content = QWidget()
+        enemy_content_layout = QVBoxLayout(enemy_content)
+        enemy_content_layout.setSpacing(1)
+        enemy_content_layout.setContentsMargins(2, 2, 2, 2)
+
+        self._hm_enemy_checks: list[QCheckBox] = []
+        default_enemies = ['A2/AD 항공 포화', '항모 킬 체인', '수상함 편대전',
+                           '대잠 복합', 'BMD 탄도 포화', '전면전 포화']
+        for name in (list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else default_enemies):
+            chk = QCheckBox(name)
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
+            chk.setChecked(name in default_enemies)
+            enemy_content_layout.addWidget(chk)
+            self._hm_enemy_checks.append(chk)
+
+        enemy_scroll.setWidget(enemy_content)
+        enemy_inner.addWidget(enemy_scroll)
+        sel_splitter.addWidget(enemy_box)
+
+        sel_splitter.setSizes([400, 600])
+        layout.addWidget(sel_splitter)
+
+        # ── 히트맵 캔버스 ──────────────────────────────────────────────────
+        self._hm_canvas = MplCanvas(figsize=(10, 5), facecolor=C_BG)
+        layout.addWidget(self._hm_canvas, stretch=1)
+
+        # 히트맵 데이터 보관
+        self._hm_grid: list | None = None
+        self._hm_fleet_labels: list[str] = []
+        self._hm_enemy_labels: list[str] = []
 
         return w
 
@@ -5241,6 +5414,136 @@ class MainWindow(QMainWindow):
         self.btn_ab_run.setEnabled(True)
         self.btn_ab_run.setText("⚖  A/B 비교 실행")
 
+    # ── 생존성 히트맵 ────────────────────────────────────────────────────────
+
+    def _run_heatmap(self):
+        """HeatmapWorker 시작."""
+        fleet_sel = [c.text() for c in self._hm_fleet_checks if c.isChecked()]
+        enemy_sel = [c.text() for c in self._hm_enemy_checks if c.isChecked()]
+        if len(fleet_sel) < 1 or len(enemy_sel) < 1:
+            QMessageBox.information(self, "안내", "편대와 위협을 각각 1개 이상 선택하세요.")
+            return
+
+        # base_cfg: 현재 시뮬 설정 or 기본값
+        if self._worker and self._worker.cfg:
+            base_cfg = dict(self._worker.cfg)
+        else:
+            base_cfg = {
+                'weather': '맑음 (주간)', 'detect_km_manual': False,
+                'enemy_fleet_mode': 'preset', 'enemy_fleet_preset': fleet_sel[0],
+                'enemy_fleet_difficulty': '보통', 'enemy_fleet_seed': None,
+                'enable_ecm': True, 'enable_evasion': True,
+                'enable_decoy': True, 'enable_selfdefense': True,
+                'enable_helo': True, 'enable_p3c': True, 'enable_p8a': True,
+                'enable_layered_defense': True, 'enable_cec_preassign': True,
+                'enable_multibearing': False, 'enable_cec_jammed': False,
+                'enable_ship_evasion': True, 'enable_radar_off': True,
+                'enable_random_placement': True, 'random_spread_km': 10.0,
+                'enemy_tactics': None, 'ai_tactic': None,
+                'sim_seed': None, 'enable_strike': False,
+                'haesong2_stock': 8, 'harpoon_stock': 4, 'hyunmoo4_stock': 2,
+                'cd_time_s': 10, 'confirm_time_s': 3,
+            }
+
+        n = self._hm_sb_n.value()
+        total = len(fleet_sel) * len(enemy_sel)
+
+        self._hm_fleet_labels = fleet_sel
+        self._hm_enemy_labels = enemy_sel
+        self._hm_done_count   = 0
+        self._hm_total        = total
+
+        self.btn_hm_run.setEnabled(False)
+        self.btn_hm_run.setText("실행 중...")
+        self.btn_hm_save.setEnabled(False)
+        self._hm_progress_lbl.setText(f"0 / {total} 셀 완료")
+
+        self._hm_worker = HeatmapWorker(base_cfg, fleet_sel, enemy_sel, n=n)
+        self._hm_worker.cell_done.connect(self._on_heatmap_cell)
+        self._hm_worker.finished.connect(self._on_heatmap_done)
+        self._hm_worker.error.connect(self._on_heatmap_error)
+        self._hm_worker.start()
+
+    def _on_heatmap_cell(self, r: int, c: int, val: float):
+        """셀 하나 완료 — 진행률 갱신."""
+        self._hm_done_count += 1
+        self._hm_progress_lbl.setText(
+            f"{self._hm_done_count} / {self._hm_total} 셀 완료")
+
+    def _on_heatmap_done(self, grid: list):
+        """모든 셀 완료 — matplotlib 히트맵 렌더링."""
+        import numpy as np
+        import matplotlib.colors as mcolors
+
+        self._hm_grid = grid
+        rows = self._hm_fleet_labels
+        cols = self._hm_enemy_labels
+        data = np.array(grid)   # shape (len(rows), len(cols))
+
+        fig = self._hm_canvas.figure
+        fig.clf()
+        ax = fig.add_subplot(111)
+        fig.patch.set_facecolor(C_BG)
+        ax.set_facecolor(C_BG)
+
+        # 0=적색, 0.5=주황, 1=녹색 커스텀 컬러맵
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'surv', ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71'])
+        im = ax.imshow(data, cmap=cmap, vmin=0.0, vmax=1.0,
+                       aspect='auto', interpolation='nearest')
+
+        # 셀 텍스트 오버레이
+        for r_i, row_data in enumerate(data):
+            for c_i, val in enumerate(row_data):
+                color = 'white' if val < 0.65 else '#0d1117'
+                ax.text(c_i, r_i, f"{val:.0%}",
+                        ha='center', va='center',
+                        fontsize=9, color=color, fontweight='bold')
+
+        ax.set_xticks(range(len(cols)))
+        ax.set_yticks(range(len(rows)))
+        ax.set_xticklabels(cols, rotation=30, ha='right',
+                           fontsize=9, color=C_TEXT)
+        ax.set_yticklabels(rows, fontsize=9, color=C_TEXT)
+        ax.set_xlabel("적군 위협 프리셋", color=C_SUBTEXT, fontsize=10)
+        ax.set_ylabel("아군 편대", color=C_SUBTEXT, fontsize=10)
+        ax.set_title("생존성 히트맵  (요격률 — 녹색 = 높음 / 적색 = 낮음)",
+                     color=C_TEXT, fontsize=11, pad=10)
+        ax.tick_params(colors=C_TEXT)
+        for spine in ax.spines.values():
+            spine.set_edgecolor(C_BORDER)
+
+        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+        cbar.ax.yaxis.set_tick_params(color=C_SUBTEXT)
+        cbar.set_label("요격률", color=C_SUBTEXT, fontsize=9)
+        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=C_SUBTEXT, fontsize=8)
+
+        fig.tight_layout()
+        self._hm_canvas.draw()
+
+        self.btn_hm_run.setEnabled(True)
+        self.btn_hm_run.setText("🗺  히트맵 실행")
+        self.btn_hm_save.setEnabled(True)
+        self._hm_progress_lbl.setText(
+            f"완료 — {len(rows)}×{len(cols)} 셀")
+        self._sidebar.setCurrentRow(25)
+
+    def _on_heatmap_error(self, msg: str):
+        QMessageBox.critical(self, "히트맵 오류", msg)
+        self.btn_hm_run.setEnabled(True)
+        self.btn_hm_run.setText("🗺  히트맵 실행")
+        self._hm_progress_lbl.setText("오류")
+
+    def _save_heatmap_png(self):
+        """히트맵 PNG로 저장."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "히트맵 저장", "heatmap.png", "PNG (*.png)")
+        if path:
+            self._hm_canvas.figure.savefig(
+                path, dpi=150, bbox_inches='tight',
+                facecolor=C_BG)
+            QMessageBox.information(self, "저장 완료", f"저장됨: {path}")
+
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
@@ -5295,6 +5598,14 @@ class MainWindow(QMainWindow):
             if not ab.wait(800):
                 ab.terminate()
                 ab.wait(300)
+        # HeatmapWorker 중단
+        hm = getattr(self, '_hm_worker', None)
+        if hm and hm.isRunning():
+            hm.requestInterruption()
+            hm.quit()
+            if not hm.wait(800):
+                hm.terminate()
+                hm.wait(300)
         # 차트 렌더 워커 11개 중단 (ChartPageWidget._worker)
         for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
                      'tab_ammo_curve', 'tab_ci', 'tab_timeline',
@@ -6294,10 +6605,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.x", "중간", "생존성 히트맵",
-             "편대 구성 × 위협 종류를 2D 격자로 MC 돌려 '어떤 편대가 어떤 위협에 취약한가' 시각화. "
-             "현재 스트레스 테스트(채널감소×레이더감소)와 별개로 편대 차원 추가. "
-             "아군 공격 임무 결과 탭 작업 시 함께 추가하면 효율적."),
             ("v9.x", "중간", "북한 잠수함 선제 기습 시나리오",
              "신포급·039형 ENEMY_DB 등재 및 해성-3 ENEMY_DB 등재됨 (30% 구현). "
              "남은 것: ① 잠수함이 어뢰+해성-3 동시 발사하는 기습 로직 "

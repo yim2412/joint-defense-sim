@@ -1183,5 +1183,19 @@
       "수정  launcher: _draw_strike_result() — 현무-4 발사 수 단일 시뮬 표시",
       "삭제  launcher: _build_plan_tab() — 완료된 VLS 고갈·현무-4 항목 제거"
     ]
+  },
+  {
+    "version": "v9.5",
+    "date": "2026-05-31",
+    "title": "생존성 히트맵 — 편대 × 위협 2D MC 격자 시각화",
+    "changes": [
+      "추가  launcher: HeatmapWorker(QThread) — 편대×위협 조합별 monte_carlo_lhs 배치 실행",
+      "추가  launcher: _build_heatmap_tab() — 체크박스 선택, 셀당 MC 횟수, 진행률 레이블",
+      "추가  launcher: _run_heatmap() / _on_heatmap_cell() / _on_heatmap_done() — 실행·렌더링",
+      "추가  launcher: _save_heatmap_png() — 히트맵 PNG 저장",
+      "추가  launcher: 사이드바 '🗺  생존성 히트맵' 항목 (인덱스 25)",
+      "추가  launcher: closeEvent — HeatmapWorker 종료 처리",
+      "삭제  launcher: _build_plan_tab() — 완료된 생존성 히트맵 항목 제거"
+    ]
   }
 ]
