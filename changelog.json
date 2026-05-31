@@ -1234,5 +1234,20 @@
       "추가  engine_v7: _mc_batch_worker 단계 타이밍 집계 후 9번째 반환값으로 추가",
       "추가  SimWorker: step_update / phase_update 시그널 추가"
     ]
+  },
+  {
+    "version": "v9.8",
+    "date": "2026-05-31",
+    "title": "헬기 대잠 현실화 + P-8A 소노부이 탐지 모델",
+    "changes": [
+      "추가  FriendlyAircraftObj 탐지 상태 머신 (idle/hovering/cooldown)",
+      "추가  헬기(AW-159/MH-60R): 디핑소나 방식 — 호버링 후 탐지 확률 판정, 실패 시 재탐색",
+      "추가  초계기(P-3C/P-8A): 소노부이 방식 — 탐지 확률 판정 후 재투하",
+      "추가  탐지 확률 = 기본값 × 수온층 계수 × 날씨 계수",
+      "추가  최대 재탐색 횟수 초과 시 표적 포기 로그 출력",
+      "추가  FRIENDLY_AIRCRAFT_DB: dip_hover_s / detect_base_prob / max_attempts / retry_s / asw_mode 필드",
+      "추가  _asw_detect_range() / _asw_weather_factor() / _asw_detect_check() 헬퍼 메서드",
+      "삭제  향후 계획: 헬기 대잠 현실화 / P-8A 포세이돈 항목 (구현 완료)"
+    ]
   }
 ]

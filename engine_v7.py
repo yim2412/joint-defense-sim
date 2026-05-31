@@ -635,6 +635,10 @@ class FriendlyAircraftObj:
     """
     함재 헬기(base_type='ship') / 육상초계기(base_type='land') 통합 클래스.
     매 tick _aircraft_asw()에서 잠수함 표적 확인 후 어뢰 투하.
+
+    v9.8 탐지 상태 머신:
+      헬기  — dipping  : idle → hovering(dip_hover_s) → detect_check → [fire | retry | abandon]
+      초계기 — sonobuoy : idle → detect_check → [fire | retry(retry_s) | abandon]
     """
     def __init__(self, name: str, home_pos: 'Vec2'):
         self.name              = name
@@ -645,6 +649,12 @@ class FriendlyAircraftObj:
         self.payload_remaining = self.info['payload_cnt']
         self.sorties           = 0
         self.total_cost        = 0.0
+        # v9.8: 탐지 상태 머신
+        self._asw_phase:    str   = 'idle'  # idle | hovering | cooldown
+        self._dip_until:    float = 0.0     # 호버링 종료 시각 (dipping 전용)
+        self._next_attempt: float = 0.0     # 다음 탐지 시도 가능 시각
+        self._detect_fails: int   = 0       # 현재 표적 누적 탐지 실패 수
+        self._search_target = None          # 현재 수색 중인 표적 (EnemyThreatObj)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1777,91 +1787,204 @@ class TimeStepEngine:
 
     def _aircraft_asw(self):
         """
-        등록된 항공 자산(헬기/초계기)이 잠수함 탐지 범위 내 목표를 확인하고
-        sortie 준비 완료 시 어뢰를 투하한다.
-        - 날씨·사거리·탑재량·쿨다운 체크
-        - 어뢰는 목표 근방(±300m)에서 스폰 (항공기가 직접 투하하는 방식)
-        - 소노부이: 탐지 거리에 sonobuoy_detect_bonus_km 추가
+        v9.8: 항공 대잠 탐지 상태 머신 — 헬기(디핑소나)·초계기(소노부이) 방식 분리.
+
+        헬기 흐름:  idle → (범위 진입) → hovering(dip_hover_s) → 탐지 확률 판정
+                    탐지 성공 → 어뢰 투하 / 탐지 실패 → cooldown(retry_s) → 재시도
+                    max_attempts 초과 → 포기(abandon)
+
+        초계기 흐름: idle → (범위 진입) → 소노부이 투하 → 탐지 확률 판정
+                    탐지 성공 → 어뢰 투하 / 탐지 실패 → cooldown(retry_s) → 재투하
         """
         primary = self._primary()
+        weather = self.cfg.get('weather', '맑음 (주간)')
+
         for ac in self.aircraft:
             if ac.payload_remaining <= 0:
                 continue
             if self.t < ac.t_available:
                 continue
             wx_limits = ac.info.get('weather_limits', {})
-            if not wx_limits.get(self.cfg.get('weather', '맑음 (주간)'), True):
+            if not wx_limits.get(weather, True):
                 continue
 
+            asw_mode = ac.info.get('asw_mode', 'sonobuoy')
+
+            # ── 호버링 단계 처리 (dipping 전용) ─────────────────────────────
+            if ac._asw_phase == 'hovering':
+                if self.t < ac._dip_until:
+                    continue   # 아직 호버링 중
+                # 호버링 완료 → 탐지 확률 판정
+                et = ac._search_target
+                if et is None or not et.alive:
+                    ac._asw_phase = 'idle'; ac._search_target = None; continue
+                self._asw_detect_check(ac, et, primary)
+                continue
+
+            # ── 쿨다운 단계 (재탐색 대기) ────────────────────────────────────
+            if ac._asw_phase == 'cooldown':
+                if self.t < ac._next_attempt:
+                    continue
+                et = ac._search_target
+                if et is None or not et.alive:
+                    ac._asw_phase = 'idle'; ac._search_target = None; continue
+                # 재시도 — 사거리 재확인 후 탐지
+                dist_to_sub = primary.pos.dist_to(et.pos)
+                total_dist  = dist_to_sub + (
+                    ac.info.get('base_dist_km', 0) * 1000 if ac.info.get('base_type') == 'land' else 0)
+                if total_dist > ac.info['range_km'] * 1000:
+                    ac._asw_phase = 'idle'; ac._search_target = None; continue
+                detect_m = self._asw_detect_range(ac, primary, et)
+                bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
+                if dist_to_sub > detect_m + bonus_m:
+                    ac._asw_phase = 'idle'; ac._search_target = None; continue
+                if asw_mode == 'dipping':
+                    # 디핑소나 재전개
+                    ac._asw_phase = 'hovering'
+                    ac._dip_until = self.t + ac.info.get('dip_hover_s', 60)
+                    self._log(f"[대잠 헬기] {ac.name} → {et.preset_name} 재탐색 "
+                              f"(시도 {ac._detect_fails+1}/{ac.info.get('max_attempts',3)}) "
+                              f"디핑소나 재전개…")
+                else:
+                    self._asw_detect_check(ac, et, primary)
+                continue
+
+            # ── idle 단계 — 새 표적 탐색 ─────────────────────────────────────
             for et in self.enemy_threats:
                 if not et.alive or not et.is_sub:
                     continue
-                # v9.6: 기습 잠수함 은닉 중 — 항공 대잠 탐지 불가
+                # v9.6: 기습 잠수함 은닉 중 탐지 불가
                 if self.t < et.hidden_until:
                     continue
-                # 이미 어뢰가 이 잠수함으로 향하고 있으면 패스
-                already = any(
-                    m.alive and m.target is et and m.mtype == 'friendly_strike'
-                    for m in self.missiles
-                )
-                if already:
+                # 이미 어뢰가 향하고 있으면 패스
+                if any(m.alive and m.target is et and m.mtype == 'friendly_strike'
+                       for m in self.missiles):
                     continue
 
-                # 사거리 체크 (육상기지: 기지→작전해역 거리 추가)
+                # 사거리 체크
                 dist_to_sub = primary.pos.dist_to(et.pos)
-                total_dist  = dist_to_sub
-                if ac.info.get('base_type') == 'land':
-                    total_dist += ac.info.get('base_dist_km', 0) * 1000
+                total_dist  = dist_to_sub + (
+                    ac.info.get('base_dist_km', 0) * 1000 if ac.info.get('base_type') == 'land' else 0)
                 if total_dist > ac.info['range_km'] * 1000:
                     continue
 
-                # 소나 탐지 + 소노부이 보너스 + 수온약층 보정
-                detect_m = self._detect_range_m(primary, '대잠')
-                detect_m *= self._thermocline_factor(et)
-                # NEW-AW: 이탈 잠수함 — 고속 이탈로 소나 접촉 급감 (탐지 70% 감소)
-                if et.is_retreating:
-                    detect_m *= 0.30
+                # 탐지 범위 체크
+                detect_m = self._asw_detect_range(ac, primary, et)
                 bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
                 if dist_to_sub > detect_m + bonus_m:
                     continue
 
-                # 어뢰 투하 (목표 근방 스폰 — 항공기 직접 투하)
-                wpn_name = ac.info['payload_wpn']
-                wpn_info = FRIENDLY_DB[wpn_name]
-                pk       = max(0.0, min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98))
-
-                ac.payload_remaining -= 1
-                ac.sorties           += 1
-                ac.total_cost        += ac.info['cost_usd']
-
-                drop_pos = Vec2(
-                    et.pos.x + random.uniform(-300, 300),
-                    et.pos.y + random.uniform(-300, 300),
-                )
-                m = MissileObj(
-                    mtype    = 'friendly_strike',
-                    name     = f"{wpn_name}({ac.name})",
-                    pos      = drop_pos,
-                    target   = et,
-                    speed_ms = wpn_info['speed_ms'],
-                    pk_base  = pk,
-                    owner_id = id(ac),
-                    t_spawn  = self.t,
-                )
-                m.is_torpedo = True
-                self.missiles.append(m)
-
-                # 다음 출격 가능 시각 = 지금 + 준비시간 + 비행시간
-                fly_s            = total_dist / max(ac.info['speed_ms'], 1)
-                ac.t_available   = self.t + ac.info['sortie_time_s'] + fly_s
-
+                # 표적 포착 → 탐지 단계 진입
+                ac._search_target = et
+                ac._detect_fails  = 0
                 craft_type = '초계기' if ac.info.get('base_type') == 'land' else '헬기'
+
+                if asw_mode == 'dipping':
+                    ac._asw_phase = 'hovering'
+                    ac._dip_until = self.t + ac.info.get('dip_hover_s', 60)
+                    self._log(
+                        f"[대잠 헬기] {ac.name} → {et.preset_name} 수색 구역 도착 "
+                        f"(거리 {dist_to_sub/1000:.0f}km) 디핑소나 전개 중 "
+                        f"({ac.info.get('dip_hover_s',60):.0f}초 호버링)…")
+                else:
+                    self._log(
+                        f"[대잠 초계] {ac.name}({craft_type}) → {et.preset_name} "
+                        f"(거리 {dist_to_sub/1000:.0f}km) 소노부이 투하…")
+                    self._asw_detect_check(ac, et, primary)
+                break   # 한 tick당 한 표적
+
+    def _asw_detect_range(self, ac: 'FriendlyAircraftObj',
+                          primary: 'FriendlyShipObj',
+                          et: 'EnemyThreatObj') -> float:
+        """항공 대잠 탐지 거리 — 함정 소나 기준 + 수온층 + 이탈 패널티."""
+        detect_m = self._detect_range_m(primary, '대잠')
+        detect_m *= self._thermocline_factor(et)
+        if et.is_retreating:
+            detect_m *= 0.30   # 고속 이탈 시 소나 접촉 급감
+        return detect_m
+
+    def _asw_weather_factor(self, weather: str) -> float:
+        """날씨별 탐지 확률 보정 계수."""
+        return {'맑음 (주간)': 1.00, '맑음 (야간)': 0.95,
+                '박무 / 흐림': 0.90, '강우 / 강설': 0.80,
+                '폭풍':        0.65, '태풍':        0.50}.get(weather, 1.00)
+
+    def _asw_detect_check(self, ac: 'FriendlyAircraftObj',
+                          et: 'EnemyThreatObj',
+                          primary: 'FriendlyShipObj'):
+        """탐지 확률 판정 → 성공 시 어뢰 투하, 실패 시 재탐색 또는 포기."""
+        weather   = self.cfg.get('weather', '맑음 (주간)')
+        thermo    = self._thermocline_factor(et)
+        wx_factor = self._asw_weather_factor(weather)
+        base_prob = ac.info.get('detect_base_prob', 0.65)
+        prob      = min(base_prob * thermo * wx_factor, 0.97)
+
+        if random.random() < prob:
+            # ── 탐지 성공 → 어뢰 투하 ────────────────────────────────────────
+            wpn_name = ac.info['payload_wpn']
+            wpn_info = FRIENDLY_DB[wpn_name]
+            pk       = max(0.0, min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98))
+
+            ac.payload_remaining -= 1
+            ac.sorties           += 1
+            ac.total_cost        += ac.info['cost_usd']
+
+            dist_to_sub = primary.pos.dist_to(et.pos)
+            total_dist  = dist_to_sub + (
+                ac.info.get('base_dist_km', 0) * 1000 if ac.info.get('base_type') == 'land' else 0)
+
+            drop_pos = Vec2(
+                et.pos.x + random.uniform(-300, 300),
+                et.pos.y + random.uniform(-300, 300),
+            )
+            m = MissileObj(
+                mtype    = 'friendly_strike',
+                name     = f"{wpn_name}({ac.name})",
+                pos      = drop_pos,
+                target   = et,
+                speed_ms = wpn_info['speed_ms'],
+                pk_base  = pk,
+                owner_id = id(ac),
+                t_spawn  = self.t,
+            )
+            m.is_torpedo = True
+            self.missiles.append(m)
+
+            fly_s          = total_dist / max(ac.info['speed_ms'], 1)
+            ac.t_available = self.t + ac.info['sortie_time_s'] + fly_s
+            ac._asw_phase    = 'idle'
+            ac._search_target = None
+            ac._detect_fails  = 0
+
+            mode_tag = '디핑소나' if ac.info.get('asw_mode') == 'dipping' else '소노부이'
+            self._log(
+                f"[대잠 탐지 성공] {ac.name} → {et.preset_name} "
+                f"({mode_tag} 확률 {prob:.0%}, 수온층 ×{thermo:.2f}) | "
+                f"{wpn_name} Pk={pk:.2f} 투하 | 잔여 {ac.payload_remaining}발"
+            )
+        else:
+            # ── 탐지 실패 ─────────────────────────────────────────────────────
+            ac._detect_fails += 1
+            max_att = ac.info.get('max_attempts', 3)
+            retry_s = ac.info.get('retry_s', 90)
+            mode_tag = '디핑소나' if ac.info.get('asw_mode') == 'dipping' else '소노부이'
+
+            if ac._detect_fails >= max_att:
+                ac._asw_phase     = 'idle'
+                ac._search_target = None
+                ac._detect_fails  = 0
                 self._log(
-                    f"[항공 대잠] {ac.name}({craft_type}) 출격 → {et.preset_name} "
-                    f"(거리 {dist_to_sub/1000:.0f}km) | {wpn_name} Pk={pk:.2f} 투하 "
-                    f"| 잔여 {ac.payload_remaining}발"
+                    f"[대잠 탐지 실패] {ac.name} → {et.preset_name} "
+                    f"{max_att}회 시도 모두 실패 (확률 {prob:.0%}) — 표적 포기"
                 )
-                break  # 한 tick당 한 표적만 공격
+            else:
+                ac._asw_phase     = 'cooldown'
+                ac._next_attempt  = self.t + retry_s
+                self._log(
+                    f"[대잠 탐지 실패] {ac.name} → {et.preset_name} "
+                    f"{mode_tag} 탐지 실패 (확률 {prob:.0%}, 수온층 ×{thermo:.2f}) "
+                    f"— {retry_s}초 후 재시도 ({ac._detect_fails}/{max_att})"
+                )
 
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
         # 우선순위: Tomahawk(초장거리) → 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)

@@ -1405,12 +1405,24 @@ FRIENDLY_AIRCRAFT_DB = {
         'payload_wpn':'청상어 (경어뢰)','payload_cnt':2,
         'cost_usd':HELO_SORTIE_COST_USD,'pk_bonus':0.05,'on_deck':True,
         'base_type':'ship','weather_limits':_HELO_WX,
+        # v9.8: 디핑소나 탐지 모델
+        'asw_mode':         'dipping',  # 디핑소나 방식
+        'dip_hover_s':      60,         # 호버링+소나 전개 시간(초)
+        'detect_base_prob': 0.60,       # 탐지 기본 확률
+        'max_attempts':     3,          # 최대 재탐색 횟수
+        'retry_s':          90,         # 탐지 실패 후 재시도 대기(초)
     },
     'MH-60R 시호크': {
         'speed_ms':110,'range_km':200,'sortie_time_s':240,
         'payload_wpn':'청상어 (경어뢰)','payload_cnt':2,
         'cost_usd':int(HELO_SORTIE_COST_USD*1.2),'pk_bonus':0.08,'on_deck':False,
         'base_type':'ship','weather_limits':_HELO_WX,
+        # v9.8: 디핑소나 탐지 모델 (MH-60R이 AW-159보다 우수한 AN/AQS-22)
+        'asw_mode':         'dipping',
+        'dip_hover_s':      45,         # 더 빠른 소나 전개
+        'detect_base_prob': 0.70,       # MH-60R 고성능 소나
+        'max_attempts':     3,
+        'retry_s':          75,
     },
     # NEW-I: P-3C 오라이온 — 육상기지(포항) 출격 해상초계기
     # 헬기 사거리(70km) 밖 잠수함 공격 / 소노부이 광역 탐색
@@ -1428,6 +1440,11 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_dist_km': 300,          # 포항 → 작전해역 기본거리
         'sonobuoy_detect_bonus_km': 8,   # MED-11: 15→8 km (실 AN/SSQ-53F 부이 탐지 보정)
         'weather_limits':_P3C_WX,
+        # v9.8: 소노부이 탐지 모델
+        'asw_mode':         'sonobuoy', # 소노부이 투하 방식
+        'detect_base_prob': 0.68,       # AN/SSQ-53F 소노부이 탐지율
+        'retry_s':          120,        # 소노부이 재투하 간격
+        'max_attempts':     4,
     },
     # NEW-J: P-8A 포세이돈 — 미 해군/한국 해군 도입 추진 중
     # P-3C 후속 기종. 737 기반 고속 순항, 소노부이 성능 향상
@@ -1446,6 +1463,11 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_dist_km': 300,          # 포항 → 작전해역 기본거리
         'sonobuoy_detect_bonus_km': 10,  # MED-11: 18→10 km (실 AN/SSQ-62 DICASS 탐지 보정)
         'weather_limits':_P3C_WX,    # 태풍만 불가 (P-3C와 동일)
+        # v9.8: 소노부이 탐지 모델 (AN/SSQ-62 DICASS — P-3C 대비 성능 우수)
+        'asw_mode':         'sonobuoy',
+        'detect_base_prob': 0.80,       # P-3C 대비 +12%p
+        'retry_s':          100,        # 더 빠른 재투하
+        'max_attempts':     5,          # 탑재량 많아 더 많이 시도 가능
     },
 }
 
