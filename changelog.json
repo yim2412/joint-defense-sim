@@ -1213,5 +1213,26 @@
       "추가  engine_v7: _step 루프 — 은닉 해제 시 '기습 탐지!' 교전 로그",
       "삭제  launcher: _build_plan_tab() — 완료된 잠수함 기습 항목 제거"
     ]
+  },
+  {
+    "version": "v9.7",
+    "date": "2026-05-31",
+    "title": "UI 개편: 아코디언 사이드바 + 시뮬 진행 팝업 상세화",
+    "changes": [
+      "추가  AccordionSidebar: 26개 항목을 교전분석/통계MC/성능평가/시스템/작전결과 5개 카테고리로 분류",
+      "추가  AccordionSidebar: 상단 검색 박스 — 항목명 필터링 + 카테고리 자동 펼침",
+      "추가  AccordionSidebar: 시뮬 완료 후 카테고리별 새 데이터 배지(●) 표시",
+      "추가  AccordionSidebar: QSettings로 마지막 선택 탭 및 카테고리 열림 상태 기억",
+      "추가  FloatingMonitor 전면 재설계 (480×590) — 단계 모드 전환 (단일 시뮬 / MC)",
+      "추가  단일 시뮬 뷰: 시뮬 시간 진행 바 + 위협 수 + VLS 잔여 + 교전 로그 5줄 실시간",
+      "추가  MC 분석 뷰: 단계별 평균 소요시간 바 차트 (대공방어/아군공격/대잠/적방어 등)",
+      "추가  MC 분석 뷰: 수렴 감지 (최근 20배치 표준편차 ±0.5%p 이하 시 안정 표시)",
+      "추가  MC 분석 뷰: 이전 실행 대비 요격률 델타 비교 (↑↓ 색상 강조)",
+      "추가  팝업 중단 버튼 (■ 중단) — SimWorker requestInterruption() 연결",
+      "추가  engine_v7: TimeStepEngine 단계별 perf_counter 타이밍 측정 (phase_times)",
+      "추가  engine_v7: step_cb 콜백 — 단일 시뮬 20초마다 위협/VLS/로그 전달",
+      "추가  engine_v7: _mc_batch_worker 단계 타이밍 집계 후 9번째 반환값으로 추가",
+      "추가  SimWorker: step_update / phase_update 시그널 추가"
+    ]
   }
 ]

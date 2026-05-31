@@ -51,7 +51,7 @@ v7.0 패치 이력:
     - _compile(): remaining_inventory·total_channels·peak_concurrent_threats·t_first_fire 추가
 """
 
-import math, random, os
+import math, random, os, time as _time
 from typing import List, Optional
 
 import matplotlib
@@ -678,9 +678,11 @@ class TimeStepEngine:
       7. 프레임 기록
     """
 
-    def __init__(self, cfg: dict):
-        self.cfg = cfg
-        self.t   = 0.0
+    def __init__(self, cfg: dict, step_cb=None):
+        self.cfg     = cfg
+        self.t       = 0.0
+        self._step_cb       = step_cb   # (t, t_max, alive, vls, last_log) — 단일 시뮬 진행 콜백
+        self._phase_times: dict = {}    # 단계별 누적 실행 시간 (perf_counter 기반)
         self._log_entries: list = []
         self._tick_events:  list = []
 
@@ -2173,6 +2175,11 @@ class TimeStepEngine:
     # ── 메인 루프 ─────────────────────────────────────────────────────────────
 
     def run(self) -> dict:
+        pt = {'위치갱신': 0.0, '적발사': 0.0, '대공방어': 0.0,
+              '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0, '교전판정': 0.0}
+        _pc = _time.perf_counter
+        _step_interval = 20   # step_cb 호출 간격(초) — 단일 시뮬 UI 갱신용
+
         while self.t <= MAX_SIM_TIME:
             # NEW-A: 혼합 시나리오 파도 지연 스폰
             if self._pending_threats:
@@ -2205,15 +2212,17 @@ class TimeStepEngine:
                         f"(거리 {dist_km:.0f}km) — 즉시 교전 개시!"
                     )
 
-            self._update_positions()
-            self._enemy_fire()
-            self._arm_radar_off_check()   # ARM 탐지 → 레이더 OFF 전술
-            self._friendly_defense()
-            self._friendly_strike()
-            self._aircraft_asw()        # 포팅 C: 항공 대잠
-            self._enemy_defense()
+            _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
+            _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
+            self._arm_radar_off_check()
+            _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0
+            _t0 = _pc(); self._friendly_strike();  pt['아군공격'] += _pc() - _t0
+            _t0 = _pc(); self._aircraft_asw();     pt['대잠']     += _pc() - _t0
+            _t0 = _pc(); self._enemy_defense();    pt['적방어']   += _pc() - _t0
+            _t0 = _pc()
             self._check_intercepts()
             self._check_hits()
+            pt['교전판정'] += _pc() - _t0
 
             # 소멸·요격 미사일의 추적 채널 반환
             for m in self.missiles:
@@ -2232,11 +2241,19 @@ class TimeStepEngine:
             if alive_count > self.stats['peak_concurrent_threats']:
                 self.stats['peak_concurrent_threats'] = alive_count
 
+            # 단일 시뮬 진행 콜백 (MC 배치 워커에서는 None)
+            if self._step_cb and int(self.t) % _step_interval == 0:
+                vls_rem = sum(
+                    getattr(s, 'vls_remaining', 0) for s in self.friendly_ships)
+                last_log = self._log_entries[-1] if self._log_entries else ""
+                self._step_cb(self.t, MAX_SIM_TIME, alive_count, vls_rem, last_log)
+
             if self._is_over():
                 break
 
             self.t += DT
 
+        self._phase_times = pt
         return self._compile()
 
     def _compile(self) -> dict:
@@ -2295,6 +2312,7 @@ class TimeStepEngine:
             'strike_log':        self.strike_log,              # v9.3
             'vls_depletion_t':   dict(self.vls_depletion_t),  # v9.4
             'ground_remaining':  dict(self.ground_inv),        # v9.4
+            'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
         }
 
     def _build_active_events(self) -> list:
@@ -2372,7 +2390,7 @@ def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
 #  외부 API
 # ════════════════════════════════════════════════════════════════════════════
 
-def run_v7_simulation(cfg: dict) -> dict:
+def run_v7_simulation(cfg: dict, step_cb=None) -> dict:
     # 탐지거리 자동 계산 (함대 + 날씨 기반, 수동 override 없을 때)
     if not cfg.get('detect_km_manual', False):
         ranges = calculate_fleet_detect_ranges(
@@ -2382,7 +2400,7 @@ def run_v7_simulation(cfg: dict) -> dict:
         cfg['detect_km']         = ranges['대공']
         cfg['surface_detect_km'] = ranges['대함']   # BUG-3 연계: 수상함 시작 거리
         cfg['sub_detect_km']     = ranges['대잠']
-    return TimeStepEngine(cfg).run()
+    return TimeStepEngine(cfg, step_cb=step_cb).run()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2495,6 +2513,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     weapon_usage: dict = {}
     weapon_zero:  dict = {}
     ship_hits_mc: dict = {}
+    phase_times_acc: dict = {}   # v8.26: 배치 내 단계별 시간 누적
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
         run_cfg = dict(cfg)
@@ -2513,7 +2532,14 @@ def _mc_batch_worker(args: tuple) -> tuple:
         for ship in r.get('friendly_ships', []):
             ship_hits_mc.setdefault(ship.name, []).append(
                 getattr(ship, 'hits_taken', 0))
-    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero
+        for k, v in r.get('phase_times', {}).items():
+            phase_times_acc[k] = phase_times_acc.get(k, 0.0) + v
+    # 배치 평균으로 변환
+    if n > 0:
+        phase_times_avg = {k: v / n for k, v in phase_times_acc.items()}
+    else:
+        phase_times_avg = {}
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg
 
 
 # ════════════════════════════════════════════════════════════════════════════
