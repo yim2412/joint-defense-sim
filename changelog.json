@@ -1284,5 +1284,37 @@
       "추가  취약점 진단: 지상 BMD(어쇼어/THAAD) 탄약 고갈 경고",
       "추가  설정 패널 지상 BMD 섹션 (ON/OFF 체크박스 + 재고 슬라이더)"
     ]
+  },
+  {
+    "version": "v9.11 patch",
+    "date": "2026-06-01",
+    "title": "v9.12~v9.14 실측 데이터 수집 + 프로젝트 정리",
+    "changes": [
+      "추가  terrain_db.py: 해저 수심 7개 해역(GEBCO/KHOA) + 한반도 육상 지형(산맥·고봉·평야·섬) + 주변국(일·중·러) 지형",
+      "추가  ocean_acoustic_db.py: WOA18 수온·염도 프로파일, Mackenzie 음속 SVP, SOFAR 채널, 수온약층 월별 데이터, 소나 탐지 보정계수",
+      "추가  ocean_environment_db.py: 대마난류·북한한류 등 해류 5종, 조수간만차, 파고·시정·안개 기상통계, Beaufort 레이더·소나 클러터",
+      "추가  military_db.py: 북한 장사정포 4종·해안 대함미사일 3종, 한국 해군기지 9곳·공군기지 6곳, 주한미군 기지",
+      "수정  launcher.py: 향후 계획 탭 v9.12/v9.13/v9.14 + v10.x 정밀 대기 모델 항목 추가·설명 최신화",
+      "수정  CLAUDE.md: 현재 버전 v8.25 → v9.11 정정",
+      "삭제  임시 캡처 PNG 61개 (mon_*.png / mon2_*.png / mon3_*.png / screen_*.png / crop_*.png)",
+      "삭제  anim_render.py: 애니메이션 탭 폐기 후 잔존하던 미사용 파일",
+      "삭제  dashboard.py: v6 시절 Streamlit 구버전 대시보드 (launcher.py로 완전 대체됨)"
+    ]
+  },
+  {
+    "version": "v9.12",
+    "date": "2026-06-02",
+    "title": "지형·해상 환경 반영 — WOA18 수온약층 + 지형 레이더 음영",
+    "changes": [
+      "추가  ocean_acoustic_db.get_sonar_depth_factor() → _thermocline_factor() 해역·계절별 실측값 적용 (기존 하드코딩 대체)",
+      "추가  TERRAIN_RADAR_PENALTY 상수: 태백산맥(3.4°)·소백산맥(0.9°)·낭림산맥(0.4°) 음영각 기반 저고도 레이더 탐지거리 보정",
+      "추가  _terrain_penalty() 신규 함수: 해역+고도 기반 레이더 음영 계수 반환 (enable_terrain=False 시 무조건 1.0)",
+      "추가  _detect_range_m() alt_m 선택 파라미터: 레이더 탐지 호출 시 지형 페널티 자동 반영",
+      "추가  REGION_TO_ACOUSTIC_KEY 매핑: 동해 북부/중부 → EAST_SEA, 서해 → YELLOW_SEA, 대한해협 → KOREA_STRAIT",
+      "추가  설정 패널 '작전 해역' 드롭다운 (동해 북부/중부/서해/대한해협) — 수온약층·지형 보정 연동",
+      "추가  설정 패널 '계절' 드롭다운 (여름 6~9월/겨울 10~5월) — WOA18 계절별 프로파일 선택",
+      "추가  설정 패널 '지형 음영 적용' 체크박스 — 기본 OFF (기존 결과 완전 호환)",
+      "수정  _restore_cfg(): fleet_region·season·enable_terrain 복원 지원"
+    ]
   }
 ]

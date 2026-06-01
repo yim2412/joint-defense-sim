@@ -11,13 +11,16 @@ a = Analysis(
     pathex=['.'],
     binaries=[],
     datas=[
-        ('engine.py',      '.'),
-        ('engine_v7.py',   '.'),
-        ('anim_render.py', '.'),
-        ('spec_db.py',     '.'),
-        ('changelog.json', '.'),
-        ('aegis_icon.ico', '.'),
-        ('assets/images',  'assets/images'),
+        ('engine.py',              '.'),
+        ('engine_v7.py',           '.'),
+        ('spec_db.py',             '.'),
+        ('changelog.json',         '.'),
+        ('aegis_icon.ico',         '.'),
+        ('ocean_acoustic_db.py',   '.'),
+        ('ocean_environment_db.py','.'),
+        ('terrain_db.py',          '.'),
+        ('military_db.py',         '.'),
+        ('assets/images',          'assets/images'),
     ],
     hiddenimports=[
         # PyQt6 core

@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.11 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.12 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.12 — 지형·해상 환경 반영: WOA18 수온약층 + 지형 레이더 음영]            ║
+║  NEW-A  ocean_acoustic_db WOA18 실측값 → _thermocline_factor() 해역·계절별  ║
+║  NEW-B  TERRAIN_RADAR_PENALTY — 태백(3.4°)·소백(0.9°)·낭림(0.4°) 음영각    ║
+║  NEW-C  _terrain_penalty() 신규: 해역+고도 기반 레이더 탐지거리 보정        ║
+║  NEW-D  설정 패널 — 작전 해역·계절 드롭다운 + 지형 음영 체크박스 추가       ║
 ║  [v9.11 — 이지스 어쇼어 + THAAD 지상 BMD 연동]                              ║
 ║  NEW-A  이지스 어쇼어 SM-3: 탄도/HGV 중간단계 선제 요격 (고도 ≥ 40km)      ║
 ║  NEW-B  THAAD: 탄도/HGV 종말고고도 요격 (고도 10~150km, hit-to-kill)        ║
@@ -4033,6 +4038,22 @@ class MainWindow(QMainWindow):
             idx = self.cmb_weather.findText(weather)
             if idx >= 0:
                 self.cmb_weather.setCurrentIndex(idx)
+        # v9.12: 작전 해역
+        region = cfg.get('fleet_region', '')
+        if region and hasattr(self, 'cmb_region'):
+            idx = self.cmb_region.findText(region)
+            if idx >= 0:
+                self.cmb_region.setCurrentIndex(idx)
+        # v9.12: 계절
+        season = cfg.get('season', '')
+        if season and hasattr(self, 'cmb_season'):
+            target = '여름 (6~9월)' if season == 'summer' else '겨울 (10~5월)'
+            idx = self.cmb_season.findText(target)
+            if idx >= 0:
+                self.cmb_season.setCurrentIndex(idx)
+        # v9.12: 지형 음영
+        if hasattr(self, 'chk_terrain'):
+            self.chk_terrain.setChecked(cfg.get('enable_terrain', False))
         # 적군 모드 — preset / random / manual
         enemy_mode = cfg.get('enemy_fleet_mode', '')
         mode_reverse = {'preset': '편대 프리셋', 'random': '랜덤 편성', 'manual': '직접 구성'}
@@ -4112,9 +4133,39 @@ class MainWindow(QMainWindow):
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
 
+        # v9.12: 작전 해역 / 계절 드롭다운
+        self.cmb_region = NoScrollComboBox()
+        self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
+        self.cmb_region.setToolTip(
+            "작전 해역 선택 — 소나 탐지(수온약층)·레이더 음영(지형) 보정에 반영됩니다.\n"
+            "동해 북부: 쓰시마 난류 약화, 북한한류 영향권, 수온약층 강\n"
+            "동해 중부: 쓰시마 난류 주류, 여름 수온약층 최강\n"
+            "서해: 평균수심 44m, 여름 냉수괴(YSCBW), 수온약층 10m부터\n"
+            "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
+        )
+        self.cmb_season = NoScrollComboBox()
+        self.cmb_season.addItems(['여름 (6~9월)', '겨울 (10~5월)'])
+        self.cmb_season.setToolTip(
+            "계절 선택 — 수온약층 깊이와 강도에 직접 영향.\n"
+            "여름: 수온약층 강함 → 소나 탐지 크게 저하 (서해 10m, 동해 20m부터)\n"
+            "겨울: 수온약층 소멸 (서해) / 약화 (동해) → 소나 탐지 개선"
+        )
+        self.chk_terrain = QCheckBox("지형 음영 적용")
+        self.chk_terrain.setToolTip(
+            "해역별 산맥 레이더 차폐 효과 적용.\n"
+            "동해: 태백·설악(3.4~8.1°) — 저고도 위협 탐지 최대 22% 감소\n"
+            "서해: 낭림산맥 원거리(0.4°) — 미약 (~4%)\n"
+            "대한해협: 소백산맥(0.9°) — 중간 (~10%)\n"
+            "기본값 OFF — 기존 결과와 동일"
+        )
+        self.chk_terrain.setChecked(False)
+
         fl.addRow("편대 프리셋", self.cmb_fleet)
         fl.addRow("",            self.lbl_fleet_detail)
         fl.addRow("날씨",        self.cmb_weather)
+        fl.addRow("작전 해역",   self.cmb_region)
+        fl.addRow("계절",        self.cmb_season)
+        fl.addRow("",            self.chk_terrain)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
         # 랜덤 배치 — 항상 활성화 (반경 10km 고정)
@@ -5470,6 +5521,10 @@ class MainWindow(QMainWindow):
             # 아군 편대 (탐지거리는 엔진이 함대+날씨로 자동 계산)
             'fleet_preset':      self.cmb_fleet.currentText(),
             'weather':           self.cmb_weather.currentText(),
+            # v9.12: 작전 해역·계절·지형 음영
+            'fleet_region':      self.cmb_region.currentText(),
+            'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
+            'enable_terrain':    self.chk_terrain.isChecked(),
             'detect_km_manual':  False,
             # 적군 (포팅 A)
             'enemy_fleet_mode':       enemy_mode,
@@ -7136,16 +7191,20 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.x", "높음", "지형·해상 환경 반영",
-             "수온층(_thermocline_factor) 대잠 보정만 구현됨 (5%). "
-             "남은 것: ① DEM 지형 데이터 연동 (산·섬 뒤 레이더 음영구역) "
-             "② 수온층 실데이터 기반 소나 탐지거리 현실화 "
-             "③ 해협 통과 시나리오 선행 조건."),
-            ("v9.x", "중간", "해협 통과 방어 시나리오",
-             "⚠ 지형·해상 환경 반영 선행 필요. "
-             "DEM 연동 완료 후 해협 형태에서 탐지거리가 자연스럽게 도출되는 구조로 구현. "
-             "이어도·대한해협·쓰시마 해협 프리셋 (각 방위각·탐지거리 자동 산출)."),
+            ("v9.13", "중간", "대기 환경 센서 모델",
+             "데이터 수집 필요 후 구현. "
+             "① 증발 덕팅(EDH) → 레이더 탐지거리 계절·해역별 보정 "
+             "② IR 투과율 → 광학·IR 센서 탐지거리 보정 (안개·황사·강수 연동) "
+             "③ 고층 바람 → 미사일 CEP 보정 (기상청 라디오존데)."),
+            ("v9.14", "중간", "해협 통과 방어 시나리오",
+             "⚠ v9.12 지형·해상 환경 반영 선행 필요. "
+             "fleet_region='대한해협' 선택 시 동서 방향만 열린 협착 교전 환경 자동 적용. "
+             "이어도·대한해협·쓰시마 해협 전용 프리셋."),
             # ── v10.x ───────────────────────────────────────────────────────
+            ("v10.x", "낮음", "정밀 대기 모델",
+             "⚠ 완전 양방향 교전 엔진 재설계 이후 통합. "
+             "ICAO 표준 대기 + 기상청 라디오존데 계절별 프로파일. "
+             "트로포스캐터·전파 전파 상세 모델."),
             ("v10.x", "매우 높음", "완전 양방향 교전",
              "적 수상함→아군 대함미사일 요격(_enemy_defense)은 이미 구현됨 (40%). "
              "남은 것: ① FriendlyMissileObj 클래스 신설 (아군 SAM을 적이 추적할 엔티티로 모델링) "
