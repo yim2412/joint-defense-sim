@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.10 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.11 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.11 — 이지스 어쇼어 + THAAD 지상 BMD 연동]                              ║
+║  NEW-A  이지스 어쇼어 SM-3: 탄도/HGV 중간단계 선제 요격 (고도 ≥ 40km)      ║
+║  NEW-B  THAAD: 탄도/HGV 종말고고도 요격 (고도 10~150km, hit-to-kill)        ║
+║  NEW-C  _select_defense_wpn: 어쇼어 활성 시 함정 SM-3 최후 백업으로 하락    ║
+║  NEW-D  취약점 진단: 지상 BMD 탄약 고갈 경고 추가                           ║
 ║  [v9.10 — 교전 후 브리핑 자동 생성: REQ 탭 하단 + Excel 브리핑 시트]        ║
 ║  NEW-A  engine_v7: generate_briefing() — 서술형 군사 보고서 자동 생성       ║
 ║  NEW-B  REQ 판정 탭 하단 접이식 브리핑 패널 (복사·TXT 저장 버튼)            ║
@@ -3930,7 +3935,7 @@ def _render_strike_chart(mc: dict) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v9.10")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v9.11")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -4362,6 +4367,45 @@ class MainWindow(QMainWindow):
 
         grp_strike.hide()
         layout.addWidget(grp_strike)
+
+        # v9.11: 이지스 어쇼어 + THAAD 지상 BMD
+        grp_bmd = QGroupBox("🛡 지상 BMD 자산")
+        bmdl = QFormLayout(grp_bmd)
+        bmdl.setSpacing(6)
+
+        self.chk_ashore = QCheckBox("이지스 어쇼어 연동")
+        self.chk_ashore.setToolTip(
+            "성주 해군기지 이지스 어쇼어 SM-3 Block IIA 연동.\n"
+            "탄도미사일·HGV를 중간단계(고도 ≥ 40km)에서 선제 요격.\n"
+            "함정 SM-3보다 먼저 교전 — 함정 SM-3은 소진 시 백업만."
+        )
+        bmdl.addRow("", self.chk_ashore)
+
+        self.spn_ashore_sm3 = NoScrollSpinBox()
+        self.spn_ashore_sm3.setRange(4, 48)
+        self.spn_ashore_sm3.setValue(24)
+        self.spn_ashore_sm3.setEnabled(False)
+        self.spn_ashore_sm3.setToolTip("어쇼어 SM-3 Block IIA 재고 (기본 24발).")
+        bmdl.addRow("  어쇼어 SM-3 재고", self.spn_ashore_sm3)
+        self.chk_ashore.toggled.connect(self.spn_ashore_sm3.setEnabled)
+
+        self.chk_thaad = QCheckBox("THAAD 연동 (성주 기지)")
+        self.chk_thaad.setToolTip(
+            "성주 기지 THAAD(終末高高度防禦) 연동 (美 육군 운용).\n"
+            "탄도미사일·HGV 종말단계(고도 10~150km)를 hit-to-kill 요격.\n"
+            "어쇼어 SM-3 → THAAD → 함정 SM-3 순으로 교전."
+        )
+        bmdl.addRow("", self.chk_thaad)
+
+        self.spn_thaad = NoScrollSpinBox()
+        self.spn_thaad.setRange(4, 48)
+        self.spn_thaad.setValue(24)
+        self.spn_thaad.setEnabled(False)
+        self.spn_thaad.setToolTip("THAAD 요격탄 재고 (기본 24발).")
+        bmdl.addRow("  THAAD 요격탄 재고", self.spn_thaad)
+        self.chk_thaad.toggled.connect(self.spn_thaad.setEnabled)
+
+        layout.addWidget(grp_bmd)
 
 
         # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
@@ -5236,9 +5280,14 @@ class MainWindow(QMainWindow):
         h4_stock   = h4_init.value() if h4_init else 0
         h4_fired   = h4_stock - ground_rem.get('현무-4 (ASBM)', h4_stock)
         h4_str     = f"  |  현무-4 발사: {h4_fired}발" if h4_stock > 0 else ""
+        ashore_fired = result.get('ashore_sm3_fired', 0)
+        thaad_fired  = result.get('thaad_fired', 0)
+        bmd_str = ""
+        if ashore_fired > 0: bmd_str += f"  |  어쇼어 SM-3: {ashore_fired}발"
+        if thaad_fired  > 0: bmd_str += f"  |  THAAD: {thaad_fired}발"
         self._strike_mc_lbl.setText(
             f"  MC {n}회 평균 적 격침: {mean_dest:.2f}척  |  최대: {max_dest}척  |"
-            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}"
+            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}{bmd_str}"
         )
 
         # MC 격침 분포 차트
@@ -5461,6 +5510,11 @@ class MainWindow(QMainWindow):
             'harpoon_stock':   self.spn_harpoon.value(),
             # v9.4: 현무-4 지상 발사 재고
             'hyunmoo4_stock':  self.spn_hyunmoo4.value(),
+            # v9.11: 지상 BMD 자산
+            'enable_ashore':   self.chk_ashore.isChecked(),
+            'ashore_sm3_stock': self.spn_ashore_sm3.value() if self.chk_ashore.isChecked() else 0,
+            'enable_thaad':    self.chk_thaad.isChecked(),
+            'thaad_stock':     self.spn_thaad.value() if self.chk_thaad.isChecked() else 0,
             # C&D 시간
             'cd_time_s':      10,
             'confirm_time_s': 3,
@@ -6812,7 +6866,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v9.10  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v9.11  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -7082,10 +7136,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.x", "중간", "이지스 어쇼어 (지상 이지스) 연동",
-             "성주 사드 + 이지스 어쇼어를 함대와 연동해 탄도미사일 요격 레이어 추가. "
-             "지상 자산은 SM-3 전담, 함대는 SM-6·SM-2 담당으로 역할 분리. "
-             "전자전·지형 환경 작업과 묶어서 구현 가능."),
             ("v9.x", "높음", "지형·해상 환경 반영",
              "수온층(_thermocline_factor) 대잠 보정만 구현됨 (5%). "
              "남은 것: ① DEM 지형 데이터 연동 (산·섬 뒤 레이더 음영구역) "
