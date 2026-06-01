@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.12 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.13 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.13 — 대기·해양 환경 센서 물리 모델: Beaufort 클러터 + 덕팅 + CEP 바람]  ║
+║  NEW-A  WEATHER_BEAUFORT_MAP: 날씨 → Beaufort 매핑, radar/sonar_factor 물리화 ║
+║  NEW-B  _make_physics_wx(): ocean_environment_db 클러터·소음 데이터 자동 적용 ║
+║  NEW-C  _evap_duct_factor(): 증발 덕팅 — 저고도 표적 탐지거리 증가           ║
+║  NEW-D  _wind_cep_factor(): 고층 바람 CEP — 순항미사일 탄착 오차 증가        ║
+║  NEW-E  설정 패널 '증발 덕팅 적용' 체크박스 추가                             ║
 ║  [v9.12 — 지형·해상 환경 반영: WOA18 수온약층 + 지형 레이더 음영]            ║
 ║  NEW-A  ocean_acoustic_db WOA18 실측값 → _thermocline_factor() 해역·계절별  ║
 ║  NEW-B  TERRAIN_RADAR_PENALTY — 태백(3.4°)·소백(0.9°)·낭림(0.4°) 음영각    ║
@@ -4054,6 +4060,9 @@ class MainWindow(QMainWindow):
         # v9.12: 지형 음영
         if hasattr(self, 'chk_terrain'):
             self.chk_terrain.setChecked(cfg.get('enable_terrain', False))
+        # v9.13: 증발 덕팅
+        if hasattr(self, 'chk_evap_duct'):
+            self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
         # 적군 모드 — preset / random / manual
         enemy_mode = cfg.get('enemy_fleet_mode', '')
         mode_reverse = {'preset': '편대 프리셋', 'random': '랜덤 편성', 'manual': '직접 구성'}
@@ -4160,12 +4169,23 @@ class MainWindow(QMainWindow):
         )
         self.chk_terrain.setChecked(False)
 
+        self.chk_evap_duct = QCheckBox("증발 덕팅 적용")
+        self.chk_evap_duct.setToolTip(
+            "대기 하층 수증기 농도 역전으로 레이더 전파가 해면을 따라 굴절.\n"
+            "저고도 표적(해면밀착 대함미사일 등)의 탐지거리 증가 효과.\n"
+            "동해 여름: EDH 10m, 탐지 ×1.25 / 동해 겨울: EDH 6m, ×1.12\n"
+            "풍랑(BF7) 이상 강풍 시 덕트 파괴 → 자동 비활성화.\n"
+            "기본값 OFF — 기존 결과와 동일"
+        )
+        self.chk_evap_duct.setChecked(False)
+
         fl.addRow("편대 프리셋", self.cmb_fleet)
         fl.addRow("",            self.lbl_fleet_detail)
         fl.addRow("날씨",        self.cmb_weather)
         fl.addRow("작전 해역",   self.cmb_region)
         fl.addRow("계절",        self.cmb_season)
         fl.addRow("",            self.chk_terrain)
+        fl.addRow("",            self.chk_evap_duct)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
         # 랜덤 배치 — 항상 활성화 (반경 10km 고정)
@@ -5525,6 +5545,7 @@ class MainWindow(QMainWindow):
             'fleet_region':      self.cmb_region.currentText(),
             'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
             'enable_terrain':    self.chk_terrain.isChecked(),
+            'enable_evap_duct':  self.chk_evap_duct.isChecked(),
             'detect_km_manual':  False,
             # 적군 (포팅 A)
             'enemy_fleet_mode':       enemy_mode,
@@ -7191,11 +7212,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.13", "중간", "대기 환경 센서 모델",
-             "데이터 수집 필요 후 구현. "
-             "① 증발 덕팅(EDH) → 레이더 탐지거리 계절·해역별 보정 "
-             "② IR 투과율 → 광학·IR 센서 탐지거리 보정 (안개·황사·강수 연동) "
-             "③ 고층 바람 → 미사일 CEP 보정 (기상청 라디오존데)."),
             ("v9.14", "중간", "해협 통과 방어 시나리오",
              "⚠ v9.12 지형·해상 환경 반영 선행 필요. "
              "fleet_region='대한해협' 선택 시 동서 방향만 열린 협착 교전 환경 자동 적용. "

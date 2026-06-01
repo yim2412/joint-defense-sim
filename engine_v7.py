@@ -91,6 +91,16 @@ try:
 except ImportError:
     _OCEAN_ACOUSTIC_OK = False
 
+try:
+    from ocean_environment_db import RADAR_CLUTTER, SONAR_AMBIENT_NOISE
+    _RADAR_BF_FACTOR = RADAR_CLUTTER['detection_range_factor']
+    _SONAR_BF_FACTOR = SONAR_AMBIENT_NOISE['sonar_range_factor']
+    _OCEAN_ENV_OK = True
+except ImportError:
+    _RADAR_BF_FACTOR = {}
+    _SONAR_BF_FACTOR = {}
+    _OCEAN_ENV_OK = False
+
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — 해성 250m/s 기준 250km = 1000초 충분
@@ -99,6 +109,50 @@ ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km �
 DECOY_PK         = 0.50   # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
 SHIP_EVASION_PK  = 0.20   # LOW-8: 0.30→0.20 (회피 기동 성공률 현실화)
 MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
+
+# ── v9.13: 날씨 → Beaufort + 특수 효과 매핑 ─────────────────────────────────
+# special_radar: Beaufort 클러터 외 추가 레이더 감쇠 (황사·농무·야간 흡수·산란)
+# special_sonar: 모두 1.00 — 황사·야간은 소나 무관, Beaufort 해상 소음으로 충분
+WEATHER_BEAUFORT_MAP: dict[str, dict] = {
+    '맑음 (주간)':           {'beaufort': 2,  'special_radar': 1.00, 'special_sonar': 1.00},
+    '맑음 (야간)':           {'beaufort': 2,  'special_radar': 0.97, 'special_sonar': 1.00},
+    '흐림 (박무)':           {'beaufort': 4,  'special_radar': 1.00, 'special_sonar': 1.00},
+    '황사 (봄철 황사)':      {'beaufort': 3,  'special_radar': 0.75, 'special_sonar': 1.00},
+    '풍랑 (7~8등급)':        {'beaufort': 7,  'special_radar': 1.00, 'special_sonar': 1.00},
+    '폭풍 (해상 악화)':      {'beaufort': 9,  'special_radar': 1.00, 'special_sonar': 1.00},
+    '태풍 (9~12등급)':       {'beaufort': 11, 'special_radar': 1.00, 'special_sonar': 1.00},
+    '농무 (시정 200m 이하)': {'beaufort': 2,  'special_radar': 0.82, 'special_sonar': 1.00},
+    '폭풍 (야간)':           {'beaufort': 9,  'special_radar': 0.97, 'special_sonar': 1.00},
+    '태풍 (야간)':           {'beaufort': 11, 'special_radar': 0.97, 'special_sonar': 1.00},
+    '농무 (야간)':           {'beaufort': 2,  'special_radar': 0.79, 'special_sonar': 1.00},
+    '황사 (새벽)':           {'beaufort': 3,  'special_radar': 0.73, 'special_sonar': 1.00},
+}
+
+# ── v9.13: 증발 덕팅 (Evaporation Duct Height) ───────────────────────────────
+# (region_key, season) → (edh_m, boost_factor)
+# 덕트 내 저고도 표적: 레이더 전파가 해면을 따라 굴절 → 탐지거리 증가
+# 출처: 한국 해역 대기 경계층 관측 문헌 평균값
+EVAP_DUCT_DB: dict[tuple, tuple] = {
+    ('EAST_SEA',     'summer'): (10, 1.25),  # 여름 동해: 덕트 높이 10m, 탐지 1.25배
+    ('EAST_SEA',     'winter'): (6,  1.12),
+    ('YELLOW_SEA',   'summer'): (8,  1.18),  # 서해: 강수·습도로 덕트 발달 약함
+    ('YELLOW_SEA',   'winter'): (4,  1.08),
+    ('KOREA_STRAIT', 'summer'): (9,  1.20),
+    ('KOREA_STRAIT', 'winter'): (5,  1.10),
+}
+
+# ── v9.13: 고층 바람 CEP 배율 ────────────────────────────────────────────────
+# (region_key, season) → cep_multiplier
+# 순항미사일 Pk = pk_base / cep_factor (CEP 증가 → 명중률 감소)
+# 동해 겨울: 편서풍 강함(30~50 m/s), 서해 겨울: 북서풍 (25~40 m/s)
+WIND_CEP_FACTOR: dict[tuple, float] = {
+    ('EAST_SEA',     'summer'): 1.05,
+    ('EAST_SEA',     'winter'): 1.20,
+    ('YELLOW_SEA',   'summer'): 1.08,
+    ('YELLOW_SEA',   'winter'): 1.15,
+    ('KOREA_STRAIT', 'summer'): 1.06,
+    ('KOREA_STRAIT', 'winter'): 1.18,
+}
 
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
 # fleet_region UI 문자열 → ocean_acoustic_db 키
@@ -151,6 +205,25 @@ _THAAD_ALT_MAX_M   = 150_000  # 종말 상한 150km
 # 다층 방어 레이어 순서: 가장 먼저 교전하는 함정 유형부터 (BMD 우선 → 방공 우선)
 LAYER_ORDER    = ['KDX-III-B2', 'KDX-III-B1', 'KDX-II', 'FFX-III', 'FFX-II', 'FFX-I']
 SHIP_LAYER_PRI = {t: i for i, t in enumerate(LAYER_ORDER)}
+
+def _make_physics_wx(weather: str) -> dict:
+    """
+    v9.13: 날씨 문자열 → Beaufort 물리 기반 wx dict.
+    ocean_environment_db 없으면 WEATHER_DB 원본 그대로 반환.
+    """
+    wx = dict(WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)']))
+    if _OCEAN_ENV_OK:
+        bf_info = WEATHER_BEAUFORT_MAP.get(weather)
+        if bf_info:
+            bf = bf_info['beaufort']
+            wx['radar_factor'] = (
+                _RADAR_BF_FACTOR.get(bf, 1.0) * bf_info['special_radar']
+            )
+            wx['sonar_factor'] = (
+                _SONAR_BF_FACTOR.get(bf, 1.0) * bf_info['special_sonar']
+            )
+            wx['beaufort'] = bf
+    return wx
 
 # 포팅 C: v7 시뮬 시간 스케일 맞춤 출격 준비 시간 (전시 긴급 출격 기준)
 # FRIENDLY_AIRCRAFT_DB의 sortie_time_s(평시)를 v7 700초 시뮬에 맞게 단축
@@ -805,7 +878,7 @@ class TimeStepEngine:
             'thaad_fired':             0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
-        self.wx = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
+        self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
 
         # v9.3: 아군 공격 임무 격침 기록
         self.strike_log: list = []
@@ -1164,9 +1237,11 @@ class TimeStepEngine:
                 and self.cfg.get('enable_ecm', True)):
             jam = self._active_ecm * (1.0 - ship.eccm_factor)
             detect_m *= max(0.40, 1.0 - jam)
-        # v9.12: 지형 음영 — 레이더 탐지 한정 (소나는 _thermocline_factor에서 처리)
+        # v9.12: 지형 음영 / v9.13: 증발 덕팅 — 레이더 탐지 한정
         if category != '대잠' and alt_m is not None:
             detect_m *= self._terrain_penalty(alt_m)
+            if alt_m >= 0:   # 수중 표적은 덕팅 없음
+                detect_m *= self._evap_duct_factor(alt_m)
         return detect_m
 
     def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
@@ -1218,6 +1293,41 @@ class TimeStepEngine:
                 return prev_f + ratio * (f - prev_f)
             prev_alt, prev_f = a, f
         return prev_f
+
+    def _evap_duct_factor(self, alt_m: float) -> float:
+        """
+        증발 덕팅(EDH) 보정 — 대기 하층 수증기 농도 역전으로 레이더 전파 해면 굴절.
+        저고도 표적(alt_m ≤ EDH)의 탐지거리 증가. BF7 이상 강풍 시 덕트 파괴.
+        enable_evap_duct=False이면 1.0 반환.
+        """
+        if not self.cfg.get('enable_evap_duct', False):
+            return 1.0
+        if self.wx.get('beaufort', 2) >= 7:   # 강풍 이상 → 덕트 파괴
+            return 1.0
+        region_key = REGION_TO_ACOUSTIC_KEY.get(
+            self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
+        )
+        season = self.cfg.get('season', 'summer')
+        edh_m, boost = EVAP_DUCT_DB.get((region_key, season), (0, 1.0))
+        if edh_m == 0:
+            return 1.0
+        if alt_m <= edh_m:
+            return boost
+        if alt_m <= edh_m * 2:
+            ratio = (edh_m * 2 - alt_m) / max(edh_m, 1)
+            return 1.0 + (boost - 1.0) * ratio
+        return 1.0
+
+    def _wind_cep_factor(self) -> float:
+        """
+        고층 바람 CEP 배율 — 순항미사일 탄착 오차 증가로 명중률 저하.
+        Pk_eff = pk_base / cep_factor (반환값 > 1 → Pk 감소)
+        """
+        region_key = REGION_TO_ACOUSTIC_KEY.get(
+            self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
+        )
+        season = self.cfg.get('season', 'summer')
+        return WIND_CEP_FACTOR.get((region_key, season), 1.0)
 
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
 
@@ -2394,6 +2504,16 @@ class TimeStepEngine:
                             self._log(f"[ARM 실패] {m.name} -> {tgt.name} 불발")
                         continue
 
+                    # v9.13: 고층 바람 CEP — 순항·대함미사일 탄착 오차 증가 (탄도/HGV/어뢰 제외)
+                    if not m.is_ballistic and not m.is_hgv and not m.is_qbm and not m.is_torpedo:
+                        cep_f = self._wind_cep_factor()
+                        if cep_f > 1.0 and random.random() > (1.0 / cep_f):
+                            self._log(
+                                f"[바람 CEP] {m.name} 강풍 탄착 오차 빗나감 "
+                                f"(×{cep_f:.2f}, 계절:{self.cfg.get('season','?')})"
+                            )
+                            continue
+
                     # BUG-6: 아군 ECM(AN/SLQ-32) — 적 미사일 유도부 교란, Pk 30% 감소
                     # 탄도/HGV는 레이더 유도가 아니므로 ECM 무효
                     if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
@@ -2719,7 +2839,7 @@ def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
        'leading_ship': 'KDX-III', 'radar_factor': 0.95, 'sonar_factor': 0.60}
     """
     preset = FLEET_PRESETS.get(fleet_preset_name, [])
-    w = WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)'])
+    w = _make_physics_wx(weather)   # v9.13: Beaufort 물리값 적용
     rf = w.get('radar_factor', w.get('detect_range_factor', 1.0))
     sf = w.get('sonar_factor', w.get('detect_range_factor', 1.0))
 

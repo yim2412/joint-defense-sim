@@ -1316,5 +1316,21 @@
       "추가  설정 패널 '지형 음영 적용' 체크박스 — 기본 OFF (기존 결과 완전 호환)",
       "수정  _restore_cfg(): fleet_region·season·enable_terrain 복원 지원"
     ]
+  },
+  {
+    "version": "v9.13",
+    "date": "2026-06-02",
+    "title": "대기·해양 환경 센서 물리 모델 — Beaufort 클러터 + 덕팅 + CEP 바람",
+    "changes": [
+      "추가  WEATHER_BEAUFORT_MAP: 날씨 12종 → Beaufort 등급 + 특수 레이더 감쇠 매핑",
+      "추가  _make_physics_wx(): ocean_environment_db 실측값으로 radar_factor/sonar_factor 자동 계산 (기존 경험적 추정값 대체)",
+      "수정  풍랑(BF7): radar 0.92→0.62, sonar 0.60→0.48 / 태풍(BF11): radar 0.62→0.25, sonar 0.22→0.20 (물리 현실화)",
+      "추가  EVAP_DUCT_DB: 증발 덕팅 해역·계절별 EDH·boost 상수 (동해 여름 10m/×1.25 등)",
+      "추가  _evap_duct_factor(): 저고도 표적 탐지거리 증가, BF7+ 강풍 시 자동 비활성화",
+      "추가  WIND_CEP_FACTOR: 고층 바람 CEP 배율 (동해 겨울 ×1.20, 동해 여름 ×1.05 등)",
+      "추가  _wind_cep_factor(): 순항·대함미사일 탄착 오차 증가 → Pk 감소 (탄도/HGV/어뢰 제외)",
+      "추가  fleet_sensor_range(): _make_physics_wx() 적용으로 탐지정보 패널 수치도 물리화",
+      "추가  설정 패널 '증발 덕팅 적용' 체크박스 (기본 OFF — 기존 결과 완전 호환)"
+    ]
   }
 ]
