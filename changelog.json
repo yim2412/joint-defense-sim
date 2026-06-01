@@ -1249,5 +1249,18 @@
       "추가  _asw_detect_range() / _asw_weather_factor() / _asw_detect_check() 헬퍼 메서드",
       "삭제  향후 계획: 헬기 대잠 현실화 / P-8A 포세이돈 항목 (구현 완료)"
     ]
+  },
+  {
+    "version": "v9.9",
+    "date": "2026-06-01",
+    "title": "전자전 강화: 적 ECM 에어리어 재밍 + 채프/플레어/DRFM 세분화",
+    "changes": [
+      "추가  J-16D 전자전기 ENEMY_DB 추가 — 재밍 파드 탑재, 공격 무장 없음 (ecm_power 0.55)",
+      "추가  적 ECM 에어리어 재밍 — 생존 적 항공기 중 최대 ecm_power가 아군 레이더 탐지거리 감소 (대함·대공 탐지에 적용, 소나 무효)",
+      "추가  SHIP_DB eccm_factor — 함종별 재밍 상쇄 능력 (KDX-III-B2: 0.70 ~ PKX-B: 0.20)",
+      "추가  채프/플레어/DRFM 세분화 — seeker 유형별 자체 방어 효과 분리 (radar→chaff_pk, ir→flare_pk, combined→drfm_pk)",
+      "추가  FRIENDLY_STRIKE_DB seeker 필드 — 해성/하푼(radar), 현무-3C/SM-6/Tomahawk(combined)",
+      "삭제  향후 계획: 전자전 강화 / 채프·플레어·기만체계 세분화 항목 (구현 완료)"
+    ]
   }
 ]

@@ -116,18 +116,21 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 180,
         'cost_usd': 800_000,
         'pk_base':  0.80,
+        'seeker':   'radar',    # v8.26: 액티브 레이더 탐색기
     },
     '해성-II': {
         'speed_ms': 250,   # Mach 0.73 (해성-I 동일 계열)
         'range_km': 250,
         'cost_usd': 1_200_000,
         'pk_base':  0.82,
+        'seeker':   'radar',
     },
     '하푼 Block II': {
         'speed_ms': 245,   # BUG-4: Mach 0.72, 기존 278 m/s 과대
         'range_km': 280,
         'cost_usd': 1_500_000,
         'pk_base':  0.78,
+        'seeker':   'radar',    # AN/DSQ-61 액티브 레이더
     },
     # SM-6 Block IB 대함 모드 (OTH 대함 공격, Link-16 유도)
     'SM-6 대함 모드': {
@@ -135,6 +138,7 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 370,    # OTH 사거리
         'cost_usd': 4_200_000,
         'pk_base':  0.70,
+        'seeker':   'combined', # GPS+능동 레이더 복합
     },
     # 5인치 Mk.45 Mod 4 함포 (근거리 최후 레이어)
     'Mk.45 5인치 함포': {
@@ -142,6 +146,7 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 24,    # 유효 사거리 24km
         'cost_usd': 2_000, # 발당 약 $2,000
         'pk_base':  0.40,  # 대함 Pk (표적이 클수록 높음)
+        'seeker':   'radar',
     },
     # NEW-P1: Tomahawk Block V 초장거리 대함 타격 (US ships)
     'Tomahawk Block V': {
@@ -149,6 +154,7 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 1700,
         'cost_usd': 2_000_000,
         'pk_base':  0.80,
+        'seeker':   'combined', # DSMAC 영상+GPS 복합
     },
     # KSS-III VLS 탑재 현무-3C 순항미사일 (잠수함 발사)
     '현무-3C': {
@@ -156,6 +162,7 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 1500,   # 현무-3C 사거리 1,500km
         'cost_usd': 2_000_000,
         'pk_base':  0.80,
+        'seeker':   'combined', # GPS+INS+TERCOM 복합
     },
     # NEW-A: 현무-4 지대함 탄도미사일 (한국판 DF-21D, 지상 발사 전용)
     '현무-4 (ASBM)': {
@@ -163,6 +170,7 @@ FRIENDLY_STRIKE_DB = {
         'range_km': 800,    # 현무-4 사거리 800km
         'cost_usd': 3_500_000,
         'pk_base':  0.85,   # 고속 종말 — 적 SAM 요격 극히 어려움
+        'seeker':   'combined', # 레이더+적외선 복합 종말 탐색
     },
 }
 
@@ -367,9 +375,10 @@ class MissileObj:
         self.is_ballistic: bool  = False
 
         # 포팅 B: 전술 속성
-        self.terminal_evasion_factor: float = 1.0  # 종말 회피 계수 (< 20km 적용)
-        self.is_torpedo:              bool  = False # 어뢰 여부 (기만기/회피 판정용)
-        self.is_arm:                  bool  = False # 대방사미사일 여부 (레이더 직격)
+        self.terminal_evasion_factor: float = 1.0     # 종말 회피 계수 (< 20km 적용)
+        self.is_torpedo:              bool  = False   # 어뢰 여부 (기만기/회피 판정용)
+        self.is_arm:                  bool  = False   # 대방사미사일 여부 (레이더 직격)
+        self.seeker:                  str   = 'radar' # v8.26: 탐색기 유형 (채프/플레어 대응)
 
         # EngagementAnalysis 추적 (A-1)
         self.intercept_weapon: Optional[str] = None  # 격추 무기명
@@ -527,6 +536,7 @@ class FriendlyShipObj:
         self.disabled_weapons: set = set()  # 무장 피탄으로 사용 불가 무기 목록
         self._vls_depleted = False  # 탄약 완전 소진 플래그
         self.radar_off_until: float = 0.0  # ARM 회피 전술: 이 시각까지 레이더 OFF
+        self.eccm_factor: float = spec.get('eccm_factor', 0.40)  # v8.26: 재밍 상쇄 능력
 
     @property
     def max_channels(self):
@@ -715,6 +725,8 @@ class TimeStepEngine:
         self._cd_fire_time: dict = {}
         # VLS 연속 발사 간격: {ship_id → t_last_vls}
         self._vls_last_fire: dict = {}
+        # v8.26: 생존 적 항공 전력 중 최대 ECM 재밍 강도 (에어리어 재밍)
+        self._active_ecm: float = 0.0
 
         # stats / wx 먼저 초기화 (build 함수에서 참조 가능)
         self.stats = {
@@ -1083,7 +1095,13 @@ class TimeStepEngine:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
         # 함정 부분 피해: 레이더 성능 저하 반영
-        return base_km * 1000 * factor * ship.radar_factor * self.cfg.get('detect_scale', 1.0)
+        detect_m = base_km * 1000 * factor * ship.radar_factor * self.cfg.get('detect_scale', 1.0)
+        # v8.26: 적 ECM 에어리어 재밍 → 레이더 탐지거리 감소 (소나 무효, enable_ecm 플래그 연동)
+        if (category != '대잠' and self._active_ecm > 0
+                and self.cfg.get('enable_ecm', True)):
+            jam = self._active_ecm * (1.0 - ship.eccm_factor)
+            detect_m *= max(0.40, 1.0 - jam)
+        return detect_m
 
     def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
         """
@@ -1672,7 +1690,7 @@ class TimeStepEngine:
                             spd  = wpn_info['speed_ms']
                             cost = wpn_info['cost_usd']
                         ship.total_cost += cost
-                        self.missiles.append(MissileObj(
+                        _ms = MissileObj(
                             mtype    = 'friendly_strike',
                             name     = wpn,
                             pos      = ship.pos,
@@ -1681,7 +1699,10 @@ class TimeStepEngine:
                             pk_base  = pk_b,
                             owner_id = id(ship),
                             t_spawn  = self.t,
-                        ))
+                        )
+                        _ms.seeker = (wpn_info.get('seeker', 'radar')
+                                      if wpn in FRIENDLY_STRIKE_DB else 'radar')
+                        self.missiles.append(_ms)
                         self._log(
                             f"[공격] {ship.name} -> {wpn} -> {et.preset_name} "
                             f"(거리 {dist_m/1000:.0f}km)"
@@ -1701,7 +1722,7 @@ class TimeStepEngine:
                         else:
                             ship.strike_inventory[wpn] = ship.strike_inventory.get(wpn, 0) - 1
                         ship.total_cost += wpn_info['cost_usd']
-                        self.missiles.append(MissileObj(
+                        _m = MissileObj(
                             mtype    = 'friendly_strike',
                             name     = wpn,
                             pos      = ship.pos,
@@ -1710,7 +1731,9 @@ class TimeStepEngine:
                             pk_base  = wpn_info['pk_base'],
                             owner_id = id(ship),
                             t_spawn  = self.t,
-                        ))
+                        )
+                        _m.seeker = wpn_info.get('seeker', 'radar')
+                        self.missiles.append(_m)
                         self._log(
                             f"[공격] {ship.name} -> {wpn} -> {et.preset_name} "
                             f"(거리 {dist_m/1000:.0f}km)"
@@ -2217,14 +2240,26 @@ class TimeStepEngine:
             elif m.mtype == 'friendly_strike':
                 tgt = m.target
                 if isinstance(tgt, EnemyThreatObj) and tgt.alive:
-                    # 포팅 B: 적 자체방어 — CIWS 요격 → 채프/플레어
+                    # 포팅 B: 적 자체방어 — CIWS 요격 → 채프/플레어/DRFM
                     eff_pk = m.pk_base
                     if self.cfg.get('enable_selfdefense', True):
                         ciws_pk = tgt.info.get('enemy_ciws_pk', 0.0)
                         if ciws_pk > 0 and random.random() < ciws_pk:
                             self._log(f"[적 CIWS] {tgt.preset_name} CIWS 요격 — {m.name}")
                             continue
-                        sdpk   = tgt.info.get('self_defense_pk', 0.0)
+                        # v8.26: seeker 유형별 기만체계 차등 적용
+                        seeker = getattr(m, 'seeker', 'radar')
+                        if seeker == 'radar':
+                            sdpk = tgt.info.get('chaff_pk',
+                                   tgt.info.get('self_defense_pk', 0.0))
+                        elif seeker == 'ir':
+                            sdpk = tgt.info.get('flare_pk',
+                                   tgt.info.get('self_defense_pk', 0.0))
+                        elif seeker == 'combined':
+                            sdpk = tgt.info.get('drfm_pk',
+                                   tgt.info.get('self_defense_pk', 0.0) * 0.50)
+                        else:  # acoustic 등 — 채프/플레어 무효
+                            sdpk = 0.0
                         eff_pk = m.pk_base * (1.0 - sdpk)
                     if random.random() < eff_pk:
                         tgt.take_hit(m.name, self.t)
@@ -2335,6 +2370,12 @@ class TimeStepEngine:
                         f"(거리 {dist_km:.0f}km) — 즉시 교전 개시!"
                     )
 
+            # v8.26: 생존 적 항공기 중 최대 ECM 강도 캐싱 (에어리어 재밍)
+            self._active_ecm = max(
+                (et.ecm_power for et in self.enemy_threats
+                 if et.alive and et.is_aircraft),
+                default=0.0
+            )
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
             _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
             self._arm_radar_off_check()

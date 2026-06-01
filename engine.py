@@ -194,6 +194,16 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.12,'speed_boost_max':0.22,'alt_change_m':3000,'max_attempts':2},
          'self_defense_pk':0.15,'enemy_ciws_pk':0.0},
 
+    # v8.26: J-16 기반 전자전 전용기 — 강력한 재밍 파드로 편대 전체 엄호. 공격 무장 없음.
+    'J-16D (전자전기)':
+        {'category':'대공','type':'전폭기','speed_ms':620,'altitude_m':9000,
+         'missile_name':'없음','missile_speed_ms':0,'missile_range_km':0,
+         'can_fire_missile':False,'rcs_m2':8.0,
+         'missile_salvo_min':0,'missile_salvo_max':0,
+         'missile_terminal_evasion':0.78,
+         'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.18,'alt_change_m':2500,'max_attempts':2},
+         'self_defense_pk':0.12,'enemy_ciws_pk':0.0},
+
     'J-20 (위룡)':
         # ⭐ 5세대 스텔스 RCS=0.001㎡ → 탐지거리 ~67km + ECM 자체방어 높음
         {'category':'대공','type':'전투기','speed_ms':750,'altitude_m':12000,
@@ -863,6 +873,7 @@ SHIP_DB = {
         'display':      '이지스 구축함 KDX-III Batch I (세종대왕급)',
         'sensor_km':    {'대공': 900, '대함': 45, '대잠': 50},
         'max_channels': 18,
+        'eccm_factor':  0.65,  # AN/SLQ-32E SEWIP Block 2
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             'SM-2 Block IIIB':   64,   # Mk.41 VLS 80셀 위주 탑재
@@ -879,6 +890,7 @@ SHIP_DB = {
         'display':      '이지스 구축함 KDX-III Batch II (정조대왕급)',
         'sensor_km':    {'대공': 900, '대함': 45, '대잠': 50},
         'max_channels': 24,
+        'eccm_factor':  0.70,  # AN/SLQ-32E SEWIP Block 3 (최신)
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'default_inventory': {
             'SM-3 Block IIA':    32,   # Batch II: 전방 VLS 32셀 SM-3 전담
@@ -896,6 +908,7 @@ SHIP_DB = {
         'display':      '구축함 (KDX-II 충무공이순신급)',
         'sensor_km':    {'대공': 250, '대함': 40, '대잠': 40},
         'max_channels': 12,
+        'eccm_factor':  0.50,  # SLQ-200 SONATA
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             'SM-2 Block IIIB':  32,
@@ -911,6 +924,7 @@ SHIP_DB = {
         'display':      '호위함 FFX Batch I (인천급)',
         'sensor_km':    {'대공': 100, '대함': 35, '대잠': 45},
         'max_channels': 8,
+        'eccm_factor':  0.40,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             'SM-2 Block IIIB':   16,
@@ -926,6 +940,7 @@ SHIP_DB = {
         'display':      '호위함 FFX Batch II (대구급)',
         'sensor_km':    {'대공': 100, '대함': 38, '대잠': 48},
         'max_channels': 10,
+        'eccm_factor':  0.45,  # SPS-550K AESA + EW
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             'SM-2 Block IIIB':   16,
@@ -942,6 +957,7 @@ SHIP_DB = {
         'display':      '호위함 FFX Batch III (충남급)',
         'sensor_km':    {'대공': 120, '대함': 40, '대잠': 50},
         'max_channels': 12,
+        'eccm_factor':  0.50,  # 개량형 AESA
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             'SM-2 Block IIIB':   16,
@@ -959,6 +975,7 @@ SHIP_DB = {
         'display':      '유도탄 고속함 (PKG 윤영하급)',
         'sensor_km':    {'대공': 50, '대함': 30, '대잠': 10},
         'max_channels': 2,
+        'eccm_factor':  0.25,
         'role':         ['대함'],
         'default_inventory': {
             '해성-I (대함순항)':  4,
@@ -971,6 +988,7 @@ SHIP_DB = {
         'display':      '초계함 (PCC 포항급)',
         'sensor_km':    {'대공': 80, '대함': 35, '대잠': 35},
         'max_channels': 4,
+        'eccm_factor':  0.25,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
             '하푼 Block II (AGM-84)': 4,
@@ -984,6 +1002,7 @@ SHIP_DB = {
         'display':      '유도탄 고속정 (PKX-B 참수리-II)',
         'sensor_km':    {'대공': 30, '대함': 20, '대잠': 5},
         'max_channels': 1,
+        'eccm_factor':  0.20,
         'role':         ['대함'],
         'default_inventory': {
             '해성-I (대함순항)':  2,
@@ -996,6 +1015,7 @@ SHIP_DB = {
         'display':      '강습상륙함 (LPH 독도함급)',
         'sensor_km':    {'대공': 100, '대함': 40, '대잠': 55},
         'max_channels': 6,
+        'eccm_factor':  0.45,
         'role':         ['대공', '대잠'],
         'default_inventory': {
             'RIM-116 RAM':       42,   # RAM 21셀 × 2기
@@ -1011,6 +1031,7 @@ SHIP_DB = {
         'display':      '고속전투지원함 (AOE 소양함)',
         'sensor_km':    {'대공': 60, '대함': 30, '대잠': 20},
         'max_channels': 0,
+        'eccm_factor':  0.20,
         'role':         ['보급'],
         'default_inventory': {
             'CIWS-II (Phalanx)': 9999,   # 자체방어 최소 CIWS
@@ -1023,6 +1044,7 @@ SHIP_DB = {
         'display':      '잠수함 (KSS-I 장보고급)',
         'sensor_km':    {'대공': 0, '대함': 0, '대잠': 25},
         'max_channels': 0,
+        'eccm_factor':  0.20,
         'role':         ['대잠', '대함'],
         'is_submarine': True,
         'default_inventory': {
@@ -1037,6 +1059,7 @@ SHIP_DB = {
         'display':      '잠수함 (KSS-II 류관순급)',
         'sensor_km':    {'대공': 0, '대함': 0, '대잠': 30},
         'max_channels': 0,
+        'eccm_factor':  0.25,
         'role':         ['대잠'],
         'is_submarine': True,
         'default_inventory': {
@@ -1049,6 +1072,7 @@ SHIP_DB = {
         'display':      '잠수함 (KSS-III 도산안창호급)',
         'sensor_km':    {'대공': 0, '대함': 0, '대잠': 35},
         'max_channels': 0,
+        'eccm_factor':  0.35,
         'role':         ['대잠', '대함'],
         'is_submarine': True,
         'default_inventory': {
@@ -1065,6 +1089,7 @@ SHIP_DB = {
         'display':      '이지스 구축함 (DDG-51 Arleigh Burke Flight III)',
         'sensor_km':    {'대공': 1000, '대함': 50, '대잠': 50},
         'max_channels': 24,
+        'eccm_factor':  0.75,  # AN/SLQ-32E SEWIP Block 3 (최신)
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
         'default_inventory': {
@@ -1083,6 +1108,7 @@ SHIP_DB = {
         'display':      '이지스 순양함 (CG-47 Ticonderoga)',
         'sensor_km':    {'대공': 450, '대함': 50, '대잠': 55},
         'max_channels': 32,
+        'eccm_factor':  0.70,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
         'default_inventory': {
@@ -1101,6 +1127,7 @@ SHIP_DB = {
         'display':      '항공모함 (CVN Nimitz급)',
         'sensor_km':    {'대공': 500, '대함': 60, '대잠': 80},
         'max_channels': 12,
+        'eccm_factor':  0.65,
         'role':         ['대공', '대잠'],
         'nation':       'USA',
         'default_inventory': {
@@ -1113,6 +1140,7 @@ SHIP_DB = {
         'display':      '상륙함 (LPD San Antonio급)',
         'sensor_km':    {'대공': 120, '대함': 45, '대잠': 40},
         'max_channels': 6,
+        'eccm_factor':  0.45,
         'role':         ['대공', '대잠'],
         'default_inventory': {
             'ESSM Block II':     16,
@@ -1126,6 +1154,7 @@ SHIP_DB = {
         'display':      '핵잠수함 (SSN Virginia Block V)',
         'sensor_km':    {'대공': 0, '대함': 0, '대잠': 80},
         'max_channels': 4,
+        'eccm_factor':  0.45,
         'role':         ['대잠', '대함'],
         'default_inventory': {
             'Mk.46 경어뢰':      26,   # Mk.48 ADCAP 근사
@@ -1137,6 +1166,7 @@ SHIP_DB = {
         'display':      '상륙함 (LST 천왕봉급)',
         'sensor_km':    {'대공': 60, '대함': 30, '대잠': 15},
         'max_channels': 2,
+        'eccm_factor':  0.25,
         'role':         ['보급'],
         'default_inventory': {
             'RIM-116 RAM':       21,
@@ -1147,6 +1177,7 @@ SHIP_DB = {
         'display':      '군수지원함 (AO 천지함)',
         'sensor_km':    {'대공': 40, '대함': 25, '대잠': 10},
         'max_channels': 0,
+        'eccm_factor':  0.20,
         'role':         ['보급'],
         'default_inventory': {
             'CIWS-II (Phalanx)': 9999,
@@ -1348,6 +1379,25 @@ def normalize_enemy_db():
             '대방사미사일':'none',  # ARM: 레이더 전파 역추적 — 일반 ECM 무효
         }
         e.setdefault('ecm_susceptibility', TYPE_ECM_SUSC.get(et, 'radar'))
+        # v8.26: 채프/플레어/DRFM 세분화 — ecm_susceptibility 기반 자동 분배
+        susc = e.get('ecm_susceptibility', 'radar')
+        sdpk = e.get('self_defense_pk', 0.0)
+        if susc == 'radar':
+            e.setdefault('chaff_pk', sdpk)
+            e.setdefault('flare_pk', sdpk * 0.10)
+            e.setdefault('drfm_pk',  sdpk * 0.30)
+        elif susc == 'ir':
+            e.setdefault('chaff_pk', sdpk * 0.10)
+            e.setdefault('flare_pk', sdpk)
+            e.setdefault('drfm_pk',  sdpk * 0.30)
+        elif susc == 'combined':
+            e.setdefault('chaff_pk', sdpk * 0.50)
+            e.setdefault('flare_pk', sdpk * 0.50)
+            e.setdefault('drfm_pk',  sdpk * 0.70)
+        else:  # none (탄도·HGV·어뢰·ARM)
+            e.setdefault('chaff_pk', 0.0)
+            e.setdefault('flare_pk', 0.0)
+            e.setdefault('drfm_pk',  0.0)
         # v6.8: 방위각 (0~360°, 0=정면) — 시뮬 실행 시 동적 할당
         e.setdefault('bearing_deg', 0)
         e.setdefault('missile_terminal_evasion', 1.0)
@@ -1360,6 +1410,7 @@ normalize_enemy_db()
 
 _ECM_OVR = {
     'J-20 (위룡)':0.35,'Su-35 (플랭커-E)':0.25,'J-16 (플랭커-D)':0.22,
+    'J-16D (전자전기)':0.55,  # v8.26: 전자전 전용기 (강력한 재밍 파드)
     'J-15 (비상어)':0.18,'J-11B (플랭커-B)':0.15,'J-10A (비맹)':0.15,
     'JH-7A (날치)':0.12,'MiG-29 (풀크럼)':0.08,'MiG-23 (플로거)':0.06,
     'J-7 (섬광)':0.03,'H-6 (폭격기)':0.05,
