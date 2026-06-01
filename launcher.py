@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.9 — PyQt6 런처                  ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.10 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.10 — 교전 후 브리핑 자동 생성: REQ 탭 하단 + Excel 브리핑 시트]        ║
+║  NEW-A  engine_v7: generate_briefing() — 서술형 군사 보고서 자동 생성       ║
+║  NEW-B  REQ 판정 탭 하단 접이식 브리핑 패널 (복사·TXT 저장 버튼)            ║
+║  NEW-C  Excel 보고서 Sheet4 '교전 후 브리핑' 자동 포함                      ║
 ║  [v9.9 — 전자전 강화: 적 ECM 에어리어 재밍 + 채프/플레어/DRFM 세분화]       ║
 ║  NEW-A  J-16D 전자전기 추가 (ENEMY_DB) — 강력한 재밍 파드, 편대 전체 엄호   ║
 ║  NEW-B  적 ECM → 아군 레이더 탐지거리 감소 (수상함·대함 탐지에만 적용)      ║
@@ -719,6 +723,7 @@ try:
         optimize_weapon_loadout_v7,
         compare_ab_v7,
         cec_comparison_v7,
+        generate_briefing,
     )
     _V7_OK = True
 except ImportError as e:
@@ -3925,7 +3930,7 @@ def _render_strike_chart(mc: dict) -> Figure:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v7.21")
+        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v9.10")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -4741,6 +4746,63 @@ class MainWindow(QMainWindow):
         self._diag_layout.addStretch()
         self._diag_scroll.setWidget(self._diag_inner)
         layout.addWidget(self._diag_scroll, stretch=3)
+
+        # ── 교전 후 브리핑 (접이식) ───────────────────────────────────────────
+        self._brief_toggle = QPushButton("▶  📋 교전 후 브리핑 — 클릭하여 펼치기")
+        self._brief_toggle.setCheckable(True)
+        self._brief_toggle.setChecked(False)
+        self._brief_toggle.setFixedHeight(28)
+        self._brief_toggle.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_TEXT}; "
+            f"border:1px solid #30363d; border-radius:4px; "
+            f"font-size:12px; font-weight:bold; text-align:left; padding:0 8px; }}"
+            f"QPushButton:checked {{ border-color:#3a5a7a; }}"
+        )
+        layout.addWidget(self._brief_toggle)
+
+        self._brief_panel = QWidget()
+        self._brief_panel.setVisible(False)
+        brief_pl = QVBoxLayout(self._brief_panel)
+        brief_pl.setContentsMargins(0, 4, 0, 0)
+        brief_pl.setSpacing(4)
+
+        self._briefing_browser = QTextBrowser()
+        self._briefing_browser.setFont(QFont('Consolas', 9))
+        self._briefing_browser.setMinimumHeight(260)
+        self._briefing_browser.setStyleSheet(
+            f"QTextBrowser {{ background:{C_BG}; color:{C_TEXT}; "
+            f"border:1px solid #30363d; border-radius:6px; padding:8px; }}"
+        )
+        brief_pl.addWidget(self._briefing_browser)
+
+        brief_btn_row = QWidget()
+        brief_btn_layout = QHBoxLayout(brief_btn_row)
+        brief_btn_layout.setContentsMargins(0, 0, 0, 0)
+        brief_btn_layout.setSpacing(6)
+        brief_btn_layout.addStretch()
+        btn_copy = QPushButton("📋 복사")
+        btn_save_brief = QPushButton("💾 TXT 저장")
+        for b in [btn_copy, btn_save_brief]:
+            b.setFixedHeight(26)
+            b.setStyleSheet(
+                f"background:{C_PANEL}; color:{C_TEXT}; "
+                f"border:1px solid #3a5a7a; font-size:13px; padding:0 8px;")
+        btn_copy.clicked.connect(
+            lambda: QApplication.clipboard().setText(self._briefing_browser.toPlainText()))
+        btn_save_brief.clicked.connect(self._save_briefing_txt)
+        brief_btn_layout.addWidget(btn_copy)
+        brief_btn_layout.addWidget(btn_save_brief)
+        brief_pl.addWidget(brief_btn_row)
+
+        layout.addWidget(self._brief_panel)
+
+        def _toggle_brief(checked):
+            self._brief_panel.setVisible(checked)
+            arrow = '▼' if checked else '▶'
+            suffix = '' if checked else ' — 클릭하여 펼치기'
+            self._brief_toggle.setText(f"{arrow}  📋 교전 후 브리핑{suffix}")
+
+        self._brief_toggle.clicked.connect(_toggle_brief)
         return w
 
     def _build_weather_tab(self) -> QWidget:
@@ -5485,6 +5547,7 @@ class MainWindow(QMainWindow):
         self._fill_log(result.get('log', []))
         cfg  = self._worker.cfg  if self._worker else {}
         self._fill_diagnosis(result, mc, cfg)
+        self._fill_briefing(result, mc, cfg)
         mc_n = self._worker.mc_n if self._worker and hasattr(self._worker, 'mc_n') else 100
         # BUG-1: 감도 분석·최소 재고 워커를 즉시 기동하면 GIL 독점으로 UI 프리즈
         # → 해당 탭 방문 시점까지 lazy-start로 연기
@@ -5600,6 +5663,27 @@ class MainWindow(QMainWindow):
             self._diag_layout.addWidget(frame)
 
         self._diag_layout.addStretch()
+
+    def _fill_briefing(self, result: dict, mc: dict, cfg: dict):
+        """교전 후 브리핑 텍스트를 REQ 탭 하단 패널에 채운다."""
+        if not _V7_OK:
+            return
+        text = generate_briefing(result, mc, cfg)
+        self._briefing_browser.setPlainText(text)
+
+    def _save_briefing_txt(self):
+        """브리핑 텍스트를 TXT 파일로 저장."""
+        text = self._briefing_browser.toPlainText()
+        if not text.strip():
+            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "브리핑 저장", "briefing.txt", "Text (*.txt)")
+        if not path:
+            return
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        QMessageBox.information(self, "저장 완료", f"브리핑 저장:\n{path}")
 
     def _run_weather_compare(self):
         """포팅 D: 날씨별 3종 비교 실행 (WeatherWorker 비차단)."""
@@ -6728,7 +6812,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v8.22  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel("v9.10  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -7011,10 +7095,6 @@ class SplashWindow(QWidget):
              "⚠ 지형·해상 환경 반영 선행 필요. "
              "DEM 연동 완료 후 해협 형태에서 탐지거리가 자연스럽게 도출되는 구조로 구현. "
              "이어도·대한해협·쓰시마 해협 프리셋 (각 방위각·탐지거리 자동 산출)."),
-            ("v9.x", "낮음", "교전 후 브리핑 자동 생성",
-             "시뮬 결과를 군사 보고서 형식으로 자동 작성. "
-             "'본 전단은 X% 확률로 임무 성공, 주요 취약점은 Y, 권고사항은 Z' 서술형 텍스트. "
-             "현재 Excel 보고서·PDF 있지만 서술형 브리핑 없음. 언제든 독립 추가 가능."),
             # ── v10.x ───────────────────────────────────────────────────────
             ("v10.x", "매우 높음", "완전 양방향 교전",
              "적 수상함→아군 대함미사일 요격(_enemy_defense)은 이미 구현됨 (40%). "

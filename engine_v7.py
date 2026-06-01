@@ -3257,6 +3257,103 @@ def diagnose_vulnerabilities_v7(result: dict, mc: dict, cfg: dict) -> list:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  교전 후 브리핑 자동 생성
+# ════════════════════════════════════════════════════════════════════════════
+
+def generate_briefing(result: dict, mc: dict, cfg: dict) -> str:
+    """시뮬 결과를 군사 보고서 형식의 서술형 텍스트로 자동 생성."""
+    from datetime import datetime
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    mean_ir   = mc['mean_intercept']
+    full_pass = mc['full_pass_rate']
+    cvar      = mc.get('cvar')
+    mean_hits = float(np.mean(mc['friendly_hits'])) if mc['friendly_hits'] else 0.0
+    n         = mc['n']
+
+    fleet_preset = cfg.get('fleet_preset', '—')
+    weather      = cfg.get('weather', '—')
+    enemy_label  = (cfg.get('mixed_scenario')
+                    or cfg.get('enemy_fleet_preset')
+                    or cfg.get('enemy_fleet_mode', '—'))
+
+    total_threats = result.get('total_threats', 0)
+    enemy_dest    = result.get('enemy_ships_destroyed', 0)
+    friendly_lost = result.get('friendly_ships_lost', 0)
+    mean_cost     = mc.get('mean_cost', result.get('total_cost', 0))
+    aircraft_sort = result.get('aircraft_sorties', 0)
+
+    mission_ok  = mean_ir >= 0.95 and full_pass >= 0.90
+    mission_str = '✅ 임무 성공' if mission_ok else '❌ 임무 실패'
+
+    verdicts, details = evaluate_req_v7(result, mc, cfg)
+    cards = diagnose_vulnerabilities_v7(result, mc, cfg)
+
+    SEP  = '━' * 54
+    SEP2 = '─' * 54
+    _SEV = {'HIGH': '🔴 위험', 'MED': '🟡 경고', 'LOW': '🔵 주의', 'OK': '🟢 양호'}
+
+    lines = [
+        SEP,
+        '  이지스 기동전단 교전 후 브리핑 (자동 생성)',
+        f'  작성 일시: {now}',
+        SEP, '',
+        '【1. 작전 개요】',
+        f'  편대 구성  : {fleet_preset}',
+        f'  위협 환경  : {weather} / {enemy_label}',
+        f'  총 위협 수 : {total_threats}개',
+        f'  MC 시뮬    : {n}회',
+        '',
+        '【2. 교전 결과 요약】',
+        f'  요격률 (MC 평균)     : {mean_ir:.1%}  →  {mission_str}',
+        f'  완전 요격 달성률     : {full_pass:.1%}',
+    ]
+    if cvar is not None:
+        lines.append(f'  최악 CVaR (하위 5%)  : {cvar:.1%}')
+    lines += [
+        f'  아군 피격 (MC 평균)  : {mean_hits:.1f}회',
+        f'  아군 함정 손실       : {friendly_lost}척',
+        f'  적 함정 격침         : {enemy_dest}척',
+        f'  총 교전 비용 (평균)  : ${mean_cost:,.0f}',
+    ]
+    if aircraft_sort > 0:
+        lines.append(f'  항공 출격 횟수       : {aircraft_sort}회')
+    lines += ['', '【3. REQ 판정 결과】']
+    for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
+        mark = '✅' if v else '❌'
+        lines.append(f'  {mark} {req["id"]}  {req["name"]}  →  {"PASS" if v else "FAIL"}')
+        lines.append(f'       {d}')
+
+    lines += ['', '【4. 주요 취약점】']
+    for card in cards:
+        lines.append(f'  {_SEV.get(card["severity"], "")}  {card["title"]}')
+        lines.append(f'       {card["detail"]}')
+
+    lines += ['', '【5. 권고사항】']
+    suggestions = []
+    for card in cards:
+        if card['severity'] in ('HIGH', 'MED') and card.get('suggestion'):
+            for s in card['suggestion'].split('\n'):
+                s = s.strip().lstrip('•').strip()
+                if s and s not in suggestions:
+                    suggestions.append(s)
+    if suggestions:
+        for i, s in enumerate(suggestions, 1):
+            lines.append(f'  {i}. {s}')
+    else:
+        lines.append('  현재 주요 권고사항 없음. 방어 태세 양호.')
+
+    lines += [
+        '',
+        SEP,
+        '  본 브리핑은 시뮬레이션 데이터 기반 자동 생성 문서입니다.',
+        '  Pk 수치는 공개 자료 기반 추정값 (±15~20%) — 실측 데이터 아님.',
+        SEP,
+    ]
+    return '\n'.join(lines)
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  포팅 D: 날씨별 시나리오 비교
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -3636,14 +3733,26 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
         cs(ws3, i + 3, 1, f'{t:.0f}', bg=bg)
         cs(ws3, i + 3, 2, msg,        bg=bg, center=False)
 
-    # ── Sheet4: PNG 차트 ─────────────────────────────────────────────────────
+    # ── Sheet4: 교전 후 브리핑 ──────────────────────────────────────────────
+    ws4 = wb.create_sheet('교전 후 브리핑')
+    ws4.sheet_view.showGridLines = False
+    ws4.column_dimensions['A'].width = 70
+    title_row(ws4, 1, '교전 후 브리핑 (자동 생성)', cols='A:A')
+    briefing_text = generate_briefing(result, mc, cfg)
+    for i, line in enumerate(briefing_text.split('\n'), 2):
+        cell = ws4.cell(row=i, column=1, value=line)
+        cell.font      = Font(name='Consolas', size=10)
+        cell.alignment = Alignment(horizontal='left', vertical='center')
+        ws4.row_dimensions[i].height = 16
+
+    # ── Sheet5: PNG 차트 ─────────────────────────────────────────────────────
     if img_path and _CAN_IMG and os.path.exists(img_path):
-        ws4 = wb.create_sheet('분석 차트')
-        ws4.sheet_view.showGridLines = False
-        title_row(ws4, 1, 'MC 분석 차트', cols='A:L')
+        ws5 = wb.create_sheet('분석 차트')
+        ws5.sheet_view.showGridLines = False
+        title_row(ws5, 1, 'MC 분석 차트', cols='A:L')
         img_obj = XLImage(img_path)
         img_obj.anchor = 'A2'
-        ws4.add_image(img_obj)
+        ws5.add_image(img_obj)
 
     wb.save(xlsx_path)
     print(f"  엑셀 보고서 저장: '{xlsx_path}'")
