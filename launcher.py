@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.10 — PyQt6 런처                ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.11 — PyQt6 런처                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.11 — v10.7 전술 의사결정 모드: 30s 구간 일시정지 + 무기 선택]         ║
+║  NEW-A  TacticalState 데이터클래스 + run() 루프 내 30s 구간 훅               ║
+║  NEW-B  run_v7_simulation(): tactical_cb 파라미터 → SimV7 훅 주입           ║
+║  NEW-C  SimWorker.tactical_pause 시그널 + resume_tactical() 메서드          ║
+║  NEW-D  TacticalDialog: 위협·함정 현황 + 무기 우선순위·살보 선택 패널        ║
+║  NEW-E  설정 패널 '전술 의사결정 모드' 체크박스 (기본 OFF, 단일 시뮬 전용)  ║
+║  DEL-A  _PLANS v10.7(전술 의사결정) 삭제 — 구현 완료                        ║
 ║  [v10.10 — v10.6 항모 타격 작전: 항모 우선 집중 + KF-21 해성-II + 격침 판정]║
 ║  NEW-A  KF-21 cap_strike_wpn=해성-II (200km·Pk0.55·2발) 공대함 모드 추가   ║
 ║  NEW-B  _aircraft_aas(): KF-21 해성-II 공대함 공격 로직 (항모 우선·90s CD) ║
@@ -1394,6 +1401,123 @@ class FloatingMonitor(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  실행 로그 뷰어 다이얼로그
 # ════════════════════════════════════════════════════════════════════════════
+#  v10.7: 전술 의사결정 다이얼로그
+# ════════════════════════════════════════════════════════════════════════════
+class TacticalDialog(QDialog):
+    """전술 의사결정 — 시뮬 일시정지 시 위협 현황 + 무기 선택 패널."""
+
+    def __init__(self, state: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"⚔️  전술 의사결정  —  T={state['t']:.0f}s")
+        self.setMinimumWidth(520)
+        self.setModal(True)
+        self._choice = {}
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # ── 현황 요약 ─────────────────────────────────────────────────────────
+        hdr = QLabel(f"<b>T = {state['t']:.0f}s</b>  |  "
+                     f"요격 {state['intercepted']}/{state['total_threats']}  |  "
+                     f"발사 {state['shots_fired']}발")
+        hdr.setStyleSheet(f"color:{C_ACCENT}; font-size:14px; padding:4px;")
+        layout.addWidget(hdr)
+
+        # 위협 목록
+        threats = state.get('threats', [])
+        if threats:
+            tlbl = QLabel(f"현존 위협 {len(threats)}개:")
+            tlbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            layout.addWidget(tlbl)
+            tbl = QTableWidget(len(threats), 4)
+            tbl.setHorizontalHeaderLabels(["명칭", "유형", "HP", "거리(km)"])
+            tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            tbl.setColumnWidth(1, 70); tbl.setColumnWidth(2, 40); tbl.setColumnWidth(3, 70)
+            tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            tbl.setMaximumHeight(120)
+            for r, t in enumerate(threats):
+                for c, v in enumerate([t['name'], t['type'], str(t['hp']), str(t['dist_km'])]):
+                    item = QTableWidgetItem(v)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    tbl.setItem(r, c, item)
+            layout.addWidget(tbl)
+
+        # 아군 함정 상태
+        ships = state.get('ships', [])
+        if ships:
+            slbl = QLabel("아군 함정 상태:")
+            slbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            layout.addWidget(slbl)
+            stbl = QTableWidget(len(ships), 4)
+            stbl.setHorizontalHeaderLabels(["함정", "HP", "레이더", "속도"])
+            stbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            stbl.setColumnWidth(1, 40); stbl.setColumnWidth(2, 60); stbl.setColumnWidth(3, 60)
+            stbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            stbl.setMaximumHeight(100)
+            for r, s in enumerate(ships):
+                alive_mark = "✅" if s['alive'] else "❌"
+                for c, v in enumerate([f"{alive_mark} {s['name']}",
+                                        f"{s['hp']}/{s['max_hp']}",
+                                        f"{s['radar']:.0%}",
+                                        f"{s['speed']:.0%}"]):
+                    item = QTableWidgetItem(v)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    stbl.setItem(r, c, item)
+            layout.addWidget(stbl)
+
+        # ── 전술 선택 ─────────────────────────────────────────────────────────
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(sep)
+
+        opt_lbl = QLabel("다음 구간 무기 우선순위:")
+        opt_lbl.setStyleSheet(f"color:{C_TEXT}; font-weight:bold;")
+        layout.addWidget(opt_lbl)
+
+        self._wpn_group = QButtonGroup(self)
+        wpn_row = QHBoxLayout()
+        for label, val in [("자동 (기본)", "auto"), ("SM-2", "SM-2 Block IIIB"),
+                            ("SM-6", "SM-6"), ("ESSM", "ESSM Block II")]:
+            rb = QRadioButton(label)
+            rb.setStyleSheet(f"color:{C_TEXT};")
+            rb.setProperty("wpn_val", val)
+            if val == "auto":
+                rb.setChecked(True)
+            self._wpn_group.addButton(rb)
+            wpn_row.addWidget(rb)
+        layout.addLayout(wpn_row)
+
+        salvo_row = QHBoxLayout()
+        salvo_row.addWidget(QLabel("살보 수:"))
+        self._spn_salvo = QSpinBox()
+        self._spn_salvo.setRange(1, 3)
+        self._spn_salvo.setValue(1)
+        self._spn_salvo.setFixedWidth(60)
+        salvo_row.addWidget(self._spn_salvo)
+        salvo_row.addStretch()
+        layout.addLayout(salvo_row)
+
+        # ── 버튼 ──────────────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_cont = QPushButton("▶  계속 진행")
+        btn_cont.setStyleSheet(
+            f"background:{C_ACCENT}; color:white; font-weight:bold; padding:6px 20px;")
+        btn_cont.clicked.connect(self._on_continue)
+        btn_row.addStretch(); btn_row.addWidget(btn_cont)
+        layout.addLayout(btn_row)
+
+    def _on_continue(self):
+        checked = self._wpn_group.checkedButton()
+        self._choice = {
+            'weapon_priority': checked.property("wpn_val") if checked else 'auto',
+            'max_salvo':       self._spn_salvo.value(),
+        }
+        self.accept()
+
+    def get_choice(self) -> dict:
+        return self._choice
+
+
+# ════════════════════════════════════════════════════════════════════════════
 class SimLogDialog(QDialog):
     """sim_history.db (SQLite)를 읽어 테이블로 표시하는 독립 창."""
 
@@ -1877,7 +2001,9 @@ class SimWorker(QThread):
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
     # v8.26: 진행 팝업 상세화
     step_update     = pyqtSignal(float, float, int, int, str)  # (t, t_max, alive, vls, last_log) — 단일 시뮬
-    phase_update    = pyqtSignal(dict)                         # 단계별 평균 타이밍 — MC 배치 완료마다
+    phase_update     = pyqtSignal(dict)                         # 단계별 평균 타이밍 — MC 배치 완료마다
+    # v10.7: 전술 의사결정 모드
+    tactical_pause   = pyqtSignal(dict)                         # TacticalState 스냅샷 → 다이얼로그 표시
 
     _last_intercept_rate: float = -1.0   # 이전 실행 결과 캐시 (클래스 변수)
 
@@ -1889,6 +2015,25 @@ class SimWorker(QThread):
         self.precision_mode = precision_mode
         self.sobol_npp      = sobol_npp
         self.sim_mode_idx   = sim_mode_idx
+        # v10.7: 전술 모드 동기화 객체
+        import threading, queue as _queue
+        self._tactical_event  = threading.Event()
+        self._tactical_queue  = _queue.Queue()
+
+    def _tactical_pause_cb(self, state) -> dict:
+        """엔진 훅 — 워커 스레드에서 호출. 메인 스레드에 상태 전달 후 블록."""
+        import dataclasses
+        snap = dataclasses.asdict(state)
+        self._tactical_event.clear()
+        self.tactical_pause.emit(snap)     # queued signal → main thread
+        self._tactical_event.wait()        # block until user confirms
+        choice = self._tactical_queue.get_nowait() if not self._tactical_queue.empty() else {}
+        return choice
+
+    def resume_tactical(self, choice: dict):
+        """메인 스레드에서 호출 — 사용자 선택 전달 후 워커 재개."""
+        self._tactical_queue.put(choice)
+        self._tactical_event.set()
 
     def run(self):
         try:
@@ -1898,7 +2043,13 @@ class SimWorker(QThread):
             def _step_cb(t, t_max, alive, vls, last_log):
                 self.step_update.emit(t, t_max, alive, vls, last_log)
 
-            result = run_v7_simulation(self.cfg, step_cb=_step_cb)
+            # v10.7: 전술 모드 훅 주입
+            _tactical_hook = None
+            if self.cfg.get('tactical_mode', False):
+                _tactical_hook = self._tactical_pause_cb
+
+            result = run_v7_simulation(self.cfg, step_cb=_step_cb,
+                                       tactical_cb=_tactical_hook)
             self.progress.emit(f"MC {self.mc_n}회 분석 중...")
             t0 = time.time()
 
@@ -4510,6 +4661,18 @@ class MainWindow(QMainWindow):
             "OFF하지 않으면 ARM이 레이더를 직격할 수 있습니다."
         )
 
+        # v10.7: 전술 의사결정 모드
+        self.chk_tactical = QCheckBox("전술 의사결정 모드  (구간마다 시뮬 일시정지)")
+        self.chk_tactical.setChecked(False)
+        self.chk_tactical.setToolTip(
+            "v10.7 — 전술 의사결정 모드 (워게임 / 훈련용).\n"
+            f"매 {30}초 구간마다 시뮬레이션이 일시 정지됩니다.\n"
+            "  · 현재 위협 현황 + 아군 함정 상태 표시\n"
+            "  · 다음 구간 무기 우선순위 (SM-2 / SM-6 / ESSM / 자동) 선택\n"
+            "  · 살보 수 결정 (1~3발) → 확인 후 재개\n"
+            "MC 분석에는 적용되지 않습니다 (단일 시뮬 전용)."
+        )
+
         # 적 편대 전술 기동
         tactics_row = QHBoxLayout()
         lbl_tactics = QLabel("적 전술 기동:")
@@ -4540,7 +4703,8 @@ class MainWindow(QMainWindow):
         ai_tactic_row.addWidget(self.cmb_ai_tactic, stretch=1)
 
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
-                    self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off]:
+                    self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
+                    self.chk_tactical]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -5748,6 +5912,8 @@ class MainWindow(QMainWindow):
             # 방어 전술 — UI 체크박스 읽기
             'enable_layered_defense': True,
             'enable_cec':             self.chk_cec.isChecked(),
+            'tactical_mode':          self.chk_tactical.isChecked(),
+            'tactical_interval':      30,
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
@@ -5815,7 +5981,17 @@ class MainWindow(QMainWindow):
         self._worker.step_update.connect(self._float_mon.update_step)
         self._worker.phase_update.connect(self._float_mon.update_phases)
         self._float_mon.stop_requested.connect(self._stop_worker)
+        # v10.7: 전술 의사결정 모드 — 워커 일시정지 시 다이얼로그 표시
+        self._worker.tactical_pause.connect(self._on_tactical_pause)
         self._worker.start(QThread.Priority.LowPriority)  # BUG-1
+
+    def _on_tactical_pause(self, state: dict):
+        """v10.7: 전술 의사결정 — 워커 일시정지 시 메인 스레드에서 다이얼로그 표시."""
+        dlg = TacticalDialog(state, parent=self)
+        dlg.exec()
+        choice = dlg.get_choice()
+        if self._worker:
+            self._worker.resume_tactical(choice)
 
     def _show_float_mon(self):
         """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시. sysmon 탭 자동 전환."""
@@ -7396,12 +7572,7 @@ class SplashWindow(QWidget):
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
             ("v10.2", "매우 높음", "완전 양방향 교전 (Phase A 잔여)",
-             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동 (→ v10.11)."),
-            ("v10.7", "높음", "전술 의사결정 모드 (반자동 시뮬)",
-             "⚠ v10.2 완전 양방향 교전 선행 필수. "
-             "매 교전 단계 운용자 직접 개입: 특정 tick마다 시뮬 일시 정지 → 교전 상황 패널 표시. "
-             "SM-2·SM-6·ESSM 선택 + 살보 수 결정 → 확인 후 다음 스텝. "
-             "워게임·교육 훈련 목적."),
+             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동 (→ v10.12)."),
             ("v10.8", "높음", "좌표계 완전 전환 + 해류 연동",
              "실제 지리 기반 시뮬레이션 — 지도 오버레이·해류 연동 목적. "
              "v10.8-A: 채널 관리 버그 점검 (엔진 루프 재설계 불필요 — Phase D·B·C로 이미 양방향 교전 구현). "

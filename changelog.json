@@ -1473,5 +1473,20 @@
       "수정  공격 결과 탭: 항모 격침 상태 아이콘 표시 (🔴격침/🟡전투불능/🟢정상)",
       "삭제  _PLANS v10.6(항모 타격) — 구현 완료"
     ]
+  },
+  {
+    "version": "v10.11",
+    "date": "2026-06-02",
+    "title": "v10.7 전술 의사결정 모드 — 30s 구간 일시정지 + 무기 선택",
+    "changes": [
+      "추가  TacticalState 데이터클래스 (t, threats, ships, intercepted, shots_fired)",
+      "추가  SimV7._tactical_pause_cb 훅 + run() 루프 내 30s 구간 일시정지 호출",
+      "추가  SimV7._apply_tactical_choice(): 무기 우선순위·살보 수 cfg 반영",
+      "수정  run_v7_simulation(): tactical_cb 파라미터 추가 → SimV7 훅 주입",
+      "추가  SimWorker.tactical_pause 시그널 + _tactical_pause_cb() + resume_tactical()",
+      "추가  TacticalDialog: 위협·함정 현황 테이블 + 무기 라디오버튼 + 살보 스핀박스",
+      "추가  설정 패널 '전술 의사결정 모드' 체크박스 (기본 OFF, 단일 시뮬 전용)",
+      "삭제  _PLANS v10.7(전술 의사결정) — 구현 완료"
+    ]
   }
 ]

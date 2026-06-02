@@ -51,7 +51,7 @@ v7.0 패치 이력:
     - _compile(): remaining_inventory·total_channels·peak_concurrent_threats·t_first_fire 추가
 """
 
-import math, random, os, time as _time
+import math, random, os, time as _time, dataclasses
 from typing import List, Optional
 
 import matplotlib
@@ -127,6 +127,16 @@ _STRAIT_OPEN_SEA_KM = 200.0
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — 해성 250m/s 기준 250km = 1000초 충분
+
+# ── v10.7: 전술 의사결정 모드 상태 스냅샷 ────────────────────────────────────
+@dataclasses.dataclass
+class TacticalState:
+    t: float
+    threats: list       # [{'name', 'type', 'hp', 'dist_km', 'speed_ms'}]
+    ships:   list       # [{'name', 'alive', 'hp', 'max_hp', 'radar', 'speed'}]
+    intercepted: int    # 현재까지 요격 수
+    total_threats: int  # 총 위협 수
+    shots_fired: int    # 현재까지 발사 수
 INTERCEPT_DIST_M = 200    # BUG-5: SAM 근접 신관 범위 (m). 기존 2000m 과대, 실제 50-200m
 ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km 과대)
 DECOY_PK         = 0.50   # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
@@ -957,6 +967,9 @@ class TimeStepEngine:
         self.t       = 0.0
         self._step_cb       = step_cb   # (t, t_max, alive, vls, last_log) — 단일 시뮬 진행 콜백
         self._phase_times: dict = {}    # 단계별 누적 실행 시간 (perf_counter 기반)
+        # v10.7: 전술 의사결정 모드
+        self._tactical_pause_cb = None  # SimWorker가 주입하는 콜백 (state) → choice dict
+        self._tactical_interval  = cfg.get('tactical_interval', 30)  # 일시정지 간격(초)
         self._log_entries: list = []
         self._tick_events:  list = []
 
@@ -2096,7 +2109,17 @@ class TimeStepEngine:
 
     def _select_defense_wpn(self, ship: FriendlyShipObj, m: MissileObj,
                             dist_m: float) -> Optional[str]:
-        """미사일 위협 요격 무기 선택. 고도·유형 인식. 무장 피탄 비활성화 반영."""
+        """미사일 위협 요격 무기 선택. 고도·유형 인식. 무장 피탄 비활성화 반영.
+        v10.7: _tactical_wpn_priority cfg 키가 있으면 해당 무기 우선 반환."""
+        # 전술 우선순위 반영: 지정 무기가 재고 있으면 사거리 내에서 먼저 반환
+        _prio = self.cfg.get('_tactical_wpn_priority')
+        if _prio and ship.available(_prio) > 0:
+            wpn_info = FRIENDLY_DB.get(_prio)
+            if wpn_info:
+                max_r = wpn_info.get('range_km', 0) * 1000
+                if dist_m <= max_r:
+                    return _prio
+
         alt          = m.altitude_m
         is_hgv       = m.is_hgv
         is_qbm       = m.is_qbm
@@ -3102,6 +3125,58 @@ class TimeStepEngine:
             return True
         return False
 
+    # ── v10.7: 전술 의사결정 헬퍼 ───────────────────────────────────────────────
+
+    def _make_tactical_state(self) -> 'TacticalState':
+        """현재 시뮬 상태 스냅샷 → TacticalState."""
+        primary = self._primary()
+        threats = [
+            {
+                'name':     et.preset_name,
+                'type':     et.info.get('type', '?'),
+                'hp':       et.hp,
+                'dist_km':  round(primary.pos.dist_to(et.pos) / 1000, 1),
+                'speed_ms': et.speed_ms,
+            }
+            for et in self.enemy_threats if et.alive
+        ]
+        ships = [
+            {
+                'name':    s.name,
+                'alive':   s.alive,
+                'hp':      s.hp,
+                'max_hp':  s._max_hp,
+                'radar':   round(s.radar_factor, 2),
+                'speed':   round(s.speed_factor, 2),
+            }
+            for s in self.friendly_ships
+        ]
+        return TacticalState(
+            t             = self.t,
+            threats       = threats,
+            ships         = ships,
+            intercepted   = self.stats['intercepted_threats'],
+            total_threats = self.stats['total_threats'],
+            shots_fired   = self.stats['total_missiles_fired'],
+        )
+
+    def _apply_tactical_choice(self, choice: dict):
+        """사용자 전술 선택 반영 — cfg 일시 재설정."""
+        if not choice:
+            return
+        # 무기 우선순위: 다음 교전 구간 _select_defense_wpn 재정의 대신 cfg 플래그 사용
+        wpn_priority = choice.get('weapon_priority', 'auto')
+        if wpn_priority != 'auto':
+            self.cfg['_tactical_wpn_priority'] = wpn_priority
+        else:
+            self.cfg.pop('_tactical_wpn_priority', None)
+        # 살보 수 조정
+        max_salvo = choice.get('max_salvo', None)
+        if max_salvo is not None:
+            self.cfg['_tactical_max_salvo'] = int(max_salvo)
+        else:
+            self.cfg.pop('_tactical_max_salvo', None)
+
     # ── 메인 루프 ─────────────────────────────────────────────────────────────
 
     def run(self) -> dict:
@@ -3178,6 +3253,13 @@ class TimeStepEngine:
             )
             if alive_count > self.stats['peak_concurrent_threats']:
                 self.stats['peak_concurrent_threats'] = alive_count
+
+            # v10.7: 전술 의사결정 모드 — 구간마다 일시정지 후 사용자 선택 반영
+            if (self._tactical_pause_cb and self.t > 0
+                    and int(self.t) % self._tactical_interval == 0):
+                state = self._make_tactical_state()
+                choice = self._tactical_pause_cb(state)   # blocks in worker thread
+                self._apply_tactical_choice(choice)
 
             # 단일 시뮬 진행 콜백 (MC 배치 워커에서는 None)
             if self._step_cb and int(self.t) % _step_interval == 0:
@@ -3344,7 +3426,7 @@ def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
 #  외부 API
 # ════════════════════════════════════════════════════════════════════════════
 
-def run_v7_simulation(cfg: dict, step_cb=None) -> dict:
+def run_v7_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
     # 탐지거리 자동 계산 (함대 + 날씨 기반, 수동 override 없을 때)
     if not cfg.get('detect_km_manual', False):
         ranges = calculate_fleet_detect_ranges(
@@ -3352,9 +3434,12 @@ def run_v7_simulation(cfg: dict, step_cb=None) -> dict:
             cfg.get('weather', '맑음 (주간)'))
         cfg = dict(cfg)
         cfg['detect_km']         = ranges['대공']
-        cfg['surface_detect_km'] = ranges['대함']   # BUG-3 연계: 수상함 시작 거리
+        cfg['surface_detect_km'] = ranges['대함']
         cfg['sub_detect_km']     = ranges['대잠']
-    return TimeStepEngine(cfg, step_cb=step_cb).run()
+    sim = TimeStepEngine(cfg, step_cb=step_cb)
+    if tactical_cb:
+        sim._tactical_pause_cb = tactical_cb  # v10.7: 전술 모드 훅 주입
+    return sim.run()
 
 
 # ════════════════════════════════════════════════════════════════════════════
