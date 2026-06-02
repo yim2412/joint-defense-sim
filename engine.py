@@ -387,7 +387,7 @@ ENEMY_DB = {
 
     '052D형 구축함':
         {'category':'대함','type':'구축함','speed_ms':15.0,'altitude_m':25,
-         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
          'can_fire_missile':True,'rcs_m2':1500.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
          'missile_terminal_evasion':0.75,
@@ -396,7 +396,7 @@ ENEMY_DB = {
 
     '055형 대형 구축함':
         {'category':'대함','type':'구축함','speed_ms':15.4,'altitude_m':30,  # MED-18: 17→15.4 m/s (30 kts 실제 최고속)
-         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
          'can_fire_missile':True,'rcs_m2':2000.0,
          'missile_salvo_min':6,'missile_salvo_max':12,
          'missile_terminal_evasion':0.75,
@@ -409,7 +409,7 @@ ENEMY_DB = {
     # carrier_wave_interval: 함재기 발진 주기 (초)
     '랴오닝 (항모)':
         {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
-         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
          'can_fire_missile':True,'rcs_m2':50000.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
          'missile_terminal_evasion':0.75,
@@ -420,7 +420,7 @@ ENEMY_DB = {
 
     '산둥 (항모)':
         {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
-         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
          'can_fire_missile':True,'rcs_m2':55000.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
          'missile_terminal_evasion':0.75,
@@ -431,7 +431,7 @@ ENEMY_DB = {
 
     '푸젠 (항모)':
         {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
-         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1000,'missile_range_km':500,
+         'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
          'can_fire_missile':True,'rcs_m2':60000.0,
          'missile_salvo_min':6,'missile_salvo_max':10,
          'missile_terminal_evasion':0.75,
@@ -742,9 +742,10 @@ ENEMY_DB = {
 # ── 아군 무기 DB ─────────────────────────────────────────────────────────────
 FRIENDLY_DB = {
     'SM-3 Block IIA':
-        {'speed_ms':4500,'range_km':500,'cost_usd':25000000,'stock':8,
+        # PHY-1: range 500→650km (실효 요격거리 700~900km 하한), Pk 0.900→0.850 (실전 단발 Pk 조정)
+        {'speed_ms':4500,'range_km':650,'cost_usd':25000000,'stock':8,
          'category':['대공','탄도미사일'],
-         'pk_dist':{'alpha':18,'beta':2,'mean':0.900},'requires_illuminator':False},
+         'pk_dist':{'alpha':17,'beta':3,'mean':0.850},'requires_illuminator':False},
     'SM-6':
         {'speed_ms':1000,'range_km':370,'cost_usd':4200000,'stock':32,  # 370 km (RIM-174 ERAM Block IB 공개 사거리)
          'category':['대공','탄도미사일'],
@@ -1561,7 +1562,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_name':    '대구기지',
         'base_dist_km': 250,
         'aircraft_role':'cap',
-        'cap_aam_range_km': 80,       # IRIS-T(25km) + AIM-120C(120km) 혼재 → 중간값
+        'cap_aam_range_km': 120,      # PHY-3: AIM-120C 중심 설계 80→120km (IRIS-T 보조)
         'cap_aam_pk':   0.55,
         'cap_patrol_radius_km': 500,
         'weather_limits': _CAP_WX,
@@ -1584,7 +1585,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_name':    '원주기지',
         'base_dist_km': 350,
         'aircraft_role':'cap',
-        'cap_aam_range_km': 35,       # AIM-9X 유효 BVR 사거리
+        'cap_aam_range_km': 45,       # PHY-4: AIM-9X 실효 BVR 35→45km (35~50km 중앙값)
         'cap_aam_pk':   0.45,
         'cap_patrol_radius_km': 400,  # 항속거리 제한으로 패트롤 반경 좁음
         'weather_limits': _CAP_WX,

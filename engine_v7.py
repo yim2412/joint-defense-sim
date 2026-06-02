@@ -3123,8 +3123,10 @@ class TimeStepEngine:
                             # else: None (선체 직격, 45%)
                         else:
                             # 대함·탄도·순항미사일
-                            if   r < 0.15: subsystem = 'radar'
-                            elif r < 0.35: subsystem = 'propulsion'
+                            # PHY-5: 레이더15%→25%, 추진20%→15%, 무장25%→20% (포클랜드전 피탄 통계 반영)
+                            # 레이더 안테나는 선체 상부 노출 → 피탄율 높음
+                            if   r < 0.25: subsystem = 'radar'
+                            elif r < 0.40: subsystem = 'propulsion'
                             elif r < 0.60: subsystem = 'weapons'
                             # else: None (선체 직격, 40%)
                     if random.random() < m.pk_base:

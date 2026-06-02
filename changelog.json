@@ -1516,5 +1516,17 @@
       "수정  BUG-4: _primary() / _pick_target() 빈 friendly_ships 에 대한 명시적 RuntimeError 추가",
       "수정  BUG-5: _select_defense_wpn() 전술 우선무기 range_km 기본값 0 → 500 (우선무기 미발사 방지)"
     ]
+  },
+  {
+    "version": "v10.14",
+    "date": "2026-06-02",
+    "title": "수치·물리 모델 현실성 수정 6건",
+    "changes": [
+      "수정  PHY-1: SM-3 Block IIA range 500→650km / Pk 0.900→0.850 (실효 요격거리·실전 단발 Pk 반영)",
+      "수정  PHY-2: YJ-18 speed 1000→1250m/s / range 500→540km (종말 Mach 3.5, 실제 사거리 반영)",
+      "수정  PHY-3: KF-21 cap_aam_range_km 80→120 (AIM-120C 중심 설계, IRIS-T 보조)",
+      "수정  PHY-4: FA-50 cap_aam_range_km 35→45 (AIM-9X 실효 BVR 35~50km 중앙값)",
+      "수정  PHY-5: Damage Control 대함미사일 피격 레이더 15%→25% / 추진 20%→15% (포클랜드전 통계 반영)"
+    ]
   }
 ]
