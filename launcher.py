@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.12 — PyQt6 런처                ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.13 — PyQt6 런처                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.13 — 코드 감사 버그 수정 5건]                                          ║
+║  BUG-1  _tactical_max_salvo cfg 키 _friendly_defense()에서 미읽힘 → 수정     ║
+║  BUG-2  _set_region_ref() run() 호출 → __init__() 초반으로 이동              ║
+║  BUG-3  히트맵 fallback cfg 구버전 키(enable_cec_preassign) + 항공자산 True  ║
+║  BUG-4  _primary() friendly_ships 빈 리스트 IndexError → 명시적 예외         ║
+║  BUG-5  _select_defense_wpn() range_km 기본값 0 → 500 (우선무기 미발사 방지) ║
 ║  [v10.12 — v10.8 좌표계 완전 전환: Vec2→LatLon + Haversine + 해류 연동]     ║
 ║  NEW-A  LatLon 클래스: lat/lon 저장, x/y 프로퍼티로 시각화 코드 자동 호환   ║
 ║  NEW-B  Vec2 → LatLon.from_xy() 11개소 전환, Vec2=LatLon 별칭 유지          ║
@@ -6421,8 +6427,10 @@ class MainWindow(QMainWindow):
                 'enemy_fleet_difficulty': '보통', 'enemy_fleet_seed': None,
                 'enable_ecm': True, 'enable_evasion': True,
                 'enable_decoy': True, 'enable_selfdefense': True,
-                'enable_helo': True, 'enable_p3c': True, 'enable_p8a': True,
-                'enable_layered_defense': True, 'enable_cec_preassign': True,
+                # BUG-3 fix: 항공 자산 기본 OFF (체크박스 반영), CEC 키 신버전으로 통일
+                'enable_helo': False, 'enable_p3c': False, 'enable_p8a': False,
+                'enable_f35a': False, 'enable_kf21': False, 'enable_fa50': False,
+                'enable_layered_defense': True, 'enable_cec': True,
                 'enable_multibearing': False, 'enable_cec_jammed': False,
                 'enable_ship_evasion': True, 'enable_radar_off': True,
                 'enable_random_placement': True, 'random_spread_km': 10.0,

@@ -1042,6 +1042,9 @@ class TimeStepEngine:
         # v10.7: 전술 의사결정 모드
         self._tactical_pause_cb = None  # SimWorker가 주입하는 콜백 (state) → choice dict
         self._tactical_interval  = cfg.get('tactical_interval', 30)  # 일시정지 간격(초)
+
+        # BUG-2 fix: LatLon.from_xy() 기준점을 _build_*() 호출 전에 설정
+        _set_region_ref(cfg.get('fleet_region', '동해 북부'))
         self._log_entries: list = []
         self._tick_events:  list = []
 
@@ -1404,6 +1407,8 @@ class TimeStepEngine:
             for s in self.friendly_ships:
                 if s.alive and s.ship_type == t:
                     return s
+        if not self.friendly_ships:
+            raise RuntimeError("friendly_ships 비어있음 — 편대 프리셋을 확인하세요")
         return next((s for s in self.friendly_ships if s.alive), self.friendly_ships[0])
 
     def _pick_target(self, is_torpedo: bool = False) -> FriendlyShipObj:
@@ -1411,7 +1416,7 @@ class TimeStepEngine:
         어뢰: 이지스 기함(primary) 우선. 대함미사일: max_hp 가중 랜덤."""
         alive = [s for s in self.friendly_ships if s.alive]
         if len(alive) <= 1:
-            return alive[0] if alive else self.friendly_ships[0]
+            return alive[0] if alive else (self.friendly_ships[0] if self.friendly_ships else self._primary())
         if is_torpedo:
             return self._primary()
         weights = [s._max_hp for s in alive]
@@ -2058,6 +2063,10 @@ class TimeStepEngine:
             else:
                 _base = 1
             max_sams = 1 if cec_jammed else (_base + (1 if cec else 0))
+            # BUG-1 fix: 전술 의사결정 모드 살보 수 우선 적용
+            _tac_max = self.cfg.get('_tactical_max_salvo')
+            if _tac_max is not None:
+                max_sams = int(_tac_max)
             if sams_on >= max_sams:
                 continue
 
@@ -2115,6 +2124,10 @@ class TimeStepEngine:
             else:
                 _base_ac = 1
             max_sams = 1 if cec_jammed else (_base_ac + (1 if cec else 0))
+            # BUG-1 fix: 전술 의사결정 모드 살보 수 우선 적용
+            _tac_max = self.cfg.get('_tactical_max_salvo')
+            if _tac_max is not None:
+                max_sams = int(_tac_max)
             if sams_on >= max_sams:
                 continue
 
@@ -2211,7 +2224,8 @@ class TimeStepEngine:
         if _prio and ship.available(_prio) > 0:
             wpn_info = FRIENDLY_DB.get(_prio)
             if wpn_info:
-                max_r = wpn_info.get('range_km', 0) * 1000
+                # BUG-5 fix: range_km 없는 무기도 사거리 내 교전 가능하도록 500km 기본값
+                max_r = wpn_info.get('range_km', 500) * 1000
                 if dist_m <= max_r:
                     return _prio
 
@@ -3275,9 +3289,6 @@ class TimeStepEngine:
     # ── 메인 루프 ─────────────────────────────────────────────────────────────
 
     def run(self) -> dict:
-        # v10.8: 해역 기준점 설정 (LatLon x/y 변환 기준)
-        _set_region_ref(self.cfg.get('fleet_region', '동해 북부'))
-
         pt = {'위치갱신': 0.0, '적발사': 0.0, '대공방어': 0.0,
               '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0,
               '적Anti-SAM': 0.0, '교전판정': 0.0}
