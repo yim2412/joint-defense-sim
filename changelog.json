@@ -1488,5 +1488,21 @@
       "추가  설정 패널 '전술 의사결정 모드' 체크박스 (기본 OFF, 단일 시뮬 전용)",
       "삭제  _PLANS v10.7(전술 의사결정) — 구현 완료"
     ]
+  },
+  {
+    "version": "v10.12",
+    "date": "2026-06-02",
+    "title": "v10.8 좌표계 완전 전환 — Vec2→LatLon + Haversine + 해류 연동",
+    "changes": [
+      "추가  LatLon 클래스: lat/lon 저장, x/y 프로퍼티(미터·기준점 기준)로 시각화 호환",
+      "추가  LatLon.from_xy(): 미터 좌표 → LatLon 변환",
+      "수정  dist_to(): Haversine 거리(m) — 지구 곡률 반영",
+      "수정  move_toward(): lat·lon 직접 갱신",
+      "추가  _set_region_ref(): 해역별 기준점 자동 설정 (동해·서해·대한해협)",
+      "수정  Vec2(…) 11개소 → LatLon.from_xy(…) 전환, Vec2=LatLon 별칭 유지",
+      "추가  해류 연동 (enable_current): ocean_environment_db 월별 해류 벡터 적용",
+      "추가  설정 패널 '해류 연동' 체크박스 (기본 OFF)",
+      "삭제  _PLANS v10.2 Phase A 잔여 · v10.8 — 구현 완료, 모든 v10.x 계획 완료"
+    ]
   }
 ]

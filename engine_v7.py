@@ -92,13 +92,16 @@ except ImportError:
     _OCEAN_ACOUSTIC_OK = False
 
 try:
-    from ocean_environment_db import RADAR_CLUTTER, SONAR_AMBIENT_NOISE
+    from ocean_environment_db import (
+        RADAR_CLUTTER, SONAR_AMBIENT_NOISE, get_current_vector as _get_current_vector
+    )
     _RADAR_BF_FACTOR = RADAR_CLUTTER['detection_range_factor']
     _SONAR_BF_FACTOR = SONAR_AMBIENT_NOISE['sonar_range_factor']
     _OCEAN_ENV_OK = True
 except ImportError:
     _RADAR_BF_FACTOR = {}
     _SONAR_BF_FACTOR = {}
+    _get_current_vector = None
     _OCEAN_ENV_OK = False
 
 try:
@@ -550,36 +553,105 @@ _MISSILE_PK_DEFAULT = 0.72  # 미등록 미사일 기본값
 # ════════════════════════════════════════════════════════════════════════════
 #  Vec2
 # ════════════════════════════════════════════════════════════════════════════
-class Vec2:
-    __slots__ = ('x', 'y')
+#  v10.8: LatLon — 지리 좌표계 (Vec2 완전 대체)
+#  x / y 프로퍼티로 기존 시각화 코드 자동 호환
+# ════════════════════════════════════════════════════════════════════════════
 
-    def __init__(self, x: float = 0.0, y: float = 0.0):
-        self.x = float(x)
-        self.y = float(y)
+# 해역별 기준점 (작전 중심 LatLon)
+_REGION_REF: dict[str, tuple] = {
+    '동해 북부':  (40.5, 130.5),
+    '동해 중부':  (37.2, 131.9),
+    '서해':       (36.0, 125.0),
+    '대한해협':   (34.5, 129.0),
+}
+_DEFAULT_REF = (37.2, 131.9)  # 기본: 동해 중부
 
-    def dist_to(self, other: 'Vec2') -> float:
-        return math.hypot(self.x - other.x, self.y - other.y)
+# 시뮬 시작 시 _set_region_ref() 로 갱신
+_ref_lat: float = _DEFAULT_REF[0]
+_ref_lon: float = _DEFAULT_REF[1]
+_ref_m_per_deg_lat: float = 110_540.0
+_ref_m_per_deg_lon: float = 111_320.0 * math.cos(math.radians(_DEFAULT_REF[0]))
 
-    def bearing_to(self, other: 'Vec2') -> float:
+def _set_region_ref(region: str):
+    """시뮬 시작 시 해역에 맞는 기준점 설정."""
+    global _ref_lat, _ref_lon, _ref_m_per_deg_lon
+    _ref_lat, _ref_lon = _REGION_REF.get(region, _DEFAULT_REF)
+    _ref_m_per_deg_lon = 111_320.0 * math.cos(math.radians(_ref_lat))
+
+
+class LatLon:
+    """
+    지리 좌표 (위도/경도). x/y 프로퍼티로 기존 Cartesian 코드 자동 호환.
+    dist_to(): Haversine 거리(m). bearing_to(): 동=0 북=π/2 평면 방위각(rad).
+    """
+    __slots__ = ('lat', 'lon')
+
+    def __init__(self, lat: float = 0.0, lon: float = 0.0):
+        self.lat = float(lat)
+        self.lon = float(lon)
+
+    @classmethod
+    def from_xy(cls, x_m: float, y_m: float) -> 'LatLon':
+        """미터 좌표(기준점 기준) → LatLon."""
+        return cls(
+            _ref_lat + y_m / _ref_m_per_deg_lat,
+            _ref_lon + x_m / _ref_m_per_deg_lon,
+        )
+
+    # ── 시각화 호환 프로퍼티 ──────────────────────────────────────────────────
+    @property
+    def x(self) -> float:
+        """기준점으로부터 동방향(m) — 시각화·거리 계산 호환."""
+        return (self.lon - _ref_lon) * _ref_m_per_deg_lon
+
+    @x.setter
+    def x(self, v: float):
+        self.lon = _ref_lon + v / _ref_m_per_deg_lon
+
+    @property
+    def y(self) -> float:
+        """기준점으로부터 북방향(m) — 시각화·거리 계산 호환."""
+        return (self.lat - _ref_lat) * _ref_m_per_deg_lat
+
+    @y.setter
+    def y(self, v: float):
+        self.lat = _ref_lat + v / _ref_m_per_deg_lat
+
+    # ── 거리·방위 ─────────────────────────────────────────────────────────────
+    def dist_to(self, other: 'LatLon') -> float:
+        """Haversine 거리 (m)."""
+        R = 6_371_000.0
+        φ1 = math.radians(self.lat);  φ2 = math.radians(other.lat)
+        Δφ = math.radians(other.lat - self.lat)
+        Δλ = math.radians(other.lon - self.lon)
+        a = math.sin(Δφ/2)**2 + math.cos(φ1)*math.cos(φ2)*math.sin(Δλ/2)**2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+
+    def bearing_to(self, other: 'LatLon') -> float:
+        """방위각 (rad) — 동=0, 북=π/2 (x/y 평면 관례 유지)."""
         return math.atan2(other.y - self.y, other.x - self.x)
 
-    def move_toward(self, target: 'Vec2', speed_ms: float, dt: float) -> bool:
+    def move_toward(self, target: 'LatLon', speed_ms: float, dt: float) -> bool:
         """target 방향으로 이동. 도달했으면 True 반환."""
         d = self.dist_to(target)
         step = speed_ms * dt
         if d <= step:
-            self.x, self.y = target.x, target.y
+            self.lat, self.lon = target.lat, target.lon
             return True
         angle = self.bearing_to(target)
-        self.x += math.cos(angle) * step
-        self.y += math.sin(angle) * step
+        self.lat += math.sin(angle) * step / _ref_m_per_deg_lat
+        self.lon += math.cos(angle) * step / _ref_m_per_deg_lon
         return False
 
-    def copy(self) -> 'Vec2':
-        return Vec2(self.x, self.y)
+    def copy(self) -> 'LatLon':
+        return LatLon(self.lat, self.lon)
 
     def __repr__(self) -> str:
-        return f"Vec2({self.x/1000:.1f}km, {self.y/1000:.1f}km)"
+        return f"LatLon({self.lat:.4f}°N, {self.lon:.4f}°E)"
+
+
+# 하위 호환 별칭 — 기존 코드가 Vec2를 참조할 경우 대비
+Vec2 = LatLon
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -755,7 +827,7 @@ class FriendlyShipObj:
         self.display     = spec['display']
         self.sensor_km   = spec['sensor_km']
         # max_channels는 @property로 계산 (부분 피해 반영)
-        self.pos         = pos or Vec2(0, 0)
+        self.pos         = pos or LatLon.from_xy(0, 0)
 
         self.inventory   = spec['default_inventory'].copy()
 
@@ -1083,13 +1155,13 @@ class TimeStepEngine:
             radius = self._FORMATION_RADIUS.get(spec['type'], 3_000)
             if radius > 0:
                 angle = math.radians(len(ships) * (360.0 / max(len(preset), 1)))
-                s.pos = Vec2(math.cos(angle) * radius, math.sin(angle) * radius)
+                s.pos = LatLon.from_xy(math.cos(angle) * radius, math.sin(angle) * radius)
             # NEW-XX: 랜덤 배치 옵션 — 각 함정에 임의 오프셋 추가
             if self.cfg.get('enable_random_placement', False):
                 spread_m = self.cfg.get('random_spread_km', 5.0) * 1000.0
                 rnd_angle = random.uniform(0, 2 * math.pi)
                 rnd_r     = random.uniform(0, spread_m)
-                s.pos = Vec2(
+                s.pos = LatLon.from_xy(
                     s.pos.x + math.cos(rnd_angle) * rnd_r,
                     s.pos.y + math.sin(rnd_angle) * rnd_r,
                 )
@@ -1232,7 +1304,7 @@ class TimeStepEngine:
                 else:
                     start_m = detect_km * 1000
 
-                pos = Vec2(
+                pos = LatLon.from_xy(
                     math.cos(bearing_rad) * start_m,
                     math.sin(bearing_rad) * start_m,
                 )
@@ -1366,7 +1438,7 @@ class TimeStepEngine:
                 start_m = surface_det_km * 1000
             else:
                 start_m = detect_km * 1000
-            pos = Vec2(math.cos(bearing_rad) * start_m, math.sin(bearing_rad) * start_m)
+            pos = LatLon.from_xy(math.cos(bearing_rad) * start_m, math.sin(bearing_rad) * start_m)
 
             if ttype in _STANDALONE_MISSILE_TYPES:
                 _tgt = self._pick_target(is_torpedo=False)
@@ -1615,6 +1687,29 @@ class TimeStepEngine:
         for m in self.missiles:
             m.update(DT)
 
+        # v10.8: 해류 연동 — 수상함·잠수함 위치에 해류 벡터 누적
+        if self.cfg.get('enable_current', False) and _get_current_vector:
+            _region_map = {
+                '동해 북부': 'east_sea', '동해 중부': 'east_sea',
+                '서해': 'west_sea', '대한해협': 'korea_strait',
+            }
+            _cur_region = _region_map.get(self.cfg.get('fleet_region', '동해 북부'), 'east_sea')
+            import datetime
+            _month = datetime.date.today().month
+            _cv = _get_current_vector(_cur_region, _month)
+            _spd_ms = _cv['speed_cms'] / 100.0      # cm/s → m/s
+            _dir_rad = math.radians(90 - _cv['direction_deg'])  # 진북 기준 → x/y 평면
+            _dx = math.cos(_dir_rad) * _spd_ms * DT
+            _dy = math.sin(_dir_rad) * _spd_ms * DT
+            for et in self.enemy_threats:
+                if et.alive and (et.is_ship or et.is_sub):
+                    et.pos.x += _dx
+                    et.pos.y += _dy
+            for ship in self.friendly_ships:
+                if ship.alive and not ship.is_submarine:
+                    ship.pos.x += _dx
+                    ship.pos.y += _dy
+
     # ── 2단계: 적 발사 ────────────────────────────────────────────────────────
 
     def _enemy_fire(self):
@@ -1649,7 +1744,7 @@ class TimeStepEngine:
 
             for _ in range(salvo):
                 _is_torp = '어뢰' in m_name
-                offset = Vec2(
+                offset = LatLon.from_xy(
                     et.pos.x + random.uniform(-500, 500),
                     et.pos.y + random.uniform(-500, 500),
                 )
@@ -1675,7 +1770,7 @@ class TimeStepEngine:
                 et.is_retreating = True
                 # 발사 후 200km 후퇴 이탈 (MED-12 재공격 패턴 도입으로 기존 500km에서 단축)
                 angle = et.pos.bearing_to(primary.pos) + math.pi
-                et.retreat_pos = Vec2(
+                et.retreat_pos = LatLon.from_xy(
                     et.pos.x + math.cos(angle) * 200_000,
                     et.pos.y + math.sin(angle) * 200_000,
                 )
@@ -1696,8 +1791,8 @@ class TimeStepEngine:
                         _dm = MissileObj(
                             mtype    = 'enemy_strike',
                             name     = d_name,
-                            pos      = Vec2(et.pos.x + random.uniform(-300, 300),
-                                           et.pos.y + random.uniform(-300, 300)),
+                            pos      = LatLon.from_xy(et.pos.x + random.uniform(-300, 300),
+                                                      et.pos.y + random.uniform(-300, 300)),
                             target   = self._pick_target(is_torpedo=False),
                             speed_ms = d_spd,
                             pk_base  = _MISSILE_PK_MAP.get(d_name, _MISSILE_PK_DEFAULT),
@@ -1716,7 +1811,7 @@ class TimeStepEngine:
                 # LOW-18: 잠수함 발사 후 회피 기동 (발사 후 반대 방향 50km 이탈)
                 et.is_retreating = True
                 angle = et.pos.bearing_to(primary.pos) + math.pi
-                et.retreat_pos = Vec2(
+                et.retreat_pos = LatLon.from_xy(
                     et.pos.x + math.cos(angle) * 50_000,
                     et.pos.y + math.sin(angle) * 50_000,
                 )
@@ -2527,7 +2622,7 @@ class TimeStepEngine:
             total_dist  = dist_to_sub + (
                 ac.info.get('base_dist_km', 0) * 1000 if ac.info.get('base_type') == 'land' else 0)
 
-            drop_pos = Vec2(
+            drop_pos = LatLon.from_xy(
                 et.pos.x + random.uniform(-300, 300),
                 et.pos.y + random.uniform(-300, 300),
             )
@@ -3180,6 +3275,9 @@ class TimeStepEngine:
     # ── 메인 루프 ─────────────────────────────────────────────────────────────
 
     def run(self) -> dict:
+        # v10.8: 해역 기준점 설정 (LatLon x/y 변환 기준)
+        _set_region_ref(self.cfg.get('fleet_region', '동해 북부'))
+
         pt = {'위치갱신': 0.0, '적발사': 0.0, '대공방어': 0.0,
               '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0,
               '적Anti-SAM': 0.0, '교전판정': 0.0}

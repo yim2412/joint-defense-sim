@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.11 — PyQt6 런처                ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.12 — PyQt6 런처                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.12 — v10.8 좌표계 완전 전환: Vec2→LatLon + Haversine + 해류 연동]     ║
+║  NEW-A  LatLon 클래스: lat/lon 저장, x/y 프로퍼티로 시각화 코드 자동 호환   ║
+║  NEW-B  Vec2 → LatLon.from_xy() 11개소 전환, Vec2=LatLon 별칭 유지          ║
+║  NEW-C  dist_to(): Haversine 거리 / move_toward(): lat·lon 갱신              ║
+║  NEW-D  _set_region_ref(): 해역별 기준점 (동해·서해·대한해협) 자동 설정      ║
+║  NEW-E  해류 연동 (enable_current): ocean_environment_db 해류 벡터 적용      ║
+║  DEL-A  _PLANS v10.8(좌표계 전환) + v10.2(Phase A 잔여) 삭제 — 구현 완료   ║
 ║  [v10.11 — v10.7 전술 의사결정 모드: 30s 구간 일시정지 + 무기 선택]         ║
 ║  NEW-A  TacticalState 데이터클래스 + run() 루프 내 30s 구간 훅               ║
 ║  NEW-B  run_v7_simulation(): tactical_cb 파라미터 → SimV7 훅 주입           ║
@@ -4274,6 +4281,8 @@ class MainWindow(QMainWindow):
         # v9.12: 지형 음영
         if hasattr(self, 'chk_terrain'):
             self.chk_terrain.setChecked(cfg.get('enable_terrain', False))
+        if hasattr(self, 'chk_current'):
+            self.chk_current.setChecked(cfg.get('enable_current', False))
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
             self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
@@ -4408,6 +4417,17 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_terrain.setChecked(False)
+
+        # v10.8: 해류 연동
+        self.chk_current = QCheckBox("해류 연동  (ocean_environment_db 해류 벡터 적용)")
+        self.chk_current.setChecked(False)
+        self.chk_current.setToolTip(
+            "v10.8 — 해역별 해류 벡터를 함정·잠수함 위치에 매 tick 누적.\n"
+            "동해: 동한난류 북상 (여름 최강 50cm/s)\n"
+            "서해: 황해 연안류 (여름 북향·겨울 남향)\n"
+            "대한해협: 대마난류 북동향 (~35cm/s)\n"
+            "ocean_environment_db.py가 있어야 활성화됩니다."
+        )
 
         self.chk_evap_duct = QCheckBox("증발 덕팅 적용")
         self.chk_evap_duct.setToolTip(
@@ -5881,6 +5901,7 @@ class MainWindow(QMainWindow):
             'season':            {'봄': 'spring', '여름': 'summer', '가을': 'autumn', '겨울': 'winter'}.get(
                                      self.cmb_season.currentText()[:1], 'summer'),
             'enable_terrain':    self.chk_terrain.isChecked(),
+            'enable_current':    self.chk_current.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
             'enable_anti_sam':   self.chk_anti_sam.isChecked(),
             'enable_isa':        self.chk_isa.isChecked(),
@@ -7571,14 +7592,11 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
-            ("v10.2", "매우 높음", "완전 양방향 교전 (Phase A 잔여)",
-             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동 (→ v10.12)."),
-            ("v10.8", "높음", "좌표계 완전 전환 + 해류 연동",
-             "실제 지리 기반 시뮬레이션 — 지도 오버레이·해류 연동 목적. "
-             "v10.8-A: 채널 관리 버그 점검 (엔진 루프 재설계 불필요 — Phase D·B·C로 이미 양방향 교전 구현). "
-             "v10.8-B: Vec2 → LatLon 완전 교체. Haversine 거리·방위각. "
-             "x/y 프로퍼티로 시각화 코드 자동 호환. 실 변경 ~17개소. "
-             "v10.8-C: ocean_environment_db 해류 연동 (대마난류·북한한류·황해 조류, enable_current 플래그)."),
+            ("(완료)", "—", "모든 v10.x 계획 구현 완료",
+             "v10.1~v10.8 전체 완료. "
+             "v10.1 정밀 대기 · v10.3 Damage Control · v10.4 CEC · v10.5 CAP · "
+             "v10.6 항모 타격 · v10.7 전술 의사결정 · v10.8 LatLon+해류 구현. "
+             "다음 계획은 별도 설계 후 추가 예정."),
         ]
 
         tbl = QTableWidget(len(_PLANS), 4)
