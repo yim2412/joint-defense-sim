@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.14 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.1 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.1 — 정밀 대기 모델: ISA 굴절 + 트로포스캐터]                          ║
+║  NEW-A  ISA_RADIOSONDE_DB: 기상청 라디오존데 계절별 굴절 지수 보정 (6개 해역×계절)║
+║  NEW-B  TROPOSCATTER_DB: 수평선 너머 고고도 표적 탐지거리 +7~16%            ║
+║  NEW-C  _isa_refraction_factor(): 중고도(≥500m) 표적 굴절 보정             ║
+║  NEW-D  _troposcatter_factor(): 고고도(≥1000m) BF6 미만 조건 산란 보정     ║
+║  NEW-E  설정 패널 '정밀 대기 모델(ISA+트로포스캐터)' 체크박스 추가          ║
+║  [v9.15 — 향후 계획 탭 v10.x 세부 계획 갱신]                                ║
+║  UPD-A  _PLANS: v10.1~v10.8 항목 세분화 (정밀 대기·양방향교전·DC·CEC·CAP 등) ║
 ║  [v9.14 — 해협 통과 방어 시나리오: 방위 제한 + 협착 기동 패널티 + 전용 프리셋] ║
 ║  NEW-A  STRAIT_BEARING: 해협 유형별 위협 접근 방위 제한 (동/서/양방향 ±30°) ║
 ║  NEW-B  _spawn_threats(): 대한해협 선택 시 협착 방위로 자동 전환             ║
@@ -4070,6 +4078,8 @@ class MainWindow(QMainWindow):
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
             self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
+        if hasattr(self, 'chk_isa'):
+            self.chk_isa.setChecked(cfg.get('enable_isa', False))
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4197,6 +4207,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_evap_duct.setChecked(False)
 
+        self.chk_isa = QCheckBox("정밀 대기 모델 (ISA+트로포스캐터)")
+        self.chk_isa.setToolTip(
+            "v10.1 — ICAO 표준 대기 + 기상청 라디오존데 계절별 실측값 적용.\n"
+            "중고도(≥500m) 표적: 대기 굴절 지수 증가로 탐지거리 +2~6%.\n"
+            "고고도(≥1000m) 표적: 트로포스캐터 산란 추가 +7~16%.\n"
+            "  예) 동해 여름 탄도미사일(고도10km): 탐지거리 최대 ×1.23\n"
+            "  예) 동해 겨울 순항미사일(고도500m): ×1.03\n"
+            "풍랑(BF6) 이상 강풍 시 트로포스캐터 자동 비활성화.\n"
+            "기본값 OFF — 기존 결과와 동일"
+        )
+        self.chk_isa.setChecked(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4229,6 +4251,7 @@ class MainWindow(QMainWindow):
         fl.addRow("계절",        self.cmb_season)
         fl.addRow("",            self.chk_terrain)
         fl.addRow("",            self.chk_evap_duct)
+        fl.addRow("",            self.chk_isa)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -5590,6 +5613,7 @@ class MainWindow(QMainWindow):
             'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
             'enable_terrain':    self.chk_terrain.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
+            'enable_isa':        self.chk_isa.isChecked(),
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -7261,25 +7285,48 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
-            ("v10.x", "낮음", "정밀 대기 모델",
-             "⚠ 완전 양방향 교전 엔진 재설계 이후 통합. "
-             "ICAO 표준 대기 + 기상청 라디오존데 계절별 프로파일. "
-             "트로포스캐터·전파 전파 상세 모델."),
-            ("v10.x", "매우 높음", "완전 양방향 교전",
-             "적 수상함→아군 대함미사일 요격(_enemy_defense)은 이미 구현됨 (40%). "
-             "남은 것: ① FriendlyMissileObj 클래스 신설 (아군 SAM을 적이 추적할 엔티티로 모델링) "
-             "② 적 함정·항공기가 아군 SAM을 CIWS/SAM으로 요격하는 로직 "
-             "③ 공격·방어 동시 진행 엔진 구조 전면 재설계. v10.x 단독 메이저."),
-            ("v10.x", "높음", "적 항공모함 타격 작전",
-             "아군이 공격자, 적 항모전단이 방어자로 역전되는 전용 시나리오. "
-             "high_value_target 항모 격침 판정·_friendly_strike() 항모 공격은 이미 가능 (20%). "
-             "남은 것: 아군 공격 임무(v9) + 완전 양방향 교전(v10) 완성 후 "
-             "KSS-III 현무-3 + PKG 해성 + AGM-84 항모 타격 전용 시나리오 구성."),
-            ("v10.x", "높음", "전술 의사결정 모드 (반자동 시뮬)",
-             "완전 미구현 (0%). "
-             "매 교전 단계마다 운용자가 무기 선택·살보 수를 직접 결정하는 반자동 모드. "
-             "SM-2·SM-6·ESSM 선택, 발사 타이밍 결정 등 실제 전투 의사결정 훈련 목적. "
-             "교육·워게임 활용 가치."),
+            ("v10.1", "낮음", "정밀 대기 모델",
+             "ICAO ISA 표준 대기 테이블 내장 (고도→기온·압력·밀도). "
+             "트로포스캐터 링크 모델로 수평선 너머 레이더 탐지거리 +10~20% 보정. "
+             "기상청 라디오존데 계절별 프로파일 (4계절×5고도층). "
+             "v9.13 덕팅 모델과 통합. 독립 구현 가능."),
+            ("v10.2", "매우 높음", "완전 양방향 교전",
+             "구현 순서: ① Phase D — 아군 피격 판정 + 엔진 루프 재설계 (FriendlyShipObj.hp 감소·격침) "
+             "② Phase B — FriendlyMissileObj 신설 (아군 SAM을 적이 추적할 엔티티로 분리) "
+             "③ Phase C — 적 Anti-SAM 로직 (_enemy_anti_sam(), 적 CIWS·SAM으로 아군 SAM 요격) "
+             "④ Phase A — 좌표계 Vec2→LatLon 전환 + 해류·조류 연동 (맨 마지막, 해류 DB 연동 포함)."),
+            ("v10.3", "중간", "부분 피격 피해 모델 (Damage Control)",
+             "v10.2-D 아군 피격 판정 완성 후 구현. "
+             "격침/생존 이분법 → 부분 전투 불능 모델: "
+             "레이더 피격→탐지거리 감소, VLS 피격→탄약 손실, 엔진 피격→속도 저하. "
+             "FriendlyShipObj에 subsystem_hp dict 추가."),
+            ("v10.4", "중간", "CEC (협동 교전 능력)",
+             "이지스 전단 네트워크 중심전 모델. "
+             "한 함 탐지 정보를 전단 전체가 공유 → 탐지 못한 함도 교전 가능. "
+             "예: 세종대왕함 탐지 → 광개토함 SM-2 교전. "
+             "탐지 커버리지 통합, 채널 공유 제한 추가."),
+            ("v10.5", "중간", "한국 공군 CAP / SEAD",
+             "한국 자산만 사용. "
+             "F-35A (청주기지): 스텔스 CAP, AIM-120D 교전. "
+             "KF-21 보라매 (대구기지): CAP + 해성-II 대함 공격. "
+             "FA-50 (원주기지): 경전투 CAP, AIM-9X. "
+             "FriendlyAircraftObj 확장 — 공대공 교전 로직 신설, 적 항공기 요격 레이어 추가."),
+            ("v10.6", "높음", "적 항공모함 타격 작전",
+             "⚠ v10.2 완전 양방향 교전 선행 필수. "
+             "아군 공격자·적 항모전단 방어자 역전 시나리오. "
+             "적 항모전단 프리셋: 항모 1+이지함 2+구축함 4+잠수함 2. "
+             "아군: KSS-III 현무-3C + PKG 해성Mk.II + KF-21 해성-II. "
+             "항모 격침 판정: HP≤2=전투불능, HP=0=격침."),
+            ("v10.7", "높음", "전술 의사결정 모드 (반자동 시뮬)",
+             "⚠ v10.2 완전 양방향 교전 선행 필수. "
+             "매 교전 단계 운용자 직접 개입: 특정 tick마다 시뮬 일시 정지 → 교전 상황 패널 표시. "
+             "SM-2·SM-6·ESSM 선택 + 살보 수 결정 → 확인 후 다음 스텝. "
+             "워게임·교육 훈련 목적."),
+            ("v10.8", "높음", "좌표계 전환 + 해류 연동",
+             "⚠ v10.2 Phase A — v10.x 맨 마지막 인프라 업그레이드. "
+             "Vec2(x,y) → LatLon(lat,lon) 전환 (Haversine 거리·방위각). "
+             "ocean_environment_db 해류·조류 데이터 연동 (대마난류·북한한류). "
+             "코드 약 60개소 마이그레이션. 전체 기능 완성 후 일괄 전환."),
         ]
 
         tbl = QTableWidget(len(_PLANS), 4)

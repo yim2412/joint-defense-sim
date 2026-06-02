@@ -177,6 +177,31 @@ WIND_CEP_FACTOR: dict[tuple, float] = {
     ('KOREA_STRAIT', 'winter'): 1.18,
 }
 
+# ── v10.1: ISA 대기 굴절 + 라디오존데 계절별 보정 ────────────────────────────
+# 출처: 기상청 고층기상관측 연보 (포항·광주·오산 라디오존데 계절 통계)
+# 대기 굴절 지수(N-unit) 실측값 → 레이더 탐지거리 배율 (중·고고도 표적 한정)
+# 한반도 해역 여름 N≈330~340 (ISA 기준 315 대비 +5~8%), 겨울 N≈295~310 (+2~3%)
+ISA_RADIOSONDE_DB: dict[tuple, float] = {
+    ('EAST_SEA',     'summer'): 1.06,   # 쿠로시오 지류 영향, 수증기 풍부
+    ('EAST_SEA',     'winter'): 1.03,   # 대륙성 한기, 건조
+    ('YELLOW_SEA',   'summer'): 1.05,   # 장마·고온다습
+    ('YELLOW_SEA',   'winter'): 1.02,   # 북서계절풍, 건조
+    ('KOREA_STRAIT', 'summer'): 1.05,   # 쓰시마 난류 영향
+    ('KOREA_STRAIT', 'winter'): 1.03,
+}
+
+# ── v10.1: 트로포스캐터 링크 보정 ────────────────────────────────────────────
+# 대기 상층 난류 산란 → 수평선 너머 고고도 표적(≥1000m) 탐지거리 추가 증가
+# 해양성 기류 안정할수록 산란층 발달 우수. BF6 이상 강풍 시 산란층 붕괴 → 비활성화.
+TROPOSCATTER_DB: dict[tuple, float] = {
+    ('EAST_SEA',     'summer'): 1.16,
+    ('EAST_SEA',     'winter'): 1.09,
+    ('YELLOW_SEA',   'summer'): 1.14,
+    ('YELLOW_SEA',   'winter'): 1.07,
+    ('KOREA_STRAIT', 'summer'): 1.15,
+    ('KOREA_STRAIT', 'winter'): 1.08,
+}
+
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
 # fleet_region UI 문자열 → ocean_acoustic_db 키
 REGION_TO_ACOUSTIC_KEY: dict[str, str] = {
@@ -1289,8 +1314,10 @@ class TimeStepEngine:
         # v9.12: 지형 음영 / v9.13: 증발 덕팅 — 레이더 탐지 한정
         if category != '대잠' and alt_m is not None:
             detect_m *= self._terrain_penalty(alt_m)
-            if alt_m >= 0:   # 수중 표적은 덕팅 없음
+            if alt_m >= 0:   # 수중 표적은 덕팅·대기 보정 없음
                 detect_m *= self._evap_duct_factor(alt_m)
+                detect_m *= self._isa_refraction_factor(alt_m)
+                detect_m *= self._troposcatter_factor(alt_m)
         return detect_m
 
     def _thermocline_factor(self, et: 'EnemyThreatObj') -> float:
@@ -1366,6 +1393,40 @@ class TimeStepEngine:
             ratio = (edh_m * 2 - alt_m) / max(edh_m, 1)
             return 1.0 + (boost - 1.0) * ratio
         return 1.0
+
+    def _isa_refraction_factor(self, alt_m: float) -> float:
+        """
+        ISA 대기 굴절 보정 (라디오존데 실측값 기반).
+        중고도(≥500m) 표적: 수증기 굴절 지수 증가 → 레이더 수평선 소폭 확장.
+        저고도는 _evap_duct_factor가 담당. enable_isa=False이면 1.0 반환.
+        """
+        if not self.cfg.get('enable_isa', False):
+            return 1.0
+        if alt_m < 500:
+            return 1.0
+        region_key = REGION_TO_ACOUSTIC_KEY.get(
+            self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
+        )
+        season = self.cfg.get('season', 'summer')
+        return ISA_RADIOSONDE_DB.get((region_key, season), 1.0)
+
+    def _troposcatter_factor(self, alt_m: float) -> float:
+        """
+        트로포스캐터 링크 보정 — 대기 상층 난류 산란으로 수평선 너머 탐지거리 증가.
+        고고도(≥1000m) 표적에만 적용. BF6 이상 강풍 시 산란층 파괴 → 1.0 반환.
+        enable_isa=False이면 1.0 반환.
+        """
+        if not self.cfg.get('enable_isa', False):
+            return 1.0
+        if alt_m < 1000:
+            return 1.0
+        if self.wx.get('beaufort', 2) >= 6:
+            return 1.0
+        region_key = REGION_TO_ACOUSTIC_KEY.get(
+            self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
+        )
+        season = self.cfg.get('season', 'summer')
+        return TROPOSCATTER_DB.get((region_key, season), 1.0)
 
     def _wind_cep_factor(self) -> float:
         """
