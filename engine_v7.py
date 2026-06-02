@@ -1162,8 +1162,9 @@ class TimeStepEngine:
                             et.pos.y += math.sin(perp) * wing_dist * wing_side
                             et.pos.x += math.cos(bearing_rad) * 3_000
                             et.pos.y += math.sin(bearing_rad) * 3_000
-                    elif _tactics == 'encirclement':
+                    elif _tactics == 'encirclement' and not _strait_active:
                         # 포위: 전체가 원형으로 배치 (다방향 동시 접근 강화)
+                        # v9.14: 해협 시나리오 활성 시 포위 기동 무시 (방위 제한 우선)
                         enc_bearing = math.radians((idx / max(total, 1)) * 360)
                         et.pos.x = math.cos(enc_bearing) * (detect_km * 1000)
                         et.pos.y = math.sin(enc_bearing) * (detect_km * 1000)
