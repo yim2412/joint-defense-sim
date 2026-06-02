@@ -1334,6 +1334,16 @@
     ]
   },
   {
+    "version": "v10.3",
+    "date": "2026-06-02",
+    "title": "완전 양방향 교전 Phase B — 아군 SAM rcs_m2 속성 추가",
+    "changes": [
+      "추가  _SAM_RCS: 무기별 RCS 상수 딕셔너리 (SM-3·SM-6·SM-2·ESSM·해궁·RAM 8종)",
+      "추가  _launch_friendly_sam(): sam.rcs_m2 설정 — Phase C 적 레이더 탐지 준비",
+      "추가  _fire_ground_sam(): sam.rcs_m2 설정 (어쇼어·THAAD 발사 SAM 포함)"
+    ]
+  },
+  {
     "version": "v10.2",
     "date": "2026-06-02",
     "title": "완전 양방향 교전 Phase D — 적 미사일 분산 타겟팅",

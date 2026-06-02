@@ -202,6 +202,18 @@ TROPOSCATTER_DB: dict[tuple, float] = {
     ('KOREA_STRAIT', 'winter'): 1.08,
 }
 
+# ── v10.2-B: 아군 SAM RCS (Phase C 적 레이더 탐지용) ────────────────────────
+# 출처: 각 미사일 동체 크기·형상 기반 추정값 (m²)
+_SAM_RCS: dict[str, float] = {
+    'SM-3 Block IIA':  0.0008,
+    'SM-6':            0.0010,
+    'SM-6 Block IB':   0.0010,
+    'SM-2 Block IIIB': 0.0015,
+    'ESSM Block II':   0.0005,
+    '해궁 (K-SAAM)':   0.0005,
+    'RIM-116 RAM':     0.0003,
+}
+
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
 # fleet_region UI 문자열 → ocean_acoustic_db 키
 REGION_TO_ACOUSTIC_KEY: dict[str, str] = {
@@ -1700,6 +1712,7 @@ class TimeStepEngine:
             owner_id = owner_id,
             t_spawn  = self.t,
         )
+        sam.rcs_m2 = _SAM_RCS.get(name, 0.001)  # Phase C: 적 레이더 탐지용
         self.missiles.append(sam)
         tgt_name = target.name if hasattr(target, 'name') else getattr(target, 'preset_name', '?')
         self._log(f"[지상 BMD] {label} → {name} 발사 → {tgt_name} (거리 {dist_m/1000:.0f}km)")
@@ -1955,6 +1968,7 @@ class TimeStepEngine:
             owner_id = id(ship),
             t_spawn  = self.t,
         )
+        sam.rcs_m2 = _SAM_RCS.get(wpn, 0.001)  # Phase C: 적 레이더 탐지용
         self.missiles.append(sam)
         prefix = '[대공 방어]' if is_aa else '[방어]'
         tgt_name = target.name if hasattr(target, 'name') else target.preset_name
