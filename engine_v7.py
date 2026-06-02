@@ -752,9 +752,16 @@ class FriendlyShipObj:
         if subsystem == 'radar':
             self.radar_factor = max(0.20, self.radar_factor * 0.50)
         elif subsystem == 'propulsion':
-            self.speed_factor = max(0.30, self.speed_factor * 0.70)
+            self.speed_factor = max(0.30, self.speed_factor * 0.60)
         elif subsystem == 'weapons':
             self.channel_factor = max(0.40, self.channel_factor * 0.70)
+            # VLS 탄약 25% 직접 손실 (수직발사관 피탄)
+            _vls_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-6 Block IB',
+                         'SM-2 Block IIIB', 'ESSM Block II']
+            for _w in _vls_wpns:
+                if self.inventory.get(_w, 0) > 0:
+                    self.inventory[_w] = max(0, self.inventory[_w] - max(1, self.inventory[_w] // 4))
+            # 무기 비활성화 (SAM·CIWS 전체 대상)
             _candidates = [w for w in [
                 'SM-3 Block IIA', 'SM-6', 'SM-6 Block IB',
                 'SM-2 Block IIIB', 'ESSM Block II',
@@ -762,6 +769,9 @@ class FriendlyShipObj:
             ] if self.inventory.get(w, 0) > 0 and w not in self.disabled_weapons]
             if _candidates:
                 self.disabled_weapons.add(random.choice(_candidates))
+            # VLS 고갈 플래그 갱신
+            if not self._vls_depleted and all(self.inventory.get(w, 0) == 0 for w in _vls_wpns):
+                self._vls_depleted = True
 
         if self.hp <= 0:
             self.alive = False
@@ -2754,14 +2764,28 @@ class TimeStepEngine:
                     subsystem = None
                     if self.cfg.get('enable_subsystem_damage', True):
                         r = random.random()
-                        subsystem = 'radar' if r < 0.35 else ('propulsion' if r < 0.60 else 'weapons')
+                        if getattr(m, 'is_torpedo', False):
+                            # 어뢰: 수중 폭발 → 추진·선체 위주, 레이더 거의 없음
+                            if   r < 0.05: subsystem = 'radar'
+                            elif r < 0.45: subsystem = 'propulsion'
+                            elif r < 0.55: subsystem = 'weapons'
+                            # else: None (선체 직격, 45%)
+                        else:
+                            # 대함·탄도·순항미사일
+                            if   r < 0.15: subsystem = 'radar'
+                            elif r < 0.35: subsystem = 'propulsion'
+                            elif r < 0.60: subsystem = 'weapons'
+                            # else: None (선체 직격, 40%)
                     if random.random() < m.pk_base:
                         tgt.take_hit(m.name, self.t, subsystem)
                         self.stats['friendly_hits'] += 1
-                        _dmg = {'radar': f'레이더 피탄 (탐지 {tgt.radar_factor:.0%})',
-                                'propulsion': f'추진 피탄 (속도 {tgt.speed_factor:.0%})',
-                                'weapons': f'무장 피탄 (비활성: {", ".join(tgt.disabled_weapons) or "채널 저하"})'}
-                        _detail = f' — {_dmg[subsystem]}' if subsystem else ''
+                        _dmg = {
+                            'radar':      f'레이더 피탄 (탐지 {tgt.radar_factor:.0%})',
+                            'propulsion': f'추진 피탄 (속도 {tgt.speed_factor:.0%})',
+                            'weapons':    f'VLS 피탄 (채널 {tgt.channel_factor:.0%}, 탄약 손실)',
+                            None:         '선체 직격 (HP 감소)',
+                        }
+                        _detail = f' — {_dmg[subsystem]}'
                         self._log(f"[피격] {tgt.name} <- {m.name} 명중! HP {tgt.hp}{_detail}")
                     else:
                         self._log(f"[피격 실패] {m.name} -> {tgt.name} 근접 불발")
