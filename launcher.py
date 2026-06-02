@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.7 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.8 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.8 — v10.4 CEC 협동 교전: 탐지 커버리지 통합 + 중계 Pk 패널티]        ║
+║  NEW-A  per-ship 탐지거리 체크: 자체 탐지 불가 함정은 CEC 없이 교전 불가    ║
+║  NEW-B  CEC 중계 교전 MissileObj.cec_relay 플래그 + Pk ×0.90 패널티        ║
+║  NEW-C  chk_cec → enable_cec 매핑 수정 (기존 항상 ON 버그 수정)            ║
+║  NEW-D  chk_cec 기본값 True, 툴팁 "CEC 협동 교전 (탐지 커버리지 통합)" 갱신 ║
+║  DEL-A  _PLANS v10.3(Damage Control)·v10.4(CEC) 삭제 — 구현 완료           ║
 ║  [v10.7 — v10.1 완성: ICAO ISA 대기 테이블 + 4계절×5고도층 라디오존데]      ║
 ║  NEW-A  isa_atmosphere(): ICAO 표준 대기 대류권 함수 (고도→기온·압력·밀도)  ║
 ║  NEW-B  4계절 확장 — EVAP_DUCT_DB·WIND_CEP_FACTOR·TROPOSCATTER_DB 봄/가을 ║
@@ -4136,6 +4142,8 @@ class MainWindow(QMainWindow):
             if idx >= 0:
                 self.cmb_fleet_preset_e.setCurrentIndex(idx)
         # 전술 체크박스
+        if hasattr(self, 'chk_cec'):
+            self.chk_cec.setChecked(cfg.get('enable_cec', cfg.get('enable_cec_preassign', True)))
         if hasattr(self, 'chk_multibearing'):
             self.chk_multibearing.setChecked(cfg.get('enable_multibearing', False))
         if hasattr(self, 'chk_cec_jammed'):
@@ -4421,12 +4429,16 @@ class MainWindow(QMainWindow):
             "우선순위 정렬로 최고 성능 함정이 항상 먼저 교전합니다."
         )
 
-        self.chk_cec = QCheckBox("CEC 사전 동시 배정  (1차+2차 함정 동시 발사)")
-        self.chk_cec.setChecked(False)
+        self.chk_cec = QCheckBox("CEC 협동 교전  (탐지 커버리지 통합)")
+        self.chk_cec.setChecked(True)   # 기본 ON — 이지스 전단 실전 운용 표준
         self.chk_cec.setToolTip(
-            "위협 탐지 시 1차(KDX-III-B2)+2차(KDX-III-B1/KDX-II) 함정이 동시에 SAM을 발사합니다.\n"
-            "1차 성공 시 2차 SAM은 표적 소멸로 자동 종료.\n"
-            "탄약 소비 증가 / 동시 다수 위협에 효과적."
+            "v10.4 — Cooperative Engagement Capability (협동 교전 능력).\n"
+            "이지스 Link-16 데이터링크로 전단 탐지 정보 공유:\n"
+            "  · 탐지 커버리지 통합: 한 함이 탐지한 위협을 전 함정이 교전 가능\n"
+            "    예) KDX-III(900km 탐지) → FFX-I(100km 탐지 한계 초과 교전 가능)\n"
+            "  · SAM 사전 동시 배정: 1차+2차 함정 동시 발사 (살보 +1)\n"
+            "  · CEC 중계 교전 Pk ×0.90 (자체 트랙 없이 데이터링크만 의존)\n"
+            "OFF 시: 각 함정은 자체 탐지거리 내 위협만 교전 가능."
         )
 
         self.chk_multibearing = QCheckBox("다방위 공격  (여러 방향에서 동시 접근)")
@@ -5683,9 +5695,9 @@ class MainWindow(QMainWindow):
             'enable_helo': True,
             'enable_p3c':  True,
             'enable_p8a':  True,
-            # 방어 전술 — 항상 ON (UI 체크박스 읽기)
+            # 방어 전술 — UI 체크박스 읽기
             'enable_layered_defense': True,
-            'enable_cec_preassign':   True,
+            'enable_cec':             self.chk_cec.isChecked(),
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
@@ -7333,21 +7345,9 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
-            ("v10.2", "매우 높음", "완전 양방향 교전",
-             "구현 순서: ① Phase D — 아군 피격 판정 + 엔진 루프 재설계 (FriendlyShipObj.hp 감소·격침) "
-             "② Phase B — FriendlyMissileObj 신설 (아군 SAM을 적이 추적할 엔티티로 분리) "
-             "③ Phase C — 적 Anti-SAM 로직 (_enemy_anti_sam(), 적 CIWS·SAM으로 아군 SAM 요격) "
-             "④ Phase A — 좌표계 Vec2→LatLon 전환 + 해류·조류 연동 (맨 마지막, 해류 DB 연동 포함)."),
-            ("v10.3", "중간", "부분 피격 피해 모델 (Damage Control)",
-             "v10.2-D 아군 피격 판정 완성 후 구현. "
-             "격침/생존 이분법 → 부분 전투 불능 모델: "
-             "레이더 피격→탐지거리 감소, VLS 피격→탄약 손실, 엔진 피격→속도 저하. "
-             "FriendlyShipObj에 subsystem_hp dict 추가."),
-            ("v10.4", "중간", "CEC (협동 교전 능력)",
-             "이지스 전단 네트워크 중심전 모델. "
-             "한 함 탐지 정보를 전단 전체가 공유 → 탐지 못한 함도 교전 가능. "
-             "예: 세종대왕함 탐지 → 광개토함 SM-2 교전. "
-             "탐지 커버리지 통합, 채널 공유 제한 추가."),
+            ("v10.2", "매우 높음", "완전 양방향 교전 (Phase A 잔여)",
+             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동. "
+             "v10.9(구 v10.8)로 일정 조정."),
             ("v10.5", "중간", "한국 공군 CAP / SEAD",
              "한국 자산만 사용. "
              "F-35A (청주기지): 스텔스 CAP, AIM-120D 교전. "

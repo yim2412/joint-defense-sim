@@ -1432,5 +1432,18 @@
       "수정  _isa_refraction_factor(): alt≥100m부터 고도층별 보간 적용 (기존 ≥500m 단일값)",
       "추가  UI 계절 선택 4계절 확장 — 봄 (3~5월) / 가을 (10~11월) 추가, 겨울 라벨 수정"
     ]
+  },
+  {
+    "version": "v10.8",
+    "date": "2026-06-02",
+    "title": "v10.4 CEC 협동 교전 — 탐지 커버리지 통합 + 중계 Pk 패널티",
+    "changes": [
+      "추가  per-ship 탐지거리 체크: CEC 미활성 시 자체 탐지거리 초과 함정 교전 불가",
+      "추가  MissileObj.cec_relay 플래그 — CEC 중계 교전 SAM 식별",
+      "추가  CEC 중계 교전 Pk ×0.90 패널티 (_check_hits 적용)",
+      "수정  chk_cec → enable_cec 매핑 버그 수정 (기존 항상 ON 하드코딩 제거)",
+      "수정  chk_cec 기본값 True, 툴팁 'CEC 협동 교전 (탐지 커버리지 통합)'으로 갱신",
+      "삭제  _PLANS v10.3(Damage Control)·v10.4(CEC) — 구현 완료로 제거"
+    ]
   }
 ]

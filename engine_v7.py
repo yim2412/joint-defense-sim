@@ -624,6 +624,9 @@ class MissileObj:
         self.detect_m:         float         = 0.0   # 탐지 시 거리 (m)
         self.enemy_info:       dict          = {}     # ENEMY_DB 원본
 
+        # v10.4: CEC 중계 교전 여부 (자체 탐지 불가 → 아군 네트워크 데이터 의존)
+        self.cec_relay: bool = False
+
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
         if not self.alive:
@@ -1862,7 +1865,9 @@ class TimeStepEngine:
         """
         # CEC 두절 시나리오: enable_cec_jammed=True 이면 CEC 강제 해제 + 독립 교전
         cec_jammed = self.cfg.get('enable_cec_jammed', False)
-        cec = self.cfg.get('enable_cec_preassign', False) and not cec_jammed
+        # v10.4: enable_cec — 탐지 커버리지 통합 + SAM 사전 동시 배정
+        # enable_cec_preassign 하위 호환 유지 (구버전 cfg 지원)
+        cec = self.cfg.get('enable_cec', self.cfg.get('enable_cec_preassign', True)) and not cec_jammed
 
         # CEC 두절 시 각 함정이 독립적으로 교전 (다층 방어 비활성화, 1함정=1교전)
         layered = self.cfg.get('enable_layered_defense', True) and not cec_jammed
@@ -1948,12 +1953,20 @@ class TimeStepEngine:
                 if not self._vls_interval_ok(ship):
                     continue
                 dist_m = ship.pos.dist_to(m.pos)
-                wpn    = self._select_defense_wpn(ship, m, dist_m)
+                # v10.4: CEC 탐지 커버리지 — 함정 자체 탐지거리 초과 여부
+                own_detect_m = self._detect_range_m(ship, '대공', m.altitude_m)
+                if dist_m > own_detect_m:
+                    if not cec:   # CEC 미활성: 자체 탐지 불가 함정 교전 불가
+                        continue
+                    relay = True  # CEC 중계: 아군 데이터링크로 교전, Pk 패널티 적용
+                else:
+                    relay = False
+                wpn = self._select_defense_wpn(ship, m, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
-                self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False)
+                self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False, cec_relay=relay)
                 self._vls_last_fire[id(ship)] = self.t
                 shots += 1
 
@@ -1997,17 +2010,25 @@ class TimeStepEngine:
                 if not self._vls_interval_ok(ship):
                     continue
                 dist_m = ship.pos.dist_to(et.pos)
-                wpn    = self._select_aa_wpn(ship, et, dist_m)
+                # v10.4: CEC 탐지 커버리지
+                own_detect_m = self._detect_range_m(ship, '대공', et.altitude_m)
+                if dist_m > own_detect_m:
+                    if not cec:
+                        continue
+                    relay = True
+                else:
+                    relay = False
+                wpn = self._select_aa_wpn(ship, et, dist_m)
                 if not wpn or ship.channels_used >= ship.max_channels:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
-                self._launch_friendly_sam(ship, wpn, et, dist_m, is_aa=True)
+                self._launch_friendly_sam(ship, wpn, et, dist_m, is_aa=True, cec_relay=relay)
                 self._vls_last_fire[id(ship)] = self.t
                 shots += 1
 
     def _launch_friendly_sam(self, ship: FriendlyShipObj, wpn: str, target,
-                              dist_m: float, is_aa: bool):
+                              dist_m: float, is_aa: bool, cec_relay: bool = False):
         wpn_info = FRIENDLY_DB[wpn]
         ship.inventory[wpn]   -= 1
         ship.channels_used    += 1
@@ -2033,7 +2054,8 @@ class TimeStepEngine:
             owner_id = id(ship),
             t_spawn  = self.t,
         )
-        sam.rcs_m2 = _SAM_RCS.get(wpn, 0.001)  # Phase C: 적 레이더 탐지용
+        sam.rcs_m2   = _SAM_RCS.get(wpn, 0.001)  # Phase C: 적 레이더 탐지용
+        sam.cec_relay = cec_relay                  # v10.4: CEC 중계 교전 여부
         self.missiles.append(sam)
         prefix = '[대공 방어]' if is_aa else '[방어]'
         tgt_name = target.name if hasattr(target, 'name') else target.preset_name
@@ -2722,6 +2744,9 @@ class TimeStepEngine:
             # pk_scale: LHS/Sobol 분석용 불확실 파라미터 반영
             if sam.mtype == 'friendly_sam':
                 eff_pk = min(1.0, eff_pk * self.cfg.get('pk_scale', 1.0))
+                # v10.4: CEC 중계 교전 — 자체 탐지 불가, 아군 데이터링크 의존 → Pk 10% 저하
+                if getattr(sam, 'cec_relay', False):
+                    eff_pk *= 0.90
             if random.random() < eff_pk:
                 tgt.alive       = False
                 tgt.intercepted = True
