@@ -101,6 +101,29 @@ except ImportError:
     _SONAR_BF_FACTOR = {}
     _OCEAN_ENV_OK = False
 
+try:
+    from terrain_db import STRAITS_DB
+    _TERRAIN_DB_OK = True
+except ImportError:
+    STRAITS_DB = {}
+    _TERRAIN_DB_OK = False
+
+# ── v9.14: 해협 시나리오 상수 ────────────────────────────────────────────────
+# strait_type → (접근 방위 중심각°, 확산각°) 매핑
+# korea_west: 위협이 서쪽(일본해→서수도 방향) 270°에서 동쪽으로 접근
+# korea_east: 위협이 동쪽(태평양→동수도 방향) 90°에서 서쪽으로 접근
+# bilateral: 동서 양방향 협공
+STRAIT_BEARING: dict[str, list[float]] = {
+    'korea_west': [270.0],
+    'korea_east': [90.0],
+    'bilateral':  [90.0, 270.0],
+}
+STRAIT_SPREAD_DEG = 30.0  # 해협 입구 방위 확산각 (±30°)
+
+# 해협 폭 기준 회피 기동 패널티: 폭이 좁을수록 기동 공간 감소
+# 기준 200km(개방 해역) 대비 해협 폭 비율로 evade_r 스케일
+_STRAIT_OPEN_SEA_KM = 200.0
+
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — 해성 250m/s 기준 250km = 1000초 충분
@@ -1028,17 +1051,29 @@ class TimeStepEngine:
         total = sum(s.get('count', 1) for s in fleet_cfg)
         idx = 0
 
+        # v9.14: 해협 시나리오 — fleet_region='대한해협' 시 자동 활성화
+        # 위협 접근 방위를 동/서수도 방향으로 제한 (multibearing 설정 무시)
+        _strait_active = (self.cfg.get('fleet_region', '') == '대한해협')
+        _strait_type   = self.cfg.get('strait_type', 'korea_west')
+        if _strait_active:
+            _strait_bases = [
+                math.radians(b) for b in STRAIT_BEARING.get(_strait_type, [270.0])
+            ]
+            _n_strait = len(_strait_bases)
+
         # enable_multibearing: ON → 2~4개 방위 섹터로 분산 접근
         #                       OFF → 모두 단일 방향(기본 0°)
+        # (해협 시나리오 활성 시 아래 분기 대신 _strait_bases 사용)
         _multibearing = self.cfg.get('enable_multibearing', False)
-        if _multibearing:
-            _n_sectors = min(4, max(2, total))
-            _sector_bases = [
-                math.radians(i * (360 / _n_sectors))
-                for i in range(_n_sectors)
-            ]
-        else:
-            _single_bearing = math.radians(random.uniform(0, 360))
+        if not _strait_active:
+            if _multibearing:
+                _n_sectors = min(4, max(2, total))
+                _sector_bases = [
+                    math.radians(i * (360 / _n_sectors))
+                    for i in range(_n_sectors)
+                ]
+            else:
+                _single_bearing = math.radians(random.uniform(0, 360))
 
         # 적 편대 전술 기동 — 초기 배치 오프셋
         # 'v_formation': V자 대형 (선두 1기 + 양익)
@@ -1055,7 +1090,12 @@ class TimeStepEngine:
             ttype = info.get('type', '')
 
             for _ in range(count):
-                if _multibearing:
+                if _strait_active:
+                    # v9.14: 해협 방위 ± STRAIT_SPREAD_DEG 내 랜덤 배치
+                    base = _strait_bases[idx % _n_strait]
+                    bearing_rad = base + math.radians(
+                        random.uniform(-STRAIT_SPREAD_DEG, STRAIT_SPREAD_DEG))
+                elif _multibearing:
                     sector = idx % _n_sectors
                     bearing_rad = _sector_bases[sector] + math.radians(
                         random.uniform(-15, 15))
@@ -1130,6 +1170,14 @@ class TimeStepEngine:
                     # v9.6: 기습 잠수함 — hidden_until 설정 (은닉 시간 동안 탐지·교전 불가)
                     if info.get('is_ambush') and et.is_sub:
                         et.hidden_until = float(info.get('ambush_hidden_s', 120))
+                    # v9.14: 해협 시나리오 — 잠수함 잠항 수심을 해협 임계수심(sill_m)으로 cap
+                    if _strait_active and et.is_sub:
+                        strait_key = {'korea_west': 'korea_west',
+                                      'korea_east': 'korea_east',
+                                      'bilateral':  'korea_west'}.get(_strait_type, 'korea_west')
+                        sill = STRAITS_DB.get(strait_key, {}).get('sill_m', 0)
+                        if sill and et.altitude_m < -sill:
+                            et.altitude_m = float(-sill)
                     threats.append(et)
 
                 idx += 1
@@ -1334,7 +1382,13 @@ class TimeStepEngine:
     def _update_positions(self):
         # 아군 함정 회피 기동: 적 미사일이 15km 이내 접근 시 지그재그 위치 보정
         if self.cfg.get('enable_ship_evasion', False):
-            _evade_r = 15_000  # 15km 이내 = 회피 기동 개시
+            # v9.14: 해협 시나리오 — STRAITS_DB 폭 기반 기동 공간 제한
+            _evade_r = 15_000
+            if self.cfg.get('fleet_region', '') == '대한해협':
+                _st = self.cfg.get('strait_type', 'korea_west')
+                _sk = 'korea_east' if _st == 'korea_east' else 'korea_west'
+                _w  = STRAITS_DB.get(_sk, {}).get('width_km', _STRAIT_OPEN_SEA_KM)
+                _evade_r = int(_evade_r * min(1.0, _w / _STRAIT_OPEN_SEA_KM))
             for ship in self.friendly_ships:
                 if not ship.alive:
                     continue

@@ -1332,5 +1332,20 @@
       "추가  fleet_sensor_range(): _make_physics_wx() 적용으로 탐지정보 패널 수치도 물리화",
       "추가  설정 패널 '증발 덕팅 적용' 체크박스 (기본 OFF — 기존 결과 완전 호환)"
     ]
+  },
+  {
+    "version": "v9.14",
+    "date": "2026-06-02",
+    "title": "해협 통과 방어 시나리오 — 방위 제한 + 협착 기동 패널티 + 전용 프리셋",
+    "changes": [
+      "추가  STRAIT_BEARING: 해협 유형별(서수도/동수도/양방향) 위협 접근 방위 ±30° 제한",
+      "추가  _spawn_threats(): fleet_region='대한해협' 선택 시 협착 방위로 자동 전환 (multibearing 설정 무시)",
+      "추가  _update_positions(): STRAITS_DB.width_km 기반 동적 회피 기동 반경 패널티 (서수도 ~25%, 동수도 ~49%로 감소)",
+      "추가  잠수함 스폰 수심 STRAITS_DB.sill_m으로 자동 cap (서수도 130m / 동수도 115m)",
+      "추가  ENEMY_FLEET_PRESETS — 이어도 방어전: J-10C×3 + 054A×2 + 039×1",
+      "추가  ENEMY_FLEET_PRESETS — 대한해협 통과 저지: 022고속정×6 + J-11B×2 + 039×1",
+      "추가  ENEMY_FLEET_PRESETS — 쓰시마 봉쇄 돌파: Tu-22M3×2 + 킬로급×2 + 슬라바급×1",
+      "추가  설정 패널 '해협 진입로' 콤보박스 — 대한해협 선택 시 자동 표시, 지형 음영 자동 활성화"
+    ]
   }
 ]

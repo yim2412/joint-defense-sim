@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v9.13 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v9.14 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v9.14 — 해협 통과 방어 시나리오: 방위 제한 + 협착 기동 패널티 + 전용 프리셋] ║
+║  NEW-A  STRAIT_BEARING: 해협 유형별 위협 접근 방위 제한 (동/서/양방향 ±30°) ║
+║  NEW-B  _spawn_threats(): 대한해협 선택 시 협착 방위로 자동 전환             ║
+║  NEW-C  _update_positions(): STRAITS_DB 폭 기반 동적 회피 기동 패널티        ║
+║  NEW-D  잠수함 스폰 수심 STRAITS_DB sill_m으로 자동 cap (서수도130m/동수도115m)║
+║  NEW-E  ENEMY_FLEET_PRESETS: 이어도·대한해협·쓰시마 봉쇄 전용 프리셋 3개   ║
+║  NEW-F  설정 패널 '해협 진입로' 콤보박스 — 대한해협 선택 시 자동 표시       ║
 ║  [v9.13 — 대기·해양 환경 센서 물리 모델: Beaufort 클러터 + 덕팅 + CEP 바람]  ║
 ║  NEW-A  WEATHER_BEAUFORT_MAP: 날씨 → Beaufort 매핑, radar/sonar_factor 물리화 ║
 ║  NEW-B  _make_physics_wx(): ocean_environment_db 클러터·소음 데이터 자동 적용 ║
@@ -4063,6 +4070,17 @@ class MainWindow(QMainWindow):
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
             self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
+        # v9.14: 해협 진입로
+        strait_type = cfg.get('strait_type', '')
+        if strait_type and hasattr(self, 'cmb_strait_type'):
+            reverse = {'korea_west': '서수도 (서→동)',
+                       'korea_east': '동수도 (동→서)',
+                       'bilateral':  '양방향 협공'}
+            label = reverse.get(strait_type, '')
+            if label:
+                idx = self.cmb_strait_type.findText(label)
+                if idx >= 0:
+                    self.cmb_strait_type.setCurrentIndex(idx)
         # 적군 모드 — preset / random / manual
         enemy_mode = cfg.get('enemy_fleet_mode', '')
         mode_reverse = {'preset': '편대 프리셋', 'random': '랜덤 편성', 'manual': '직접 구성'}
@@ -4179,6 +4197,31 @@ class MainWindow(QMainWindow):
         )
         self.chk_evap_duct.setChecked(False)
 
+        # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
+        self.cmb_strait_type = NoScrollComboBox()
+        self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
+        self.cmb_strait_type.setToolTip(
+            "해협 통과 방향 선택 — 위협 접근 방위를 동/서 방향 ±30° 이내로 제한합니다.\n"
+            "서수도 (49.5 km): 서쪽(일본해)에서 동쪽으로 접근 — 기동 공간 가장 좁음\n"
+            "동수도 (98 km): 동쪽(태평양)에서 서쪽으로 접근 — 기동 공간 중간\n"
+            "양방향 협공: 동수도·서수도 동시 협공 — 최고 난이도\n"
+            "잠수함 잠항 수심은 해협 임계수심(서수도 130m / 동수도 115m)으로 자동 제한."
+        )
+        self._row_strait_label = QLabel("해협 진입로")
+        self._row_strait_label.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
+
+        def _on_region_changed(txt: str):
+            visible = (txt == '대한해협')
+            self._row_strait_label.setVisible(visible)
+            self.cmb_strait_type.setVisible(visible)
+            if visible:
+                self.chk_terrain.setChecked(True)   # 소백산맥 음영 자동 활성화
+            else:
+                self.chk_terrain.setChecked(False)
+
+        self.cmb_region.currentTextChanged.connect(_on_region_changed)
+        _on_region_changed(self.cmb_region.currentText())
+
         fl.addRow("편대 프리셋", self.cmb_fleet)
         fl.addRow("",            self.lbl_fleet_detail)
         fl.addRow("날씨",        self.cmb_weather)
@@ -4186,6 +4229,7 @@ class MainWindow(QMainWindow):
         fl.addRow("계절",        self.cmb_season)
         fl.addRow("",            self.chk_terrain)
         fl.addRow("",            self.chk_evap_duct)
+        fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
         # 랜덤 배치 — 항상 활성화 (반경 10km 고정)
@@ -5546,6 +5590,11 @@ class MainWindow(QMainWindow):
             'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
             'enable_terrain':    self.chk_terrain.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
+            # v9.14: 해협 진입로 (대한해협 선택 시 유효)
+            'strait_type': {'서수도 (서→동)': 'korea_west',
+                            '동수도 (동→서)': 'korea_east',
+                            '양방향 협공':    'bilateral'}.get(
+                self.cmb_strait_type.currentText(), 'korea_west'),
             'detect_km_manual':  False,
             # 적군 (포팅 A)
             'enemy_fleet_mode':       enemy_mode,
@@ -7211,11 +7260,6 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            # ── v9.x ────────────────────────────────────────────────────────
-            ("v9.14", "중간", "해협 통과 방어 시나리오",
-             "⚠ v9.12 지형·해상 환경 반영 선행 필요. "
-             "fleet_region='대한해협' 선택 시 동서 방향만 열린 협착 교전 환경 자동 적용. "
-             "이어도·대한해협·쓰시마 해협 전용 프리셋."),
             # ── v10.x ───────────────────────────────────────────────────────
             ("v10.x", "낮음", "정밀 대기 모델",
              "⚠ 완전 양방향 교전 엔진 재설계 이후 통합. "
