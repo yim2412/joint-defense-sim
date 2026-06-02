@@ -1449,6 +1449,15 @@ _P3C_WX  = {
     '폭풍 (야간)':True,'태풍 (야간)':False,
     '농무 (야간)':True,'황사 (새벽)':True,
 }
+# v10.5: CAP 전투기 날씨 제한 (태풍·황사새벽만 제한 — 계기비행 + 제트엔진 전천후)
+_CAP_WX = {
+    '맑음 (주간)':True,'맑음 (야간)':True,'흐림 (박무)':True,
+    '황사 (봄철 황사)':True,'풍랑 (7~8등급)':True,
+    '폭풍 (해상 악화)':True,'태풍 (9~12등급)':False,
+    '농무 (시정 200m 이하)':True,
+    '폭풍 (야간)':True,'태풍 (야간)':False,
+    '농무 (야간)':True,'황사 (새벽)':False,
+}
 
 FRIENDLY_AIRCRAFT_DB = {
     'AW-159 와일드캣': {
@@ -1519,6 +1528,60 @@ FRIENDLY_AIRCRAFT_DB = {
         'detect_base_prob': 0.80,       # P-3C 대비 +12%p
         'retry_s':          100,        # 더 빠른 재투하
         'max_attempts':     5,          # 탑재량 많아 더 많이 시도 가능
+    },
+    # ── v10.5: 한국 공군 CAP 항공기 ───────────────────────────────────────────
+    # aircraft_role='cap': 공대공 교전 전용 (ASW 기능 없음)
+    # cap_aam_range_km: 유효 교전 사거리 / cap_aam_pk: 단발 Pk / payload_cnt: 탑재 미사일 수
+    'F-35A 라이트닝 II': {
+        'speed_ms':     490,          # Mach 1.6 순항 (스텔스 구성, 내부 무장창)
+        'range_km':     2200,
+        'sortie_time_s':1800,         # 출격 준비 30분
+        'payload_wpn':  'AIM-120D',
+        'payload_cnt':  4,            # 내부 무장창 AIM-120D 4발 (스텔스 구성)
+        'cost_usd':     600000,       # 출격 + AIM-120D 소모 비용
+        'on_deck':      True,
+        'base_type':    'land',
+        'base_name':    '청주기지',
+        'base_dist_km': 300,
+        'aircraft_role':'cap',
+        'cap_aam_range_km': 160,      # AIM-120D 실효 BVR 사거리 (~160km 공개 추정)
+        'cap_aam_pk':   0.65,         # AMRAAM 단발 교전 Pk (실전 추정값)
+        'cap_patrol_radius_km': 600,  # 이지스 함대로부터 CAP 패트롤 반경
+        'weather_limits': _CAP_WX,
+    },
+    'KF-21 보라매': {
+        'speed_ms':     430,          # Mach 1.8 최대, ~Mach 1.4 순항
+        'range_km':     1900,
+        'sortie_time_s':1200,         # 출격 준비 20분
+        'payload_wpn':  'IRIS-T SL',
+        'payload_cnt':  6,            # IRIS-T 4발 + AIM-120C 2발
+        'cost_usd':     400000,
+        'on_deck':      True,
+        'base_type':    'land',
+        'base_name':    '대구기지',
+        'base_dist_km': 250,
+        'aircraft_role':'cap',
+        'cap_aam_range_km': 80,       # IRIS-T(25km) + AIM-120C(120km) 혼재 → 중간값
+        'cap_aam_pk':   0.55,
+        'cap_patrol_radius_km': 500,
+        'weather_limits': _CAP_WX,
+    },
+    'FA-50 골든이글': {
+        'speed_ms':     340,          # Mach 1.5 경전투기
+        'range_km':     1800,
+        'sortie_time_s': 900,         # 출격 준비 15분 (소형 경량)
+        'payload_wpn':  'AIM-9X',
+        'payload_cnt':  4,
+        'cost_usd':     200000,
+        'on_deck':      True,
+        'base_type':    'land',
+        'base_name':    '원주기지',
+        'base_dist_km': 350,
+        'aircraft_role':'cap',
+        'cap_aam_range_km': 35,       # AIM-9X 유효 BVR 사거리
+        'cap_aam_pk':   0.45,
+        'cap_patrol_radius_km': 400,  # 항속거리 제한으로 패트롤 반경 좁음
+        'weather_limits': _CAP_WX,
     },
 }
 

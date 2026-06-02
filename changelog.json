@@ -1445,5 +1445,20 @@
       "수정  chk_cec 기본값 True, 툴팁 'CEC 협동 교전 (탐지 커버리지 통합)'으로 갱신",
       "삭제  _PLANS v10.3(Damage Control)·v10.4(CEC) — 구현 완료로 제거"
     ]
+  },
+  {
+    "version": "v10.9",
+    "date": "2026-06-02",
+    "title": "v10.5 한국 공군 CAP — F-35A·KF-21·FA-50 BVR 교전",
+    "changes": [
+      "추가  _CAP_WX: CAP 전투기 날씨 제한 딕셔너리 (태풍·황사새벽 출격 불가)",
+      "추가  FRIENDLY_AIRCRAFT_DB: F-35A 라이트닝 II (청주기지, AIM-120D×4, Pk 65%)",
+      "추가  FRIENDLY_AIRCRAFT_DB: KF-21 보라매 (대구기지, IRIS-T/AIM-120C×6, Pk 55%)",
+      "추가  FRIENDLY_AIRCRAFT_DB: FA-50 골든이글 (원주기지, AIM-9X×4, Pk 45%)",
+      "추가  _aircraft_cap(): 적 항공기 BVR 요격 — 즉시 Pk 판정, 60s cooldown",
+      "수정  _build_aircraft(): enable_f35a/kf21/fa50 CAP 플래그 추가",
+      "추가  설정 패널: F-35A·KF-21·FA-50 체크박스 (항공 자산 그룹 통합)",
+      "삭제  _PLANS v10.5(CAP/SEAD) — 구현 완료"
+    ]
   }
 ]

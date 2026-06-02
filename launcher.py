@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.8 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.9 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.9 — v10.5 한국 공군 CAP: F-35A·KF-21·FA-50 BVR 교전]                ║
+║  NEW-A  FRIENDLY_AIRCRAFT_DB: F-35A·KF-21·FA-50 CAP 항공기 3종 추가        ║
+║  NEW-B  _CAP_WX: CAP 전투기 날씨 제한 (태풍·황사새벽만 출격 불가)           ║
+║  NEW-C  _aircraft_cap(): 적 항공기 BVR 요격 로직 (즉시 Pk, 60s cooldown)    ║
+║  NEW-D  _build_aircraft(): F-35A/KF-21/FA-50 enable 플래그 추가             ║
+║  NEW-E  설정 패널 CAP 체크박스 3개 추가 (항공 자산 그룹에 통합)              ║
+║  DEL-A  _PLANS v10.5(CAP/SEAD) 삭제 — 구현 완료                            ║
 ║  [v10.8 — v10.4 CEC 협동 교전: 탐지 커버리지 통합 + 중계 Pk 패널티]        ║
 ║  NEW-A  per-ship 탐지거리 체크: 자체 탐지 불가 함정은 CEC 없이 교전 불가    ║
 ║  NEW-B  CEC 중계 교전 MissileObj.cec_relay 플래그 + Pk ×0.90 패널티        ║
@@ -4152,6 +4159,12 @@ class MainWindow(QMainWindow):
             self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
         if hasattr(self, 'chk_radar_off'):
             self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
+        # 항공 자산 복원
+        for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
+                          ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
+                          ('chk_kf21','enable_kf21'),('chk_fa50','enable_fa50')]:
+            if hasattr(self, attr):
+                getattr(self, attr).setChecked(cfg.get(key, False))
         self._lbl_status.setText("✅ 설정 복원 완료")
 
 
@@ -4400,8 +4413,8 @@ class MainWindow(QMainWindow):
         grp_t.hide()
         layout.addWidget(grp_t)
 
-        # ── 항공 자산 (포팅 C) ────────────────────────────────────────────
-        grp_ac = QGroupBox("🚁 항공 자산 (대잠 전용)")
+        # ── 항공 자산 (포팅 C + v10.5 CAP) ──────────────────────────────────
+        grp_ac = QGroupBox("✈️ 항공 자산")
         acl = QVBoxLayout(grp_ac)
         acl.setSpacing(4)
 
@@ -4409,7 +4422,25 @@ class MainWindow(QMainWindow):
         self.chk_p3c  = QCheckBox("P-3C 오라이온  (포항기지, Mk.46 4발, 소노부이+15km)")
         self.chk_p8a  = QCheckBox("P-8A 포세이돈  (포항기지, Mk.46 5발, 소노부이+18km)")
 
-        for chk in [self.chk_helo, self.chk_p3c, self.chk_p8a]:
+        # v10.5: 한국 공군 CAP
+        self.chk_f35a = QCheckBox("F-35A 라이트닝 II  (청주기지, AIM-120D×4, CAP 600km)")
+        self.chk_f35a.setToolTip(
+            "스텔스 CAP — BVR 교전 AIM-120D (Pk 65%, 사거리 160km).\n"
+            "청주기지 출격 준비 30분. 탑재 4발, 전천후 운용."
+        )
+        self.chk_kf21 = QCheckBox("KF-21 보라매  (대구기지, IRIS-T/AIM-120C×6, CAP 500km)")
+        self.chk_kf21.setToolTip(
+            "다목적 CAP — IRIS-T SL + AIM-120C 복합 탑재 (Pk 55%, 사거리 80km).\n"
+            "대구기지 출격 준비 20분. 탑재 6발."
+        )
+        self.chk_fa50 = QCheckBox("FA-50 골든이글  (원주기지, AIM-9X×4, CAP 400km)")
+        self.chk_fa50.setToolTip(
+            "경전투 CAP — AIM-9X 단거리 (Pk 45%, 사거리 35km).\n"
+            "원주기지 출격 준비 15분. 탑재 4발."
+        )
+
+        for chk in [self.chk_helo, self.chk_p3c, self.chk_p8a,
+                    self.chk_f35a, self.chk_kf21, self.chk_fa50]:
             chk.setChecked(False)
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             acl.addWidget(chk)
@@ -5691,10 +5722,14 @@ class MainWindow(QMainWindow):
             'enable_evasion':     True,
             'enable_decoy':       True,
             'enable_selfdefense': True,
-            # 항공 자산 — 항상 ON
-            'enable_helo': True,
-            'enable_p3c':  True,
-            'enable_p8a':  True,
+            # 항공 자산 — UI 체크박스 읽기
+            'enable_helo':  self.chk_helo.isChecked(),
+            'enable_p3c':   self.chk_p3c.isChecked(),
+            'enable_p8a':   self.chk_p8a.isChecked(),
+            # v10.5: 한국 공군 CAP
+            'enable_f35a':  self.chk_f35a.isChecked(),
+            'enable_kf21':  self.chk_kf21.isChecked(),
+            'enable_fa50':  self.chk_fa50.isChecked(),
             # 방어 전술 — UI 체크박스 읽기
             'enable_layered_defense': True,
             'enable_cec':             self.chk_cec.isChecked(),
@@ -7346,14 +7381,7 @@ class SplashWindow(QWidget):
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
             ("v10.2", "매우 높음", "완전 양방향 교전 (Phase A 잔여)",
-             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동. "
-             "v10.9(구 v10.8)로 일정 조정."),
-            ("v10.5", "중간", "한국 공군 CAP / SEAD",
-             "한국 자산만 사용. "
-             "F-35A (청주기지): 스텔스 CAP, AIM-120D 교전. "
-             "KF-21 보라매 (대구기지): CAP + 해성-II 대함 공격. "
-             "FA-50 (원주기지): 경전투 CAP, AIM-9X. "
-             "FriendlyAircraftObj 확장 — 공대공 교전 로직 신설, 적 항공기 요격 레이어 추가."),
+             "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동 (→ v10.11)."),
             ("v10.6", "높음", "적 항공모함 타격 작전",
              "⚠ v10.2 완전 양방향 교전 선행 필수. "
              "아군 공격자·적 항모전단 방어자 역전 시나리오. "

@@ -1289,13 +1289,17 @@ class TimeStepEngine:
         return threats
 
     def _build_aircraft(self) -> List[FriendlyAircraftObj]:
-        """포팅 C: enable_helo / enable_p3c / enable_p8a cfg 키로 항공 자산 등록."""
+        """포팅 C: enable_helo / enable_p3c / enable_p8a + v10.5 CAP 항공기."""
         aircraft = []
         primary_pos = self._primary().pos
         for en_key, preset_key, default in [
-            ('enable_helo', 'helo_preset', 'AW-159 와일드캣'),
-            ('enable_p3c',  'p3c_preset',  'P-3C 오라이온'),
-            ('enable_p8a',  'p8a_preset',  'P-8A 포세이돈'),
+            ('enable_helo',  'helo_preset',  'AW-159 와일드캣'),
+            ('enable_p3c',   'p3c_preset',   'P-3C 오라이온'),
+            ('enable_p8a',   'p8a_preset',   'P-8A 포세이돈'),
+            # v10.5: 한국 공군 CAP
+            ('enable_f35a',  'f35a_preset',  'F-35A 라이트닝 II'),
+            ('enable_kf21',  'kf21_preset',  'KF-21 보라매'),
+            ('enable_fa50',  'fa50_preset',  'FA-50 골든이글'),
         ]:
             if not self.cfg.get(en_key, False):
                 continue
@@ -2543,6 +2547,65 @@ class TimeStepEngine:
                     f"— {retry_s}초 후 재시도 ({ac._detect_fails}/{max_att})"
                 )
 
+    def _aircraft_cap(self):
+        """
+        v10.5: 한국 공군 CAP — 적 항공기 BVR 요격.
+        idle → (적 항공기 패트롤 반경 진입) → AAM 교전(즉시 Pk 판정) → 60s cooldown → idle
+        """
+        primary = self._primary()
+        weather = self.cfg.get('weather', '맑음 (주간)')
+        for ac in self.aircraft:
+            if ac.info.get('aircraft_role', 'asw') != 'cap':
+                continue
+            if self.t < ac.t_available:
+                continue
+            if ac.payload_remaining <= 0:
+                continue
+            if not ac.info.get('weather_limits', {}).get(weather, True):
+                continue
+            if self.t < ac._next_attempt:
+                continue
+
+            patrol_m   = ac.info.get('cap_patrol_radius_km', 500) * 1000
+            aam_range_m= ac.info.get('cap_aam_range_km', 100) * 1000
+            aam_pk     = ac.info.get('cap_aam_pk', 0.55)
+            base_dist_m= ac.info.get('base_dist_km', 300) * 1000
+            wpn_name   = ac.info.get('payload_wpn', 'AAM')
+
+            for et in self.enemy_threats:
+                if not et.alive or not et.is_aircraft or et.is_retreating:
+                    continue
+                dist_threat = primary.pos.dist_to(et.pos)
+                # 패트롤 반경 내 + 기지→함대→표적 총 사거리 체크
+                if dist_threat > patrol_m:
+                    continue
+                if dist_threat + base_dist_m > ac.info['range_km'] * 1000:
+                    continue
+                # AAM 유효 사거리 내 진입 시 교전
+                if dist_threat > aam_range_m:
+                    continue
+
+                ac.payload_remaining -= 1
+                ac.total_cost += ac.info['cost_usd'] / max(ac.info['payload_cnt'], 1)
+
+                if random.random() < aam_pk:
+                    et.alive = False
+                    et.intercepted = True
+                    self.stats['intercepted_threats'] += 1
+                    self._log(
+                        f"[CAP] {ac.name} → {et.preset_name} "
+                        f"{wpn_name} 격추 (거리 {dist_threat/1000:.0f}km, {self.t:.0f}s)"
+                    )
+                else:
+                    self._log(
+                        f"[CAP] {ac.name} → {et.preset_name} "
+                        f"{wpn_name} 교전 실패 (거리 {dist_threat/1000:.0f}km, Pk {aam_pk:.0%})"
+                    )
+
+                # 교전 후 선회·재장전 cooldown
+                ac._next_attempt = self.t + 60.0
+                break  # 한 tick당 한 표적
+
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
         # 우선순위: Tomahawk(초장거리) → 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)
         # Tomahawk Block V: US 함정 전용 초장거리 대함 타격
@@ -3015,7 +3078,7 @@ class TimeStepEngine:
             self._arm_radar_off_check()
             _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0
             _t0 = _pc(); self._friendly_strike();  pt['아군공격'] += _pc() - _t0
-            _t0 = _pc(); self._aircraft_asw();     pt['대잠']     += _pc() - _t0
+            _t0 = _pc(); self._aircraft_asw(); self._aircraft_cap(); pt['대잠'] += _pc() - _t0
             _t0 = _pc(); self._enemy_defense();    pt['적방어']   += _pc() - _t0
             _t0 = _pc(); self._enemy_anti_sam();   pt['적Anti-SAM'] += _pc() - _t0
             _t0 = _pc()
