@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.1 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.2 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.2 — 완전 양방향 교전 Phase D: 적 미사일 분산 타겟팅]                  ║
+║  NEW-A  _pick_target(): 생존 함정 max_hp 가중 랜덤 타겟 선택 (어뢰→기함 우선)║
+║  NEW-B  enemy_strike 4개 발사점 target=primary → _pick_target() 교체        ║
+║  NEW-C  ship_subsystem_damage에 hits_taken 필드 추가                        ║
+║  NEW-D  서브시스템 피해 탭 '피격' 컬럼 추가 (함정별 명중 횟수 표시)          ║
 ║  [v10.1 — 정밀 대기 모델: ISA 굴절 + 트로포스캐터]                          ║
 ║  NEW-A  ISA_RADIOSONDE_DB: 기상청 라디오존데 계절별 굴절 지수 보정 (6개 해역×계절)║
 ║  NEW-B  TROPOSCATTER_DB: 수평선 너머 고고도 표적 탐지거리 +7~16%            ║
@@ -5287,17 +5292,18 @@ class MainWindow(QMainWindow):
         hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
         layout.addWidget(hdr)
 
-        self._subsystem_table = QTableWidget(0, 6)
+        self._subsystem_table = QTableWidget(0, 7)
         self._subsystem_table.setHorizontalHeaderLabels([
-            "함정", "HP", "레이더", "추진", "채널", "비활성 무기"
+            "함정", "HP", "피격", "레이더", "추진", "채널", "비활성 무기"
         ])
         hh = self._subsystem_table.horizontalHeader()
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         self._subsystem_table.setColumnWidth(0, 160)
         self._subsystem_table.setColumnWidth(1, 60)
-        self._subsystem_table.setColumnWidth(2, 90)
+        self._subsystem_table.setColumnWidth(2, 50)
         self._subsystem_table.setColumnWidth(3, 90)
         self._subsystem_table.setColumnWidth(4, 90)
+        self._subsystem_table.setColumnWidth(5, 90)
         self._subsystem_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._subsystem_table.setAlternatingRowColors(True)
         self._subsystem_table.setStyleSheet(
@@ -5318,11 +5324,13 @@ class MainWindow(QMainWindow):
             row = self._subsystem_table.rowCount()
             self._subsystem_table.insertRow(row)
             hp_str = f"{info['hp']} / {info['max_hp']}" if info['alive'] else f"격침 (HP {info['hp']})"
+            hits_str = str(info.get('hits_taken', 0))
             dis_wpns = ', '.join(info['disabled_weapons']) if info['disabled_weapons'] else '—'
 
             items = [
                 QTableWidgetItem(ship_name),
                 QTableWidgetItem(hp_str),
+                QTableWidgetItem(hits_str),
                 QTableWidgetItem(f"{info['radar_factor']:.2f}"),
                 QTableWidgetItem(f"{info['speed_factor']:.2f}"),
                 QTableWidgetItem(f"{info['channel_factor']:.2f}"),
@@ -5331,7 +5339,7 @@ class MainWindow(QMainWindow):
             for col, item in enumerate(items):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 # 임계 손상(≤0.50) 또는 격침 → 빨간색 강조
-                if col in (2, 3, 4):
+                if col in (3, 4, 5):
                     try:
                         val = float(item.text())
                         if val <= 0.50:

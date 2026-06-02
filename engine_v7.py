@@ -1146,11 +1146,12 @@ class TimeStepEngine:
 
                 if ttype in _STANDALONE_MISSILE_TYPES:
                     # 독립 미사일 위협: MissileObj로 직접 생성
+                    _tgt = self._pick_target(is_torpedo=False)
                     m = MissileObj(
                         mtype    = 'enemy_strike',
                         name     = name,
                         pos      = pos,
-                        target   = primary,
+                        target   = _tgt,
                         speed_ms = info['speed_ms'] * self.cfg.get('threat_spd_scale', 1.0),
                         pk_base  = _MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),  # MED-5
                         owner_id = -1,
@@ -1164,7 +1165,7 @@ class TimeStepEngine:
                     m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
                     m.is_torpedo             = False
                     # 3D 시각화용: 포물선 궤도 계산에 사용할 초기 거리·정점 고도 저장
-                    m._init_dist  = m.pos.dist_to(primary.pos)
+                    m._init_dist  = m.pos.dist_to(_tgt.pos)
                     m._peak_alt_m = m.altitude_m  # DB 고도 = 정점 고도
                     m.detect_m    = m._init_dist   # A-1: 스폰 거리 = 탐지 거리 근사
                     m.enemy_info  = info.copy()    # A-1: ENEMY_DB 원본
@@ -1236,6 +1237,17 @@ class TimeStepEngine:
                     return s
         return next((s for s in self.friendly_ships if s.alive), self.friendly_ships[0])
 
+    def _pick_target(self, is_torpedo: bool = False) -> FriendlyShipObj:
+        """적 미사일 타겟 선택 — 전단 내 생존 함정 분산 공격.
+        어뢰: 이지스 기함(primary) 우선. 대함미사일: max_hp 가중 랜덤."""
+        alive = [s for s in self.friendly_ships if s.alive]
+        if len(alive) <= 1:
+            return alive[0] if alive else self.friendly_ships[0]
+        if is_torpedo:
+            return self._primary()
+        weights = [s._max_hp for s in alive]
+        return random.choices(alive, weights=weights, k=1)[0]
+
     def _spawn_pending_threat(self, spec: dict):
         """NEW-A: 혼합 시나리오 파도 지연 스폰 — spec={'preset':name,'count':n}"""
         name  = spec.get('preset', '')
@@ -1260,9 +1272,10 @@ class TimeStepEngine:
             pos = Vec2(math.cos(bearing_rad) * start_m, math.sin(bearing_rad) * start_m)
 
             if ttype in _STANDALONE_MISSILE_TYPES:
+                _tgt = self._pick_target(is_torpedo=False)
                 m = MissileObj(
                     mtype='enemy_strike', name=name, pos=pos,
-                    target=primary,
+                    target=_tgt,
                     speed_ms=info['speed_ms'] * self.cfg.get('threat_spd_scale', 1.0),
                     pk_base=_MISSILE_PK_MAP.get(name, _MISSILE_PK_DEFAULT),
                     owner_id=-1, t_spawn=self.t,
@@ -1274,7 +1287,7 @@ class TimeStepEngine:
                 m.is_arm                  = bool(info.get('is_arm', False))
                 m.terminal_evasion_factor = info.get('missile_terminal_evasion', 1.0)
                 m.is_torpedo              = False
-                m._init_dist              = m.pos.dist_to(primary.pos)
+                m._init_dist              = m.pos.dist_to(_tgt.pos)
                 m._peak_alt_m             = m.altitude_m
                 m.detect_m                = m._init_dist
                 m.enemy_info              = info.copy()
@@ -1535,6 +1548,7 @@ class TimeStepEngine:
             m_name  = et.info.get('missile_name') or '대함미사일'
 
             for _ in range(salvo):
+                _is_torp = '어뢰' in m_name
                 offset = Vec2(
                     et.pos.x + random.uniform(-500, 500),
                     et.pos.y + random.uniform(-500, 500),
@@ -1543,7 +1557,7 @@ class TimeStepEngine:
                     mtype    = 'enemy_strike',
                     name     = m_name,
                     pos      = offset,
-                    target   = primary,
+                    target   = self._pick_target(is_torpedo=_is_torp),
                     speed_ms = m_speed,
                     pk_base  = _MISSILE_PK_MAP.get(m_name, _MISSILE_PK_DEFAULT),  # MED-5
                     owner_id = id(et),
@@ -1551,7 +1565,7 @@ class TimeStepEngine:
                 )
                 # 포팅 B: 전술 속성 설정
                 _m.terminal_evasion_factor = et.info.get('missile_terminal_evasion', 1.0)
-                _m.is_torpedo = '어뢰' in m_name
+                _m.is_torpedo = _is_torp
                 self.missiles.append(_m)
 
             et.has_fired = True
@@ -1584,7 +1598,7 @@ class TimeStepEngine:
                             name     = d_name,
                             pos      = Vec2(et.pos.x + random.uniform(-300, 300),
                                            et.pos.y + random.uniform(-300, 300)),
-                            target   = primary,
+                            target   = self._pick_target(is_torpedo=False),
                             speed_ms = d_spd,
                             pk_base  = _MISSILE_PK_MAP.get(d_name, _MISSILE_PK_DEFAULT),
                             owner_id = id(et),
@@ -2885,6 +2899,7 @@ class TimeStepEngine:
                 'alive':           s.alive,
                 'hp':              s.hp,
                 'max_hp':          s._max_hp,
+                'hits_taken':      s.hits_taken,
             }
             for s in self.friendly_ships
         }

@@ -1334,6 +1334,17 @@
     ]
   },
   {
+    "version": "v10.2",
+    "date": "2026-06-02",
+    "title": "완전 양방향 교전 Phase D — 적 미사일 분산 타겟팅",
+    "changes": [
+      "추가  _pick_target(): 생존 아군 함정 중 max_hp 가중 랜덤 타겟 선택 (어뢰는 이지스 기함 우선)",
+      "수정  enemy_strike 미사일 4개 발사점 target=primary → _pick_target() 교체 — 전단 분산 피격 구현",
+      "수정  ship_subsystem_damage에 hits_taken 필드 추가",
+      "수정  서브시스템 피해 탭 '피격' 컬럼 추가 (함정별 명중 횟수 표시)"
+    ]
+  },
+  {
     "version": "v10.1",
     "date": "2026-06-02",
     "title": "정밀 대기 모델 — ISA 굴절 + 트로포스캐터",
