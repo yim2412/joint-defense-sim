@@ -2544,6 +2544,78 @@ class TimeStepEngine:
                     f"(거리 {dist_m/1000:.1f}km)"
                 )
 
+    def _enemy_anti_sam(self):
+        """적 함정의 Anti-SAM 방어 — 아군 SAM이 접근 시 CIWS·SAM으로 요격.
+        enable_anti_sam=False(기본)이면 즉시 반환 (기존 결과 완전 호환).
+        """
+        if not self.cfg.get('enable_anti_sam', False):
+            return
+
+        for et in self.enemy_threats:
+            if not et.alive or not et.is_ship or not et.sam_inventory:
+                continue
+
+            for m in list(self.missiles):
+                if not m.alive or m.mtype != 'friendly_sam':
+                    continue
+                if m.target is not et:   # 이 함정을 향하는 SAM만
+                    continue
+
+                dist_m = et.pos.dist_to(m.pos)
+
+                # ── CIWS 즉시 판정 (2km 이내) ────────────────────────────────
+                ciws = next((n for n in et.sam_inventory if 'CIWS' in n), None)
+                if dist_m <= 2000 and ciws:
+                    if random.random() < 0.30:
+                        m.alive       = False
+                        m.intercepted = True
+                        # 발사 함정 채널 해제
+                        for ship in self.friendly_ships:
+                            if id(ship) == m.owner_id:
+                                ship.channels_used = max(0, ship.channels_used - 1)
+                        self._log(
+                            f"[적 Anti-SAM CIWS] {et.preset_name} → {m.name} "
+                            f"근접 요격 (Pk 0.30)"
+                        )
+                    continue   # CIWS 범위는 SAM 발사 없음
+
+                # ── SAM 요격: 탐지거리·채널 확인 후 발사 ─────────────────────
+                already = any(s.alive and s.target is m and s.mtype == 'enemy_sam'
+                              for s in self.missiles)
+                if already:
+                    continue
+                if et.sam_channels_used >= et.sam_max_channels:
+                    continue
+
+                rcs    = getattr(m, 'rcs_m2', 0.001)
+                det_km = min(500.0 * ((rcs / 3.0) ** 0.25), 50.0)  # 최대 50km 캡
+                if dist_m > det_km * 1000:
+                    continue
+
+                sam_name = et.select_sam(dist_m)
+                if not sam_name:
+                    continue
+
+                sam_info    = ENEMY_SAM_DB[sam_name]
+                anti_sam_pk = sam_info['pk'] * 0.35   # SAM vs SAM — 소형 고속 표적
+
+                et.sam_inventory[sam_name] -= 1
+                et.sam_channels_used       += 1
+                self.missiles.append(MissileObj(
+                    mtype    = 'enemy_sam',
+                    name     = sam_name,
+                    pos      = et.pos,
+                    target   = m,
+                    speed_ms = sam_info['speed_ms'],
+                    pk_base  = anti_sam_pk,
+                    owner_id = id(et),
+                    t_spawn  = self.t,
+                ))
+                self._log(
+                    f"[적 Anti-SAM] {et.preset_name} → {sam_name} 발사 → {m.name} "
+                    f"(거리 {dist_m/1000:.1f}km, Pk {anti_sam_pk:.2f})"
+                )
+
     # ── 6단계: 교전 결과 판정 ─────────────────────────────────────────────────
 
     def _check_intercepts(self):
@@ -2791,7 +2863,8 @@ class TimeStepEngine:
 
     def run(self) -> dict:
         pt = {'위치갱신': 0.0, '적발사': 0.0, '대공방어': 0.0,
-              '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0, '교전판정': 0.0}
+              '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0,
+              '적Anti-SAM': 0.0, '교전판정': 0.0}
         _pc = _time.perf_counter
         _step_interval = 20   # step_cb 호출 간격(초) — 단일 시뮬 UI 갱신용
 
@@ -2840,6 +2913,7 @@ class TimeStepEngine:
             _t0 = _pc(); self._friendly_strike();  pt['아군공격'] += _pc() - _t0
             _t0 = _pc(); self._aircraft_asw();     pt['대잠']     += _pc() - _t0
             _t0 = _pc(); self._enemy_defense();    pt['적방어']   += _pc() - _t0
+            _t0 = _pc(); self._enemy_anti_sam();   pt['적Anti-SAM'] += _pc() - _t0
             _t0 = _pc()
             self._check_intercepts()
             self._check_hits()

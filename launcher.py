@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.3 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.4 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.4 — 완전 양방향 교전 Phase C: 적 Anti-SAM 방어 로직]                  ║
+║  NEW-A  _enemy_anti_sam(): 아군 SAM 접근 시 적 CIWS(2km Pk0.30)·SAM 요격   ║
+║  NEW-B  SAM 탐지거리: rcs_m2 기반 계산 (최대 50km), anti-SAM Pk × 0.35     ║
+║  NEW-C  설정 패널 '적 Anti-SAM 방어 적용' 체크박스 (기본 OFF)               ║
 ║  [v10.3 — 완전 양방향 교전 Phase B: 아군 SAM rcs_m2 속성 추가]              ║
 ║  NEW-A  _SAM_RCS: 무기별 RCS 상수 딕셔너리 (SM-3·SM-6·ESSM·해궁 등 8종)    ║
 ║  NEW-B  _launch_friendly_sam() / _fire_ground_sam(): sam.rcs_m2 설정 추가   ║
@@ -4086,6 +4090,8 @@ class MainWindow(QMainWindow):
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
             self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
+        if hasattr(self, 'chk_anti_sam'):
+            self.chk_anti_sam.setChecked(cfg.get('enable_anti_sam', False))
         if hasattr(self, 'chk_isa'):
             self.chk_isa.setChecked(cfg.get('enable_isa', False))
         # v9.14: 해협 진입로
@@ -4215,6 +4221,15 @@ class MainWindow(QMainWindow):
         )
         self.chk_evap_duct.setChecked(False)
 
+        self.chk_anti_sam = QCheckBox("적 Anti-SAM 방어 적용")
+        self.chk_anti_sam.setToolTip(
+            "v10.4 — 적 함정이 접근하는 아군 SAM을 CIWS·SAM으로 요격하는 로직.\n"
+            "CIWS (2km 이내): Pk 0.30 즉시 판정.\n"
+            "SAM (탐지거리 이내, 최대 50km): 기본 Pk × 0.35 (소형 고속 표적 보정).\n"
+            "기본값 OFF — 기존 결과와 동일"
+        )
+        self.chk_anti_sam.setChecked(False)
+
         self.chk_isa = QCheckBox("정밀 대기 모델 (ISA+트로포스캐터)")
         self.chk_isa.setToolTip(
             "v10.1 — ICAO 표준 대기 + 기상청 라디오존데 계절별 실측값 적용.\n"
@@ -4259,6 +4274,7 @@ class MainWindow(QMainWindow):
         fl.addRow("계절",        self.cmb_season)
         fl.addRow("",            self.chk_terrain)
         fl.addRow("",            self.chk_evap_duct)
+        fl.addRow("",            self.chk_anti_sam)
         fl.addRow("",            self.chk_isa)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
@@ -5624,6 +5640,7 @@ class MainWindow(QMainWindow):
             'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
             'enable_terrain':    self.chk_terrain.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
+            'enable_anti_sam':   self.chk_anti_sam.isChecked(),
             'enable_isa':        self.chk_isa.isChecked(),
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',

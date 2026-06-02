@@ -1334,6 +1334,17 @@
     ]
   },
   {
+    "version": "v10.4",
+    "date": "2026-06-02",
+    "title": "완전 양방향 교전 Phase C — 적 Anti-SAM 방어 로직",
+    "changes": [
+      "추가  _enemy_anti_sam(): 아군 SAM 접근 시 적 함정이 CIWS(2km 이내 Pk 0.30) 또는 SAM으로 요격",
+      "추가  SAM 탐지거리 rcs_m2 기반 계산 (최대 50km 캡), anti-SAM Pk = 기본 Pk × 0.35",
+      "추가  엔진 루프에 _enemy_anti_sam() 삽입 (_enemy_defense() 바로 뒤)",
+      "추가  설정 패널 '적 Anti-SAM 방어 적용' 체크박스 (기본 OFF — 기존 결과 완전 호환)"
+    ]
+  },
+  {
     "version": "v10.3",
     "date": "2026-06-02",
     "title": "완전 양방향 교전 Phase B — 아군 SAM rcs_m2 속성 추가",
