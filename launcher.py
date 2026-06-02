@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.9 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.10 — PyQt6 런처                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.10 — v10.6 항모 타격 작전: 항모 우선 집중 + KF-21 해성-II + 격침 판정]║
+║  NEW-A  KF-21 cap_strike_wpn=해성-II (200km·Pk0.55·2발) 공대함 모드 추가   ║
+║  NEW-B  _aircraft_aas(): KF-21 해성-II 공대함 공격 로직 (항모 우선·90s CD) ║
+║  NEW-C  _friendly_strike(): 항모(high_value_target) 우선 정렬 + 살보 6발   ║
+║  NEW-D  _compile(): carrier_status — 항모 격침/전투불능/정상 판정 키 추가   ║
+║  NEW-E  공격 결과 탭: 항모 HP·상태 (🔴격침/🟡전투불능/🟢정상) 표시         ║
+║  DEL-A  _PLANS v10.6(항모 타격) 삭제 — 구현 완료                           ║
 ║  [v10.9 — v10.5 한국 공군 CAP: F-35A·KF-21·FA-50 BVR 교전]                ║
 ║  NEW-A  FRIENDLY_AIRCRAFT_DB: F-35A·KF-21·FA-50 CAP 항공기 3종 추가        ║
 ║  NEW-B  _CAP_WX: CAP 전투기 날씨 제한 (태풍·황사새벽만 출격 불가)           ║
@@ -5512,9 +5519,17 @@ class MainWindow(QMainWindow):
         bmd_str = ""
         if ashore_fired > 0: bmd_str += f"  |  어쇼어 SM-3: {ashore_fired}발"
         if thaad_fired  > 0: bmd_str += f"  |  THAAD: {thaad_fired}발"
+        # v10.6: 항모 격침/전투불능 상태
+        carrier_str = ""
+        for cname, cinfo in result.get('carrier_status', {}).items():
+            st  = cinfo['status']
+            hp  = cinfo['hp']
+            mhp = cinfo['max_hp']
+            color_tag = '🔴' if st == '격침' else ('🟡' if st == '전투불능' else '🟢')
+            carrier_str += f"  |  {color_tag} {cname}: {st} (HP {hp}/{mhp})"
         self._strike_mc_lbl.setText(
             f"  MC {n}회 평균 적 격침: {mean_dest:.2f}척  |  최대: {max_dest}척  |"
-            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}{bmd_str}"
+            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}{bmd_str}{carrier_str}"
         )
 
         # MC 격침 분포 차트
@@ -7382,12 +7397,6 @@ class SplashWindow(QWidget):
             # ── v10.x ───────────────────────────────────────────────────────
             ("v10.2", "매우 높음", "완전 양방향 교전 (Phase A 잔여)",
              "Phase D·B·C 구현 완료. 잔여: Phase A — Vec2→LatLon 전환 + 해류 연동 (→ v10.11)."),
-            ("v10.6", "높음", "적 항공모함 타격 작전",
-             "⚠ v10.2 완전 양방향 교전 선행 필수. "
-             "아군 공격자·적 항모전단 방어자 역전 시나리오. "
-             "적 항모전단 프리셋: 항모 1+이지함 2+구축함 4+잠수함 2. "
-             "아군: KSS-III 현무-3C + PKG 해성Mk.II + KF-21 해성-II. "
-             "항모 격침 판정: HP≤2=전투불능, HP=0=격침."),
             ("v10.7", "높음", "전술 의사결정 모드 (반자동 시뮬)",
              "⚠ v10.2 완전 양방향 교전 선행 필수. "
              "매 교전 단계 운용자 직접 개입: 특정 tick마다 시뮬 일시 정지 → 교전 상황 패널 표시. "

@@ -908,6 +908,8 @@ class FriendlyAircraftObj:
         # BUG-7: v7 시뮬(700초)에 맞는 전시 긴급 출격 시간 적용 (engine.py 평시값 무시)
         self.t_available       = float(_AIRCRAFT_V7_SORTIE.get(name, self.info['sortie_time_s']))
         self.payload_remaining = self.info['payload_cnt']
+        # v10.6: 공대함 strike payload (KF-21 해성-II 등)
+        self.strike_payload_remaining = self.info.get('cap_strike_payload_cnt', 0)
         self.sorties           = 0
         self.total_cost        = 0.0
         # v9.8: 탐지 상태 머신
@@ -916,6 +918,7 @@ class FriendlyAircraftObj:
         self._next_attempt: float = 0.0     # 다음 탐지 시도 가능 시각
         self._detect_fails: int   = 0       # 현재 표적 누적 탐지 실패 수
         self._search_target = None          # 현재 수색 중인 표적 (EnemyThreatObj)
+        self._strike_cooldown_until: float = 0.0  # v10.6: AAS 교전 쿨다운
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2181,7 +2184,12 @@ class TimeStepEngine:
             if not ship.alive:
                 continue
 
-            for et in self.enemy_threats:
+            # v10.6: 항모(high_value_target) 우선 정렬 — 화력 집중
+            sorted_threats = sorted(
+                self.enemy_threats,
+                key=lambda e: (0 if e.high_value_target else 1, e.hp),
+            )
+            for et in sorted_threats:
                 if not et.alive:
                     continue
                 if not (et.is_ship or et.is_sub):
@@ -2207,7 +2215,9 @@ class TimeStepEngine:
                         1 for m in self.missiles
                         if m.alive and m.target is et and m.mtype == 'friendly_strike'
                     )
-                    if en_route >= 4:  # BUG-3 연계: 대함 협조 살보 최대 4발 (기존 2발 과소)
+                    # v10.6: 항모(high_value_target) 살보 6발, 일반 수상함 4발
+                    max_salvo = 6 if et.high_value_target else 4
+                    if en_route >= max_salvo:
                         continue
 
                     if ship.is_submarine:
@@ -2605,6 +2615,72 @@ class TimeStepEngine:
                 # 교전 후 선회·재장전 cooldown
                 ac._next_attempt = self.t + 60.0
                 break  # 한 tick당 한 표적
+
+    def _aircraft_aas(self):
+        """
+        v10.6: 항공 대함 공격 (Air-to-Surface Anti-Ship) — KF-21 해성-II 등.
+        cap_strike_wpn 속성이 있는 CAP 항공기가 수상 표적(항모 우선) 공격.
+        idle → (수상함 탐지) → 해성-II 발사(즉시 Pk) → 90s cooldown → idle
+        """
+        primary = self._primary()
+        weather = self.cfg.get('weather', '맑음 (주간)')
+        for ac in self.aircraft:
+            if not ac.info.get('cap_strike_wpn'):
+                continue
+            if self.t < ac.t_available:
+                continue
+            if ac.strike_payload_remaining <= 0:
+                continue
+            if not ac.info.get('weather_limits', {}).get(weather, True):
+                continue
+            if self.t < ac._strike_cooldown_until:
+                continue
+
+            strike_range_m = ac.info.get('cap_strike_range_km', 200) * 1000
+            strike_pk      = ac.info.get('cap_strike_pk', 0.55)
+            base_dist_m    = ac.info.get('base_dist_km', 300) * 1000
+            wpn_name       = ac.info['cap_strike_wpn']
+            wpn_cost       = ac.info.get('cap_strike_cost_usd', 3_000_000)
+
+            # v10.6: 항모 우선 → 그 외 수상함
+            candidates = sorted(
+                [et for et in self.enemy_threats if et.alive and et.is_ship],
+                key=lambda e: (0 if e.high_value_target else 1),
+            )
+            for et in candidates:
+                dist_threat = primary.pos.dist_to(et.pos)
+                if dist_threat + base_dist_m > ac.info['range_km'] * 1000:
+                    continue
+                if dist_threat > strike_range_m:
+                    continue
+                # 이미 해당 표적으로 비행 중인 아군 미사일이 4발 이상이면 건너뜀
+                en_route = sum(
+                    1 for m in self.missiles
+                    if m.alive and m.target is et and m.mtype == 'friendly_strike'
+                )
+                if en_route >= (6 if et.high_value_target else 4):
+                    continue
+
+                ac.strike_payload_remaining -= 1
+                ac.total_cost += wpn_cost
+                _m = MissileObj(
+                    mtype    = 'friendly_strike',
+                    name     = f"{wpn_name}({ac.name})",
+                    pos      = primary.pos,
+                    target   = et,
+                    speed_ms = 280,          # 해성-II 순항속도 ~280m/s
+                    pk_base  = strike_pk,
+                    owner_id = id(ac),
+                    t_spawn  = self.t,
+                )
+                self.missiles.append(_m)
+                self._log(
+                    f"[AAS] {ac.name} → {et.preset_name} "
+                    f"{wpn_name} 발사 (거리 {dist_threat/1000:.0f}km, "
+                    f"잔여 {ac.strike_payload_remaining}발)"
+                )
+                ac._strike_cooldown_until = self.t + 90.0
+                break  # 한 tick당 한 발사
 
     def _select_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
         # 우선순위: Tomahawk(초장거리) → 해성-II → 해성-I → 하푼 → SM-6 대함(OTH) → Mk.45(근거리)
@@ -3078,7 +3154,7 @@ class TimeStepEngine:
             self._arm_radar_off_check()
             _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0
             _t0 = _pc(); self._friendly_strike();  pt['아군공격'] += _pc() - _t0
-            _t0 = _pc(); self._aircraft_asw(); self._aircraft_cap(); pt['대잠'] += _pc() - _t0
+            _t0 = _pc(); self._aircraft_asw(); self._aircraft_cap(); self._aircraft_aas(); pt['대잠'] += _pc() - _t0
             _t0 = _pc(); self._enemy_defense();    pt['적방어']   += _pc() - _t0
             _t0 = _pc(); self._enemy_anti_sam();   pt['적Anti-SAM'] += _pc() - _t0
             _t0 = _pc()
@@ -3159,6 +3235,18 @@ class TimeStepEngine:
             for s in self.friendly_ships
         }
 
+        # v10.6: 항모 격침/전투불능 판정
+        carrier_status = {
+            et.preset_name: {
+                'alive': et.alive,
+                'hp': et.hp,
+                'max_hp': et._HP_MAP.get('항모', 5),
+                'status': '격침' if not et.alive else ('전투불능' if et.hp <= 2 else '정상'),
+            }
+            for et in self.enemy_threats
+            if et.info.get('type') == '항모'
+        }
+
         return {
             **self.stats,
             'intercept_rate':    intercept_rate,
@@ -3178,6 +3266,7 @@ class TimeStepEngine:
             'ashore_sm3_fired':  self.stats['ashore_sm3_fired'],
             'thaad_fired':       self.stats['thaad_fired'],
             'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
+            'carrier_status':    carrier_status,               # v10.6
         }
 
     def _build_active_events(self) -> list:

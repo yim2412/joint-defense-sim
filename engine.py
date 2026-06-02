@@ -1565,6 +1565,12 @@ FRIENDLY_AIRCRAFT_DB = {
         'cap_aam_pk':   0.55,
         'cap_patrol_radius_km': 500,
         'weather_limits': _CAP_WX,
+        # v10.6: 공대함 타격 모드 (해성-II 2발 탑재 가능)
+        'cap_strike_wpn':       '해성-II',
+        'cap_strike_payload_cnt': 2,
+        'cap_strike_range_km':  200,  # 해성-II 사거리 200km
+        'cap_strike_pk':        0.55, # 호위함 방어 관통 후 명중 추정
+        'cap_strike_cost_usd':  3_000_000,  # 해성-II 1발 단가
     },
     'FA-50 골든이글': {
         'speed_ms':     340,          # Mach 1.5 경전투기
