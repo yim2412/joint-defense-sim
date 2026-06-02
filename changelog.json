@@ -1420,5 +1420,17 @@
       "추가  ENEMY_FLEET_PRESETS — 쓰시마 봉쇄 돌파: Tu-22M3×2 + 킬로급×2 + 슬라바급×1",
       "추가  설정 패널 '해협 진입로' 콤보박스 — 대한해협 선택 시 자동 표시, 지형 음영 자동 활성화"
     ]
+  },
+  {
+    "version": "v10.7",
+    "date": "2026-06-02",
+    "title": "v10.1 완성 — ICAO ISA 대기 테이블 + 4계절×5고도층 라디오존데",
+    "changes": [
+      "추가  isa_atmosphere(): ICAO 표준 대기 대류권 함수 (고도→기온·압력·밀도)",
+      "추가  4계절 확장 — EVAP_DUCT_DB·WIND_CEP_FACTOR·TROPOSCATTER_DB 봄/가을 항목 추가",
+      "수정  ISA_RADIOSONDE_DB → (region, season, alt_layer) 3-tuple 5고도층 구조로 교체",
+      "수정  _isa_refraction_factor(): alt≥100m부터 고도층별 보간 적용 (기존 ≥500m 단일값)",
+      "추가  UI 계절 선택 4계절 확장 — 봄 (3~5월) / 가을 (10~11월) 추가, 겨울 라벨 수정"
+    ]
   }
 ]

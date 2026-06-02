@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v10.6 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v10.7 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v10.7 — v10.1 완성: ICAO ISA 대기 테이블 + 4계절×5고도층 라디오존데]      ║
+║  NEW-A  isa_atmosphere(): ICAO 표준 대기 대류권 함수 (고도→기온·압력·밀도)  ║
+║  NEW-B  4계절 확장 — EVAP_DUCT_DB·WIND_CEP_FACTOR·TROPOSCATTER_DB 봄/가을 ║
+║  NEW-C  ISA_RADIOSONDE_DB → (region, season, alt_layer) 3-tuple 5고도층    ║
+║  NEW-D  _isa_refraction_factor(): alt≥100m 고도층별 보간 (기존 ≥500m 단일)  ║
+║  NEW-E  UI 계절 선택 4계절 확장 (봄 3~5월 / 가을 10~11월 추가)              ║
 ║  [v10.6 — 향후 계획 v10.8 설계 확정: LatLon 완전 전환 + 해류 연동]          ║
 ║  UPD-A  _PLANS v10.8: 실제 지리 기반 LatLon 완전 교체 설계 반영             ║
 ║  [v10.5 — Damage Control: 피격 위치 비율 재조정 + VLS 탄약 손실]             ║
@@ -4085,10 +4091,12 @@ class MainWindow(QMainWindow):
             idx = self.cmb_region.findText(region)
             if idx >= 0:
                 self.cmb_region.setCurrentIndex(idx)
-        # v9.12: 계절
+        # v9.12: 계절 (v10.7: 4계절 확장)
         season = cfg.get('season', '')
         if season and hasattr(self, 'cmb_season'):
-            target = '여름 (6~9월)' if season == 'summer' else '겨울 (10~5월)'
+            _rmap = {'spring': '봄 (3~5월)', 'summer': '여름 (6~9월)',
+                     'autumn': '가을 (10~11월)', 'winter': '겨울 (12~2월)'}
+            target = _rmap.get(season, '여름 (6~9월)')
             idx = self.cmb_season.findText(target)
             if idx >= 0:
                 self.cmb_season.setCurrentIndex(idx)
@@ -4203,11 +4211,14 @@ class MainWindow(QMainWindow):
             "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
         )
         self.cmb_season = NoScrollComboBox()
-        self.cmb_season.addItems(['여름 (6~9월)', '겨울 (10~5월)'])
+        self.cmb_season.addItems(['봄 (3~5월)', '여름 (6~9월)', '가을 (10~11월)', '겨울 (12~2월)'])
+        self.cmb_season.setCurrentIndex(1)  # 기본값: 여름
         self.cmb_season.setToolTip(
-            "계절 선택 — 수온약층 깊이와 강도에 직접 영향.\n"
-            "여름: 수온약층 강함 → 소나 탐지 크게 저하 (서해 10m, 동해 20m부터)\n"
-            "겨울: 수온약층 소멸 (서해) / 약화 (동해) → 소나 탐지 개선"
+            "계절 선택 — 수온약층·대기 굴절·증발 덕팅·고층 바람 CEP에 영향.\n"
+            "봄 (3~5월): 황사 시즌, 수온약층 약함, 제트기류 북상 중\n"
+            "여름 (6~9월): 수온약층 최강, 쿠로시오 수증기 → ISA 굴절 최대\n"
+            "가을 (10~11월): 수온약층 감소 시작, 제트기류 남하 시작\n"
+            "겨울 (12~2월): 수온약층 소멸(서해)/약화(동해), 대륙성 한기 → 굴절 최소"
         )
         self.chk_terrain = QCheckBox("지형 음영 적용")
         self.chk_terrain.setToolTip(
@@ -5645,7 +5656,8 @@ class MainWindow(QMainWindow):
             'weather':           self.cmb_weather.currentText(),
             # v9.12: 작전 해역·계절·지형 음영
             'fleet_region':      self.cmb_region.currentText(),
-            'season':            'summer' if '여름' in self.cmb_season.currentText() else 'winter',
+            'season':            {'봄': 'spring', '여름': 'summer', '가을': 'autumn', '겨울': 'winter'}.get(
+                                     self.cmb_season.currentText()[:1], 'summer'),
             'enable_terrain':    self.chk_terrain.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
             'enable_anti_sam':   self.chk_anti_sam.isChecked(),
@@ -7321,11 +7333,6 @@ class SplashWindow(QWidget):
 
         _PLANS = [
             # ── v10.x ───────────────────────────────────────────────────────
-            ("v10.1", "낮음", "정밀 대기 모델",
-             "ICAO ISA 표준 대기 테이블 내장 (고도→기온·압력·밀도). "
-             "트로포스캐터 링크 모델로 수평선 너머 레이더 탐지거리 +10~20% 보정. "
-             "기상청 라디오존데 계절별 프로파일 (4계절×5고도층). "
-             "v9.13 덕팅 모델과 통합. 독립 구현 가능."),
             ("v10.2", "매우 높음", "완전 양방향 교전",
              "구현 순서: ① Phase D — 아군 피격 판정 + 엔진 루프 재설계 (FriendlyShipObj.hp 감소·격침) "
              "② Phase B — FriendlyMissileObj 신설 (아군 SAM을 적이 추적할 엔티티로 분리) "

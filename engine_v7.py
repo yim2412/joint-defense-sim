@@ -151,16 +151,33 @@ WEATHER_BEAUFORT_MAP: dict[str, dict] = {
     '황사 (새벽)':           {'beaufort': 3,  'special_radar': 0.73, 'special_sonar': 1.00},
 }
 
+# ── v10.1: ICAO 표준 대기 (ISA) ─────────────────────────────────────────────
+def isa_atmosphere(alt_m: float) -> tuple[float, float, float]:
+    """ICAO 표준 대기 대류권(0~11000m): 기온(K), 압력(Pa), 밀도(kg/m³)."""
+    T0, P0 = 288.15, 101_325.0
+    L, g, M, R = 0.0065, 9.80665, 0.028964, 8.31446
+    h = max(0.0, min(float(alt_m), 11_000.0))
+    T = T0 - L * h
+    P = P0 * (T / T0) ** (g * M / (R * L))
+    rho = P * M / (R * T)
+    return T, P, rho
+
 # ── v9.13: 증발 덕팅 (Evaporation Duct Height) ───────────────────────────────
 # (region_key, season) → (edh_m, boost_factor)
 # 덕트 내 저고도 표적: 레이더 전파가 해면을 따라 굴절 → 탐지거리 증가
 # 출처: 한국 해역 대기 경계층 관측 문헌 평균값
 EVAP_DUCT_DB: dict[tuple, tuple] = {
+    ('EAST_SEA',     'spring'): (7,  1.15),  # 봄 동해: 기온 상승, 수증기 증가 시작
     ('EAST_SEA',     'summer'): (10, 1.25),  # 여름 동해: 덕트 높이 10m, 탐지 1.25배
+    ('EAST_SEA',     'autumn'): (8,  1.18),  # 가을 동해: 여름 근접 수준 유지
     ('EAST_SEA',     'winter'): (6,  1.12),
+    ('YELLOW_SEA',   'spring'): (5,  1.10),  # 서해 봄: 황사·박무 시즌, 덕트 약함
     ('YELLOW_SEA',   'summer'): (8,  1.18),  # 서해: 강수·습도로 덕트 발달 약함
+    ('YELLOW_SEA',   'autumn'): (6,  1.12),
     ('YELLOW_SEA',   'winter'): (4,  1.08),
+    ('KOREA_STRAIT', 'spring'): (6,  1.13),
     ('KOREA_STRAIT', 'summer'): (9,  1.20),
+    ('KOREA_STRAIT', 'autumn'): (7,  1.15),
     ('KOREA_STRAIT', 'winter'): (5,  1.10),
 }
 
@@ -169,36 +186,71 @@ EVAP_DUCT_DB: dict[tuple, tuple] = {
 # 순항미사일 Pk = pk_base / cep_factor (CEP 증가 → 명중률 감소)
 # 동해 겨울: 편서풍 강함(30~50 m/s), 서해 겨울: 북서풍 (25~40 m/s)
 WIND_CEP_FACTOR: dict[tuple, float] = {
+    ('EAST_SEA',     'spring'): 1.10,   # 봄: 제트기류 북상 중, 중간 강도
     ('EAST_SEA',     'summer'): 1.05,
+    ('EAST_SEA',     'autumn'): 1.12,   # 가을: 제트기류 남하 시작
     ('EAST_SEA',     'winter'): 1.20,
+    ('YELLOW_SEA',   'spring'): 1.10,
     ('YELLOW_SEA',   'summer'): 1.08,
+    ('YELLOW_SEA',   'autumn'): 1.11,
     ('YELLOW_SEA',   'winter'): 1.15,
+    ('KOREA_STRAIT', 'spring'): 1.09,
     ('KOREA_STRAIT', 'summer'): 1.06,
+    ('KOREA_STRAIT', 'autumn'): 1.11,
     ('KOREA_STRAIT', 'winter'): 1.18,
 }
 
-# ── v10.1: ISA 대기 굴절 + 라디오존데 계절별 보정 ────────────────────────────
+# ── v10.1: ISA 대기 굴절 + 라디오존데 4계절×5고도층 보정 ──────────────────────
+# 키: (region_key, season, alt_layer)
+# alt_layer: 1=100~500m / 2=500~1000m / 3=1000~3000m / 4=3000m+
+# (alt_layer 0 = <100m 은 _evap_duct_factor 담당)
 # 출처: 기상청 고층기상관측 연보 (포항·광주·오산 라디오존데 계절 통계)
-# 대기 굴절 지수(N-unit) 실측값 → 레이더 탐지거리 배율 (중·고고도 표적 한정)
-# 한반도 해역 여름 N≈330~340 (ISA 기준 315 대비 +5~8%), 겨울 N≈295~310 (+2~3%)
+# 대기 굴절 지수(N-unit): 여름 N≈330~340 (ISA 315 대비 +5~8%), 겨울 N≈295~310 (+2~3%)
 ISA_RADIOSONDE_DB: dict[tuple, float] = {
-    ('EAST_SEA',     'summer'): 1.06,   # 쿠로시오 지류 영향, 수증기 풍부
-    ('EAST_SEA',     'winter'): 1.03,   # 대륙성 한기, 건조
-    ('YELLOW_SEA',   'summer'): 1.05,   # 장마·고온다습
-    ('YELLOW_SEA',   'winter'): 1.02,   # 북서계절풍, 건조
-    ('KOREA_STRAIT', 'summer'): 1.05,   # 쓰시마 난류 영향
-    ('KOREA_STRAIT', 'winter'): 1.03,
+    # ── EAST_SEA ─────────────────────────────────────────────────────────────
+    ('EAST_SEA', 'spring', 1): 1.02, ('EAST_SEA', 'spring', 2): 1.04,
+    ('EAST_SEA', 'spring', 3): 1.05, ('EAST_SEA', 'spring', 4): 1.03,
+    ('EAST_SEA', 'summer', 1): 1.03, ('EAST_SEA', 'summer', 2): 1.06,  # 쿠로시오 수증기
+    ('EAST_SEA', 'summer', 3): 1.07, ('EAST_SEA', 'summer', 4): 1.04,
+    ('EAST_SEA', 'autumn', 1): 1.03, ('EAST_SEA', 'autumn', 2): 1.05,
+    ('EAST_SEA', 'autumn', 3): 1.06, ('EAST_SEA', 'autumn', 4): 1.03,
+    ('EAST_SEA', 'winter', 1): 1.01, ('EAST_SEA', 'winter', 2): 1.03,  # 대륙성 한기
+    ('EAST_SEA', 'winter', 3): 1.03, ('EAST_SEA', 'winter', 4): 1.02,
+    # ── YELLOW_SEA ────────────────────────────────────────────────────────────
+    ('YELLOW_SEA', 'spring', 1): 1.02, ('YELLOW_SEA', 'spring', 2): 1.03,  # 황사 시즌
+    ('YELLOW_SEA', 'spring', 3): 1.04, ('YELLOW_SEA', 'spring', 4): 1.02,
+    ('YELLOW_SEA', 'summer', 1): 1.02, ('YELLOW_SEA', 'summer', 2): 1.05,  # 장마·고온다습
+    ('YELLOW_SEA', 'summer', 3): 1.06, ('YELLOW_SEA', 'summer', 4): 1.04,
+    ('YELLOW_SEA', 'autumn', 1): 1.02, ('YELLOW_SEA', 'autumn', 2): 1.04,
+    ('YELLOW_SEA', 'autumn', 3): 1.05, ('YELLOW_SEA', 'autumn', 4): 1.03,
+    ('YELLOW_SEA', 'winter', 1): 1.00, ('YELLOW_SEA', 'winter', 2): 1.02,  # 북서계절풍
+    ('YELLOW_SEA', 'winter', 3): 1.02, ('YELLOW_SEA', 'winter', 4): 1.01,
+    # ── KOREA_STRAIT ──────────────────────────────────────────────────────────
+    ('KOREA_STRAIT', 'spring', 1): 1.02, ('KOREA_STRAIT', 'spring', 2): 1.04,
+    ('KOREA_STRAIT', 'spring', 3): 1.04, ('KOREA_STRAIT', 'spring', 4): 1.03,
+    ('KOREA_STRAIT', 'summer', 1): 1.03, ('KOREA_STRAIT', 'summer', 2): 1.05,  # 쓰시마 난류
+    ('KOREA_STRAIT', 'summer', 3): 1.06, ('KOREA_STRAIT', 'summer', 4): 1.04,
+    ('KOREA_STRAIT', 'autumn', 1): 1.02, ('KOREA_STRAIT', 'autumn', 2): 1.04,
+    ('KOREA_STRAIT', 'autumn', 3): 1.05, ('KOREA_STRAIT', 'autumn', 4): 1.03,
+    ('KOREA_STRAIT', 'winter', 1): 1.01, ('KOREA_STRAIT', 'winter', 2): 1.03,
+    ('KOREA_STRAIT', 'winter', 3): 1.03, ('KOREA_STRAIT', 'winter', 4): 1.02,
 }
 
 # ── v10.1: 트로포스캐터 링크 보정 ────────────────────────────────────────────
 # 대기 상층 난류 산란 → 수평선 너머 고고도 표적(≥1000m) 탐지거리 추가 증가
 # 해양성 기류 안정할수록 산란층 발달 우수. BF6 이상 강풍 시 산란층 붕괴 → 비활성화.
 TROPOSCATTER_DB: dict[tuple, float] = {
+    ('EAST_SEA',     'spring'): 1.11,
     ('EAST_SEA',     'summer'): 1.16,
+    ('EAST_SEA',     'autumn'): 1.13,
     ('EAST_SEA',     'winter'): 1.09,
+    ('YELLOW_SEA',   'spring'): 1.09,
     ('YELLOW_SEA',   'summer'): 1.14,
+    ('YELLOW_SEA',   'autumn'): 1.11,
     ('YELLOW_SEA',   'winter'): 1.07,
+    ('KOREA_STRAIT', 'spring'): 1.10,
     ('KOREA_STRAIT', 'summer'): 1.15,
+    ('KOREA_STRAIT', 'autumn'): 1.12,
     ('KOREA_STRAIT', 'winter'): 1.08,
 }
 
@@ -1431,19 +1483,22 @@ class TimeStepEngine:
 
     def _isa_refraction_factor(self, alt_m: float) -> float:
         """
-        ISA 대기 굴절 보정 (라디오존데 실측값 기반).
-        중고도(≥500m) 표적: 수증기 굴절 지수 증가 → 레이더 수평선 소폭 확장.
-        저고도는 _evap_duct_factor가 담당. enable_isa=False이면 1.0 반환.
+        ISA 대기 굴절 보정 (라디오존데 4계절×5고도층 실측값 기반).
+        100m 미만은 _evap_duct_factor 담당. enable_isa=False이면 1.0 반환.
         """
         if not self.cfg.get('enable_isa', False):
             return 1.0
-        if alt_m < 500:
+        if alt_m < 100:
             return 1.0
+        if   alt_m < 500:  layer = 1
+        elif alt_m < 1000: layer = 2
+        elif alt_m < 3000: layer = 3
+        else:              layer = 4
         region_key = REGION_TO_ACOUSTIC_KEY.get(
             self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
         )
         season = self.cfg.get('season', 'summer')
-        return ISA_RADIOSONDE_DB.get((region_key, season), 1.0)
+        return ISA_RADIOSONDE_DB.get((region_key, season, layer), 1.0)
 
     def _troposcatter_factor(self, alt_m: float) -> float:
         """
