@@ -1601,5 +1601,16 @@
       "추가  _PLANS v19.1~4: 육군 작전급 (지상군DB·지상방공·상륙작전지원·캠페인통합)",
       "추가  _PLANS v20.1~4: 육해공 통합 합동작전 (JCS·Joint Fires·합동시나리오·통합보고서)"
     ]
+  },
+  {
+    "version": "v10.21",
+    "date": "2026-06-03",
+    "title": "전 로드맵(v11~v20) 기둥(아키텍처 핵심) 구체화",
+    "changes": [
+      "수정  _PLANS 각 항목에 【기둥】라인 추가 — 핵심 클래스명·신규 필드·연동 지점 명시",
+      "수정  v11~v16 전술급 25개 항목: TacticalAI 추상클래스·EWLayer·자원제약 필드 등 구조 확정",
+      "수정  v17 해군 작전급 7개 항목: CampaignEngine(EventHeap+ForcePool+MissionQueue) 구조 명시",
+      "수정  v18~v20 공군·육군·합동작전 13개 항목: AirSupremacyZone·JCSEngine·JointFires 구조 명시"
+    ]
   }
 ]
