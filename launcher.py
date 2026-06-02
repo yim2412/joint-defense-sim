@@ -3,7 +3,7 @@
 ║   이지스 기동전단 통합 방어 시뮬레이터  v10.13 — PyQt6 런처                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  [v10.13 — 코드 감사 버그 수정 5건]                                          ║
-║  BUG-1  _tactical_max_salvo cfg 키 _friendly_defense()에서 미읽힘 → 수정     ║
+║  BUG-1  _tactical_max_salvo: 위협별 최솟값 보장 후 살보 상한 적용             ║
 ║  BUG-2  _set_region_ref() run() 호출 → __init__() 초반으로 이동              ║
 ║  BUG-3  히트맵 fallback cfg 구버전 키(enable_cec_preassign) + 항공자산 True  ║
 ║  BUG-4  _primary() friendly_ships 빈 리스트 IndexError → 명시적 예외         ║
@@ -1500,11 +1500,23 @@ class TacticalDialog(QDialog):
         layout.addLayout(wpn_row)
 
         salvo_row = QHBoxLayout()
-        salvo_row.addWidget(QLabel("살보 수:"))
+        _salvo_lbl = QLabel("살보 수:")
+        _salvo_lbl.setToolTip(
+            "다음 구간 최대 살보 수 설정.\n"
+            "HGV·탄도탄 등 고위협 표적은 위협별 최솟값(2~3발)이\n"
+            "자동으로 보장됩니다 (설정값이 최솟값보다 낮아도 무시)."
+        )
+        salvo_row.addWidget(_salvo_lbl)
         self._spn_salvo = QSpinBox()
         self._spn_salvo.setRange(1, 3)
         self._spn_salvo.setValue(1)
         self._spn_salvo.setFixedWidth(60)
+        self._spn_salvo.setToolTip(
+            "1: 탄약 절약 (저위협 상황)\n"
+            "2: 표준 (Shoot-Look-Shoot)\n"
+            "3: 최대 화력 (HGV·포화공격 대응)\n"
+            "※ HGV는 자동으로 최소 3발 보장"
+        )
         salvo_row.addWidget(self._spn_salvo)
         salvo_row.addStretch()
         layout.addLayout(salvo_row)

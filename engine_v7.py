@@ -2063,10 +2063,10 @@ class TimeStepEngine:
             else:
                 _base = 1
             max_sams = 1 if cec_jammed else (_base + (1 if cec else 0))
-            # BUG-1 fix: 전술 의사결정 모드 살보 수 우선 적용
+            # BUG-1 fix: 전술 살보 수는 위협별 최솟값(_base) 이하로 내려가지 않음
             _tac_max = self.cfg.get('_tactical_max_salvo')
             if _tac_max is not None:
-                max_sams = int(_tac_max)
+                max_sams = max(int(_tac_max), _base)
             if sams_on >= max_sams:
                 continue
 
@@ -2124,10 +2124,10 @@ class TimeStepEngine:
             else:
                 _base_ac = 1
             max_sams = 1 if cec_jammed else (_base_ac + (1 if cec else 0))
-            # BUG-1 fix: 전술 의사결정 모드 살보 수 우선 적용
+            # BUG-1 fix: 전술 살보 수는 위협별 최솟값(_base_ac) 이하로 내려가지 않음
             _tac_max = self.cfg.get('_tactical_max_salvo')
             if _tac_max is not None:
-                max_sams = int(_tac_max)
+                max_sams = max(int(_tac_max), _base_ac)
             if sams_on >= max_sams:
                 continue
 
