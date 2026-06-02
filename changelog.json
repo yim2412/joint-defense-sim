@@ -1528,5 +1528,19 @@
       "수정  PHY-4: FA-50 cap_aam_range_km 35→45 (AIM-9X 실효 BVR 35~50km 중앙값)",
       "수정  PHY-5: Damage Control 대함미사일 피격 레이더 15%→25% / 추진 20%→15% (포클랜드전 통계 반영)"
     ]
+  },
+  {
+    "version": "v10.15",
+    "date": "2026-06-02",
+    "title": "3단계 감사 수치 수정 9건",
+    "changes": [
+      "수정  PHY-6: 산둥 항모 self_defense_pk 0.47→0.45 / enemy_ciws_pk 0.42→0.40",
+      "수정  PHY-7: 푸젠 항모 self_defense_pk 0.50→0.48 / enemy_ciws_pk 0.45→0.43",
+      "수정  PHY-8: 홍상어 cost_usd $500K→$1.8M (실제 국방부 단가 반영)",
+      "수정  PHY-9: ESSM Block II cost_usd $1.5M→$2.2M (2024년 기준)",
+      "수정  PHY-10: 해성-II cost_usd $1.2M→$2.2M / KF-21 cap_strike_cost 연동",
+      "수정  PHY-11: 현무-3C cost_usd $2M→$6M (고가 순항미사일 실제 단가)",
+      "수정  PHY-12: 현무-4 cost_usd $3.5M→$8M (탄도미사일 개발단가)"
+    ]
   }
 ]

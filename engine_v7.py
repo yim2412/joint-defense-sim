@@ -372,7 +372,7 @@ FRIENDLY_STRIKE_DB = {
     '해성-II': {
         'speed_ms': 250,   # Mach 0.73 (해성-I 동일 계열)
         'range_km': 250,
-        'cost_usd': 1_200_000,
+        'cost_usd': 2_200_000,  # PHY-10: $1.2M→$2.2M (실제 단가 반영)
         'pk_base':  0.82,
         'seeker':   'radar',
     },
@@ -411,7 +411,7 @@ FRIENDLY_STRIKE_DB = {
     '현무-3C': {
         'speed_ms': 250,    # Mach 0.73 (아음속 순항)
         'range_km': 1500,   # 현무-3C 사거리 1,500km
-        'cost_usd': 2_000_000,
+        'cost_usd': 6_000_000,  # PHY-11: $2M→$6M (개발비·단가 반영, 기밀 추정 $5~10M)
         'pk_base':  0.80,
         'seeker':   'combined', # GPS+INS+TERCOM 복합
     },
@@ -419,7 +419,7 @@ FRIENDLY_STRIKE_DB = {
     '현무-4 (ASBM)': {
         'speed_ms': 3000,   # 종말 Mach 8~10 (평균 비행 속도 근사)
         'range_km': 800,    # 현무-4 사거리 800km
-        'cost_usd': 3_500_000,
+        'cost_usd': 8_000_000,  # PHY-12: $3.5M→$8M (고성능 탄도미사일 개발단가)
         'pk_base':  0.85,   # 고속 종말 — 적 SAM 요격 극히 어려움
         'seeker':   'combined', # 레이더+적외선 복합 종말 탐색
     },

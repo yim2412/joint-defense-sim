@@ -425,7 +425,7 @@ ENEMY_DB = {
          'missile_salvo_min':4,'missile_salvo_max':8,
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
-         'self_defense_pk':0.47,'enemy_ciws_pk':0.42,
+         'self_defense_pk':0.45,'enemy_ciws_pk':0.40,  # PHY-6: 0.47/0.42→0.45/0.40 (항모 기준값 상한)
          'hp':5,'high_value_target':True,
          'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90},
 
@@ -436,7 +436,7 @@ ENEMY_DB = {
          'missile_salvo_min':6,'missile_salvo_max':10,
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
-         'self_defense_pk':0.50,'enemy_ciws_pk':0.45,
+         'self_defense_pk':0.48,'enemy_ciws_pk':0.43,  # PHY-7: 0.50/0.45→0.48/0.43 (최신 항모 상한 유지)
          'hp':5,'high_value_target':True,
          'carrier_aircraft':'J-35 (백상어)','carrier_wave_interval':80},
 
@@ -760,7 +760,7 @@ FRIENDLY_DB = {
          'category':['대공','대함','근접'],
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     '홍상어 (대잠)':
-        {'speed_ms':25.0,'range_km':19,'cost_usd':500000,'stock':16,  # MED-4: 28.3→25 m/s
+        {'speed_ms':25.0,'range_km':19,'cost_usd':1800000,'stock':16,  # PHY-8: $500K→$1.8M (실제 개발·단가 반영), MED-4: 28.3→25 m/s
          'category':['대잠'],
          # LOW-16: Pk mean 0.700→0.65 (실전 수중 유도 탐지 성공률 반영)
          'pk_dist':{'alpha':13,'beta':7,'mean':0.650},'requires_illuminator':False},
@@ -794,7 +794,7 @@ FRIENDLY_DB = {
          'pk_dist':{'alpha':10,'beta':3,'mean':0.769},'requires_illuminator':False},
     # NEW-P1: 미국 해군 무기 추가 (한미 연합 작전용)
     'ESSM Block II':
-        {'speed_ms':1050,'range_km':50,'cost_usd':1500000,'stock':0,
+        {'speed_ms':1050,'range_km':50,'cost_usd':2200000,'stock':0,  # PHY-9: $1.5M→$2.2M (2024년 기준 단가)
          'category':['대공','근접'],
          'pk_dist':{'alpha':12,'beta':3,'mean':0.800},'requires_illuminator':False},
     'SM-6 Block IB':
@@ -1571,7 +1571,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'cap_strike_payload_cnt': 2,
         'cap_strike_range_km':  200,  # 해성-II 사거리 200km
         'cap_strike_pk':        0.55, # 호위함 방어 관통 후 명중 추정
-        'cap_strike_cost_usd':  3_000_000,  # 해성-II 1발 단가
+        'cap_strike_cost_usd':  2_200_000,  # PHY-10 연동: 해성-II 단가 $2.2M
     },
     'FA-50 골든이글': {
         'speed_ms':     340,          # Mach 1.5 경전투기
