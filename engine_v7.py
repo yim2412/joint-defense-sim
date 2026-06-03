@@ -790,6 +790,8 @@ class EnemyThreatObj:
         self.reattack_count = 0
         self.max_reattacks  = 1 if self.is_aircraft else 0
 
+        self.ecm_power = self.info.get('ecm_power', 0.0)
+
         # v9.6: 잠수함 기습 은닉 상태 — hidden_until 초까지 탐지 불가
         self.hidden_until    = 0.0
         self.ambush_revealed = False
