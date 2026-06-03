@@ -1391,7 +1391,7 @@ class TimeStepEngine:
             # v10.5: 한국 공군 CAP
             ('enable_f35a',  'f35a_preset',  'F-35A 라이트닝 II'),
             ('enable_kf21',  'kf21_preset',  'KF-21 보라매'),
-            ('enable_fa50',  'fa50_preset',  'FA-50 골든이글'),
+            ('enable_fa50',  'fa50_preset',  'FA-50 파이팅이글'),
         ]:
             if not self.cfg.get(en_key, False):
                 continue

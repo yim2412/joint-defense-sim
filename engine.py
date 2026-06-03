@@ -1573,7 +1573,7 @@ FRIENDLY_AIRCRAFT_DB = {
         'cap_strike_pk':        0.55, # 호위함 방어 관통 후 명중 추정
         'cap_strike_cost_usd':  2_200_000,  # PHY-10 연동: 해성-II 단가 $2.2M
     },
-    'FA-50 골든이글': {
+    'FA-50 파이팅이글': {
         'speed_ms':     340,          # Mach 1.5 경전투기
         'range_km':     1800,
         'sortie_time_s': 900,         # 출격 준비 15분 (소형 경량)
