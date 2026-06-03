@@ -6,3 +6,8 @@ __pycache__/
 # 빌드 산출물 (커밋 안 함)
 build/
 dist/
+
+# 실행 산출물 (앱 실행 시 생성)
+sim_history.log
+sim_history.json
+app_state.json
