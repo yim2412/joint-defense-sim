@@ -16,7 +16,6 @@
 | `spec_db.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
 | `launcher.spec` | PyInstaller 빌드 스펙 |
-| `anim_render.py` | 현재 미사용 (애니메이션 탭 폐기 후 잔존, 추후 정리 예정) |
 
 ### 실행 방법
 
