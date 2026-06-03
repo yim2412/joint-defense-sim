@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v11.8 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v11.9 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v11.9 — 패치 내역 탭 시각화: 유형 색상 배지 + 최신 강조]                   ║
+║  NEW-A  추가/수정/삭제 항목에 색상 알약 배지 (초록/주황/빨강)                ║
+║  NEW-B  최신 버전이 맨 위로 + ⭐ 강조, 표시 순서 최신→과거로 전환            ║
+║  [v11.8 patch — 메인 창 제목 버전 표기 고정 버그 수정]                       ║
+║  BUG-1  창 제목이 v9.11에 고정 → APP_VERSION 단일 상수로 통합 (자동 반영)    ║
 ║  [v11.8 — 로드맵 확장: 현대전 4개 영역 추가]                                ║
 ║  NEW-A  무인 수상/수중정·기뢰전·항만 방어·보급 병참 향후 계획 등록          ║
 ║  [v11.7 — 작전 시나리오 라이브러리]                                         ║
@@ -489,6 +494,9 @@
 import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
+
+# 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
+APP_VERSION = "v11.9"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4286,7 +4294,7 @@ SCENARIO_LIBRARY = {
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터  v9.11")
+        self.setWindowTitle(f"이지스 기동전단 통합 방어 시뮬레이터  {APP_VERSION}")
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -7486,7 +7494,7 @@ class SplashWindow(QWidget):
         title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
         layout.addWidget(title)
 
-        sub = QLabel("v9.11  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        sub = QLabel(f"{APP_VERSION}  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
         layout.addWidget(sub)
@@ -7702,13 +7710,17 @@ class SplashWindow(QWidget):
         if not changelog:
             layout.addWidget(QLabel("changelog.json 없음"))
             return w
+        # 최신 버전이 위로 오도록 역순 표시(changelog.json은 오래된→최신 순 저장)
+        latest_ver = changelog[-1].get('version', '') if changelog else ''
+        changelog = list(reversed(changelog))
+
         tbl = QTableWidget()
         tbl.setColumnCount(2)
         tbl.setHorizontalHeaderLabels(["버전", "변경 내용"])
         hh = tbl.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 90)
-        tbl.verticalHeader().setDefaultSectionSize(28)
+        tbl.setColumnWidth(0, 110)
+        tbl.verticalHeader().setDefaultSectionSize(30)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.verticalHeader().setVisible(False)
@@ -7720,6 +7732,7 @@ class SplashWindow(QWidget):
             ver   = entry.get('version', '')
             date  = entry.get('date', '')
             items = entry.get('changes', [])
+            is_latest = (ver == latest_ver)
             if date != prev_date:
                 # 날짜 그룹 헤더 행
                 row = tbl.rowCount()
@@ -7737,16 +7750,55 @@ class SplashWindow(QWidget):
             for i, item in enumerate(items):
                 row = tbl.rowCount()
                 tbl.insertRow(row)
+                tbl.setRowHeight(row, 34)
+                # 버전 셀 (그룹 첫 행에만 표기, 최신은 ⭐ 강조)
                 if i == 0:
-                    vi = QTableWidgetItem(ver)
-                    vi.setForeground(QColor(C_ACCENT))
+                    label = f"⭐ {ver}" if is_latest else ver
+                    vi = QTableWidgetItem(label)
+                    vi.setForeground(QColor(C_ORANGE if is_latest else C_ACCENT))
+                    if is_latest:
+                        f = vi.font(); f.setBold(True); vi.setFont(f)
+                        vi.setBackground(QColor('#3a2e0a'))  # 주황 틴트 배경
                     vi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     tbl.setItem(row, 0, vi)
                 else:
-                    tbl.setItem(row, 0, QTableWidgetItem(""))
-                tbl.setItem(row, 1, QTableWidgetItem(f"  {item}"))
+                    vi = QTableWidgetItem("")
+                    if is_latest:
+                        vi.setBackground(QColor('#3a2e0a'))
+                    tbl.setItem(row, 0, vi)
+                # 변경 내용 셀 — 유형 배지 + 본문
+                tbl.setCellWidget(row, 1, self._make_change_cell(item))
         layout.addWidget(tbl)
         return w
+
+    @staticmethod
+    def _make_change_cell(item: str) -> QWidget:
+        """변경 항목 문자열을 '유형 배지 + 본문' 셀 위젯으로 변환."""
+        s = str(item).strip()
+        kind, color = None, None
+        for k, c in (("추가", C_GREEN), ("수정", C_ORANGE), ("삭제", C_RED)):
+            if s.startswith(k):
+                kind, color, s = k, c, s[len(k):].strip()
+                break
+        cell = QWidget()
+        cell.setStyleSheet(f"background-color: {C_BG};")
+        lay = QHBoxLayout(cell)
+        lay.setContentsMargins(8, 3, 8, 3)
+        lay.setSpacing(9)
+        if kind:
+            badge = QLabel(kind)
+            badge.setStyleSheet(
+                f"background-color: {color}; color: #0d1117; "
+                f"border-radius: 8px; padding: 1px 9px; font-weight: bold;"
+            )
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setFixedHeight(20)
+            lay.addWidget(badge)
+        txt = QLabel(s)
+        txt.setStyleSheet(f"color: {C_TEXT};")
+        txt.setWordWrap(True)
+        lay.addWidget(txt, 1)
+        return cell
 
     def _build_plan_tab(self) -> QWidget:
         w = QWidget()
