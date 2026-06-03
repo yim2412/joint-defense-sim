@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v11.6 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v11.7 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v11.7 — 작전 시나리오 라이브러리]                                         ║
+║  NEW-A  교리 기반 작전 시나리오 4종 — 선택 시 편대·해역·날씨 자동 설정      ║
+║  BUG-1  실행 기록 복원 시 적군 교전 모드 미복원 문제 해결                   ║
 ║  [v11.6 — 과거 패치 내역 용어 정리]                                         ║
 ║  정리   과거 패치 201개 항목의 코드 명칭을 군사 용어·자연어로 통일          ║
 ║  [v11.4 — 분석 속도 4.5배 향상]                                             ║
@@ -4220,6 +4223,64 @@ def _render_strike_chart(mc: dict) -> Figure:
 # ════════════════════════════════════════════════════════════════════════════
 #  메인 윈도우
 # ════════════════════════════════════════════════════════════════════════════
+# ── 작전 시나리오 라이브러리 (v11.5) ──────────────────────────────────────────
+# 교리 기반 시나리오: 편대·적편대·해역·날씨·계절을 한 번에 세팅. _restore_cfg로 적용.
+SCENARIO_LIBRARY = {
+    '서해 차단작전': {
+        'desc': '북한의 서해 NLL 도발·기습 상륙 시도를 2함대가 차단한다. '
+                '연평·백령 협수로 환경에서 북한 수상함·잠수함 복합 위협에 대응.',
+        'recommend': '서해 해역방어 (2함대) · 박무 주간 · 대잠 경계 강화',
+        'cfg': {
+            'fleet_preset': '서해 해역방어 (2함대)',
+            'fleet_region': '서해',
+            'weather': '흐림 (박무)',
+            'season': 'summer',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '북한 입체 공격',
+        },
+    },
+    '독도 방어': {
+        'desc': '동해 영유권 분쟁 격화 시 독도 근해로 접근하는 적 수상함 편대를 '
+                '1함대가 저지한다. 거친 해상 상태에서의 함대 방공·대함전.',
+        'recommend': '동해 해역방어 (1함대) · 풍랑 · 함대 분산 배치',
+        'cfg': {
+            'fleet_preset': '동해 해역방어 (1함대)',
+            'fleet_region': '동해 중부',
+            'weather': '풍랑 (7~8등급)',
+            'season': 'autumn',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '수상함 편대전',
+        },
+    },
+    '항모전단 요격': {
+        'desc': '중국 랴오닝 항모전단이 동해 북부로 진입한다. 전 이지스 기동전단이 '
+                'SM-3/SM-6 다층 방공망으로 함재기·대함미사일 포화를 요격.',
+        'recommend': '전 이지스 기동전단 · 맑음 주간 · CEC 협동 교전',
+        'cfg': {
+            'fleet_preset': '전 이지스 기동전단',
+            'fleet_region': '동해 북부',
+            'weather': '맑음 (주간)',
+            'season': 'summer',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '랴오닝 항모전단',
+        },
+    },
+    '북한 포화도발': {
+        'desc': '북한이 야간에 단거리 탄도미사일·방사포 40여 발을 동시 발사하는 '
+                '포화 공격. BMD 중점 편대가 SM-3/SM-6/해궁 다층 요격으로 대응.',
+        'recommend': 'BMD 중점 편대 · 야간 · 이지스 어쇼어·THAAD 연동 권장',
+        'cfg': {
+            'fleet_preset': 'BMD 중점',
+            'fleet_region': '서해',
+            'weather': '맑음 (야간)',
+            'season': 'winter',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '북한 포화 공격 (40발)',
+        },
+    },
+}
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -4361,7 +4422,7 @@ class MainWindow(QMainWindow):
                     self.cmb_strait_type.setCurrentIndex(idx)
         # 적군 모드 — preset / random / manual
         enemy_mode = cfg.get('enemy_fleet_mode', '')
-        mode_reverse = {'preset': '편대 프리셋', 'random': '랜덤 편성', 'manual': '직접 구성'}
+        mode_reverse = {'preset': '프리셋', 'mixed': '혼합 시나리오', 'random': '랜덤'}
         mode_label = mode_reverse.get(enemy_mode, '')
         if mode_label and hasattr(self, 'cmb_enemy_mode'):
             idx = self.cmb_enemy_mode.findText(mode_label)
@@ -4393,6 +4454,25 @@ class MainWindow(QMainWindow):
         self._lbl_status.setText("✅ 설정 복원 완료")
 
 
+    def _on_scenario_changed(self, name: str):
+        """시나리오 선택 시 설명 표시 + 적용 버튼 활성화."""
+        sc = SCENARIO_LIBRARY.get(name)
+        if sc:
+            self.lbl_scenario_desc.setText(sc['desc'] + '\n▸ 권장: ' + sc['recommend'])
+            self.btn_apply_scenario.setEnabled(True)
+        else:
+            self.lbl_scenario_desc.setText('')
+            self.btn_apply_scenario.setEnabled(False)
+
+    def _apply_scenario(self):
+        """선택한 시나리오 설정을 UI에 일괄 적용 (편대·해역·날씨·계절·적 편대)."""
+        name = self.cmb_scenario.currentText()
+        sc = SCENARIO_LIBRARY.get(name)
+        if not sc:
+            return
+        self._restore_cfg(sc['cfg'])
+        self._lbl_status.setText(f"🎯 '{name}' 시나리오 적용 완료")
+
     def _build_config_panel(self) -> QWidget:
         # 컨테이너: 스크롤(위) + 고정 하단(모드·실행버튼)으로 구성
         container = QWidget()
@@ -4419,6 +4499,28 @@ class MainWindow(QMainWindow):
         title.setFont(QFont('Malgun Gothic', 17, QFont.Weight.Bold))
         title.setStyleSheet(f"color:{C_ACCENT}; padding: 8px 0;")
         layout.addWidget(title)
+
+        # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
+        grp_sc = QGroupBox("🎯 작전 시나리오")
+        scl = QVBoxLayout(grp_sc)
+        scl.setSpacing(4)
+        self.cmb_scenario = NoScrollComboBox()
+        self.cmb_scenario.addItems(['— 선택 안 함 —'] + list(SCENARIO_LIBRARY.keys()))
+        self.cmb_scenario.setToolTip(
+            "교리 기반 작전 시나리오 — 선택 후 '적용'을 누르면 "
+            "편대·해역·날씨·계절·적 편대가 한 번에 설정됩니다.")
+        self.cmb_scenario.currentTextChanged.connect(self._on_scenario_changed)
+        scl.addWidget(self.cmb_scenario)
+        self.lbl_scenario_desc = QLabel()
+        self.lbl_scenario_desc.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
+        self.lbl_scenario_desc.setWordWrap(True)
+        scl.addWidget(self.lbl_scenario_desc)
+        self.btn_apply_scenario = QPushButton("▶ 시나리오 적용")
+        self.btn_apply_scenario.setEnabled(False)
+        self.btn_apply_scenario.clicked.connect(self._apply_scenario)
+        scl.addWidget(self.btn_apply_scenario)
+        layout.addWidget(grp_sc)
 
         # ── 아군 편대 ──────────────────────────────────────────────────────
         grp_f = QGroupBox("🔵 아군 편대")
@@ -7670,9 +7772,6 @@ class SplashWindow(QWidget):
              "기본/환경/방어전술/항공자산/고급 5개 묶음 분리는 완료. "
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
-            ("v11.5", "낮음", "시나리오 라이브러리",
-             "교리 기반 시나리오 4종: 서해 차단작전·독도 방어·항모전단 요격·북한 포화도발. "
-             "설정·설명·권장 편성 포함. 작전급 시나리오의 표준 형식이 됨."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
             ("v12.1", "매우 높음", "실제 유도 알고리즘 (PNG)",
              "즉시 명중 판정 → 비례항법(PNG)으로 미사일이 실제 표적을 추격. "
