@@ -10,7 +10,7 @@
 
 | 파일 | 역할 |
 |------|------|
-| `engine.py` | 핵심 DB (ENEMY_DB 63종·FRIENDLY_DB 14종·SHIP_DB 21종 등), 물리모델, 탐지·교전 로직 |
+| `engine.py` | 핵심 DB (ENEMY_DB 65종·FRIENDLY_DB 14종·SHIP_DB 21종 등), 물리모델, 탐지·교전 로직 |
 | `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진. engine.py DB를 import해서 사용 |
 | `launcher.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
 | `spec_db.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
@@ -220,12 +220,12 @@ v8.26 patch: [버그 수정 내용]
 
 ### DB 구조 원칙
 
-- `ENEMY_DB` (engine.py): 적군 63종. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.
+- `ENEMY_DB` (engine.py): 적군 65종. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.
 - `FRIENDLY_DB` (engine.py): 아군 방어 무기 14종. `pk_dist`는 Beta 분포 파라미터.
 - `FRIENDLY_STRIKE_DB` (engine_v7.py): 아군 공격 무기 (해성·하푼·현무-3C 등).
 - `SHIP_DB` / `FLEET_PRESETS` (engine.py): 아군 함정 21종·편대 프리셋 15종.
-- `ENEMY_FLEET_PRESETS` (engine.py): 적군 편대 프리셋 14종.
-- `FRIENDLY_AIRCRAFT_DB` (engine.py): 함재 헬기·해상초계기 4종.
+- `ENEMY_FLEET_PRESETS` (engine.py): 적군 편대 프리셋 23종.
+- `FRIENDLY_AIRCRAFT_DB` (engine.py): CAP 전투기·함재 헬기·해상초계기 7종.
 - `SPEC_DETAIL_DB` (spec_db.py): DB 탭 스펙시트 표시용 상세 설명.
 
 ### 신기능 추가 시 체크리스트
