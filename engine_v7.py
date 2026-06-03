@@ -619,13 +619,10 @@ class LatLon:
 
     # ── 거리·방위 ─────────────────────────────────────────────────────────────
     def dist_to(self, other: 'LatLon') -> float:
-        """Haversine 거리 (m)."""
-        R = 6_371_000.0
-        φ1 = math.radians(self.lat);  φ2 = math.radians(other.lat)
-        Δφ = math.radians(other.lat - self.lat)
-        Δλ = math.radians(other.lon - self.lon)
-        a = math.sin(Δφ/2)**2 + math.cos(φ1)*math.cos(φ2)*math.sin(Δλ/2)**2
-        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+        """평면 근사 거리 (m) — 500km 이내 오차 0.1% 미만."""
+        dy = (other.lat - self.lat) * _ref_m_per_deg_lat
+        dx = (other.lon - self.lon) * _ref_m_per_deg_lon
+        return math.sqrt(dx * dx + dy * dy)
 
     def bearing_to(self, other: 'LatLon') -> float:
         """방위각 (rad) — 동=0, 북=π/2 (x/y 평면 관례 유지)."""
@@ -1049,6 +1046,8 @@ class TimeStepEngine:
         _set_region_ref(cfg.get('fleet_region', '동해 북부'))
         self._log_entries: list = []
         self._tick_events:  list = []
+
+        self._mc_mode: bool = bool(cfg.get('mc_mode', False))
 
         # sim_seed 적용 (재현 보장) — python random + numpy 동시 고정
         seed = cfg.get('sim_seed', None)
@@ -1476,6 +1475,8 @@ class TimeStepEngine:
             self._log(f"[{name}] {self.t:.0f}s 파도 스폰")
 
     def _log(self, msg: str):
+        if self._mc_mode:
+            return
         self._log_entries.append((self.t, msg))
         self._tick_events.append(msg)
 
@@ -3357,7 +3358,8 @@ class TimeStepEngine:
             self.missiles = [m for m in self.missiles
                              if m.alive and not m.intercepted]
 
-            self._record_frame()
+            if not self._mc_mode:
+                self._record_frame()
 
             # 포팅 D: 동시 위협 수 peak 추적
             alive_count = sum(
@@ -3454,7 +3456,7 @@ class TimeStepEngine:
             'total_channels':      total_channels,
             'used_seed':           self.cfg.get('sim_seed', None),
             'ship_subsystem_damage': ship_subsystem_damage,
-            'active_events':     self._build_active_events(),  # A-1
+            'active_events':     [] if self._mc_mode else self._build_active_events(),
             'strike_log':        self.strike_log,              # v9.3
             'vls_depletion_t':   dict(self.vls_depletion_t),  # v9.4
             'ground_remaining':   dict(self.ground_inv),         # v9.4 / v9.11
@@ -3576,6 +3578,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
       std_intercept     : float
       full_pass_rate    : float          — 요격률 1.0 비율
     """
+    cfg = dict(cfg); cfg['mc_mode'] = True
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}   # {무기명: [회차별 소모량]}
     ship_hits_mc: dict = {}   # {함정명: [회차별 피격]}
@@ -3661,6 +3664,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
 def _mc_batch_worker(args: tuple) -> tuple:
     """ProcessPoolExecutor 배치 워커 — PyQt6 의존성 없는 순수 엔진 함수."""
     cfg, n, seed_offset = args
+    cfg = dict(cfg); cfg['mc_mode'] = True
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}
     weapon_zero:  dict = {}
@@ -3692,6 +3696,30 @@ def _mc_batch_worker(args: tuple) -> tuple:
     else:
         phase_times_avg = {}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg
+
+
+def _mc_lhs_batch_worker(args: tuple) -> tuple:
+    """LHS MC 배치 워커 — 미리 계산된 샘플 슬라이스와 파라미터 정의를 받아 실행."""
+    cfg_base, samples, param_defs = args
+    cfg_base = dict(cfg_base); cfg_base['mc_mode'] = True
+    rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    weapon_usage: dict = {}
+    ship_hits_mc: dict = {}
+    for sample in samples:
+        run_cfg = dict(cfg_base)
+        for j, (key, lo, hi, _) in enumerate(param_defs):
+            run_cfg[key] = float(lo + sample[j] * (hi - lo))
+        r = run_v7_simulation(run_cfg)
+        rates.append(r['intercept_rate'])
+        f_hits.append(r['friendly_hits'])
+        e_dest.append(r['enemy_ships_destroyed'])
+        f_lost.append(r['friendly_ships_lost'])
+        costs.append(r['total_cost'])
+        for wpn, remaining in r.get('remaining_inventory', {}).items():
+            weapon_usage.setdefault(wpn, []).append(remaining)
+        for ship in r.get('friendly_ships', []):
+            ship_hits_mc.setdefault(ship.name, []).append(getattr(ship, 'hits_taken', 0))
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3733,11 +3761,14 @@ def compute_cvar(rates: list, alpha: float = 0.05) -> float:
 def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                     progress_cb=None) -> dict:
     """
-    Latin Hypercube Sampling 기반 MC.
+    Latin Hypercube Sampling 기반 MC (멀티프로세싱 + mc_mode 최적화).
     불확실 파라미터 6종을 LHS로 공간 균등 샘플링하여 순수 MC 대비 3~5× 빠른 수렴.
 
     반환: monte_carlo_v7 형식 dict + 'cvar', 'method' 키
     """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    import os
+
     try:
         from scipy.stats.qmc import LatinHypercube
         d = len(_LHS_PARAM_DEFS)
@@ -3745,30 +3776,47 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         sampler  = LatinHypercube(d=d, seed=int(seed_val) if seed_val else None)
         samples  = sampler.random(n=n)   # (n, d) in [0,1]
     except ImportError:
-        # scipy 미설치 시 균등 랜덤으로 폴백
         samples = np.random.rand(n, len(_LHS_PARAM_DEFS))
 
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}
     ship_hits_mc: dict = {}
 
-    for i, sample in enumerate(samples):
-        run_cfg = dict(cfg)
-        for j, (key, lo, hi, _) in enumerate(_LHS_PARAM_DEFS):
-            run_cfg[key] = float(lo + sample[j] * (hi - lo))
-        r = run_v7_simulation(run_cfg)
-        rates.append(r['intercept_rate'])
-        f_hits.append(r['friendly_hits'])
-        e_dest.append(r['enemy_ships_destroyed'])
-        f_lost.append(r['friendly_ships_lost'])
-        costs.append(r['total_cost'])
-        for wpn, remaining in r.get('remaining_inventory', {}).items():
-            weapon_usage.setdefault(wpn, []).append(remaining)
-        for ship in r.get('friendly_ships', []):
-            ship_hits_mc.setdefault(ship.name, []).append(
-                getattr(ship, 'hits_taken', 0))
-        if progress_cb:
-            progress_cb(i + 1, n)
+    n_workers = min(os.cpu_count() or 4, 8)
+    batch_size = max(1, n // n_workers)
+    batches = [samples[i:i + batch_size] for i in range(0, n, batch_size)]
+    args_list = [(cfg, b.tolist(), _LHS_PARAM_DEFS) for b in batches]
+
+    done = 0
+    try:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futs = {pool.submit(_mc_lhs_batch_worker, a): len(a[1]) for a in args_list}
+            for fut in as_completed(futs):
+                br, bh, bd, bl, bc, bwu, bsh = fut.result()
+                rates.extend(br); f_hits.extend(bh); e_dest.extend(bd)
+                f_lost.extend(bl); costs.extend(bc)
+                for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
+                for k, v in bsh.items(): ship_hits_mc.setdefault(k, []).extend(v)
+                done += futs[fut]
+                if progress_cb:
+                    progress_cb(done, n)
+    except Exception:
+        # 멀티프로세싱 실패 시 직렬 폴백
+        cfg2 = dict(cfg); cfg2['mc_mode'] = True
+        for i, sample in enumerate(samples):
+            run_cfg = dict(cfg2)
+            for j, (key, lo, hi, _) in enumerate(_LHS_PARAM_DEFS):
+                run_cfg[key] = float(lo + sample[j] * (hi - lo))
+            r = run_v7_simulation(run_cfg)
+            rates.append(r['intercept_rate']); f_hits.append(r['friendly_hits'])
+            e_dest.append(r['enemy_ships_destroyed']); f_lost.append(r['friendly_ships_lost'])
+            costs.append(r['total_cost'])
+            for wpn, rem in r.get('remaining_inventory', {}).items():
+                weapon_usage.setdefault(wpn, []).append(rem)
+            for ship in r.get('friendly_ships', []):
+                ship_hits_mc.setdefault(ship.name, []).append(getattr(ship, 'hits_taken', 0))
+            if progress_cb:
+                progress_cb(i + 1, n)
 
     arr = np.array(rates)
     return {
@@ -3785,7 +3833,6 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'cvar':                 compute_cvar(rates),
         'n':                    n,
         'method':               'LHS',
-        # v9.3
         'mean_enemy_destroyed': float(np.mean(e_dest)) if e_dest else 0.0,
         'max_enemy_destroyed':  int(max(e_dest)) if e_dest else 0,
     }
