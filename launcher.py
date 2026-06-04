@@ -1,10 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.11 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.12 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v12.02.10~11 — 향후 계획·도움말 카드형 시각화 통일]                       ║
+║  [v12.02.10~12 — 향후 계획·도움말·탑재 기능 카드형 시각화 통일]             ║
 ║  NEW-A  향후 계획 탭 카드형(난이도 색 띠·배지)                              ║
 ║  NEW-B  도움말 탭(용어·순서·FAQ) 카드형 통일                                ║
+║  NEW-C  탑재 기능 탭 카드형 통일 (DB 탭은 목록+스펙시트 구조 유지)          ║
 ║  [v12.02.09 — 패치 내역 날짜 칩 배경색(청록)]                               ║
 ║  NEW-A  날짜 칩 배경을 청록 톤으로 — 카드 계열 색과 구분되는 중립 헤더 색   ║
 ║  [v12.02.08 — 패치 내역 날짜 칩 크기 조정]                                  ║
@@ -533,7 +534,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.11"
+APP_VERSION = "v12.02.12"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7880,30 +7881,40 @@ class SplashWindow(QWidget):
     def _build_feature_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        tbl = QTableWidget(len(_FEATURES), 2)
-        tbl.setHorizontalHeaderLabels(["탭 / 기능", "설명"])
-        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 280)
-        tbl.setWordWrap(True)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setAlternatingRowColors(True)
-        tbl.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        for row, (name, desc) in enumerate(_FEATURES):
-            ni = QTableWidgetItem(name)
-            ni.setForeground(QColor(C_ACCENT))
-            desc_item = QTableWidgetItem(desc)
-            desc_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            _apply_term_tooltip(ni, name + ' ' + desc)
-            _apply_term_tooltip(desc_item, desc)
-            tbl.setItem(row, 0, ni)
-            tbl.setItem(row, 1, desc_item)
-        tbl.verticalHeader().setDefaultSectionSize(68)
-        layout.addWidget(tbl)
+        layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
+        inner = QWidget()
+        inner.setStyleSheet(f"background: {C_BG};")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(7)
+        for name, desc in _FEATURES:
+            card = QFrame()
+            card.setObjectName("card")
+            card.setStyleSheet(f"""
+                QFrame#card {{ background: #161d2a; border-radius: 8px;
+                    border-left: 4px solid {C_ACCENT}; }}
+                QFrame#card QLabel {{ background: transparent; }}
+            """)
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(14, 9, 14, 11)
+            cl.setSpacing(5)
+            nlbl = QLabel(name)
+            nlbl.setWordWrap(True)
+            nlbl.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; font-size: 15px;")
+            dlbl = QLabel(desc)
+            dlbl.setWordWrap(True)
+            dlbl.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 14px;")
+            cl.addWidget(nlbl)
+            cl.addWidget(dlbl)
+            _apply_term_tooltip(nlbl, name + ' ' + desc)
+            _apply_term_tooltip(dlbl, desc)
+            v.addWidget(card)
+        v.addStretch(1)
+        scroll.setWidget(inner)
+        layout.addWidget(scroll)
         return w
 
     def _build_changelog_tab(self) -> QWidget:
