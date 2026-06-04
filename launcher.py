@@ -7,7 +7,9 @@
 ║         — 메뉴 클릭 시 해당 화면이 우측에 표시 (상단 탭바 → 사이드바)        ║
 ║  NEW-B  홈 화면: 그라데이션 배경에 엠블럼·타이틀·[시뮬레이터 시작] 버튼      ║
 ║  NEW-C  사이드바 상단 앱 로고·하단 버전 표기, 선택 메뉴 좌측 강조 바         ║
-║  NEW-D  계획 정합: 표지를 v13.1에서 앞당겨 구현, v12·v13 번호 재정렬         ║
+║  NEW-D  홈 배경: 우주에서 본 한반도 야경(NASA ISS 공개도메인)에 미사일       ║
+║         궤적·요격·함대 마커를 합성한 작전개념도 + 시작 버튼 글로우 강조      ║
+║  NEW-E  계획 정합: 표지를 v13.1에서 앞당겨 구현, v12·v13 번호 재정렬         ║
 ║  [v12.1 patch — 향후 계획 정리 + 패치 내역 표 글자 겹침 수정]                ║
 ║  BUG-1  완료된 v10.x 전체·v11.2 차기 계획 수립 항목을 _PLANS에서 제거        ║
 ║         (구현 완료 항목 즉시 삭제 규칙 누락분 정리)                          ║
@@ -857,9 +859,9 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QSlider, QProgressBar,
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
-    QListWidget, QListWidgetItem, QStackedWidget,
+    QListWidget, QListWidgetItem, QStackedWidget, QGraphicsDropShadowEffect,
 )
-from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap
+from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
 
 import matplotlib
@@ -7526,6 +7528,28 @@ class _ChangelogTable(QTableWidget):
             self.setRowHeight(row, max(34, body.heightForWidth(avail) + 12))
 
 
+class _HomeBg(QWidget):
+    """홈 배경 — 위성 합성 이미지를 영역에 꽉 차게(cover) 그린다."""
+
+    def __init__(self, pixmap: QPixmap):
+        super().__init__()
+        self._pix = pixmap
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        if self._pix and not self._pix.isNull():
+            scaled = self._pix.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
+            x = (scaled.width() - self.width()) // 2
+            y = (scaled.height() - self.height()) // 2
+            p.drawPixmap(-x, -y, scaled)
+        else:
+            p.fillRect(self.rect(), QColor('#0a1426'))
+        p.fillRect(self.rect(), QColor(7, 13, 24, 55))   # 가독성용 살짝 어둡게
+
+
 class SplashWindow(QWidget):
     """프로그램 진입 런처. [시뮬레이터 시작] → MainWindow 열기."""
 
@@ -7570,7 +7594,7 @@ class SplashWindow(QWidget):
             self._build_changelog_tab, self._build_plan_tab,
             self._build_enemy_db_tab, self._build_friendly_db_tab):
             self._content.addWidget(builder())
-        self._nav_select(_load_app_state().get('splash_tab', 0))
+        self._nav_select(0)   # 시작 시 항상 홈(표지) 화면
 
     # ── 좌측 사이드바 (Paradox 스타일 세로 메뉴) ──────────────────────────
     def _build_sidebar(self) -> QWidget:
@@ -7578,14 +7602,18 @@ class SplashWindow(QWidget):
         bar.setObjectName("sidebar")
         bar.setFixedWidth(252)
         bar.setStyleSheet(f"""
-            QWidget#sidebar {{ background: {C_PANEL};
-                               border-right: 1px solid {C_BORDER}; }}
+            QWidget#sidebar {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                   stop:0 #0e1828, stop:1 #0a1119);
+                               border-right: 1px solid #1c2b3e; }}
             QWidget#sidebar QLabel {{ background: transparent; }}
-            QPushButton#nav {{ text-align: left; padding: 11px 20px; border: none;
-                background: transparent; color: {C_SUBTEXT}; font-size: 16px; }}
-            QPushButton#nav:hover {{ background: {C_BG}; color: {C_TEXT}; }}
-            QPushButton#nav:checked {{ background: {C_BG}; color: {C_ACCENT};
-                border-left: 3px solid {C_ACCENT}; font-weight: bold; }}
+            QPushButton#nav {{ text-align: left; padding: 11px 17px;
+                border: none; border-left: 3px solid transparent;
+                background: transparent; color: #9fb0c3; font-size: 15px; }}
+            QPushButton#nav:hover {{ background: rgba(52,152,219,0.10);
+                color: #eaf2ff; }}
+            QPushButton#nav:checked {{ background: rgba(52,152,219,0.18);
+                color: {C_ACCENT}; border-left: 3px solid {C_ACCENT};
+                font-weight: bold; }}
         """)
         v = QVBoxLayout(bar)
         v.setContentsMargins(0, 0, 0, 0)
@@ -7620,8 +7648,8 @@ class SplashWindow(QWidget):
 
         # 네비게이션 버튼 (클릭 시 우측 콘텐츠 전환)
         self._nav_btns = []
-        items = [("🏠  홈", 0), ("❓  도움말", 1), ("📋  탑재 기능", 2),
-                 ("📝  패치 내역", 3), ("🗓️  향후 계획", 4),
+        items = [("🏠  홈", 0), ("❓  도움말", 1), ("🛠  탑재 기능", 2),
+                 ("📜  패치 내역", 3), ("🧭  향후 계획", 4),
                  ("🔴  적군 DB", 5), ("🔵  아군 DB", 6)]
         for label, idx in items:
             b = QPushButton(label)
@@ -7661,16 +7689,20 @@ class SplashWindow(QWidget):
 
     # ── 홈 화면 (표지 + 시작 버튼) ────────────────────────────────────────
     def _build_home_page(self) -> QWidget:
-        page = QWidget()
+        page = _HomeBg(QPixmap(_res("assets/images/home_bg.jpg")))
         page.setObjectName("home")
         page.setStyleSheet(f"""
-            QWidget#home {{
-                background: qlineargradient(x1:0, y1:0, x2:0.6, y2:1,
-                    stop:0 #0a1426, stop:0.55 #0d2138, stop:1 #060e1b);
-            }}
             QWidget#home QLabel {{ background: transparent; }}
             QWidget#home QPushButton {{
-                font-size: 20px; padding: 16px 54px; border-radius: 8px;
+                font-size: 21px; font-weight: bold; color: #ffffff;
+                padding: 18px 64px; border-radius: 10px;
+                border: 1px solid #5bb4f0;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3aa0e8, stop:1 #2472b8);
+            }}
+            QWidget#home QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4cb0f5, stop:1 #2f86d0);
             }}
         """)
         v = QVBoxLayout(page)
@@ -7719,9 +7751,14 @@ class SplashWindow(QWidget):
         v.addSpacing(40)
 
         btn_start = QPushButton("🚀  시뮬레이터 시작")
-        btn_start.setFixedHeight(58)
+        btn_start.setFixedHeight(62)
         btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_start.clicked.connect(self.launch_requested.emit)
+        glow = QGraphicsDropShadowEffect()
+        glow.setColor(QColor(52, 152, 219, 200))
+        glow.setBlurRadius(38)
+        glow.setOffset(0, 0)
+        btn_start.setGraphicsEffect(glow)
         btn_box = QHBoxLayout()
         btn_box.addStretch(1); btn_box.addWidget(btn_start); btn_box.addStretch(1)
         v.addLayout(btn_box)
