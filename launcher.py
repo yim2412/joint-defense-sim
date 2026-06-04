@@ -2,10 +2,12 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v12.2 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v12.2 — 시작 화면 표지(인트로) 신설: 2페이지 런처 구조]                    ║
-║  NEW-A  들어가면 그라데이션 배경의 표지 화면(엠블럼·타이틀·시작 버튼)이      ║
-║         먼저 표시 — [프로그램 정보·DB]로 기존 탭 패널 전환, [표지로] 복귀    ║
-║  NEW-B  계획 정합: 표지는 v13.1 항목을 앞당겨 구현, v12·v13 번호 재정렬      ║
+║  [v12.2 — 런처 UI 전면 개편: Paradox 스타일 사이드바 네비게이션]            ║
+║  NEW-A  좌측 세로 메뉴(홈·도움말·기능·패치·계획·적/아군 DB) + 우측 콘텐츠   ║
+║         — 메뉴 클릭 시 해당 화면이 우측에 표시 (상단 탭바 → 사이드바)        ║
+║  NEW-B  홈 화면: 그라데이션 배경에 엠블럼·타이틀·[시뮬레이터 시작] 버튼      ║
+║  NEW-C  사이드바 상단 앱 로고·하단 버전 표기, 선택 메뉴 좌측 강조 바         ║
+║  NEW-D  계획 정합: 표지를 v13.1에서 앞당겨 구현, v12·v13 번호 재정렬         ║
 ║  [v12.1 patch — 향후 계획 정리 + 패치 내역 표 글자 겹침 수정]                ║
 ║  BUG-1  완료된 v10.x 전체·v11.2 차기 계획 수립 항목을 _PLANS에서 제거        ║
 ║         (구현 완료 항목 즉시 삭제 규칙 누락분 정리)                          ║
@@ -7555,27 +7557,120 @@ class SplashWindow(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self._stack = QStackedWidget()
-        layout.addWidget(self._stack)
-        self._stack.addWidget(self._build_cover_page())   # 0: 표지
-        self._stack.addWidget(self._build_info_page())    # 1: 정보 패널
-        self._stack.setCurrentIndex(0)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        self._content = QStackedWidget()
+        h.addWidget(self._build_sidebar())
+        h.addWidget(self._content, 1)
+        # 콘텐츠 페이지: 0 홈 · 1~6 정보/DB 탭 (사이드바 메뉴 순서와 일치)
+        for builder in (
+            self._build_home_page,
+            self._build_help_tab, self._build_feature_tab,
+            self._build_changelog_tab, self._build_plan_tab,
+            self._build_enemy_db_tab, self._build_friendly_db_tab):
+            self._content.addWidget(builder())
+        self._nav_select(_load_app_state().get('splash_tab', 0))
 
-    # ── 표지(커버) 페이지 ─────────────────────────────────────────────────
-    def _build_cover_page(self) -> QWidget:
+    # ── 좌측 사이드바 (Paradox 스타일 세로 메뉴) ──────────────────────────
+    def _build_sidebar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("sidebar")
+        bar.setFixedWidth(252)
+        bar.setStyleSheet(f"""
+            QWidget#sidebar {{ background: {C_PANEL};
+                               border-right: 1px solid {C_BORDER}; }}
+            QWidget#sidebar QLabel {{ background: transparent; }}
+            QPushButton#nav {{ text-align: left; padding: 11px 20px; border: none;
+                background: transparent; color: {C_SUBTEXT}; font-size: 16px; }}
+            QPushButton#nav:hover {{ background: {C_BG}; color: {C_TEXT}; }}
+            QPushButton#nav:checked {{ background: {C_BG}; color: {C_ACCENT};
+                border-left: 3px solid {C_ACCENT}; font-weight: bold; }}
+        """)
+        v = QVBoxLayout(bar)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        # 상단 로고 (아이콘 + 앱 이름)
+        logo = QHBoxLayout()
+        logo.setContentsMargins(20, 22, 20, 18)
+        logo.setSpacing(12)
+        icon = QLabel("⚓")
+        icon.setStyleSheet(f"font-size: 38px; color: {C_ACCENT};")
+        logo.addWidget(icon)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        n1 = QLabel("이지스 기동전단")
+        n1.setFont(QFont('Malgun Gothic', 15, QFont.Weight.Bold))
+        n1.setStyleSheet("color: #eaf2ff;")
+        n2 = QLabel("통합 방어 시뮬레이터")
+        n2.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 12px;")
+        names.addWidget(n1)
+        names.addWidget(n2)
+        logo.addLayout(names)
+        logo.addStretch(1)
+        v.addLayout(logo)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {C_BORDER};")
+        sep.setFixedHeight(1)
+        v.addWidget(sep)
+        v.addSpacing(8)
+
+        # 네비게이션 버튼 (클릭 시 우측 콘텐츠 전환)
+        self._nav_btns = []
+        items = [("🏠  홈", 0), ("❓  도움말", 1), ("📋  탑재 기능", 2),
+                 ("📝  패치 내역", 3), ("🗓️  향후 계획", 4),
+                 ("🔴  적군 DB", 5), ("🔵  아군 DB", 6)]
+        for label, idx in items:
+            b = QPushButton(label)
+            b.setObjectName("nav")
+            b.setCheckable(True)
+            b.setFixedHeight(44)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _=False, i=idx: self._nav_select(i))
+            v.addWidget(b)
+            self._nav_btns.append(b)
+
+        v.addStretch(1)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {C_BORDER};")
+        sep2.setFixedHeight(1)
+        v.addWidget(sep2)
+
+        foot = QVBoxLayout()
+        foot.setContentsMargins(20, 12, 20, 16)
+        foot.setSpacing(2)
+        ver = QLabel(APP_VERSION)
+        ver.setStyleSheet(f"color: {C_TEXT}; font-size: 13px; font-weight: bold;")
+        dt = QLabel("2026.6  ·  PyQt6 네이티브 UI")
+        dt.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 11px;")
+        foot.addWidget(ver)
+        foot.addWidget(dt)
+        v.addLayout(foot)
+        return bar
+
+    def _nav_select(self, idx: int):
+        self._content.setCurrentIndex(idx)
+        for i, b in enumerate(self._nav_btns):
+            b.setChecked(i == idx)
+        _save_app_state({**_load_app_state(), 'splash_tab': idx})
+
+    # ── 홈 화면 (표지 + 시작 버튼) ────────────────────────────────────────
+    def _build_home_page(self) -> QWidget:
         page = QWidget()
-        page.setObjectName("cover")
+        page.setObjectName("home")
         page.setStyleSheet(f"""
-            QWidget#cover {{
-                background: qlineargradient(x1:0, y1:0, x2:0.5, y2:1,
+            QWidget#home {{
+                background: qlineargradient(x1:0, y1:0, x2:0.6, y2:1,
                     stop:0 #0a1426, stop:0.55 #0d2138, stop:1 #060e1b);
             }}
-            QWidget#cover QLabel {{ background: transparent; }}
-            QWidget#cover QPushButton {{
-                font-size: 19px; padding: 15px 44px; border-radius: 8px;
+            QWidget#home QLabel {{ background: transparent; }}
+            QWidget#home QPushButton {{
+                font-size: 20px; padding: 16px 54px; border-radius: 8px;
             }}
         """)
         v = QVBoxLayout(page)
@@ -7624,79 +7719,14 @@ class SplashWindow(QWidget):
         v.addSpacing(40)
 
         btn_start = QPushButton("🚀  시뮬레이터 시작")
-        btn_start.setFixedHeight(56)
+        btn_start.setFixedHeight(58)
         btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_start.clicked.connect(self.launch_requested.emit)
-
-        btn_info = QPushButton("📖  프로그램 정보 · DB")
-        btn_info.setFixedHeight(56)
-        btn_info.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_info.setStyleSheet(
-            f"background: transparent; color: {C_ACCENT}; "
-            f"border: 1px solid {C_ACCENT};")
-        btn_info.clicked.connect(lambda: self._stack.setCurrentIndex(1))
-
         btn_box = QHBoxLayout()
-        btn_box.setSpacing(16)
-        btn_box.addStretch(1)
-        btn_box.addWidget(btn_start)
-        btn_box.addWidget(btn_info)
-        btn_box.addStretch(1)
+        btn_box.addStretch(1); btn_box.addWidget(btn_start); btn_box.addStretch(1)
         v.addLayout(btn_box)
 
-        v.addStretch(2)
-        credit = QLabel(f"{APP_VERSION}   ·   PyQt6 네이티브 UI")
-        credit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        credit.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 13px;")
-        v.addWidget(credit)
-        return page
-
-    # ── 정보 패널 페이지 (기존 탭) ────────────────────────────────────────
-    def _build_info_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 16, 24, 20)
-        layout.setSpacing(10)
-
-        top = QHBoxLayout()
-        back = QPushButton("←  표지로")
-        back.setFixedHeight(38)
-        back.setStyleSheet(
-            f"background: transparent; color: {C_SUBTEXT}; "
-            f"border: 1px solid {C_BORDER}; padding: 6px 18px; font-size: 15px;")
-        back.setCursor(Qt.CursorShape.PointingHandCursor)
-        back.clicked.connect(lambda: self._stack.setCurrentIndex(0))
-        top.addWidget(back)
-        top.addStretch(1)
-        title = QLabel("⚓ 이지스 기동전단 통합 방어 시뮬레이터")
-        title.setFont(QFont('Malgun Gothic', 18, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {C_ACCENT};")
-        top.addWidget(title)
-        top.addStretch(1)
-        sub = QLabel(APP_VERSION)
-        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 15px;")
-        top.addWidget(sub)
-        layout.addLayout(top)
-
-        tabs = QTabWidget()
-        layout.addWidget(tabs, stretch=1)
-        tabs.addTab(self._build_help_tab(),         "❓  도움말")
-        tabs.addTab(self._build_feature_tab(),      "📋  탑재 기능")
-        tabs.addTab(self._build_changelog_tab(),   "📝  패치 내역")
-        tabs.addTab(self._build_plan_tab(),        "🗓️  향후 계획")
-        tabs.addTab(self._build_enemy_db_tab(),    "🔴  적군 DB")
-        tabs.addTab(self._build_friendly_db_tab(), "🔵  아군 DB")
-
-        saved_tab = _load_app_state().get('splash_tab', 0)
-        tabs.setCurrentIndex(saved_tab)
-        tabs.currentChanged.connect(
-            lambda idx: _save_app_state({**_load_app_state(), 'splash_tab': idx})
-        )
-
-        btn = QPushButton("🚀  시뮬레이터 시작")
-        btn.setFixedHeight(46)
-        btn.clicked.connect(self.launch_requested.emit)
-        layout.addWidget(btn)
+        v.addStretch(3)
         return page
 
     # ── 도움말 / 튜토리얼 탭 ──────────────────────────────────────────────
