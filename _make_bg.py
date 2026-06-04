@@ -9,10 +9,16 @@ src = Image.open('src_kf21_source.jpg').convert('RGB')
 W, H = src.size
 src = ImageEnhance.Brightness(src).enhance(1.35)   # 원본보다 한층 더 밝게
 src = ImageEnhance.Color(src).enhance(0.98)
+src = ImageEnhance.Sharpness(src).enhance(1.5)     # 선명도 향상
 base = src.convert('RGBA')
 ov = Image.new('RGBA', (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(ov)
 
+# 상단 비네트 (좌상단 타이틀 흰 글씨 가독성)
+hub = int(H * 0.42)
+for y in range(hub):
+    a = int(135 * (1 - y / hub))
+    d.line([(0, y), (W, y)], fill=(4, 9, 18, max(0, a)))
 # 좌측 비네트 (사이드바 경계만 살짝)
 lim = int(W * 0.32)
 for x in range(lim):
@@ -25,5 +31,5 @@ for y in range(top, H):
     d.line([(0, y), (W, y)], fill=(4, 9, 18, max(0, a)))
 
 out = Image.alpha_composite(base, ov).convert('RGB')
-out.save('assets/images/home_bg.jpg', quality=90)
+out.save('assets/images/home_bg.jpg', quality=95)
 print('saved', out.size)

@@ -7738,9 +7738,9 @@ class SplashWindow(QWidget):
         # 사진 배경 위 가독성 — 텍스트에 검정 그림자
         for _lbl in (emblem, t1, t2, en, desc):
             _e = QGraphicsDropShadowEffect()
-            _e.setColor(QColor(0, 0, 0, 240))
-            _e.setBlurRadius(16)
-            _e.setOffset(0, 2)
+            _e.setColor(QColor(0, 0, 0, 255))
+            _e.setBlurRadius(26)
+            _e.setOffset(0, 3)
             _lbl.setGraphicsEffect(_e)
 
         v.addStretch(1)   # 전투기가 보이는 가운데 공간
