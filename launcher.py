@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.12 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.15 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.13~15 — DB 탭 스펙시트 시각화 개선]                                 ║
+║  NEW-A  목록에 종류별 색 띠 (대공=적·대함=주황·대잠=청)                     ║
+║  NEW-B  상세 제원을 카테고리 카드로 시각화 (좌측 색 띠 박스)                ║
+║  NEW-C  사진을 비율 유지 + 둥근 프레임으로 표시 (왜곡 제거)                 ║
 ║  [v12.02.10~12 — 향후 계획·도움말·탑재 기능 카드형 시각화 통일]             ║
 ║  NEW-A  향후 계획 탭 카드형(난이도 색 띠·배지)                              ║
 ║  NEW-B  도움말 탭(용어·순서·FAQ) 카드형 통일                                ║
@@ -534,7 +538,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.12"
+APP_VERSION = "v12.02.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -873,8 +877,11 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
     QListWidget, QListWidgetItem, QStackedWidget, QGraphicsDropShadowEffect,
 )
-from PyQt6.QtGui import QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
+from PyQt6.QtGui import (
+    QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter,
+    QPainterPath, QPen,
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF
 
 import matplotlib
 matplotlib.use('QtAgg')
@@ -7324,6 +7331,77 @@ _FEATURES = [
 # ════════════════════════════════════════════════════════════════════════════
 #  스펙시트 패널
 # ════════════════════════════════════════════════════════════════════════════
+class _RoundPhoto(QWidget):
+    """사진을 비율 유지(contain) + 둥근 모서리로 그리는 위젯. 사진 없으면 아이콘 표시."""
+
+    def __init__(self, height: int = 210):
+        super().__init__()
+        self._pix: 'QPixmap | None' = None
+        self._icon = ""
+        self.setFixedHeight(height)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def set_photo(self, pix: QPixmap):
+        self._pix = pix if (pix and not pix.isNull()) else None
+        self._icon = ""
+        self.update()
+
+    def set_icon(self, text: str):
+        self._pix = None
+        self._icon = text
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(r, 8, 8)
+        p.setClipPath(path)
+        p.fillRect(self.rect(), QColor(C_BG))
+        if self._pix is not None:
+            sp = self._pix.scaled(
+                self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - sp.width()) // 2
+            y = (self.height() - sp.height()) // 2
+            p.drawPixmap(x, y, sp)
+        elif self._icon:
+            p.setPen(QColor(C_SUBTEXT))
+            f = p.font(); f.setPointSize(44); p.setFont(f)
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._icon)
+        p.setClipping(False)
+        pen = QPen(QColor(C_BORDER)); pen.setWidth(1)
+        p.setPen(pen); p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(r, 8, 8)
+
+
+# 스펙시트 카테고리 카드 좌측 accent 색 (카테고리 이름 키워드 매칭)
+_CAT_CARD_ACCENT = {
+    '기본':   '#3498db',   # 청색
+    '물리':   '#7d8590',   # 회색
+    '성능':   '#2ecc71',   # 녹색
+    '추진':   '#1abc9c',   # 청록
+    '무장':   '#e6a23c',   # 주황
+    '센서':   '#9b59b6',   # 보라
+    '유도':   '#c0504d',   # 적색
+    '탄두':   '#c0504d',
+    '전자전': '#9b59b6',
+    '시스템': '#5b9bd5',
+    '보급':   '#1abc9c',
+    '전술':   '#e74c3c',
+    '항공':   '#5b9bd5',
+}
+
+
+def _cat_accent(cat_name: str) -> str:
+    for key, color in _CAT_CARD_ACCENT.items():
+        if key in cat_name:
+            return color
+    return C_ACCENT
+
+
 class SpecSheetPanel(QWidget):
     """선택 유닛 스펙시트 — 우측 패널 (사진 + 카테고리별 상세 스펙 + 스크롤)"""
 
@@ -7347,18 +7425,9 @@ class SpecSheetPanel(QWidget):
         root.setContentsMargins(10, 8, 10, 8)
         root.setSpacing(6)
 
-        # ── 상단: 가로 사진 박스 ──────────────────────────────────────────
-        self._img_lbl = QLabel()
-        self._img_lbl.setFixedHeight(220)
-        self._img_lbl.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self._img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._img_lbl.setStyleSheet(
-            f"background:{C_BG}; border:1px solid {C_BORDER};"
-            f" border-radius:4px; font-size:48px;"
-        )
-        root.addWidget(self._img_lbl)
+        # ── 상단: 가로 사진 박스 (비율 유지 + 둥근 모서리) ─────────────────
+        self._photo = _RoundPhoto(height=210)
+        root.addWidget(self._photo)
 
         # ── 제목 / 부제 행 ────────────────────────────────────────────────
         title_row = QHBoxLayout()
@@ -7386,6 +7455,14 @@ class SpecSheetPanel(QWidget):
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color:{C_BORDER};")
         root.addWidget(sep)
+
+        # ── 하이라이트 카드 행 (사진 아래 핵심수치) ───────────────────────
+        self._hl_wrap = QWidget()
+        self._hl_lay = QHBoxLayout(self._hl_wrap)
+        self._hl_lay.setContentsMargins(0, 2, 0, 2)
+        self._hl_lay.setSpacing(6)
+        self._hl_wrap.hide()
+        root.addWidget(self._hl_wrap)
 
         # ── 카테고리 스크롤 영역 ──────────────────────────────────────────
         self._scroll = QScrollArea()
@@ -7424,36 +7501,94 @@ class SpecSheetPanel(QWidget):
                 w.deleteLater()
 
     def _add_category(self, cat_name: str, cat_fields: list):
-        hdr = QLabel(f"  {cat_name.upper()}")
-        hdr.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:14px; font-weight:bold;"
-            f" background:#1a2030; padding:3px 0px; margin-top:4px;"
+        accent = _cat_accent(cat_name)
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background:{C_PANEL}; border:1px solid {C_BORDER};"
+            f" border-left:3px solid {accent}; border-radius:6px; }}"
         )
-        self._scroll_vbox.addWidget(hdr)
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(11, 7, 11, 8)
+        cv.setSpacing(4)
+
+        hdr = QLabel(cat_name.upper())
+        hdr.setStyleSheet(
+            f"color:{accent}; font-size:13px; font-weight:bold;"
+            f" border:none; background:transparent;"
+        )
+        cv.addWidget(hdr)
 
         gw = QWidget()
+        gw.setStyleSheet("background:transparent; border:none;")
         gl = QGridLayout(gw)
-        gl.setContentsMargins(4, 2, 2, 4)
-        gl.setHorizontalSpacing(8)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.setHorizontalSpacing(10)
         gl.setVerticalSpacing(3)
         gl.setColumnStretch(1, 1)
 
         for r, (label, value) in enumerate(cat_fields):
-            lbl_w = QLabel(f"{label}:")
-            lbl_w.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
+            lbl_w = QLabel(str(label))
+            lbl_w.setStyleSheet(
+                f"color:{C_SUBTEXT}; font-size:13px; border:none; background:transparent;"
+            )
             lbl_w.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             val_w = QLabel(str(value))
-            val_w.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:600;")
+            val_w.setStyleSheet(
+                f"color:{C_TEXT}; font-size:13px; font-weight:600;"
+                f" border:none; background:transparent;"
+            )
             val_w.setWordWrap(True)
             val_w.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             gl.addWidget(lbl_w, r, 0)
             gl.addWidget(val_w, r, 1)
 
-        self._scroll_vbox.addWidget(gw)
+        cv.addWidget(gw)
+        self._scroll_vbox.addWidget(card)
+        self._scroll_vbox.addSpacing(6)
+
+    # ── 하이라이트 카드 (사진 아래 핵심수치 4개) ─────────────────────────
+    _HL_PALETTE = ['#3498db', '#e6a23c', '#c0504d', '#2ecc71']
+
+    def _clear_highlights(self):
+        while self._hl_lay.count():
+            item = self._hl_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+    def _set_highlights(self, highlights):
+        """highlights: [(value, label), ...] 최대 4개. 없으면 영역 숨김."""
+        self._clear_highlights()
+        if not highlights:
+            self._hl_wrap.hide()
+            return
+        self._hl_wrap.show()
+        for i, (value, label) in enumerate(highlights[:4]):
+            accent = self._HL_PALETTE[i % len(self._HL_PALETTE)]
+            card = QFrame()
+            card.setStyleSheet(
+                f"QFrame {{ background:{C_PANEL}; border:1px solid {C_BORDER};"
+                f" border-top:3px solid {accent}; border-radius:6px; }}"
+            )
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(10, 7, 10, 7)
+            cv.setSpacing(1)
+            v = QLabel(str(value))
+            v.setStyleSheet(
+                f"color:{C_TEXT}; font-size:18px; font-weight:bold;"
+                f" border:none; background:transparent;"
+            )
+            l = QLabel(str(label))
+            l.setStyleSheet(
+                f"color:{C_SUBTEXT}; font-size:12px; border:none; background:transparent;"
+            )
+            cv.addWidget(v)
+            cv.addWidget(l)
+            self._hl_lay.addWidget(card, 1)
 
     def clear(self):
-        self._img_lbl.setPixmap(QPixmap())
-        self._img_lbl.setText("")
+        self._photo.set_icon("")
+        self._set_highlights(None)
         self._title_lbl.setText("← 왼쪽 목록에서 유닛을 선택하세요")
         self._sub_lbl.setText("")
         self._note_lbl.setText("")
@@ -7471,15 +7606,8 @@ class SpecSheetPanel(QWidget):
             None
         )
         if img_path:
-            pix = QPixmap(img_path).scaled(
-                1200, 220,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._img_lbl.setPixmap(pix)
-            self._img_lbl.setText("")
+            self._photo.set_photo(QPixmap(img_path))
         else:
-            self._img_lbl.setPixmap(QPixmap())
             if unit_type == 'ship':
                 icon = '⚓'
             elif unit_type == 'weapon':
@@ -7487,7 +7615,7 @@ class SpecSheetPanel(QWidget):
             else:
                 typ = db_entry.get('type', '')
                 icon = self._TYPE_ICON.get(typ, '❓')
-            self._img_lbl.setText(icon)
+            self._photo.set_icon(icon)
 
         # 부제목
         origin    = spec.get('origin', '')
@@ -7495,6 +7623,9 @@ class SpecSheetPanel(QWidget):
         self._sub_lbl.setText(
             f"{origin}  |  {type_desc}" if (origin and type_desc) else (origin or type_desc)
         )
+
+        # 하이라이트 카드 (핵심수치 4개)
+        self._set_highlights(spec.get('highlight'))
 
         # 카테고리 렌더링
         self._clear_scroll()
@@ -8305,19 +8436,30 @@ class SplashWindow(QWidget):
         QListWidget::item:hover:!selected {{ background:{C_PANEL}; }}
     """
 
+    # 종류별 목록 좌측 색 띠 (대공=적·대함=주황·대잠=청)
+    _STRIPE = {'대공': '#c0504d', '대함': '#e6a23c', '대잠': '#5b9bd5'}
+
     def _make_list_panel(self, entries: list, mode: str,
                          cat_color: bool = False,
                          display_key: str | None = None,
-                         tooltip_fn=None) -> tuple:
+                         tooltip_fn=None,
+                         stripe_color: str | None = None) -> tuple:
         """
         왼쪽 QListWidget + 오른쪽 SpecSheetPanel QSplitter를 생성해 반환.
         entries: [(key, info), ...]
         mode: 'enemy' | 'weapon' | 'ship' | 'aircraft'
         cat_color: True면 category 필드 기반 행 색상 적용
         display_key: info 안에서 표시 이름으로 쓸 키 (None이면 항목 key 사용)
+        stripe_color: 지정 시 모든 항목 좌측에 색 띠 (단일 종류 탭용)
         """
         name_list = QListWidget()
-        name_list.setStyleSheet(self._LIST_SS)
+        ss = self._LIST_SS
+        if stripe_color:
+            ss = ss.replace(
+                "border-bottom:1px solid",
+                f"border-left:4px solid {stripe_color}; border-bottom:1px solid",
+            )
+        name_list.setStyleSheet(ss)
 
         for key, info in entries:
             label = info.get(display_key, key) if display_key else key
@@ -8399,11 +8541,13 @@ class SplashWindow(QWidget):
         """)
 
         # ── 전투기 탭 ─────────────────────────────────────────────────────
-        sp, _, _ = self._make_list_panel(aircraft_e, 'enemy', cat_color=False)
+        sp, _, _ = self._make_list_panel(aircraft_e, 'enemy', cat_color=False,
+                                         stripe_color=self._STRIPE['대공'])
         inner_tabs.addTab(self._wrap_splitter(sp), f"✈  전투기  ({len(aircraft_e)})")
 
         # ── 함정 탭 ───────────────────────────────────────────────────────
-        sp, _, _ = self._make_list_panel(ship_e, 'enemy', cat_color=False)
+        sp, _, _ = self._make_list_panel(ship_e, 'enemy', cat_color=False,
+                                         stripe_color=self._STRIPE['대함'])
         inner_tabs.addTab(self._wrap_splitter(sp), f"⚓  함정  ({len(ship_e)})")
 
         # ── 무기 탭 (카테고리 색상) ────────────────────────────────────────
@@ -8428,7 +8572,8 @@ class SplashWindow(QWidget):
         inner_tabs.addTab(mw, f"🚀  무기  ({len(missile_e)})")
 
         # ── 잠수함 탭 ─────────────────────────────────────────────────────
-        sp, _, _ = self._make_list_panel(sub_e, 'enemy', cat_color=False)
+        sp, _, _ = self._make_list_panel(sub_e, 'enemy', cat_color=False,
+                                         stripe_color=self._STRIPE['대잠'])
         inner_tabs.addTab(self._wrap_splitter(sp), f"🤿  잠수함  ({len(sub_e)})")
 
         layout.addWidget(inner_tabs, stretch=1)
@@ -8466,18 +8611,21 @@ class SplashWindow(QWidget):
         # 함정 DB (잠수함 제외)
         surface_ships = [(k, v) for k, v in V7_SHIP_DB.items()
                          if not v.get('is_submarine', False)]
-        inner_tabs.addTab(self._build_ship_sub_tab(surface_ships),
+        inner_tabs.addTab(self._build_ship_sub_tab(surface_ships,
+                          stripe_color=self._STRIPE['대함']),
                           f"⚓  함정  ({len(surface_ships)})")
 
         # 잠수함 DB
         subs = [(k, v) for k, v in V7_SHIP_DB.items()
                 if v.get('is_submarine', False)]
-        inner_tabs.addTab(self._build_ship_sub_tab(subs),
+        inner_tabs.addTab(self._build_ship_sub_tab(subs,
+                          stripe_color=self._STRIPE['대잠']),
                           f"🤿  잠수함  ({len(subs)})")
 
         # 항공 DB
         aircraft_e = list(V7_AIRCRAFT_DB.items())
-        sp, _, _ = self._make_list_panel(aircraft_e, 'aircraft', cat_color=False)
+        sp, _, _ = self._make_list_panel(aircraft_e, 'aircraft', cat_color=False,
+                                         stripe_color=self._STRIPE['대공'])
         inner_tabs.addTab(self._wrap_splitter(sp),
                           f"🚁  항공  ({len(aircraft_e)})")
 
@@ -8513,7 +8661,8 @@ class SplashWindow(QWidget):
         lay.addWidget(pk_note)
         return w
 
-    def _build_ship_sub_tab(self, ship_entries: list | None = None) -> QWidget:
+    def _build_ship_sub_tab(self, ship_entries: list | None = None,
+                            stripe_color: str | None = None) -> QWidget:
         if ship_entries is None:
             ship_entries = list(V7_SHIP_DB.items())
 
@@ -8528,7 +8677,13 @@ class SplashWindow(QWidget):
         # display 필드로 표시
         disp_entries = [(k, v) for k, v in ship_entries]
         name_list = QListWidget()
-        name_list.setStyleSheet(self._LIST_SS)
+        _ss = self._LIST_SS
+        if stripe_color:
+            _ss = _ss.replace(
+                "border-bottom:1px solid",
+                f"border-left:4px solid {stripe_color}; border-bottom:1px solid",
+            )
+        name_list.setStyleSheet(_ss)
         for key, info in disp_entries:
             display = info.get('display', key)
             it = QListWidgetItem(f"  {display}")
