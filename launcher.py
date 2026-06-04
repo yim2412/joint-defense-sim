@@ -1,11 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.15 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.16 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v12.02.13~15 — DB 탭 스펙시트 시각화 개선]                                 ║
+║  [v12.02.13~16 — DB 탭 스펙시트 시각화 개선]                                 ║
 ║  NEW-A  목록에 종류별 색 띠 (대공=적·대함=주황·대잠=청)                     ║
 ║  NEW-B  상세 제원을 카테고리 카드로 시각화 (좌측 색 띠 박스)                ║
 ║  NEW-C  사진을 비율 유지 + 둥근 프레임으로 표시 (왜곡 제거)                 ║
+║  NEW-D  사진 아래 핵심수치 하이라이트 카드 4개 (적=위협·아군=방어 관점)     ║
 ║  [v12.02.10~12 — 향후 계획·도움말·탑재 기능 카드형 시각화 통일]             ║
 ║  NEW-A  향후 계획 탭 카드형(난이도 색 띠·배지)                              ║
 ║  NEW-B  도움말 탭(용어·순서·FAQ) 카드형 통일                                ║
@@ -538,7 +539,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.15"
+APP_VERSION = "v12.02.16"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7402,6 +7403,132 @@ def _cat_accent(cat_name: str) -> str:
     return C_ACCENT
 
 
+# ── 하이라이트 카드 값 빌더 (관점별: 적=위협 / 아군=방어) ──────────────────
+_MISSILE_TYPES = {'순항미사일', '탄도미사일', '극초음속활공체', '저고도기동탄도', '대방사미사일'}
+_AIRCRAFT_TYPES = {'전투기', '폭격기', '전폭기'}
+_SURFACE_TYPES = {'고속정', '초계함', '호위함', '구축함', '항모', '순양함', '상륙함'}
+
+
+def _hl_mach(ms):
+    return f"Mach {ms / 343:.1f}" if ms else "—"
+
+
+def _hl_kt(ms):
+    return f"{round(ms * 1.94384)} kt" if ms else "—"
+
+
+def _hl_rcs(v):
+    if v is None:
+        return "—"
+    return f"{v:.0f} ㎡" if v >= 100 else f"{v:g} ㎡"
+
+
+def _hl_alt(m):
+    if m is None:
+        return "—"
+    return f"{m} m" if m < 1000 else f"{m / 1000:.0f} km"
+
+
+def _hl_wpn(name):
+    return name.split()[0] if name else "—"
+
+
+def _hl_clean(s):
+    """괄호 주석 제거 ('11,000 톤 (Batch I 대비 증설)' → '11,000 톤')."""
+    s = str(s)
+    i = s.find('(')
+    if i != -1:
+        s = s[:i]
+    return s.strip()
+
+
+def _spec_pick(spec, keys, prefer=None):
+    """spec_db 카테고리에서 label에 keys 중 하나가 든 필드 검색.
+    값이 'A / B'면 기본 첫 토막, prefer 지정 시 label 토막 순서로 해당 위치 토막 반환."""
+    if isinstance(keys, str):
+        keys = [keys]
+    for _cat, fields in spec.get('categories', []):
+        for label, value in fields:
+            if any(k in label for k in keys):
+                parts = [p.strip() for p in str(value).split('/')]
+                if prefer:
+                    ltoks = label.replace('(', ' ').replace(')', ' ').split('/')
+                    idx = next((i for i, lt in enumerate(ltoks) if prefer in lt), None)
+                    if idx is not None and idx < len(parts):
+                        return _hl_clean(parts[idx])
+                return _hl_clean(parts[0])
+    return None
+
+
+def _build_highlights(name: str, db: dict, spec: dict, unit_type: str):
+    """종류별 핵심수치 4개 [(value, label), ...] 반환. 데이터 없으면 None."""
+    db = db or {}
+    if unit_type == 'weapon':          # 아군 요격탄
+        pk = (db.get('pk_dist') or {}).get('mean')
+        return [
+            (f"{db.get('range_km', '—')} km", "사거리"),
+            (_hl_mach(db.get('speed_ms')), "요격속도"),
+            (f"{pk:.2f}" if pk else "—", "명중확률 Pk"),
+            (f"{db.get('stock', '—')} 발", "재고"),
+        ]
+    if unit_type == 'aircraft':        # 아군 항공기
+        return [
+            (f"{db.get('range_km', '—')} km", "작전반경"),
+            (_hl_kt(db.get('speed_ms')), "순항속도"),
+            (_hl_wpn(db.get('payload_wpn')), "탑재무장"),
+            (f"{db.get('payload_cnt', '—')} 발", "탑재량"),
+        ]
+    if unit_type == 'ship':            # 아군 함정/잠수함
+        sensor = db.get('sensor_km', {}) or {}
+        if db.get('is_submarine'):
+            inv = db.get('default_strike_inventory') or db.get('default_inventory') or {}
+            wpn = next(iter(inv), None)
+            return [
+                (_spec_pick(spec, '최고 속도', prefer='수중') or "—", "수중속력"),
+                (_spec_pick(spec, '심도') or "—", "잠항심도"),
+                (f"{sensor.get('대잠', '—')} km", "대잠탐지"),
+                (_hl_wpn(wpn), "주무장"),
+            ]
+        return [
+            (_spec_pick(spec, '배수량', prefer='만재') or "—", "만재배수량"),
+            (_spec_pick(spec, ['최고 속도', '속도']) or "—", "최대속력"),
+            (f"{sensor.get('대공', '—')} km", "대공탐지"),
+            (f"{db.get('max_channels', '—')} 표적", "동시교전"),
+        ]
+    # 적군 (unit_type == 'enemy') — type으로 세분
+    typ = db.get('type', '')
+    if typ in _MISSILE_TYPES:
+        return [
+            (f"{db.get('missile_range_km') or db.get('range_km', '—')} km", "사거리"),
+            (_hl_mach(db.get('speed_ms')), "종말속도"),
+            (_hl_rcs(db.get('rcs_m2')), "RCS"),
+            (_hl_alt(db.get('altitude_m')), "비행고도"),
+        ]
+    if typ in _AIRCRAFT_TYPES:
+        return [
+            (_spec_pick(spec, ['행동반경', '작전반경', '전투 행동']) or "—", "작전반경"),
+            (_hl_mach(db.get('speed_ms')), "최대속도"),
+            (_hl_rcs(db.get('rcs_m2')), "RCS"),
+            (_hl_wpn(db.get('missile_name')), "주무장"),
+        ]
+    if typ == '잠수함':
+        d = db.get('altitude_m')
+        return [
+            (_hl_kt(db.get('speed_ms')), "수중속력"),
+            (f"{abs(d):.0f} m" if d is not None else "—", "잠항심도"),
+            (f"{db.get('missile_range_km', '—')} km", "사거리"),
+            (_hl_wpn(db.get('missile_name')), "주무장"),
+        ]
+    if typ in _SURFACE_TYPES:
+        return [
+            (_spec_pick(spec, '배수량', prefer='만재') or "—", "만재배수량"),
+            (_hl_kt(db.get('speed_ms')), "최대속력"),
+            (_hl_rcs(db.get('rcs_m2')), "RCS"),
+            (_hl_wpn(db.get('missile_name')), "주무장"),
+        ]
+    return None
+
+
 class SpecSheetPanel(QWidget):
     """선택 유닛 스펙시트 — 우측 패널 (사진 + 카테고리별 상세 스펙 + 스크롤)"""
 
@@ -7624,8 +7751,9 @@ class SpecSheetPanel(QWidget):
             f"{origin}  |  {type_desc}" if (origin and type_desc) else (origin or type_desc)
         )
 
-        # 하이라이트 카드 (핵심수치 4개)
-        self._set_highlights(spec.get('highlight'))
+        # 하이라이트 카드 (핵심수치 4개) — spec에 명시 override 있으면 우선
+        hl = spec.get('highlight') or _build_highlights(name, db_entry, spec, unit_type)
+        self._set_highlights(hl)
 
         # 카테고리 렌더링
         self._clear_scroll()
