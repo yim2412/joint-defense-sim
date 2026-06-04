@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.09 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.11 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.10~11 — 향후 계획·도움말 카드형 시각화 통일]                       ║
+║  NEW-A  향후 계획 탭 카드형(난이도 색 띠·배지)                              ║
+║  NEW-B  도움말 탭(용어·순서·FAQ) 카드형 통일                                ║
 ║  [v12.02.09 — 패치 내역 날짜 칩 배경색(청록)]                               ║
 ║  NEW-A  날짜 칩 배경을 청록 톤으로 — 카드 계열 색과 구분되는 중립 헤더 색   ║
 ║  [v12.02.08 — 패치 내역 날짜 칩 크기 조정]                                  ║
@@ -530,7 +533,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.09"
+APP_VERSION = "v12.02.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7794,95 +7797,82 @@ class SplashWindow(QWidget):
 
         w = QWidget()
         outer = QVBoxLayout(w)
-        outer.setContentsMargins(8, 8, 8, 8)
-
+        outer.setContentsMargins(0, 0, 0, 0)
         inner_tabs = QTabWidget()
         outer.addWidget(inner_tabs)
 
-        # ── 용어 설명 탭
-        gw = QWidget()
-        gl = QVBoxLayout(gw)
-        gl.setContentsMargins(4, 4, 4, 4)
-        gtbl = QTableWidget(len(_GLOSSARY), 2)
-        gtbl.setHorizontalHeaderLabels(["용어", "설명"])
-        gtbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        gtbl.setColumnWidth(0, 240)
-        gtbl.setWordWrap(True)
-        gtbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        gtbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        gtbl.verticalHeader().setVisible(False)
-        gtbl.setAlternatingRowColors(True)
-        gtbl.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        for r, (term, desc) in enumerate(_GLOSSARY):
-            ti = QTableWidgetItem(term)
-            ti.setForeground(QColor(C_ACCENT))
-            di = QTableWidgetItem(desc)
-            di.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            gtbl.setItem(r, 0, ti)
-            gtbl.setItem(r, 1, di)
-        gtbl.verticalHeader().setDefaultSectionSize(52)
-        gl.addWidget(gtbl)
-        inner_tabs.addTab(gw, "📖  용어 설명")
+        def _scroll():
+            sc = QScrollArea()
+            sc.setWidgetResizable(True)
+            sc.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
+            iw = QWidget()
+            iw.setStyleSheet(f"background: {C_BG};")
+            lay = QVBoxLayout(iw)
+            lay.setContentsMargins(14, 12, 14, 12)
+            lay.setSpacing(7)
+            return sc, iw, lay
 
-        # ── 실행 순서 탭
-        sw = QWidget()
-        sl = QVBoxLayout(sw)
-        sl.setContentsMargins(4, 4, 4, 4)
-        stbl = QTableWidget(len(_STEPS), 3)
-        stbl.setHorizontalHeaderLabels(["단계", "항목", "안내"])
-        stbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        stbl.setColumnWidth(0, 50)
-        stbl.setColumnWidth(1, 160)
-        stbl.setWordWrap(True)
-        stbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        stbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        stbl.verticalHeader().setVisible(False)
-        stbl.setAlternatingRowColors(True)
-        stbl.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        for r, (step, title, desc) in enumerate(_STEPS):
-            si = QTableWidgetItem(step)
-            si.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            si.setForeground(QColor(C_ORANGE))
-            ti = QTableWidgetItem(title)
-            ti.setForeground(QColor(C_ACCENT))
-            di = QTableWidgetItem(desc)
-            di.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            stbl.setItem(r, 0, si)
-            stbl.setItem(r, 1, ti)
-            stbl.setItem(r, 2, di)
-        stbl.verticalHeader().setDefaultSectionSize(52)
-        sl.addWidget(stbl)
-        inner_tabs.addTab(sw, "🗺️  실행 순서")
+        def _card(stripe):
+            c = QFrame()
+            c.setObjectName("card")
+            c.setStyleSheet(f"""
+                QFrame#card {{ background: #161d2a; border-radius: 8px;
+                    border-left: 4px solid {stripe}; }}
+                QFrame#card QLabel {{ background: transparent; }}
+            """)
+            cl = QVBoxLayout(c)
+            cl.setContentsMargins(14, 9, 14, 11)
+            cl.setSpacing(5)
+            return c, cl
 
-        # ── FAQ 탭
-        fw = QWidget()
-        fl = QVBoxLayout(fw)
-        fl.setContentsMargins(4, 4, 4, 4)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
-        faq_w = QWidget()
-        faq_l = QVBoxLayout(faq_w)
-        faq_l.setContentsMargins(8, 8, 8, 8)
-        faq_l.setSpacing(10)
+        # ── 용어 설명 (좌측 띠 = 파랑)
+        sc, iw, lay = _scroll()
+        for term, desc in _GLOSSARY:
+            c, cl = _card(C_ACCENT)
+            t = QLabel(term); t.setWordWrap(True)
+            t.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; font-size: 15px;")
+            d = QLabel(desc); d.setWordWrap(True)
+            d.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 14px;")
+            cl.addWidget(t); cl.addWidget(d)
+            lay.addWidget(c)
+        lay.addStretch(1); sc.setWidget(iw)
+        inner_tabs.addTab(sc, "📖  용어 설명")
+
+        # ── 실행 순서 (좌측 띠 = 주황, 단계 번호 배지)
+        sc, iw, lay = _scroll()
+        for step, title, desc in _STEPS:
+            c, cl = _card(C_ORANGE)
+            top = QHBoxLayout(); top.setSpacing(9)
+            num = QLabel(step)
+            num.setFixedSize(24, 24)
+            num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            num.setStyleSheet(
+                f"background-color: {C_ORANGE}; color: #0d1117; "
+                f"border-radius: 12px; font-weight: bold;")
+            top.addWidget(num)
+            ti = QLabel(title)
+            ti.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; font-size: 15px;")
+            top.addWidget(ti); top.addStretch(1)
+            cl.addLayout(top)
+            d = QLabel(desc); d.setWordWrap(True)
+            d.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 14px;")
+            cl.addWidget(d)
+            lay.addWidget(c)
+        lay.addStretch(1); sc.setWidget(iw)
+        inner_tabs.addTab(sc, "🗺️  실행 순서")
+
+        # ── FAQ (좌측 띠 = 초록)
+        sc, iw, lay = _scroll()
         for q, a in _FAQ:
-            q_lbl = QLabel(f"Q.  {q}")
-            q_lbl.setWordWrap(True)
-            q_lbl.setStyleSheet(
-                f"color: {C_ACCENT}; font-weight: bold; font-size: 15px; "
-                f"padding: 6px 8px; background: {C_PANEL}; border-radius: 4px;")
-            a_lbl = QLabel(a)
-            a_lbl.setWordWrap(True)
-            a_lbl.setStyleSheet(
-                f"color: {C_TEXT}; font-size: 14px; padding: 4px 14px 10px 14px;")
-            faq_l.addWidget(q_lbl)
-            faq_l.addWidget(a_lbl)
-        faq_l.addStretch()
-        scroll.setWidget(faq_w)
-        fl.addWidget(scroll)
-        inner_tabs.addTab(fw, "❓  FAQ")
+            c, cl = _card(C_GREEN)
+            ql = QLabel(f"Q.  {q}"); ql.setWordWrap(True)
+            ql.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; font-size: 15px;")
+            al = QLabel(a); al.setWordWrap(True)
+            al.setStyleSheet(f"color: {C_TEXT}; font-size: 14px;")
+            cl.addWidget(ql); cl.addWidget(al)
+            lay.addWidget(c)
+        lay.addStretch(1); sc.setWidget(iw)
+        inner_tabs.addTab(sc, "❓  FAQ")
 
         return w
 
@@ -8234,41 +8224,57 @@ class SplashWindow(QWidget):
              "단일 시뮬 완성도와 별개 트랙 — v20 완료 후 분석 목적 충족도에 따라 착수 여부 판단."),
         ]
 
-        tbl = QTableWidget(len(_PLANS), 4)
-        tbl.setHorizontalHeaderLabels(["버전", "난이도", "항목", "설명"])
-        hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 55)
-        tbl.setColumnWidth(1, 70)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setWordWrap(True)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        tbl.setShowGrid(False)
-        tbl.setStyleSheet(f"background-color: {C_BG}; gridline-color: {C_PANEL};")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
+        inner = QWidget()
+        inner.setStyleSheet(f"background: {C_BG};")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(7)
 
-        diff_color = {'매우 높음': '#c0392b', '높음': '#e74c3c', '중간': C_ORANGE, '낮음': '#2ecc71'}
-        for r, (ver, diff, title, desc) in enumerate(_PLANS):
-            vi = QTableWidgetItem(ver)
-            vi.setForeground(QColor(C_ACCENT))
-            vi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            di = QTableWidgetItem(diff)
-            di.setForeground(QColor(diff_color.get(diff, C_TEXT)))
-            di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            desc_item = QTableWidgetItem(f"  {desc}")
-            desc_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            title_item = QTableWidgetItem(f"  {title}")
-            _apply_term_tooltip(title_item, title + ' ' + desc)
-            _apply_term_tooltip(desc_item, desc)
-            tbl.setItem(r, 0, vi)
-            tbl.setItem(r, 1, di)
-            tbl.setItem(r, 2, title_item)
-            tbl.setItem(r, 3, desc_item)
-        tbl.verticalHeader().setDefaultSectionSize(68)
-
-        layout.addWidget(tbl)
+        # 좌측 색 띠·배지 = 난이도 (이 탭의 핵심 정보)
+        diff_color = {'매우 높음': '#c0392b', '높음': '#e74c3c', '중간': C_ORANGE,
+                      '낮음': '#2ecc71', '상시': '#5b9bd5'}
+        for ver, diff, title, desc in _PLANS:
+            col = diff_color.get(diff, '#7f8c9a')
+            card = QFrame()
+            card.setObjectName("card")
+            card.setStyleSheet(f"""
+                QFrame#card {{ background: #161d2a; border-radius: 8px;
+                    border-left: 4px solid {col}; }}
+                QFrame#card QLabel {{ background: transparent; }}
+            """)
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(14, 9, 14, 11)
+            cl.setSpacing(5)
+            top = QHBoxLayout()
+            top.setSpacing(9)
+            vlabel = QLabel(ver)
+            vlabel.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; font-size: 14px;")
+            top.addWidget(vlabel)
+            badge = QLabel(diff)
+            badge.setStyleSheet(
+                f"background-color: {col}; color: #0d1117; "
+                f"border-radius: 8px; padding: 1px 10px; font-weight: bold;")
+            badge.setFixedHeight(20)
+            top.addWidget(badge)
+            top.addStretch(1)
+            cl.addLayout(top)
+            title_lbl = QLabel(title)
+            title_lbl.setWordWrap(True)
+            title_lbl.setStyleSheet("color: #eaf2ff; font-weight: bold; font-size: 15px;")
+            cl.addWidget(title_lbl)
+            desc_lbl = QLabel(desc)
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 14px;")
+            cl.addWidget(desc_lbl)
+            _apply_term_tooltip(title_lbl, title + ' ' + desc)
+            _apply_term_tooltip(desc_lbl, desc)
+            v.addWidget(card)
+        v.addStretch(1)
+        scroll.setWidget(inner)
+        layout.addWidget(scroll)
         return w
 
     # ── DB 탭 공통 헬퍼 ──────────────────────────────────────────────────────
