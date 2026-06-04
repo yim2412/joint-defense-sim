@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.08 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.09 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.09 — 패치 내역 날짜 칩 배경색(청록)]                               ║
+║  NEW-A  날짜 칩 배경을 청록 톤으로 — 카드 계열 색과 구분되는 중립 헤더 색   ║
 ║  [v12.02.08 — 패치 내역 날짜 칩 크기 조정]                                  ║
 ║  NEW-A  날짜 헤더를 가로 전체 바 → 내용 크기 칩(좌측 정렬)으로 변경         ║
 ║  [v12.02.07 — 패치 내역 날짜 헤더 강조]                                     ║
@@ -528,7 +530,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.08"
+APP_VERSION = "v12.02.09"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7967,7 +7969,7 @@ class SplashWindow(QWidget):
                 dh = QLabel(f"📅   {date}")
                 dh.setStyleSheet(
                     f"color: #eaf2ff; font-weight: bold; font-size: 14px; "
-                    f"background: {C_PANEL}; border-radius: 6px; "
+                    f"background: #16403a; border-radius: 6px; "
                     f"border-left: 4px solid {C_ACCENT}; padding: 7px 14px;")
                 drow.addWidget(dh)
                 drow.addStretch(1)        # 날짜 칩을 내용 크기로(좌측 정렬)
