@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.16 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.17 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.17 — 향후 계획 탭 상시·로드맵 블록 구분]                            ║
+║  NEW-A  '상시 · 정책/유지 규칙'과 '버전 로드맵'을 섹션 헤더로 분리          ║
 ║  [v12.02.13~16 — DB 탭 스펙시트 시각화 개선]                                 ║
 ║  NEW-A  목록에 종류별 색 띠 (대공=적·대함=주황·대잠=청)                     ║
 ║  NEW-B  상세 제원을 카테고리 카드로 시각화 (좌측 색 띠 박스)                ║
@@ -539,7 +541,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.16"
+APP_VERSION = "v12.02.17"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -8290,14 +8292,13 @@ class SplashWindow(QWidget):
         layout.setSpacing(6)
 
         _PLANS = [
-            # ── 상시 정책 ─────────────────────────────────────────────────────
+            # ── 상시 — 정책·유지 규칙 (버전 무관, 항상 적용) ──────────────────
             ("📋 정책", "상시", "감사 체크포인트 (마이너 버전마다)",
              "모든 마이너 버전 빌드 직전, 변경 유형별 감사 1회: "
              "엔진/로직→코드감사(/code-review) · DB/수치→현실성 수치감사 · UI→회귀확인 · "
              "아키텍처전환→코드감사+로직트레이스 · 신기능→새 군사용어 사전 갱신. "
              "메이저 블록(v11·v12…) 완료 시 전체 회귀 MC + 누적 수치감사. (CLAUDE.md '감사 정책' 정본)"),
-            # ── v11.x — 기반 정비 ─────────────────────────────────────────────
-            ("v11.3", "상시", "설정 패널 구조 유지",
+            ("📋 정책", "상시", "설정 패널 구조 유지",
              "기본/환경/방어전술/항공자산/고급 5개 묶음 분리는 완료. "
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
@@ -8506,7 +8507,23 @@ class SplashWindow(QWidget):
         # 좌측 색 띠·배지 = 난이도 (이 탭의 핵심 정보)
         diff_color = {'매우 높음': '#c0392b', '높음': '#e74c3c', '중간': C_ORANGE,
                       '낮음': '#2ecc71', '상시': '#5b9bd5'}
+
+        def _section_header(text: str) -> QLabel:
+            hl = QLabel(text)
+            hl.setStyleSheet(
+                f"color:{C_SUBTEXT}; font-size:12px; font-weight:bold;"
+                f" letter-spacing:1px; padding:6px 2px 2px 2px;")
+            return hl
+
+        _seen_policy = _seen_roadmap = False
         for ver, diff, title, desc in _PLANS:
+            # 상시(정책) 블록과 버전 로드맵 블록 사이에 섹션 헤더
+            if diff == '상시' and not _seen_policy:
+                v.addWidget(_section_header("■  상시 · 정책 / 유지 규칙"))
+                _seen_policy = True
+            elif diff != '상시' and not _seen_roadmap:
+                v.addWidget(_section_header("■  버전 로드맵"))
+                _seen_roadmap = True
             col = diff_color.get(diff, '#7f8c9a')
             card = QFrame()
             card.setObjectName("card")
