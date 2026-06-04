@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v11.11 — PyQt6 런처                ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.1 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.1 — 비례항법(PNG) 종말 유도: 아군 SAM 종말 추격 물리화]                ║
+║  NEW-A  함대공 미사일이 종말 10km에서 적 대함미사일을 비례항법으로 물리      ║
+║         추격 — 회피 기동·기동 한계(G)·탐색기 시야각이 명중/빗나감 결정       ║
+║  NEW-B  설정 '비례항법(PNG) 종말 유도' 체크박스 (기본 OFF, 실험적)           ║
 ║  [v11.11 — 항공 자산 7종 스펙시트 설명 보강 + 문서 정합]                     ║
 ║  NEW-A  DB 탭 항공 7종 상세 제원 등록 (KF-21·F-35A·FA-50·와일드캣·시호크·   ║
 ║         P-3C·P-8A) — 그간 스펙시트가 비어 있던 항공 자산 채움             ║
@@ -503,7 +507,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v11.11"
+APP_VERSION = "v12.1"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4426,6 +4430,8 @@ class MainWindow(QMainWindow):
             self.chk_anti_sam.setChecked(cfg.get('enable_anti_sam', False))
         if hasattr(self, 'chk_isa'):
             self.chk_isa.setChecked(cfg.get('enable_isa', False))
+        if hasattr(self, 'chk_png'):
+            self.chk_png.setChecked(cfg.get('enable_png', False))
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4637,6 +4643,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_isa.setChecked(False)
 
+        # v12.1: 비례항법(PNG) 종말 유도
+        self.chk_png = QCheckBox("비례항법(PNG) 종말 유도 (실험적)")
+        self.chk_png.setToolTip(
+            "v12.1 — 함대공 미사일이 비례항법으로 회피 기동하는 적 대함미사일을\n"
+            "종말 10km 구간에서 물리적으로 추격합니다.\n"
+            "기동 한계(함대공 30G·대함 10G)와 탐색기 시야각(±60°)이 추격을 제약 —\n"
+            "급격히 회피하는 표적은 요격이 물리적으로 빗나갈 수 있습니다.\n"
+            "기존의 종말 회피 확률 보정을 물리 추격 명중/빗나감으로 대체합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_png.setChecked(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4671,6 +4689,7 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.chk_evap_duct)
         fl.addRow("",            self.chk_anti_sam)
         fl.addRow("",            self.chk_isa)
+        fl.addRow("",            self.chk_png)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -6082,6 +6101,7 @@ class MainWindow(QMainWindow):
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
             'enable_anti_sam':   self.chk_anti_sam.isChecked(),
             'enable_isa':        self.chk_isa.isChecked(),
+            'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -7167,6 +7187,11 @@ TERM_TOOLTIPS: dict[str, str] = {
     'FFX':      '차기 호위함(FFX) — 한국 해군 미래 호위함. FFX-I(인천급) → FFX-II → FFX-III로 능력 단계 향상.',
     'KDX':      '한국형 구축함(KDX) — KDX-II(충무공이순신급) 4,500t, KDX-III(세종대왕급) 1만t 이지스 구축함.',
     'C2':       '지휘통제(Command & Control) — 교전 결심·자원 배분·정보 공유를 총괄하는 지휘 체계.',
+    'PNG':      '비례항법(Proportional Navigation Guidance) — 유도탄이 표적 시선각 변화율에 비례해 선회하는 표준 유도 법칙. 충돌 코스를 물리적으로 형성해 회피 기동하는 표적을 추격.',
+    '비례항법':  '비례항법(PNG) — 유도탄이 표적 시선각(LOS) 변화율에 비례해 침로를 꺾는 유도 법칙. 종말 교전에서 회피 기동 표적의 명중/빗나감을 물리적으로 결정.',
+    '종말 유도': '종말 유도 — 교전 마지막 단계(통상 10km 이내)에서 유도탄이 표적을 직접 추적·명중하는 구간. 표적의 회피 기동과 유도탄 기동 한계가 명중 여부를 좌우.',
+    '탐색기 시야각': '탐색기 시야각(Seeker FOV) — 유도탄 탐색기가 표적을 포착할 수 있는 각도 범위. 표적이 이 범위를 벗어나면 추적 상실(lock-on 해제).',
+    '기동 한계': '기동 한계(G 제한) — 유도탄이 낼 수 있는 최대 횡가속도. 함대공 미사일은 약 30G 이상, 대함미사일은 약 10G. 한계를 넘는 급기동 표적은 추격이 빗나감.',
 }
 
 def _apply_term_tooltip(item: 'QTableWidgetItem', text: str) -> None:
@@ -7834,11 +7859,6 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.1", "매우 높음", "실제 유도 알고리즘 (PNG)",
-             "즉시 명중 판정 → 비례항법(PNG)으로 미사일이 실제 표적을 추격. "
-             "회피 기동이 물리적으로 반영됨. 최소 적용은 종말 10km 이내부터. "
-             "【현실성】미사일 기동 한계(함대공 ~30G·대함미사일 ~10G)와 탐색기 시야각 반영 필수(무한 기동 방지). "
-             "교전 결과 전면 재조정 동반."),
             ("v12.2", "매우 높음", "수중 음향 전파 모델 고도화",
              "수온약층 계수·해역별 보정은 완료. 미구현 구간만 추가: "
              "전달손실(TL) 룩업 고도화·주변소음(ambient noise)·표적강도(TS) 기반 탐지 확률 모델. "
