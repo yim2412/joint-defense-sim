@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.07 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.08 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.08 — 패치 내역 날짜 칩 크기 조정]                                  ║
+║  NEW-A  날짜 헤더를 가로 전체 바 → 내용 크기 칩(좌측 정렬)으로 변경         ║
 ║  [v12.02.07 — 패치 내역 날짜 헤더 강조]                                     ║
 ║  NEW-A  날짜 구분을 배경 바 + 좌측 강조선 + 큰 글씨로 시각화                ║
 ║  [v12.02.06 — 패치 내역 탭 카드형 시각화]                                   ║
@@ -526,7 +528,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.07"
+APP_VERSION = "v12.02.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7961,13 +7963,15 @@ class SplashWindow(QWidget):
             if date != prev_date:
                 if prev_date is not None:
                     v.addSpacing(8)   # 날짜 그룹 사이 여백
+                drow = QHBoxLayout()
                 dh = QLabel(f"📅   {date}")
                 dh.setStyleSheet(
-                    f"color: #eaf2ff; font-weight: bold; font-size: 16px; "
+                    f"color: #eaf2ff; font-weight: bold; font-size: 14px; "
                     f"background: {C_PANEL}; border-radius: 6px; "
-                    f"border-left: 4px solid {C_ACCENT}; "
-                    f"padding: 9px 16px; letter-spacing: 1px;")
-                v.addWidget(dh)
+                    f"border-left: 4px solid {C_ACCENT}; padding: 7px 14px;")
+                drow.addWidget(dh)
+                drow.addStretch(1)        # 날짜 칩을 내용 크기로(좌측 정렬)
+                v.addLayout(drow)
                 prev_date = date
             col = _color(ver)
             for item in items:
