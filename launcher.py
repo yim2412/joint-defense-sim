@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.05 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.06 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.06 — 패치 내역 탭 카드형 시각화]                                   ║
+║  NEW-A  변경 1건당 카드로 분리 + 같은 버전 계열을 좌측 색 띠로 묶어 구분     ║
 ║  [v12.2 — 런처 UI 전면 개편: Paradox 스타일 사이드바 네비게이션]            ║
 ║  NEW-A  좌측 세로 메뉴(홈·도움말·기능·패치·계획·적/아군 DB) + 우측 콘텐츠   ║
 ║         — 메뉴 클릭 시 해당 화면이 우측에 표시 (상단 탭바 → 사이드바)        ║
@@ -522,7 +524,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.05"
+APP_VERSION = "v12.02.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7500,34 +7502,6 @@ class SpecSheetPanel(QWidget):
         self._note_lbl.setText(spec.get('note', ''))
 
 
-class _ChangelogTable(QTableWidget):
-    """패치 내역 표 — 변경 내용이 워드랩으로 여러 줄이 될 때 행 높이를 본문
-    높이에 맞춰 자동 조정. 컬럼 폭이 바뀌는 창 리사이즈에도 다시 맞춘다.
-    (고정 행 높이로는 2줄 항목의 글자가 겹쳐 잘리던 문제 해결)"""
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._fit_rows()
-
-    def _fit_rows(self):
-        col_w = self.columnWidth(1)
-        if col_w <= 0:
-            return
-        for row in range(self.rowCount()):
-            cell = self.cellWidget(row, 1)
-            if cell is None:          # 날짜 그룹 헤더 행 (cellWidget 없음)
-                continue
-            body = cell.findChild(QLabel, "clbody")
-            if body is None:
-                continue
-            badge = cell.findChild(QLabel, "clbadge")
-            # 본문 가용 폭 = 컬럼 폭 − 좌우 마진(16) − 배지 폭·간격
-            avail = col_w - 16 - (badge.sizeHint().width() + 9 if badge else 0)
-            if avail < 50:
-                avail = 50
-            self.setRowHeight(row, max(34, body.heightForWidth(avail) + 12))
-
-
 class _HomeBg(QWidget):
     """홈 배경 — 위성 합성 이미지를 영역에 꽉 차게(cover) 그린다."""
 
@@ -7939,7 +7913,7 @@ class SplashWindow(QWidget):
     def _build_changelog_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(0, 0, 0, 0)
         changelog = []
         cl_path = _res('changelog.json')
         if os.path.exists(cl_path):
@@ -7955,93 +7929,87 @@ class SplashWindow(QWidget):
         latest_ver = changelog[-1].get('version', '') if changelog else ''
         changelog = list(reversed(changelog))
 
-        tbl = _ChangelogTable()
-        tbl.setColumnCount(2)
-        tbl.setHorizontalHeaderLabels(["버전", "변경 내용"])
-        hh = tbl.horizontalHeader()
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(0, 110)
-        tbl.verticalHeader().setDefaultSectionSize(30)
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setShowGrid(False)
-        tbl.setStyleSheet(f"background-color: {C_BG}; gridline-color: {C_PANEL};")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {C_BG}; }}")
+        inner = QWidget()
+        inner.setStyleSheet(f"background: {C_BG};")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(14, 10, 14, 12)
+        v.setSpacing(7)
+
+        # minor 계열(major.minor)별 좌측 색 띠 — 같은 작업 묶음을 시각적으로 그룹화
+        _PAL = ['#5b9bd5', '#70ad47', '#e6a23c', '#c0504d',
+                '#8e7cc3', '#4bacc6', '#d9846c', '#9bbb59']
+        series = {}
+
+        def _color(ver):
+            p = ver.lstrip('v').split('.')
+            key = (p[0], p[1]) if len(p) >= 2 else (ver,)
+            if key not in series:
+                series[key] = _PAL[len(series) % len(_PAL)]
+            return series[key]
 
         prev_date = None
         for entry in changelog:
-            ver   = entry.get('version', '')
-            date  = entry.get('date', '')
+            ver = entry.get('version', '')
+            date = entry.get('date', '')
             items = entry.get('changes', [])
             is_latest = (ver == latest_ver)
             if date != prev_date:
-                # 날짜 그룹 헤더 행
-                row = tbl.rowCount()
-                tbl.insertRow(row)
-                tbl.setRowHeight(row, 32)
-                date_item = QTableWidgetItem(f"  {date}")
-                date_item.setBackground(QColor(C_PANEL))
-                date_item.setForeground(QColor(C_SUBTEXT))
-                f = date_item.font(); f.setBold(True); date_item.setFont(f)
-                tbl.setItem(row, 0, date_item)
-                tbl.setItem(row, 1, QTableWidgetItem(""))
-                tbl.item(row, 1).setBackground(QColor(C_PANEL))
-                tbl.setSpan(row, 0, 1, 2)
+                dh = QLabel(f"📅  {date}")
+                dh.setStyleSheet(
+                    f"color: {C_SUBTEXT}; font-weight: bold; font-size: 14px; "
+                    f"padding: 10px 2px 4px 2px;")
+                v.addWidget(dh)
                 prev_date = date
-            for i, item in enumerate(items):
-                row = tbl.rowCount()
-                tbl.insertRow(row)
-                tbl.setRowHeight(row, 34)
-                # 버전 셀 (그룹 첫 행에만 표기, 최신은 ⭐ 강조)
-                if i == 0:
-                    label = f"⭐ {ver}" if is_latest else ver
-                    vi = QTableWidgetItem(label)
-                    vi.setForeground(QColor(C_ORANGE if is_latest else C_ACCENT))
-                    if is_latest:
-                        f = vi.font(); f.setBold(True); vi.setFont(f)
-                        vi.setBackground(QColor('#3a2e0a'))  # 주황 틴트 배경
-                    vi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    tbl.setItem(row, 0, vi)
-                else:
-                    vi = QTableWidgetItem("")
-                    if is_latest:
-                        vi.setBackground(QColor('#3a2e0a'))
-                    tbl.setItem(row, 0, vi)
-                # 변경 내용 셀 — 유형 배지 + 본문
-                tbl.setCellWidget(row, 1, self._make_change_cell(item))
-        layout.addWidget(tbl)
+            col = _color(ver)
+            for item in items:
+                v.addWidget(self._make_change_card(ver, item, col, is_latest))
+        v.addStretch(1)
+        scroll.setWidget(inner)
+        layout.addWidget(scroll)
         return w
 
     @staticmethod
-    def _make_change_cell(item: str) -> QWidget:
-        """변경 항목 문자열을 '유형 배지 + 본문' 셀 위젯으로 변환."""
+    def _make_change_card(ver: str, item: str, color: str, is_latest: bool) -> QWidget:
+        """변경 1건을 카드(버전·유형 배지 + 본문, 좌측 계열 색 띠)로 변환."""
         s = str(item).strip()
-        kind, color = None, None
+        kind, badge_color = None, None
         for k, c in (("추가", C_GREEN), ("수정", C_ORANGE), ("삭제", C_RED)):
             if s.startswith(k):
-                kind, color, s = k, c, s[len(k):].strip()
+                kind, badge_color, s = k, c, s[len(k):].strip()
                 break
-        cell = QWidget()
-        cell.setStyleSheet(f"background-color: {C_BG};")
-        lay = QHBoxLayout(cell)
-        lay.setContentsMargins(8, 3, 8, 3)
-        lay.setSpacing(9)
+        card = QFrame()
+        card.setObjectName("card")
+        bg = '#2a2512' if is_latest else '#161d2a'
+        card.setStyleSheet(f"""
+            QFrame#card {{ background: {bg}; border-radius: 8px;
+                border-left: 4px solid {color}; }}
+            QFrame#card QLabel {{ background: transparent; }}
+        """)
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 9, 14, 10)
+        cl.setSpacing(5)
+        top = QHBoxLayout()
+        top.setSpacing(9)
+        vlabel = QLabel(f"⭐ {ver}" if is_latest else ver)
+        vlabel.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 14px;")
+        top.addWidget(vlabel)
         if kind:
             badge = QLabel(kind)
-            badge.setObjectName("clbadge")
             badge.setStyleSheet(
-                f"background-color: {color}; color: #0d1117; "
-                f"border-radius: 8px; padding: 1px 9px; font-weight: bold;"
-            )
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                f"background-color: {badge_color}; color: #0d1117; "
+                f"border-radius: 8px; padding: 1px 10px; font-weight: bold;")
             badge.setFixedHeight(20)
-            lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
-        txt = QLabel(s)
-        txt.setObjectName("clbody")
-        txt.setStyleSheet(f"color: {C_TEXT};")
-        txt.setWordWrap(True)
-        lay.addWidget(txt, 1)
-        return cell
+            top.addWidget(badge)
+        top.addStretch(1)
+        cl.addLayout(top)
+        body = QLabel(s)
+        body.setWordWrap(True)
+        body.setStyleSheet(f"color: {C_TEXT}; font-size: 14px;")
+        cl.addWidget(body)
+        return card
 
     def _build_plan_tab(self) -> QWidget:
         w = QWidget()
