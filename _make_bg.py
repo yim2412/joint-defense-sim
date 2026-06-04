@@ -14,11 +14,6 @@ base = src.convert('RGBA')
 ov = Image.new('RGBA', (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(ov)
 
-# 상단 비네트 (좌상단 타이틀 흰 글씨 가독성)
-hub = int(H * 0.42)
-for y in range(hub):
-    a = int(135 * (1 - y / hub))
-    d.line([(0, y), (W, y)], fill=(4, 9, 18, max(0, a)))
 # 좌측 비네트 (사이드바 경계만 살짝)
 lim = int(W * 0.32)
 for x in range(lim):
