@@ -2,9 +2,11 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   이지스 기동전단 통합 방어 시뮬레이터  v12.1 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v12.1 patch — 향후 계획 탭 완료 항목 정리]                                 ║
+║  [v12.1 patch — 향후 계획 정리 + 패치 내역 표 글자 겹침 수정]                ║
 ║  BUG-1  완료된 v10.x 전체·v11.2 차기 계획 수립 항목을 _PLANS에서 제거        ║
 ║         (구현 완료 항목 즉시 삭제 규칙 누락분 정리)                          ║
+║  BUG-2  패치 내역 탭 긴 변경 내용이 2줄이 될 때 글자가 겹쳐 잘리던 문제      ║
+║         해결 — 행 높이를 본문에 맞춰 자동 조정 (리사이즈 대응)              ║
 ║  [v12.1 — 비례항법(PNG) 종말 유도: 아군 SAM 종말 추격 물리화]                ║
 ║  NEW-A  함대공 미사일이 종말 10km에서 적 대함미사일을 비례항법으로 물리      ║
 ║         추격 — 회피 기동·기동 한계(G)·탐색기 시야각이 명중/빗나감 결정       ║
@@ -7488,6 +7490,34 @@ class SpecSheetPanel(QWidget):
         self._note_lbl.setText(spec.get('note', ''))
 
 
+class _ChangelogTable(QTableWidget):
+    """패치 내역 표 — 변경 내용이 워드랩으로 여러 줄이 될 때 행 높이를 본문
+    높이에 맞춰 자동 조정. 컬럼 폭이 바뀌는 창 리사이즈에도 다시 맞춘다.
+    (고정 행 높이로는 2줄 항목의 글자가 겹쳐 잘리던 문제 해결)"""
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit_rows()
+
+    def _fit_rows(self):
+        col_w = self.columnWidth(1)
+        if col_w <= 0:
+            return
+        for row in range(self.rowCount()):
+            cell = self.cellWidget(row, 1)
+            if cell is None:          # 날짜 그룹 헤더 행 (cellWidget 없음)
+                continue
+            body = cell.findChild(QLabel, "clbody")
+            if body is None:
+                continue
+            badge = cell.findChild(QLabel, "clbadge")
+            # 본문 가용 폭 = 컬럼 폭 − 좌우 마진(16) − 배지 폭·간격
+            avail = col_w - 16 - (badge.sizeHint().width() + 9 if badge else 0)
+            if avail < 50:
+                avail = 50
+            self.setRowHeight(row, max(34, body.heightForWidth(avail) + 12))
+
+
 class SplashWindow(QWidget):
     """프로그램 진입 런처. [시뮬레이터 시작] → MainWindow 열기."""
 
@@ -7749,7 +7779,7 @@ class SplashWindow(QWidget):
         latest_ver = changelog[-1].get('version', '') if changelog else ''
         changelog = list(reversed(changelog))
 
-        tbl = QTableWidget()
+        tbl = _ChangelogTable()
         tbl.setColumnCount(2)
         tbl.setHorizontalHeaderLabels(["버전", "변경 내용"])
         hh = tbl.horizontalHeader()
@@ -7822,14 +7852,16 @@ class SplashWindow(QWidget):
         lay.setSpacing(9)
         if kind:
             badge = QLabel(kind)
+            badge.setObjectName("clbadge")
             badge.setStyleSheet(
                 f"background-color: {color}; color: #0d1117; "
                 f"border-radius: 8px; padding: 1px 9px; font-weight: bold;"
             )
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setFixedHeight(20)
-            lay.addWidget(badge)
+            lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
         txt = QLabel(s)
+        txt.setObjectName("clbody")
         txt.setStyleSheet(f"color: {C_TEXT};")
         txt.setWordWrap(True)
         lay.addWidget(txt, 1)
