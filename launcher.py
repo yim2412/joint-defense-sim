@@ -7,8 +7,8 @@
 ║         — 메뉴 클릭 시 해당 화면이 우측에 표시 (상단 탭바 → 사이드바)        ║
 ║  NEW-B  홈 화면: 그라데이션 배경에 엠블럼·타이틀·[시뮬레이터 시작] 버튼      ║
 ║  NEW-C  사이드바 상단 앱 로고·하단 버전 표기, 선택 메뉴 좌측 강조 바         ║
-║  NEW-D  홈 배경: 우주에서 본 한반도 야경(NASA ISS 공개도메인)에 미사일       ║
-║         궤적·요격·함대 마커를 합성한 작전개념도 + 시작 버튼 글로우 강조      ║
+║  NEW-D  홈 배경: KF-21 보라매 편대 비행 사진(공개 라이선스) — 좌상단 타이틀  ║
+║         ·엠블럼, 우하단 시뮬레이터 시작 버튼, 가독성 비네트                  ║
 ║  NEW-E  계획 정합: 표지를 v13.1에서 앞당겨 구현, v12·v13 번호 재정렬         ║
 ║  [v12.1 patch — 향후 계획 정리 + 패치 내역 표 글자 겹침 수정]                ║
 ║  BUG-1  완료된 v10.x 전체·v11.2 차기 계획 수립 항목을 _PLANS에서 제거        ║
@@ -7694,76 +7694,71 @@ class SplashWindow(QWidget):
         page.setStyleSheet(f"""
             QWidget#home QLabel {{ background: transparent; }}
             QWidget#home QPushButton {{
-                font-size: 21px; font-weight: bold; color: #ffffff;
-                padding: 18px 64px; border-radius: 10px;
-                border: 1px solid #5bb4f0;
+                font-size: 20px; font-weight: bold; color: #f3f6fa;
+                padding: 16px 52px; border-radius: 10px;
+                border: 1px solid rgba(255,255,255,0.40);
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3aa0e8, stop:1 #2472b8);
+                    stop:0 rgba(46,58,74,0.92), stop:1 rgba(24,32,44,0.95));
             }}
             QWidget#home QPushButton:hover {{
+                border: 1px solid rgba(255,255,255,0.75);
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #4cb0f5, stop:1 #2f86d0);
+                    stop:0 rgba(66,82,102,0.96), stop:1 rgba(36,48,64,0.97));
             }}
         """)
         v = QVBoxLayout(page)
-        v.setContentsMargins(70, 54, 70, 46)
-        v.setSpacing(0)
-        v.addStretch(3)
+        v.setContentsMargins(50, 36, 50, 42)
+        v.setSpacing(2)
 
+        # ── 상단(하늘 영역): 엠블럼 + 타이틀, 좌측 정렬 ──
         emblem = QLabel("⚓")
-        emblem.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        emblem.setStyleSheet(f"font-size: 110px; color: {C_ACCENT};")
-        v.addWidget(emblem)
-        v.addSpacing(6)
+        emblem.setStyleSheet("font-size: 50px; color: #e3eaf2;")
+        v.addWidget(emblem, alignment=Qt.AlignmentFlag.AlignLeft)
 
         t1 = QLabel("이지스 기동전단")
-        t1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        t1.setFont(QFont('Malgun Gothic', 42, QFont.Weight.Bold))
-        t1.setStyleSheet("color: #eaf2ff;")
-        v.addWidget(t1)
+        t1.setFont(QFont('Malgun Gothic', 33, QFont.Weight.Bold))
+        t1.setStyleSheet("color: #ffffff;")
+        v.addWidget(t1, alignment=Qt.AlignmentFlag.AlignLeft)
 
         t2 = QLabel("통합 방어 시뮬레이터")
-        t2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        t2.setFont(QFont('Malgun Gothic', 42, QFont.Weight.Bold))
-        t2.setStyleSheet(f"color: {C_ACCENT};")
-        v.addWidget(t2)
-        v.addSpacing(18)
+        t2.setFont(QFont('Malgun Gothic', 33, QFont.Weight.Bold))
+        t2.setStyleSheet("color: #ffffff;")
+        v.addWidget(t2, alignment=Qt.AlignmentFlag.AlignLeft)
+        v.addSpacing(10)
 
         en = QLabel("J O I N T   D E F E N S E   S I M U L A T O R")
-        en.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        en.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px; font-weight: bold;")
-        v.addWidget(en)
-        v.addSpacing(22)
-
-        rule = QFrame()
-        rule.setFrameShape(QFrame.Shape.HLine)
-        rule.setStyleSheet(f"color: {C_BORDER}; max-width: 420px;")
-        rule.setFixedHeight(1)
-        rule_box = QHBoxLayout()
-        rule_box.addStretch(1); rule_box.addWidget(rule, 2); rule_box.addStretch(1)
-        v.addLayout(rule_box)
-        v.addSpacing(20)
+        en.setStyleSheet("color: #c2cdd9; font-size: 14px; font-weight: bold;")
+        v.addWidget(en, alignment=Qt.AlignmentFlag.AlignLeft)
+        v.addSpacing(7)
 
         desc = QLabel("한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc.setStyleSheet(f"color: {C_TEXT}; font-size: 17px;")
-        v.addWidget(desc)
-        v.addSpacing(40)
+        desc.setStyleSheet("color: #d6dee8; font-size: 16px;")
+        v.addWidget(desc, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # 사진 배경 위 가독성 — 텍스트에 검정 그림자
+        for _lbl in (emblem, t1, t2, en, desc):
+            _e = QGraphicsDropShadowEffect()
+            _e.setColor(QColor(0, 0, 0, 240))
+            _e.setBlurRadius(16)
+            _e.setOffset(0, 2)
+            _lbl.setGraphicsEffect(_e)
+
+        v.addStretch(1)   # 전투기가 보이는 가운데 공간
+
+        # ── 하단 우측: 시뮬레이터 시작 버튼 ──
         btn_start = QPushButton("🚀  시뮬레이터 시작")
-        btn_start.setFixedHeight(62)
+        btn_start.setFixedHeight(58)
         btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_start.clicked.connect(self.launch_requested.emit)
         glow = QGraphicsDropShadowEffect()
-        glow.setColor(QColor(52, 152, 219, 200))
-        glow.setBlurRadius(38)
-        glow.setOffset(0, 0)
+        glow.setColor(QColor(0, 0, 0, 210))
+        glow.setBlurRadius(28)
+        glow.setOffset(0, 3)
         btn_start.setGraphicsEffect(glow)
         btn_box = QHBoxLayout()
-        btn_box.addStretch(1); btn_box.addWidget(btn_start); btn_box.addStretch(1)
+        btn_box.addStretch(1)
+        btn_box.addWidget(btn_start)
         v.addLayout(btn_box)
-
-        v.addStretch(3)
         return page
 
     # ── 도움말 / 튜토리얼 탭 ──────────────────────────────────────────────
