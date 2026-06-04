@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.06 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.07 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.02.07 — 패치 내역 날짜 헤더 강조]                                     ║
+║  NEW-A  날짜 구분을 배경 바 + 좌측 강조선 + 큰 글씨로 시각화                ║
 ║  [v12.02.06 — 패치 내역 탭 카드형 시각화]                                   ║
 ║  NEW-A  변경 1건당 카드로 분리 + 같은 버전 계열을 좌측 색 띠로 묶어 구분     ║
 ║  [v12.2 — 런처 UI 전면 개편: Paradox 스타일 사이드바 네비게이션]            ║
@@ -524,7 +526,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.06"
+APP_VERSION = "v12.02.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7957,10 +7959,14 @@ class SplashWindow(QWidget):
             items = entry.get('changes', [])
             is_latest = (ver == latest_ver)
             if date != prev_date:
-                dh = QLabel(f"📅  {date}")
+                if prev_date is not None:
+                    v.addSpacing(8)   # 날짜 그룹 사이 여백
+                dh = QLabel(f"📅   {date}")
                 dh.setStyleSheet(
-                    f"color: {C_SUBTEXT}; font-weight: bold; font-size: 14px; "
-                    f"padding: 10px 2px 4px 2px;")
+                    f"color: #eaf2ff; font-weight: bold; font-size: 16px; "
+                    f"background: {C_PANEL}; border-radius: 6px; "
+                    f"border-left: 4px solid {C_ACCENT}; "
+                    f"padding: 9px 16px; letter-spacing: 1px;")
                 v.addWidget(dh)
                 prev_date = date
             col = _color(ver)
