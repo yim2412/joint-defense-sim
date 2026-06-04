@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.1 — PyQt6 런처                 ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.2 — PyQt6 런처                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.2 — 시작 화면 표지(인트로) 신설: 2페이지 런처 구조]                    ║
+║  NEW-A  들어가면 그라데이션 배경의 표지 화면(엠블럼·타이틀·시작 버튼)이      ║
+║         먼저 표시 — [프로그램 정보·DB]로 기존 탭 패널 전환, [표지로] 복귀    ║
+║  NEW-B  계획 정합: 표지는 v13.1 항목을 앞당겨 구현, v12·v13 번호 재정렬      ║
 ║  [v12.1 patch — 향후 계획 정리 + 패치 내역 표 글자 겹침 수정]                ║
 ║  BUG-1  완료된 v10.x 전체·v11.2 차기 계획 수립 항목을 _PLANS에서 제거        ║
 ║         (구현 완료 항목 즉시 삭제 규칙 누락분 정리)                          ║
@@ -514,7 +518,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.1"
+APP_VERSION = "v12.2"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7552,19 +7556,127 @@ class SplashWindow(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self._stack = QStackedWidget()
+        layout.addWidget(self._stack)
+        self._stack.addWidget(self._build_cover_page())   # 0: 표지
+        self._stack.addWidget(self._build_info_page())    # 1: 정보 패널
+        self._stack.setCurrentIndex(0)
 
+    # ── 표지(커버) 페이지 ─────────────────────────────────────────────────
+    def _build_cover_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("cover")
+        page.setStyleSheet(f"""
+            QWidget#cover {{
+                background: qlineargradient(x1:0, y1:0, x2:0.5, y2:1,
+                    stop:0 #0a1426, stop:0.55 #0d2138, stop:1 #060e1b);
+            }}
+            QWidget#cover QLabel {{ background: transparent; }}
+            QWidget#cover QPushButton {{
+                font-size: 19px; padding: 15px 44px; border-radius: 8px;
+            }}
+        """)
+        v = QVBoxLayout(page)
+        v.setContentsMargins(70, 54, 70, 46)
+        v.setSpacing(0)
+        v.addStretch(3)
+
+        emblem = QLabel("⚓")
+        emblem.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        emblem.setStyleSheet(f"font-size: 110px; color: {C_ACCENT};")
+        v.addWidget(emblem)
+        v.addSpacing(6)
+
+        t1 = QLabel("이지스 기동전단")
+        t1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t1.setFont(QFont('Malgun Gothic', 42, QFont.Weight.Bold))
+        t1.setStyleSheet("color: #eaf2ff;")
+        v.addWidget(t1)
+
+        t2 = QLabel("통합 방어 시뮬레이터")
+        t2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t2.setFont(QFont('Malgun Gothic', 42, QFont.Weight.Bold))
+        t2.setStyleSheet(f"color: {C_ACCENT};")
+        v.addWidget(t2)
+        v.addSpacing(18)
+
+        en = QLabel("J O I N T   D E F E N S E   S I M U L A T O R")
+        en.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        en.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px; font-weight: bold;")
+        v.addWidget(en)
+        v.addSpacing(22)
+
+        rule = QFrame()
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setStyleSheet(f"color: {C_BORDER}; max-width: 420px;")
+        rule.setFixedHeight(1)
+        rule_box = QHBoxLayout()
+        rule_box.addStretch(1); rule_box.addWidget(rule, 2); rule_box.addStretch(1)
+        v.addLayout(rule_box)
+        v.addSpacing(20)
+
+        desc = QLabel("한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        desc.setStyleSheet(f"color: {C_TEXT}; font-size: 17px;")
+        v.addWidget(desc)
+        v.addSpacing(40)
+
+        btn_start = QPushButton("🚀  시뮬레이터 시작")
+        btn_start.setFixedHeight(56)
+        btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_start.clicked.connect(self.launch_requested.emit)
+
+        btn_info = QPushButton("📖  프로그램 정보 · DB")
+        btn_info.setFixedHeight(56)
+        btn_info.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_info.setStyleSheet(
+            f"background: transparent; color: {C_ACCENT}; "
+            f"border: 1px solid {C_ACCENT};")
+        btn_info.clicked.connect(lambda: self._stack.setCurrentIndex(1))
+
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(16)
+        btn_box.addStretch(1)
+        btn_box.addWidget(btn_start)
+        btn_box.addWidget(btn_info)
+        btn_box.addStretch(1)
+        v.addLayout(btn_box)
+
+        v.addStretch(2)
+        credit = QLabel(f"{APP_VERSION}   ·   PyQt6 네이티브 UI")
+        credit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        credit.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 13px;")
+        v.addWidget(credit)
+        return page
+
+    # ── 정보 패널 페이지 (기존 탭) ────────────────────────────────────────
+    def _build_info_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 16, 24, 20)
+        layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        back = QPushButton("←  표지로")
+        back.setFixedHeight(38)
+        back.setStyleSheet(
+            f"background: transparent; color: {C_SUBTEXT}; "
+            f"border: 1px solid {C_BORDER}; padding: 6px 18px; font-size: 15px;")
+        back.setCursor(Qt.CursorShape.PointingHandCursor)
+        back.clicked.connect(lambda: self._stack.setCurrentIndex(0))
+        top.addWidget(back)
+        top.addStretch(1)
         title = QLabel("⚓ 이지스 기동전단 통합 방어 시뮬레이터")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFont(QFont('Malgun Gothic', 26, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {C_ACCENT}; padding: 8px;")
-        layout.addWidget(title)
-
-        sub = QLabel(f"{APP_VERSION}  |  PyQt6 네이티브 UI  |  한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 16px;")
-        layout.addWidget(sub)
+        title.setFont(QFont('Malgun Gothic', 18, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C_ACCENT};")
+        top.addWidget(title)
+        top.addStretch(1)
+        sub = QLabel(APP_VERSION)
+        sub.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 15px;")
+        top.addWidget(sub)
+        layout.addLayout(top)
 
         tabs = QTabWidget()
         layout.addWidget(tabs, stretch=1)
@@ -7575,7 +7687,6 @@ class SplashWindow(QWidget):
         tabs.addTab(self._build_enemy_db_tab(),    "🔴  적군 DB")
         tabs.addTab(self._build_friendly_db_tab(), "🔵  아군 DB")
 
-        # 최초 실행 시 도움말 탭(0); 이후엔 마지막 선택 탭 복원
         saved_tab = _load_app_state().get('splash_tab', 0)
         tabs.setCurrentIndex(saved_tab)
         tabs.currentChanged.connect(
@@ -7586,6 +7697,7 @@ class SplashWindow(QWidget):
         btn.setFixedHeight(46)
         btn.clicked.connect(self.launch_requested.emit)
         layout.addWidget(btn)
+        return page
 
     # ── 도움말 / 튜토리얼 탭 ──────────────────────────────────────────────
     def _build_help_tab(self) -> QWidget:
@@ -7888,46 +8000,43 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.2", "매우 높음", "수중 음향 전파 모델 고도화",
+            ("v12.3", "매우 높음", "수중 음향 전파 모델 고도화",
              "수온약층 계수·해역별 보정은 완료. 미구현 구간만 추가: "
              "전달손실(TL) 룩업 고도화·주변소음(ambient noise)·표적강도(TS) 기반 탐지 확률 모델. "
              "【현실성】수렴지대는 동해(수심 1000m+)만 가능, 서해(평균 44m)는 물리적 불가 — 코드에 반영됨."),
-            ("v12.3", "매우 높음", "함정 생존 모델 (침수·복원력)",
+            ("v12.4", "매우 높음", "함정 생존 모델 (침수·복원력)",
              "현재 정적 피해 → 침수 속도·복원력·격실 침수 시뮬. "
              "피격 위치(수선 위/아래)·함종별 격실 반영. 침몰 예상 시간 실시간 표시. "
              "【현실성】격실 배치는 기밀이라 추정 모델 — 과도한 정밀 주장 금지."),
-            ("v12.4", "중간", "동적 기상 변화",
+            ("v12.5", "중간", "동적 기상 변화",
              "교전 중 태풍 접근·날씨 시간 변화. 기상청 계절 패턴 기반 확률적 전이. "
              "탐지·교전 능력 실시간 변동. 작전급(72시간)에서 진가, 전술급(700초)엔 효과 작음."),
-            ("v12.5", "중간", "피아식별 오류 (IFF)",
+            ("v12.6", "중간", "피아식별 오류 (IFF)",
              "피아식별 실패 확률. 식별 지연·오인식으로 아군 오사 가능. "
              "혼잡 전장에서 교전규칙 이행 지연. 다방위·혼잡 시나리오와 시너지."),
-            ("v12.6", "매우 높음", "엔진 numpy 전면 재설계",
+            ("v12.7", "매우 높음", "엔진 numpy 전면 재설계",
              "v12.x 물리 완성 후 객체 루프 → numpy 배열 연산으로 전환. "
              "위치·속도·거리를 numpy 배열로 일괄 계산 → 30~50배 추가 향상 목표. "
              "v12 기준값 대비 결과 오차 5% 이내 검증 필수. "
              "v14.x AI 학습 데이터 생성·v17.x 캠페인 엔진의 고속 연산 토대."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            # 가벼운 표지·런처 폴리싱 먼저(quick win) → 대형 시각화는 뒤로
-            ("v13.1", "낮음", "시작 화면 표지 디자인",
-             "런처 시작 화면에 기동전단 표지(커버) 아트 추가 — 함대 실루엣·엠블럼·타이틀로 첫인상 강화. "
-             "버전·부제와 조화. 도움말 탭 진입 전 시각적 표지 역할."),
-            ("v13.2", "중간", "런처 UI 시각화 개선",
+            # 런처 폴리싱 먼저(quick win) → 대형 시각화는 뒤로
+            ("v13.1", "중간", "런처 UI 시각화 개선",
              "런처 전반의 색·여백·아이콘·표 가독성 정비. 탭·패널에 일관된 디자인 언어 적용. "
              "결과·DB·향후 계획 탭의 표·차트 시인성 향상. 다크 테마 대비·강조색 체계 정리."),
-            ("v13.3", "매우 높음", "3D 전장 + 실제 지도",
+            ("v13.2", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
              "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
              "【현실성】레이더 커버리지는 수평선·지형 차폐로 비대칭."),
-            ("v13.4", "중간", "지휘통신망 시각화 (C4ISR)",
+            ("v13.3", "중간", "지휘통신망 시각화 (C4ISR)",
              "함정·항공·지상 데이터링크 연결 상태를 그래프로 표시. "
              "함정 격침 시 연결 자동 단절·협동 교전 변화 시각화. "
              "어느 함정 먼저 격침 시 방어망 붕괴하는지 취약점 분석."),
-            ("v13.5", "낮음", "실시간 전황 지표판",
+            ("v13.4", "낮음", "실시간 전황 지표판",
              "기본 통계(요격률·비용·손상)는 결과 탭에 구현됨. 추가 구간: "
              "탄약 소모 효율·비용당 격침 비율·피아 교환비·방어 포화도 등 상세 지표 확장. "
              "전술 의사결정 모드와 직결 — 무기 교체 판단 근거 즉시 제공."),
-            ("v13.6", "중간", "위성 정찰 재방문 주기",
+            ("v13.5", "중간", "위성 정찰 재방문 주기",
              "정찰위성 재방문 주기(12~24시간) 시뮬. 위성 창 열릴 때만 수평선 너머 표적 지정 가능. "
              "공백 시간엔 기습 기회. 작전급에서 진가. "
              "【현실성】촬영→해석→전송 지연 반영 필수."),
