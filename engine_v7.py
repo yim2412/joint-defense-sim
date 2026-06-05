@@ -86,7 +86,11 @@ from engine import (
     normalize_enemy_db,
 )
 try:
-    from ocean_acoustic_db import get_sonar_depth_factor
+    from ocean_acoustic_db import (
+        get_sonar_depth_factor,
+        SUBMARINE_ACOUSTIC, SONAR_PLATFORM, WATER_DEPTH_M,
+        sonar_detection_range, sonar_detection_prob,
+    )
     _OCEAN_ACOUSTIC_OK = True
 except ImportError:
     _OCEAN_ACOUSTIC_OK = False
@@ -792,6 +796,7 @@ class EnemyThreatObj:
         self.is_aircraft = ttype in ('전투기', '폭격기', '전폭기')
         self.is_ship     = cat == '대함'
         self.is_sub      = cat == '대잠'
+        self._r50_cache  = {}   # v12.3: dB 소나 방정식 R50 캐시 (조건 변할 때만 재계산)
 
         # ENEMY_DB hp 필드 우선, 없으면 _HP_MAP 기본값
         _db_hp = self.info.get('hp', None)
@@ -1576,6 +1581,62 @@ class TimeStepEngine:
             return 0.45 + 0.20 * (depth - 300) / 200
         else:
             return 0.65
+
+    # ── v12.3: dB 소나 방정식 (enable_sonar_equation ON 경로) ─────────────────
+    def _sonar_env(self):
+        """현재 교전 환경 → (해역키, 계절, 대표수심, 주변소음 NL dB)."""
+        region = REGION_TO_ACOUSTIC_KEY.get(
+            self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA')
+        season = self.cfg.get('season', 'summer')
+        water_depth = WATER_DEPTH_M.get(region, 1500.0)
+        return region, season, water_depth, self._sonar_ambient_dB(region)
+
+    def _sonar_ambient_dB(self, region: str) -> float:
+        """Beaufort 기반 1kHz 주변소음 스펙트럼 레벨 + 해역 선박소음 보정."""
+        if not _OCEAN_ENV_OK or 'beaufort' not in self.wx:
+            return 46.0   # BF4 근사 폴백
+        bf = max(0, min(12, int(round(self.wx.get('beaufort', 4)))))
+        try:
+            n1k = SONAR_AMBIENT_NOISE['by_beaufort_spectral_dB'][bf][2]
+        except Exception:
+            return 46.0
+        shipping = {'EAST_SEA': 0, 'YELLOW_SEA': 5, 'KOREA_STRAIT': 10}.get(region, 0)
+        return n1k + shipping
+
+    def _sonar_r50(self, et: 'EnemyThreatObj', sensor_key: str) -> float:
+        """잠수함·센서 조합의 50% 탐지거리(m). 데이터/모듈 없으면 -1.0(레거시 폴백)."""
+        if not _OCEAN_ACOUSTIC_OK:
+            return -1.0   # ocean_acoustic_db 미탑재 — 레거시 경로로 폴백
+        region, season, water_depth, ambient = self._sonar_env()
+        depth = abs(et.altitude_m)
+        key = (sensor_key, round(depth / 10.0) * 10, round(ambient), region, season)
+        cached = et._r50_cache.get(key)
+        if cached is not None:
+            return cached
+        r50 = sonar_detection_range(
+            et.preset_name, sensor_key, region, season, depth, ambient, water_depth)
+        et._r50_cache[key] = r50
+        return r50
+
+    def _sonar_eq_detect(self, et: 'EnemyThreatObj', dist_m: float, sensor_key: str):
+        """
+        dB 소나 방정식 확률 탐지 판정.
+        반환: True=탐지 / False=실패 / None=음향 데이터 없음(레거시 폴백).
+        """
+        r50 = self._sonar_r50(et, sensor_key)
+        if r50 < 0:
+            return None
+        if r50 == 0:
+            return False
+        if et.is_retreating:
+            r50 *= 0.30   # 고속 이탈 — 소나 접촉 급감
+        if dist_m > r50 * 3.0:
+            return False   # 3·R50 너머는 Pd≈0
+        region, season, water_depth, _ = self._sonar_env()
+        f = SONAR_PLATFORM[sensor_key]['freq_khz']
+        pd = sonar_detection_prob(
+            dist_m, r50, water_depth, f, region, season, abs(et.altitude_m))
+        return random.random() < pd
 
     def _terrain_penalty(self, alt_m: float) -> float:
         """
@@ -2496,13 +2557,27 @@ class TimeStepEngine:
                 category = et.category
                 detect_m = self._detect_range_m(ship, category, alt_m=et.altitude_m)
                 # 잠수함: 수온약층 소나 보정 추가 적용
-                if et.is_sub:
-                    detect_m *= self._thermocline_factor(et)
-                    # NEW-AW: 이탈 잠수함 — 고속 이탈로 소나 접촉 급감 (탐지 70% 감소)
-                    if et.is_retreating:
-                        detect_m *= 0.30
-                if dist_m > detect_m:
-                    continue
+                if et.is_sub and self.cfg.get('enable_sonar_equation', False):
+                    # v12.3: dB 소나 방정식 — R50 기반 정규 CDF 확률 탐지
+                    res = self._sonar_eq_detect(et, dist_m, 'hull')
+                    if res is False:
+                        continue
+                    elif res is None:
+                        # 음향 데이터 없음 → 레거시 소나 보정 폴백
+                        detect_m *= self._thermocline_factor(et)
+                        if et.is_retreating:
+                            detect_m *= 0.30
+                        if dist_m > detect_m:
+                            continue
+                    # res True → 탐지 성공, 통과
+                else:
+                    if et.is_sub:
+                        detect_m *= self._thermocline_factor(et)
+                        # NEW-AW: 이탈 잠수함 — 고속 이탈로 소나 접촉 급감 (탐지 70% 감소)
+                        if et.is_retreating:
+                            detect_m *= 0.30
+                    if dist_m > detect_m:
+                        continue
 
                 if et.is_ship:
                     en_route = sum(
@@ -2782,7 +2857,28 @@ class TimeStepEngine:
         thermo    = self._thermocline_factor(et)
         wx_factor = self._asw_weather_factor(weather)
         base_prob = ac.info.get('detect_base_prob', 0.65)
-        prob      = min(base_prob * thermo * wx_factor, 0.97)
+        if self.cfg.get('enable_sonar_equation', False):
+            # v12.3: dB 소나 방정식 — 디핑/소노부이 R50 기반 Pd (날씨만 곱)
+            sensor_key = 'dipping' if ac.info.get('asw_mode') == 'dipping' else 'sonobuoy'
+            r50 = self._sonar_r50(et, sensor_key)
+            if r50 >= 0:
+                if r50 == 0:
+                    prob = 0.0
+                else:
+                    if et.is_retreating:
+                        r50 *= 0.30
+                    region, season, water_depth, _ = self._sonar_env()
+                    f = SONAR_PLATFORM[sensor_key]['freq_khz']
+                    # 항공기는 표적 상공으로 전개 — 함정 거리가 아닌 표정 오차 거리에서 탐지
+                    # (datum 불확실성 ~1.5km). 정온 잠수함은 이 거리에서도 탐지 곤란.
+                    prosecute_m = 1500.0
+                    pd = sonar_detection_prob(
+                        prosecute_m, max(r50, 1e-9), water_depth, f, region, season, abs(et.altitude_m))
+                    prob = min(pd * wx_factor, 0.97)
+            else:
+                prob = min(base_prob * thermo * wx_factor, 0.97)
+        else:
+            prob = min(base_prob * thermo * wx_factor, 0.97)
 
         if random.random() < prob:
             # ── 탐지 성공 → 어뢰 투하 ────────────────────────────────────────

@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.02.17 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.03.01 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.03.01 — dB 소나 방정식 잠수함 탐지 (수동, 실험적 ON/OFF)]              ║
+║  NEW-A  잠수함 탐지를 수동 소나 방정식(FOM·R50·정규 CDF)으로 계산           ║
+║         음원 준위·전달손실(확산+흡수+수온약층)·주변소음 → 50% 탐지거리       ║
+║         정온 잠수함은 탐지 난이·서해 천해 급감. 기본 OFF(기존과 동일)        ║
 ║  [v12.02.17 — 향후 계획 탭 상시·로드맵 블록 구분]                            ║
 ║  NEW-A  '상시 · 정책/유지 규칙'과 '버전 로드맵'을 섹션 헤더로 분리          ║
 ║  [v12.02.13~16 — DB 탭 스펙시트 시각화 개선]                                 ║
@@ -541,7 +545,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.02.17"
+APP_VERSION = "v12.03.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4469,6 +4473,8 @@ class MainWindow(QMainWindow):
             self.chk_isa.setChecked(cfg.get('enable_isa', False))
         if hasattr(self, 'chk_png'):
             self.chk_png.setChecked(cfg.get('enable_png', False))
+        if hasattr(self, 'chk_sonar_eq'):
+            self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4692,6 +4698,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_png.setChecked(False)
 
+        # v12.3: dB 소나 방정식 — 잠수함 탐지를 음향 전파 물리로 대체
+        self.chk_sonar_eq = QCheckBox("dB 소나 방정식 잠수함 탐지 (실험적)")
+        self.chk_sonar_eq.setToolTip(
+            "v12.3 — 잠수함 탐지를 곱셈식 사거리 휴리스틱 대신\n"
+            "수동 소나 방정식(FOM = 방사소음 − 주변소음 + 배열이득 − 탐지임계)으로 계산합니다.\n"
+            "음원 준위(잠수함별)·전달손실(확산+흡수+수온약층)·주변소음(해상상태)으로\n"
+            "50% 탐지거리 R50을 구하고, 신호초과 기반 정규분포 확률로 탐지를 판정합니다.\n"
+            "정온화된 잠수함(킬로·위안급 AIP)은 탐지가 어렵고, 서해 천해는 탐지거리가 급감합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_sonar_eq.setChecked(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4727,6 +4745,7 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.chk_anti_sam)
         fl.addRow("",            self.chk_isa)
         fl.addRow("",            self.chk_png)
+        fl.addRow("",            self.chk_sonar_eq)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -6139,6 +6158,7 @@ class MainWindow(QMainWindow):
             'enable_anti_sam':   self.chk_anti_sam.isChecked(),
             'enable_isa':        self.chk_isa.isChecked(),
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
+            'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -7229,6 +7249,15 @@ TERM_TOOLTIPS: dict[str, str] = {
     '종말 유도': '종말 유도 — 교전 마지막 단계(통상 10km 이내)에서 유도탄이 표적을 직접 추적·명중하는 구간. 표적의 회피 기동과 유도탄 기동 한계가 명중 여부를 좌우.',
     '탐색기 시야각': '탐색기 시야각(Seeker FOV) — 유도탄 탐색기가 표적을 포착할 수 있는 각도 범위. 표적이 이 범위를 벗어나면 추적 상실(lock-on 해제).',
     '기동 한계': '기동 한계(G 제한) — 유도탄이 낼 수 있는 최대 횡가속도. 함대공 미사일은 약 30G 이상, 대함미사일은 약 10G. 한계를 넘는 급기동 표적은 추격이 빗나감.',
+    '소나 방정식': '소나 방정식(Sonar Equation) — 음원 준위·전달손실·주변소음·배열이득·탐지임계를 dB로 합산해 탐지 가능 여부를 계산하는 수중음향 표준식. 수동: FOM = SL − NL + AG − DT.',
+    '전달손실': '전달손실(Transmission Loss, TL) — 음파가 거리를 진행하며 약해지는 정도(dB). 확산(구면/원통)·흡수·수온약층 손실의 합. 클수록 탐지거리 짧음.',
+    '음원 준위': '음원 준위(Source Level, SL) — 잠수함이 방사하는 소음의 세기(dB re 1μPa@1m). 정온화된 잠수함(킬로·AIP)일수록 낮아 탐지가 어려움.',
+    '주변소음': '주변소음(Noise Level, NL) — 해상상태(파고·바람)와 선박 교통으로 발생하는 배경 소음. 높을수록 표적 신호가 묻혀 탐지거리 감소.',
+    '배열이득': '배열이득(Array Gain, AG) — 다수의 수중청음기를 배열해 표적 방향 신호를 강화하고 주변소음을 억제하는 이득(dB). 예인선배열이 선체소나보다 큼.',
+    '표적강도': '표적강도(Target Strength, TS) — 능동 소나 음파가 잠수함 선체에 반사되어 돌아오는 세기(dB). 대형 잠수함일수록 큼.',
+    '50% 탐지거리': '50% 탐지거리(R50) — 탐지 확률이 50%가 되는 거리. 소나 방정식 TL(R50)=FOM으로 산출하며, 이 거리 안쪽은 탐지 확률이 빠르게 상승.',
+    '디핑 소나': '디핑 소나(Dipping Sonar) — 대잠 헬기가 호버링 상태에서 음향센서를 물속에 내려 잠수함을 탐지하는 능동/수동 소나.',
+    '소노부이': '소노부이(Sonobuoy) — 해상초계기·헬기가 투하하는 부유식 음향 탐지 부표. 수동(DIFAR)·능동(DICASS)으로 잠수함을 탐지·표정.',
 }
 
 def _apply_term_tooltip(item: 'QTableWidgetItem', text: str) -> None:
@@ -8303,9 +8332,9 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.3", "매우 높음", "수중 음향 전파 모델 고도화",
-             "수온약층 계수·해역별 보정은 완료. 미구현 구간만 추가: "
-             "전달손실(TL) 룩업 고도화·주변소음(ambient noise)·표적강도(TS) 기반 탐지 확률 모델. "
+            ("v12.3", "매우 높음", "수중 음향 전파 모델 고도화 (능동 소나·잔향)",
+             "수동 소나 방정식(전달손실·주변소음·50% 탐지거리·확률 탐지)은 완료. 잔여 구간만 추가: "
+             "능동 소나 송신·표적강도(TS) 기반 반향 탐지 + 천해 잔향(reverberation) 모델. "
              "【현실성】수렴지대는 동해(수심 1000m+)만 가능, 서해(평균 44m)는 물리적 불가 — 코드에 반영됨."),
             ("v12.4", "매우 높음", "함정 생존 모델 (침수·복원력)",
              "현재 정적 피해 → 침수 속도·복원력·격실 침수 시뮬. "

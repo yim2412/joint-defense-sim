@@ -6,6 +6,8 @@
 #  수집일: 2026-06-01
 # =============================================================================
 
+import math
+
 
 # =============================================================================
 #  1. Mackenzie(1981) 음속 계산식
@@ -454,3 +456,149 @@ def month_to_season_key(month: int) -> str:
     if month in (6, 7, 8, 9):
         return 'summer'
     return 'winter'
+
+
+# =============================================================================
+#  7. 소나 방정식 — 잠수함 음향 제원 (v12.3)
+#     수동 소나 FOM = SL − NL + AG − DT  →  TL(R50)=FOM 으로 50% 탐지거리 산출
+#     단위: dB re 1 μPa²/Hz @ 1 m (방사소음 스펙트럼 레벨, 탐지대역 대표값)
+#     ── 값은 전부 공개 추정치(잠수함 정온화 수준은 기밀) → ± 불확실도 명시
+#     출처: Urick "Principles of Underwater Sound" 3rd · Jane's Fighting Ships ·
+#           ONI 보고서 · 공개 음향 문헌 종합 (정확한 절댓값 아님 — 상대 서열 기준)
+# =============================================================================
+
+SUBMARINE_ACOUSTIC = {
+    #                            방사소음 SL   표적강도 TS    불확실도   비고
+    '039형 잠수함 (송급)':       {'source_level_dB': 108, 'target_strength_dB': 12, 'sl_pm_dB': 8,
+                                  'note': '中 재래식 디젤. 위안급보다 시끄러움'},
+    '041형 잠수함 (위안급 개량)': {'source_level_dB': 100, 'target_strength_dB': 12, 'sl_pm_dB': 8,
+                                  'note': 'AIP 정온화 — 배터리 항주 시 매우 조용'},
+    '093형 잠수함 (상급)':       {'source_level_dB': 122, 'target_strength_dB': 15, 'sl_pm_dB': 10,
+                                  'note': '中 1세대 SSN — 원자로 펌프 소음'},
+    '094형 잠수함 (진급)':       {'source_level_dB': 125, 'target_strength_dB': 20, 'sl_pm_dB': 10,
+                                  'note': '中 SSBN — 대형·소음 큼'},
+    '킬로급 잠수함 (Project 636)': {'source_level_dB': 98, 'target_strength_dB': 12, 'sl_pm_dB': 8,
+                                  'note': "'블랙홀' — 재래식 중 최정온"},
+    '오스카-II급 SSGN':          {'source_level_dB': 128, 'target_strength_dB': 22, 'sl_pm_dB': 10,
+                                  'note': '초대형 SSGN — 표적강도·소음 모두 큼'},
+    '야센급 SSGN':               {'source_level_dB': 110, 'target_strength_dB': 16, 'sl_pm_dB': 10,
+                                  'note': '러 최신 SSN — 원잠 중 정온'},
+    '신포급 잠수함 (SLBM)':       {'source_level_dB': 130, 'target_strength_dB': 12, 'sl_pm_dB': 12,
+                                  'note': '北 재래식 — 구형·소음 큼'},
+    '신포급 잠수함 (기습)':       {'source_level_dB': 128, 'target_strength_dB': 12, 'sl_pm_dB': 12,
+                                  'note': '北 재래식 — 매복 저속 시 소음 감소'},
+}
+
+
+# =============================================================================
+#  8. 소나 방정식 — 아군 센서 플랫폼 제원 (v12.3)
+#     mode: 'passive'(수동) | 'active'(능동) | 'both'
+#     freq_khz : 탐지 대역 대표 주파수 (Thorp 흡수·잔향 계산용)
+#     array_gain_dB(AG) : 배열 이득 / dt_dB(DT) : 탐지 임계값(1Hz 기준)
+#     sl_active_dB : 능동 송신원 음원 준위(능동 모드, v12.03.02에서 사용)
+#     출처: Urick 3rd(AG·DT 전형값) · RP-33(미 해군 소나 교범) 공개 범위
+# =============================================================================
+
+SONAR_PLATFORM = {
+    'hull':     {'label': '함정 선체장착 소나', 'mode': 'both',
+                 'freq_khz': 3.5, 'array_gain_dB': 10, 'dt_dB': 8,  'sl_active_dB': 215},
+    'towed':    {'label': '함정 예인선배열 소나', 'mode': 'passive',
+                 'freq_khz': 0.5, 'array_gain_dB': 20, 'dt_dB': 3,  'sl_active_dB': 0},
+    'dipping':  {'label': '헬기 디핑 소나', 'mode': 'both',
+                 'freq_khz': 7.0, 'array_gain_dB': 12, 'dt_dB': 6,  'sl_active_dB': 210},
+    'sonobuoy': {'label': '소노부이', 'mode': 'both',
+                 'freq_khz': 1.0, 'array_gain_dB': 5,  'dt_dB': 10, 'sl_active_dB': 200},
+    'submarine':{'label': '아군 잠수함 소나', 'mode': 'passive',
+                 'freq_khz': 1.0, 'array_gain_dB': 15, 'dt_dB': 5,  'sl_active_dB': 0},
+}
+
+
+# 해역 대표 수심(m) — 구면→원통/모드 확산 천이거리. (동해 심해·서해 천해·해협 중간)
+WATER_DEPTH_M = {
+    'EAST_SEA':     1500.0,
+    'YELLOW_SEA':   50.0,
+    'KOREA_STRAIT': 100.0,
+}
+
+
+# =============================================================================
+#  9. 소나 방정식 핵심 함수 (v12.3)
+# =============================================================================
+
+def thorp_absorption(f_khz: float) -> float:
+    """
+    Thorp(1967) 흡수계수 (dB/km). f: kHz. 유효범위 ~0.1–50 kHz, 약 4°C.
+    α = 0.11·f²/(1+f²) + 44·f²/(4100+f²) + 2.75e-4·f² + 0.003
+    """
+    f2 = f_khz * f_khz
+    return (0.11 * f2 / (1.0 + f2)
+            + 44.0 * f2 / (4100.0 + f2)
+            + 2.75e-4 * f2
+            + 0.003)
+
+
+def transmission_loss(range_m: float, water_depth_m: float, f_khz: float,
+                      region: str, season: str, depth_m: float) -> float:
+    """
+    전달손실 TL(dB). 확산 + Thorp 흡수 + 수온약층 보정.
+      확산: 구면 20·log10(r) → 천이거리(=수심) 이후
+            심해(>=500m) 원통 10·log10, 천해(<500m) 모드분리 15·log10.
+      수온약층: 검증된 get_sonar_depth_factor 를 ΔTL=−10·log10(factor) 로 변환해 가산
+                → 기존 탐지 기준값과의 연속성 유지(앵커링).
+    """
+    r = max(range_m, 1.0)
+    r0 = max(water_depth_m, 1.0)
+    if r <= r0:
+        spread = 20.0 * math.log10(r)
+    else:
+        # 천해는 바닥·표면 다중반사로 모드 분리(15log) — 심해 원통(10log)보다 손실 큼
+        n = 10.0 if water_depth_m >= 500.0 else 15.0
+        spread = 20.0 * math.log10(r0) + n * math.log10(r / r0)
+    absorption = thorp_absorption(f_khz) * (r / 1000.0)
+    factor = get_sonar_depth_factor(region, season, depth_m)
+    delta_tl = -10.0 * math.log10(max(factor, 1e-3))   # factor<=1 → 손실 가산
+    return spread + absorption + delta_tl
+
+
+def sonar_detection_range(sub_name: str, sensor_key: str, region: str, season: str,
+                          depth_m: float, ambient_dB: float, water_depth_m: float,
+                          freq_khz: float | None = None) -> float:
+    """
+    수동 소나 FOM→R50(50% 탐지거리, m). 데이터 없으면 -1.0(레거시 폴백 신호).
+    FOM = SL − NL + AG − DT,  TL(R50)=FOM 을 이분법으로 역산(TL 단조증가).
+    """
+    sub = SUBMARINE_ACOUSTIC.get(sub_name)
+    sensor = SONAR_PLATFORM.get(sensor_key)
+    if sub is None or sensor is None:
+        return -1.0
+    f = sensor['freq_khz'] if freq_khz is None else freq_khz
+    fom = (sub['source_level_dB'] - ambient_dB
+           + sensor['array_gain_dB'] - sensor['dt_dB'])
+    if fom <= 0:
+        return 0.0
+    lo, hi = 1.0, 200_000.0
+    if transmission_loss(hi, water_depth_m, f, region, season, depth_m) <= fom:
+        return hi
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        if transmission_loss(mid, water_depth_m, f, region, season, depth_m) < fom:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def sonar_detection_prob(range_m: float, r50_m: float, water_depth_m: float,
+                         freq_khz: float, region: str, season: str, depth_m: float,
+                         sigma_dB: float = 8.0) -> float:
+    """
+    탐지확률 Pd (정규 CDF). SE = TL(R50) − TL(range) (신호초과, dB).
+      Pd = 0.5·(1 + erf(SE/(σ√2))).  range<R50 → SE>0 → Pd>0.5.
+    σ≈8 dB: 신호 변동(전파·표적 자세) 표준편차.
+    """
+    if r50_m <= 0.0:
+        return 0.0
+    tl_r = transmission_loss(range_m, water_depth_m, freq_khz, region, season, depth_m)
+    tl_50 = transmission_loss(r50_m, water_depth_m, freq_khz, region, season, depth_m)
+    se = tl_50 - tl_r
+    return 0.5 * (1.0 + math.erf(se / (sigma_dB * math.sqrt(2.0))))
