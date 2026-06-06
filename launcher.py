@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.04.03 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.05.02 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.05.02 — 동적 기상: 사다리 계열 이탈·초기 날씨 소실 버그 수정]          ║
+║  BUG-1  황사·농무 시작 시 흐림(박무) 도달 후 주간 사다리로 영구 이탈하던 문제 ║
+║  BUG-2  동적 기상 ON 시 보고서에 최종 날씨가 표시되던 문제 (초기 날씨 복원)  ║
+║  [v12.05.01 — 동적 기상 변화 (실험적 ON/OFF)]                               ║
+║  NEW-A  교전 중 날씨가 계절·해역 기반으로 확률적 전이. 5분마다 1단계씩        ║
+║         악화·호전 판정. 탐지·요격·소나·항공 출격 능력 실시간 변동.           ║
+║         추세(자동/악화/안정/호전) 선택 가능. 기본 OFF(기존과 동일)           ║
 ║  [v12.04.03 — 향후 계획: 실행 화면 전면 레이아웃 재설계로 구체화]            ║
 ║  변경  v13.1 계획을 '런처 UI 시각화 개선'에서 '실행 화면 전면 레이아웃        ║
 ║         재설계'로 확장 (실행 전/후 화면 분리·설정 5묶음 그룹화·위계 정비)     ║
@@ -943,6 +950,7 @@ try:
         compare_ab_v7,
         cec_comparison_v7,
         generate_briefing,
+        WEATHER_TRANSITION_DB, WEATHER_INTENSITY_LADDER,
     )
     _V7_OK = True
 except ImportError as e:
@@ -4494,6 +4502,12 @@ class MainWindow(QMainWindow):
             self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
         if hasattr(self, 'chk_flooding'):
             self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
+        if hasattr(self, 'chk_weather_dyn'):
+            self.chk_weather_dyn.setChecked(cfg.get('enable_weather_dynamics', False))
+        if hasattr(self, 'cmb_weather_trend'):
+            idx = self.cmb_weather_trend.findText(cfg.get('weather_trend', '자동'))
+            if idx >= 0:
+                self.cmb_weather_trend.setCurrentIndex(idx)
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4742,6 +4756,33 @@ class MainWindow(QMainWindow):
         )
         self.chk_flooding.setChecked(False)
 
+        self.chk_weather_dyn = QCheckBox("동적 기상 변화 (실험적)")
+        self.chk_weather_dyn.setToolTip(
+            "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
+            "5분마다 1단계씩 악화·호전 판정. 계절·해역에 따라 확률이 달라집니다.\n"
+            "  겨울 동해·서해: 북서계절풍으로 악화 확률↑\n"
+            "  여름 동해·남해: 태풍 시즌으로 악화 확률↑\n"
+            "탐지·요격·소나·항공 출격 능력이 실시간 변동됩니다.\n"
+            "추세를 '악화'로 설정하면 태풍 접근 시나리오를 연출할 수 있습니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_weather_dyn.setChecked(False)
+
+        self.cmb_weather_trend = NoScrollComboBox()
+        self.cmb_weather_trend.addItems(['자동', '악화', '안정', '호전'])
+        self.cmb_weather_trend.setToolTip(
+            "동적 기상 변화 추세 설정 (동적 기상 변화 ON일 때만 적용).\n"
+            "자동: 계절·해역 기반 확률 전이\n"
+            "악화: 악화 확률을 높여 태풍 접근 시나리오 연출\n"
+            "안정: 변화 확률을 줄여 기상 유지 경향\n"
+            "호전: 호전 확률↑ — 기상 개선 시나리오"
+        )
+
+        def _on_weather_dyn_toggled(checked: bool):
+            self.cmb_weather_trend.setEnabled(checked)
+        self.chk_weather_dyn.toggled.connect(_on_weather_dyn_toggled)
+        _on_weather_dyn_toggled(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4779,6 +4820,8 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.chk_png)
         fl.addRow("",            self.chk_sonar_eq)
         fl.addRow("",            self.chk_flooding)
+        fl.addRow("",            self.chk_weather_dyn)
+        fl.addRow("기상 추세",   self.cmb_weather_trend)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -6193,6 +6236,8 @@ class MainWindow(QMainWindow):
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
+            'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
+            'weather_trend':     self.cmb_weather_trend.currentText(),
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -8366,9 +8411,6 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.5", "중간", "동적 기상 변화",
-             "교전 중 태풍 접근·날씨 시간 변화. 기상청 계절 패턴 기반 확률적 전이. "
-             "탐지·교전 능력 실시간 변동. 작전급(72시간)에서 진가, 전술급(700초)엔 효과 작음."),
             ("v12.6", "중간", "피아식별 오류 (IFF)",
              "피아식별 실패 확률. 식별 지연·오인식으로 아군 오사 가능. "
              "혼잡 전장에서 교전규칙 이행 지연. 다방위·혼잡 시나리오와 시너지."),

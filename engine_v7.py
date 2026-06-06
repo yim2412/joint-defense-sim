@@ -251,6 +251,61 @@ WIND_CEP_FACTOR: dict[tuple, float] = {
     ('KOREA_STRAIT', 'winter'): 1.18,
 }
 
+# ── v12.5: 동적 기상 전이 ─────────────────────────────────────────────────────
+# 날씨를 강도 축(주간/야간 계열)으로 정렬한 사다리. 인접 1단계씩만 전이.
+WEATHER_INTENSITY_LADDER: dict[str, list] = {
+    'day':   ['맑음 (주간)', '흐림 (박무)', '풍랑 (7~8등급)', '폭풍 (해상 악화)', '태풍 (9~12등급)'],
+    'night': ['맑음 (야간)', '폭풍 (야간)', '태풍 (야간)'],
+    'dust':  ['황사 (봄철 황사)', '흐림 (박무)', '풍랑 (7~8등급)'],  # 황사: 흐림/풍랑으로 합류
+    'fog':   ['농무 (시정 200m 이하)', '흐림 (박무)', '풍랑 (7~8등급)'],  # 농무: 흐림/풍랑으로 합류
+}
+
+# 전이 간격·악화 확률 기본값 (튜닝 상수 — 작전급 엔진에서 재사용 시 조정)
+WEATHER_STEP_INTERVAL_S: float = 300.0   # 5분마다 전이 판정
+WEATHER_WORSEN_BASE: float     = 0.15    # 기본 악화 확률
+WEATHER_IMPROVE_BASE: float    = 0.10    # 기본 호전 확률
+
+# (region_key, season) → (worsen_delta, improve_delta)
+# 기본값에 더해지는 계절·해역 보정값 (기상청 한반도 해역 패턴)
+WEATHER_TRANSITION_DB: dict[tuple, tuple] = {
+    # 겨울 동해·서해: 북서계절풍 → 악화 확률↑
+    ('EAST_SEA',     'winter'): ( 0.15, -0.05),
+    ('YELLOW_SEA',   'winter'): ( 0.12, -0.05),
+    ('KOREA_STRAIT', 'winter'): ( 0.08, -0.03),
+    # 여름 동해·남해: 태풍 시즌 → 악화↑, 태풍 계열 허용
+    ('EAST_SEA',     'summer'): ( 0.10,  0.00),
+    ('KOREA_STRAIT', 'summer'): ( 0.08,  0.00),
+    # 봄 서해: 황사 시즌 → 약간 불안정
+    ('YELLOW_SEA',   'spring'): ( 0.05,  0.00),
+    # 가을·봄 기타: 비교적 안정
+    ('EAST_SEA',     'spring'): ( 0.02,  0.03),
+    ('EAST_SEA',     'autumn'): ( 0.03,  0.05),
+    ('YELLOW_SEA',   'autumn'): ( 0.02,  0.05),
+    ('KOREA_STRAIT', 'spring'): ( 0.02,  0.03),
+    ('KOREA_STRAIT', 'autumn'): ( 0.03,  0.05),
+    # 여름 서해: 비교적 온화
+    ('YELLOW_SEA',   'summer'): ( 0.05,  0.02),
+}
+
+def _weather_ladder_key(weather: str) -> str:
+    """날씨 문자열 → 소속 사다리 키. 없으면 'day'."""
+    for key, ladder in WEATHER_INTENSITY_LADDER.items():
+        if weather in ladder:
+            return key
+    return 'day'
+
+def _weather_ladder_pos(weather: str, ladder_key: str | None = None) -> tuple[list, int]:
+    """날씨 문자열 → (사다리 리스트, 현재 인덱스).
+    ladder_key를 주면 해당 사다리 안에서만 찾는다 — 공유 항목의 계열 이탈 방지."""
+    if ladder_key and ladder_key in WEATHER_INTENSITY_LADDER:
+        ladder = WEATHER_INTENSITY_LADDER[ladder_key]
+        if weather in ladder:
+            return ladder, ladder.index(weather)
+    for ladder in WEATHER_INTENSITY_LADDER.values():
+        if weather in ladder:
+            return ladder, ladder.index(weather)
+    return WEATHER_INTENSITY_LADDER['day'], 0
+
 # ── v10.1: ISA 대기 굴절 + 라디오존데 4계절×5고도층 보정 ──────────────────────
 # 키: (region_key, season, alt_layer)
 # alt_layer: 1=100~500m / 2=500~1000m / 3=1000~3000m / 4=3000m+
@@ -1159,6 +1214,12 @@ class TimeStepEngine:
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
 
+        # v12.5: 동적 기상 전이 상태
+        self._wx_dyn_enabled: bool  = bool(cfg.get('enable_weather_dynamics', False))
+        self._wx_next_check:  float = WEATHER_STEP_INTERVAL_S
+        self._wx_trend:       str   = cfg.get('weather_trend', '자동')
+        self._wx_ladder_key:  str   = _weather_ladder_key(weather)  # 계열 친화성 보존
+
         # v9.3: 아군 공격 임무 격침 기록
         self.strike_log: list = []
 
@@ -1696,6 +1757,61 @@ class TimeStepEngine:
                 return prev_f + ratio * (f - prev_f)
             prev_alt, prev_f = a, f
         return prev_f
+
+    # ── v12.5: 동적 기상 전이 ────────────────────────────────────────────────
+
+    def _update_weather(self) -> None:
+        """매 WEATHER_STEP_INTERVAL_S마다 호출. 확률적으로 날씨를 1단계 전이."""
+        region_key = {
+            '동해 북부': 'EAST_SEA', '동해 남부': 'EAST_SEA',
+            '서해 북부': 'YELLOW_SEA', '서해 남부': 'YELLOW_SEA',
+            '남해': 'KOREA_STRAIT', '대한해협': 'KOREA_STRAIT',
+        }.get(self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA')
+        season = self.cfg.get('season', 'summer')
+
+        delta_w, delta_i = WEATHER_TRANSITION_DB.get((region_key, season), (0.0, 0.0))
+        p_worsen  = max(0.0, min(0.6, WEATHER_WORSEN_BASE  + delta_w))
+        p_improve = max(0.0, min(0.6, WEATHER_IMPROVE_BASE + delta_i))
+
+        # 추세 강제
+        trend = self._wx_trend
+        if trend == '악화':
+            p_worsen  = min(0.6, p_worsen  + 0.20)
+            p_improve = max(0.0, p_improve - 0.08)
+        elif trend == '호전':
+            p_improve = min(0.6, p_improve + 0.20)
+            p_worsen  = max(0.0, p_worsen  - 0.08)
+        elif trend == '안정':
+            p_worsen  = max(0.0, p_worsen  - 0.10)
+            p_improve = max(0.0, p_improve - 0.05)
+
+        roll = random.random()
+        if roll < p_worsen:
+            direction = 1
+        elif roll < p_worsen + p_improve:
+            direction = -1
+        else:
+            return  # 변화 없음
+
+        current = self.cfg.get('weather', '맑음 (주간)')
+        ladder, idx = _weather_ladder_pos(current, self._wx_ladder_key)
+        new_idx = idx + direction
+        if not (0 <= new_idx < len(ladder)):
+            return  # 사다리 끝 → 더 이상 이동 불가
+        new_weather = ladder[new_idx]
+        self._apply_weather_transition(new_weather)
+
+    def _apply_weather_transition(self, new_weather: str) -> None:
+        """날씨를 new_weather로 교체하고 wx 계수 갱신."""
+        old_weather = self.cfg.get('weather', '맑음 (주간)')
+        if old_weather == new_weather:
+            return
+        self.cfg['weather'] = new_weather
+        self.wx = _make_physics_wx(new_weather)
+        if not self._mc_mode:
+            self._log(f"🌦️ 기상 변화: {old_weather} → {new_weather}")
+
+    # ── 물리 환경 보정 함수들 ─────────────────────────────────────────────────
 
     def _evap_duct_factor(self, alt_m: float) -> float:
         """
@@ -3653,6 +3769,11 @@ class TimeStepEngine:
         _step_interval = 20   # step_cb 호출 간격(초) — 단일 시뮬 UI 갱신용
 
         while self.t <= MAX_SIM_TIME:
+            # v12.5: 동적 기상 전이 판정
+            if self._wx_dyn_enabled and self.t >= self._wx_next_check:
+                self._update_weather()
+                self._wx_next_check += WEATHER_STEP_INTERVAL_S
+
             # NEW-A: 혼합 시나리오 파도 지연 스폰
             if self._pending_threats:
                 due = [s for (spawn_t, s) in self._pending_threats if spawn_t <= self.t]
@@ -3907,10 +4028,16 @@ def run_v7_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
         cfg['detect_km']         = ranges['대공']
         cfg['surface_detect_km'] = ranges['대함']
         cfg['sub_detect_km']     = ranges['대잠']
+    else:
+        cfg = dict(cfg)
+    # v12.5: 동적 기상 전이가 cfg['weather']를 변경할 수 있으므로 초기값 보존
+    _initial_weather = cfg.get('weather', '맑음 (주간)')
     sim = TimeStepEngine(cfg, step_cb=step_cb)
     if tactical_cb:
         sim._tactical_pause_cb = tactical_cb  # v10.7: 전술 모드 훅 주입
-    return sim.run()
+    result = sim.run()
+    cfg['weather'] = _initial_weather  # 초기 날씨 복원 (결과·보고서 표시용)
+    return result
 
 
 # ════════════════════════════════════════════════════════════════════════════
