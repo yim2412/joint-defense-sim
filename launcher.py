@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.04.01 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.04.02 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.04.02 — 시작 직후 창이 사라지던 치명적 문제 해결]                      ║
+║  BUG-1  시작 버튼을 누르면 메인 화면이 뜨지 않고 창이 사라지던 문제 해결      ║
+║         (교전 후 브리핑 표시 요소 누락으로 메인 화면 생성이 중단됨)           ║
 ║  [v12.04.01 — 함정 침수·복원력 모델 (실험적 ON/OFF)]                         ║
 ║  NEW-A  함정 피해를 즉사 HP 대신 동적 침수로 시뮬 — 수선하 피격이 격실       ║
 ║         침수를 유발하고 손상통제(펌프)가 침수와 경쟁. 복원력 한계 초과 시     ║
@@ -893,6 +896,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
     QListWidget, QListWidgetItem, QStackedWidget, QGraphicsDropShadowEffect,
+    QTextBrowser,
 )
 from PyQt6.QtGui import (
     QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter,
