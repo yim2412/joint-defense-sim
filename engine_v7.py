@@ -90,6 +90,7 @@ try:
         get_sonar_depth_factor,
         SUBMARINE_ACOUSTIC, SONAR_PLATFORM, WATER_DEPTH_M,
         sonar_detection_range, sonar_detection_prob,
+        active_sonar_detection_range,
     )
     _OCEAN_ACOUSTIC_OK = True
 except ImportError:
@@ -1603,39 +1604,58 @@ class TimeStepEngine:
         shipping = {'EAST_SEA': 0, 'YELLOW_SEA': 5, 'KOREA_STRAIT': 10}.get(region, 0)
         return n1k + shipping
 
-    def _sonar_r50(self, et: 'EnemyThreatObj', sensor_key: str) -> float:
-        """잠수함·센서 조합의 50% 탐지거리(m). 데이터/모듈 없으면 -1.0(레거시 폴백)."""
+    def _sonar_r50(self, et: 'EnemyThreatObj', sensor_key: str, active: bool = False) -> float:
+        """잠수함·센서 조합의 50% 탐지거리(m). 데이터/모듈 없으면 -1.0(레거시 폴백).
+        active=True면 능동 소나 R50(왕복 TL+TS+잔향), False면 수동 R50."""
         if not _OCEAN_ACOUSTIC_OK:
             return -1.0   # ocean_acoustic_db 미탑재 — 레거시 경로로 폴백
         region, season, water_depth, ambient = self._sonar_env()
         depth = abs(et.altitude_m)
-        key = (sensor_key, round(depth / 10.0) * 10, round(ambient), region, season)
+        key = (sensor_key, active, round(depth / 10.0) * 10, round(ambient), region, season)
         cached = et._r50_cache.get(key)
         if cached is not None:
             return cached
-        r50 = sonar_detection_range(
-            et.preset_name, sensor_key, region, season, depth, ambient, water_depth)
+        fn = active_sonar_detection_range if active else sonar_detection_range
+        r50 = fn(et.preset_name, sensor_key, region, season, depth, ambient, water_depth)
         et._r50_cache[key] = r50
         return r50
 
-    def _sonar_eq_detect(self, et: 'EnemyThreatObj', dist_m: float, sensor_key: str):
-        """
-        dB 소나 방정식 확률 탐지 판정.
-        반환: True=탐지 / False=실패 / None=음향 데이터 없음(레거시 폴백).
-        """
-        r50 = self._sonar_r50(et, sensor_key)
-        if r50 < 0:
-            return None
-        if r50 == 0:
-            return False
-        if et.is_retreating:
-            r50 *= 0.30   # 고속 이탈 — 소나 접촉 급감
-        if dist_m > r50 * 3.0:
-            return False   # 3·R50 너머는 Pd≈0
+    def _sonar_eq_pd(self, et: 'EnemyThreatObj', dist_m: float, sensor_key: str):
+        """수동·능동 소나 통합 탐지확률 Pd. 'both' 센서면 max(수동,능동).
+        반환: (pd, max_r50) / 데이터 없으면 (None, None)."""
         region, season, water_depth, _ = self._sonar_env()
         f = SONAR_PLATFORM[sensor_key]['freq_khz']
-        pd = sonar_detection_prob(
-            dist_m, r50, water_depth, f, region, season, abs(et.altitude_m))
+        depth = abs(et.altitude_m)
+        best_pd, best_r50, have = 0.0, 0.0, False
+        for active in (False, True):
+            r50 = self._sonar_r50(et, sensor_key, active=active)
+            if r50 < 0:
+                continue   # 해당 모드 미지원(능동 불가 센서 등)
+            have = True
+            if r50 == 0:
+                continue
+            r50_eff = r50 * 0.30 if et.is_retreating else r50   # 고속 이탈 — 접촉 급감
+            best_r50 = max(best_r50, r50_eff)
+            pd = sonar_detection_prob(
+                dist_m, r50_eff, water_depth, f, region, season, depth,
+                tl_mult=2.0 if active else 1.0)
+            best_pd = max(best_pd, pd)
+        if not have:
+            return None, None
+        return best_pd, best_r50
+
+    def _sonar_eq_detect(self, et: 'EnemyThreatObj', dist_m: float, sensor_key: str):
+        """
+        dB 소나 방정식 확률 탐지 판정 (수동·능동 통합).
+        반환: True=탐지 / False=실패 / None=음향 데이터 없음(레거시 폴백).
+        """
+        pd, max_r50 = self._sonar_eq_pd(et, dist_m, sensor_key)
+        if pd is None:
+            return None
+        if max_r50 <= 0:
+            return False
+        if dist_m > max_r50 * 3.0:
+            return False   # 3·R50 너머는 Pd≈0
         return random.random() < pd
 
     def _terrain_penalty(self, alt_m: float) -> float:
@@ -2858,23 +2878,13 @@ class TimeStepEngine:
         wx_factor = self._asw_weather_factor(weather)
         base_prob = ac.info.get('detect_base_prob', 0.65)
         if self.cfg.get('enable_sonar_equation', False):
-            # v12.3: dB 소나 방정식 — 디핑/소노부이 R50 기반 Pd (날씨만 곱)
+            # v12.3: dB 소나 방정식 — 디핑/소노부이 수동·능동 통합 Pd (날씨만 곱)
             sensor_key = 'dipping' if ac.info.get('asw_mode') == 'dipping' else 'sonobuoy'
-            r50 = self._sonar_r50(et, sensor_key)
-            if r50 >= 0:
-                if r50 == 0:
-                    prob = 0.0
-                else:
-                    if et.is_retreating:
-                        r50 *= 0.30
-                    region, season, water_depth, _ = self._sonar_env()
-                    f = SONAR_PLATFORM[sensor_key]['freq_khz']
-                    # 항공기는 표적 상공으로 전개 — 함정 거리가 아닌 표정 오차 거리에서 탐지
-                    # (datum 불확실성 ~1.5km). 정온 잠수함은 이 거리에서도 탐지 곤란.
-                    prosecute_m = 1500.0
-                    pd = sonar_detection_prob(
-                        prosecute_m, max(r50, 1e-9), water_depth, f, region, season, abs(et.altitude_m))
-                    prob = min(pd * wx_factor, 0.97)
+            # 항공기는 표적 상공으로 전개 — 함정 거리가 아닌 표정 오차 거리에서 탐지
+            # (datum 불확실성 ~1.5km). 정온 잠수함은 능동(디핑·소노부이)이 있어야 탐지.
+            pd, _ = self._sonar_eq_pd(et, 1500.0, sensor_key)
+            if pd is not None:
+                prob = min(pd * wx_factor, 0.97)
             else:
                 prob = min(base_prob * thermo * wx_factor, 0.97)
         else:

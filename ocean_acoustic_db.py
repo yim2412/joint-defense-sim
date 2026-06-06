@@ -590,15 +590,87 @@ def sonar_detection_range(sub_name: str, sensor_key: str, region: str, season: s
 
 def sonar_detection_prob(range_m: float, r50_m: float, water_depth_m: float,
                          freq_khz: float, region: str, season: str, depth_m: float,
-                         sigma_dB: float = 8.0) -> float:
+                         sigma_dB: float = 8.0, tl_mult: float = 1.0) -> float:
     """
-    탐지확률 Pd (정규 CDF). SE = TL(R50) − TL(range) (신호초과, dB).
+    탐지확률 Pd (정규 CDF). SE = tl_mult·(TL(R50) − TL(range)) (신호초과, dB).
       Pd = 0.5·(1 + erf(SE/(σ√2))).  range<R50 → SE>0 → Pd>0.5.
     σ≈8 dB: 신호 변동(전파·표적 자세) 표준편차.
+    tl_mult: 수동=1.0(단방향), 능동=2.0(왕복) — 능동은 거리에 따른 신호 감쇠가 2배 가파름.
     """
     if r50_m <= 0.0:
         return 0.0
     tl_r = transmission_loss(range_m, water_depth_m, freq_khz, region, season, depth_m)
     tl_50 = transmission_loss(r50_m, water_depth_m, freq_khz, region, season, depth_m)
-    se = tl_50 - tl_r
+    se = tl_mult * (tl_50 - tl_r)
     return 0.5 * (1.0 + math.erf(se / (sigma_dB * math.sqrt(2.0))))
+
+
+# =============================================================================
+#  10. 능동 소나 방정식 (v12.03.02) — 왕복 TL + 표적강도(TS) + 천해 잔향(RL)
+#     능동 SE = SL_a + TS − 2·TL − (NL−AG  또는  RL) − DT
+#       · 소음 제한: SL_a + TS + AG − DT − NL = 2·TL(R50)  (FOM_active/2 역산)
+#       · 잔향 제한: 천해(서해·해협) 바닥 잔향이 R50 상한을 깔아 능동 성능 제한
+#     최종 R50_active = min(소음제한 R50, 잔향제한 R50)
+#     출처: Urick 3rd(능동 소나 방정식·바닥 잔향) · RP-33 공개 범위
+# =============================================================================
+
+# 해역 → 잔향 산란 특성(SEABED_ACOUSTIC_DB 키 매핑). 천해는 바닥 잔향 지배.
+_REGION_SEABED_KEY = {
+    'EAST_SEA':     'EAST_SEA_DEEP',   # 심해 — 반사 0.08, 잔향 미미
+    'YELLOW_SEA':   'YELLOW_SEA',      # 천해 — 반사 0.28, 잔향 강함
+    'KOREA_STRAIT': 'KOREA_STRAIT',    # 중간 수심 — 반사 0.30
+}
+
+
+def bottom_reverb_ceiling(region: str, water_depth_m: float) -> float:
+    """
+    천해 바닥 잔향이 능동 소나에 부과하는 50% 탐지거리 상한(m).
+    물리: 수심이 얕고(바닥에 음파가 자주 부딪힘) 반사계수가 클수록 잔향이 강해
+          표적 반향을 덮어 능동 탐지거리가 제한된다.
+    간이 모델(설계 결정1-A): 검증된 reflection_coeff·수심만 사용 — 기밀인
+          펄스길이·빔폭 상수를 새로 추정하지 않는다(과도한 정밀 주장 회피).
+      ceiling = k · water_depth / reflection_coeff,  k≈30 (앵커 보정 상수)
+      심해(반사 작고 수심 큼)는 상한이 커져(수십~수백 km) 사실상 소음 제한이 지배.
+    """
+    seabed = SEABED_ACOUSTIC_DB.get(_REGION_SEABED_KEY.get(region, 'EAST_SEA_DEEP'))
+    if seabed is None:
+        return 200_000.0
+    refl = max(seabed.get('reflection_coeff', 0.1), 1e-3)
+    # k=30: 동해심해(수심1500·반사0.08) → 562km(소음제한 지배), 서해(50·0.28) → 5.4km,
+    #        해협(100·0.30) → 10km. 천해 능동 제한 서사를 앵커.
+    ceiling = 30.0 * water_depth_m / refl
+    return max(ceiling, 500.0)
+
+
+def active_sonar_detection_range(sub_name: str, sensor_key: str, region: str, season: str,
+                                 depth_m: float, ambient_dB: float, water_depth_m: float,
+                                 freq_khz: float | None = None) -> float:
+    """
+    능동 소나 R50(50% 탐지거리, m). 데이터 없거나 능동 미지원 센서면 -1.0.
+    소음 제한: SL_a + TS + AG − DT − NL = 2·TL(R50) 을 이분법 역산.
+    잔향 제한: min(소음제한 R50, bottom_reverb_ceiling).
+    """
+    sub = SUBMARINE_ACOUSTIC.get(sub_name)
+    sensor = SONAR_PLATFORM.get(sensor_key)
+    if sub is None or sensor is None:
+        return -1.0
+    if sensor.get('mode') not in ('active', 'both') or sensor.get('sl_active_dB', 0) <= 0:
+        return -1.0   # 능동 미지원 센서(towed·submarine)
+    f = sensor['freq_khz'] if freq_khz is None else freq_khz
+    fom_active = (sensor['sl_active_dB'] + sub['target_strength_dB']
+                  + sensor['array_gain_dB'] - sensor['dt_dB'] - ambient_dB)
+    if fom_active <= 0:
+        return 0.0
+    tl_target = 0.5 * fom_active   # 왕복이므로 단방향 TL은 절반
+    lo, hi = 1.0, 200_000.0
+    if transmission_loss(hi, water_depth_m, f, region, season, depth_m) <= tl_target:
+        r50_noise = hi
+    else:
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            if transmission_loss(mid, water_depth_m, f, region, season, depth_m) < tl_target:
+                lo = mid
+            else:
+                hi = mid
+        r50_noise = 0.5 * (lo + hi)
+    return min(r50_noise, bottom_reverb_ceiling(region, water_depth_m))
