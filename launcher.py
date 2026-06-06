@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.05.02 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.06.01 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.06.01 — 피아식별 오류(IFF): 교전 지연·아군 오사 opt-in 모델]           ║
+║  NEW-A  C&D 결심 후 IFF 판정 실패 시 재확인 대기. ECM·혼잡 교전에서 확률↑   ║
+║         CAP 운용 중 오사(아군 항공기에 SAM 오인 발사) 발생 가능. 기본 OFF     ║
 ║  [v12.05.02 — 동적 기상: 사다리 계열 이탈·초기 날씨 소실 버그 수정]          ║
 ║  BUG-1  황사·농무 시작 시 흐림(박무) 도달 후 주간 사다리로 영구 이탈하던 문제 ║
 ║  BUG-2  동적 기상 ON 시 보고서에 최종 날씨가 표시되던 문제 (초기 날씨 복원)  ║
@@ -4508,6 +4511,8 @@ class MainWindow(QMainWindow):
             idx = self.cmb_weather_trend.findText(cfg.get('weather_trend', '자동'))
             if idx >= 0:
                 self.cmb_weather_trend.setCurrentIndex(idx)
+        if hasattr(self, 'chk_iff'):
+            self.chk_iff.setChecked(cfg.get('enable_iff', False))
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4783,6 +4788,15 @@ class MainWindow(QMainWindow):
         self.chk_weather_dyn.toggled.connect(_on_weather_dyn_toggled)
         _on_weather_dyn_toggled(False)
 
+        self.chk_iff = QCheckBox("피아식별 오류 (실험적)")
+        self.chk_iff.setToolTip(
+            "v12.6 — IFF(피아식별) 실패 확률을 교전에 반영합니다.\n"
+            "C&D 결심 후 IFF 판정 실패 시 15초 재확인 대기. ECM 재밍·혼잡 교전 시 확률↑\n"
+            "CAP 전투기 운용 중 IFF 실패가 누적되면 아군 오사(오인 발사) 발생 가능.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_iff.setChecked(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4822,6 +4836,7 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.chk_flooding)
         fl.addRow("",            self.chk_weather_dyn)
         fl.addRow("기상 추세",   self.cmb_weather_trend)
+        fl.addRow("",            self.chk_iff)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -6238,6 +6253,7 @@ class MainWindow(QMainWindow):
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
+            'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -8411,9 +8427,6 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.6", "중간", "피아식별 오류 (IFF)",
-             "피아식별 실패 확률. 식별 지연·오인식으로 아군 오사 가능. "
-             "혼잡 전장에서 교전규칙 이행 지연. 다방위·혼잡 시나리오와 시너지."),
             ("v12.7", "매우 높음", "엔진 numpy 전면 재설계",
              "v12.x 물리 완성 후 객체 루프 → numpy 배열 연산으로 전환. "
              "위치·속도·거리를 numpy 배열로 일괄 계산 → 30~50배 추가 향상 목표. "

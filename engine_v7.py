@@ -265,6 +265,12 @@ WEATHER_STEP_INTERVAL_S: float = 300.0   # 5분마다 전이 판정
 WEATHER_WORSEN_BASE: float     = 0.15    # 기본 악화 확률
 WEATHER_IMPROVE_BASE: float    = 0.10    # 기본 호전 확률
 
+# v12.6: 피아식별 오류 (IFF) 상수
+IFF_FAIL_BASE:         float = 0.08   # C&D 통과 후 IFF 실패 기본 확률
+IFF_RECHECK_DELAY_S:   float = 15.0  # IFF 실패 시 재확인 대기 (초)
+IFF_FRATRICIDE_P:      float = 0.05  # IFF 실패 + 근접 아군 항공기 존재 시 오사 확률
+IFF_FRATRICIDE_RANGE_M: float = 80_000.0  # 오사 체크 반경 (80km)
+
 # (region_key, season) → (worsen_delta, improve_delta)
 # 기본값에 더해지는 계절·해역 보정값 (기상청 한반도 해역 패턴)
 WEATHER_TRANSITION_DB: dict[tuple, tuple] = {
@@ -1210,6 +1216,9 @@ class TimeStepEngine:
             # v9.11: 지상 BMD 자산 발사 횟수
             'ashore_sm3_fired':        0,
             'thaad_fired':             0,
+            # v12.6: IFF 오류
+            'iff_failures':            0,
+            'iff_fratricide':          0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
@@ -1219,6 +1228,8 @@ class TimeStepEngine:
         self._wx_next_check:  float = WEATHER_STEP_INTERVAL_S
         self._wx_trend:       str   = cfg.get('weather_trend', '자동')
         self._wx_ladder_key:  str   = _weather_ladder_key(weather)  # 계열 친화성 보존
+        # v12.6: IFF 오류
+        self._iff_enabled: bool = bool(cfg.get('enable_iff', False))
 
         # v9.3: 아군 공격 임무 격침 기록
         self.strike_log: list = []
@@ -1759,6 +1770,39 @@ class TimeStepEngine:
         return prev_f
 
     # ── v12.5: 동적 기상 전이 ────────────────────────────────────────────────
+
+    # ── v12.6: 피아식별 오류 (IFF) ─────────────────────────────────────────
+    def _iff_check(self, target) -> bool:
+        """C&D 통과 직후 IFF 판정. False 반환 시 교전 대기 재진입."""
+        if not self._iff_enabled:
+            return True
+        n_alive = getattr(self, '_n_alive_threats', len(self.enemy_threats))
+        p_fail = min(0.30,
+                     IFF_FAIL_BASE
+                     + self._active_ecm * 0.10
+                     + max(0, n_alive - 3) * 0.02)
+        if random.random() >= p_fail:
+            return True
+        self._cd_fire_time[id(target)] = self.t + IFF_RECHECK_DELAY_S
+        self.stats['iff_failures'] += 1
+        if not self._mc_mode:
+            self._log(f"⚠️ IFF 식별 실패 → {IFF_RECHECK_DELAY_S:.0f}s 재확인")
+        self._check_iff_fratricide(target)
+        return False
+
+    def _check_iff_fratricide(self, target) -> None:
+        """IFF 실패 시 근접 아군 항공기가 있으면 확률적으로 오사 발생."""
+        nearby = [ac for ac in self.aircraft
+                  if ac.payload_remaining > 0
+                  and ac.home_pos.dist_to(target.pos) <= IFF_FRATRICIDE_RANGE_M]
+        if not nearby or random.random() >= IFF_FRATRICIDE_P:
+            return
+        victim = random.choice(nearby)
+        victim.payload_remaining = 0
+        victim.strike_payload_remaining = 0
+        self.stats['iff_fratricide'] += 1
+        if not self._mc_mode:
+            self._log(f"💥 아군 오사: SAM → {victim.name} (IFF 오인식)")
 
     def _update_weather(self) -> None:
         """매 WEATHER_STEP_INTERVAL_S마다 호출. 확률적으로 날씨를 1단계 전이."""
@@ -2423,6 +2467,9 @@ class TimeStepEngine:
             # 3단계(C&D): 분류·교전 결심 딜레이
             if not self._cd_allowed(id(m)):
                 continue
+            # 4단계: 피아식별 (IFF)
+            if not self._iff_check(m):
+                continue
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
@@ -2484,6 +2531,9 @@ class TimeStepEngine:
                 continue
             # 3단계(C&D): 분류·교전 결심 딜레이
             if not self._cd_allowed(id(et)):
+                continue
+            # 4단계: 피아식별 (IFF)
+            if not self._iff_check(et):
                 continue
             sams_on = sum(
                 1 for s in self.missiles
@@ -3811,6 +3861,8 @@ class TimeStepEngine:
                  if et.alive and et.is_aircraft),
                 default=0.0
             )
+            # v12.6: IFF p_fail 계산용 생존 위협 수 캐싱 (틱당 1회)
+            self._n_alive_threats: int = sum(1 for et in self.enemy_threats if et.alive)
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
             _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
             self._arm_radar_off_check()
