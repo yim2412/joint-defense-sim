@@ -1186,6 +1186,59 @@ SHIP_DB = {
     },
 }
 
+
+# ════════════════════════════════════════════════════════════════════════════
+#  함정 생존성 — 동적 침수·복원력 모델 (v12.4, enable_flooding ON 경로)
+#  displacement_t : 만재 배수량(톤, 공개 제원)
+#  reserve_buoyancy : 침수 허용 한계(0~1). 침수율이 이를 넘으면 침몰.
+#                     대형·다격실함일수록 높음. ★설계 기밀 → 추정치(상대 서열 기준)
+#  compartments   : 수밀 격실 수(배수량 파생). 단일 피격 침수량 = 위력계수/격실수
+#  dc_rating      : 손상통제 효율(/초). 침수 속도를 매 틱 이만큼 차단(복구팀·펌프)
+#  출처: Jane's Fighting Ships(배수량) · 해군 함정 손상통제 일반 교범(복원력은 추정)
+# ════════════════════════════════════════════════════════════════════════════
+
+SHIP_SURVIVABILITY = {
+    # ── 한국 해군 ──────────────────────────────────────────────────────────
+    'KDX-III-B1': {'displacement_t': 11000, 'reserve_buoyancy': 0.45, 'compartments': 14, 'dc_rating': 0.0016},
+    'KDX-III-B2': {'displacement_t': 12000, 'reserve_buoyancy': 0.46, 'compartments': 15, 'dc_rating': 0.0017},
+    'KDX-II':     {'displacement_t': 5500,  'reserve_buoyancy': 0.40, 'compartments': 12, 'dc_rating': 0.0014},
+    'FFX-I':      {'displacement_t': 3200,  'reserve_buoyancy': 0.32, 'compartments': 9,  'dc_rating': 0.0011},
+    'FFX-II':     {'displacement_t': 3600,  'reserve_buoyancy': 0.33, 'compartments': 10, 'dc_rating': 0.0012},
+    'FFX-III':    {'displacement_t': 4300,  'reserve_buoyancy': 0.35, 'compartments': 10, 'dc_rating': 0.0013},
+    'PKG':        {'displacement_t': 570,   'reserve_buoyancy': 0.22, 'compartments': 5,  'dc_rating': 0.0007},
+    'PCC':        {'displacement_t': 1200,  'reserve_buoyancy': 0.26, 'compartments': 7,  'dc_rating': 0.0009},
+    'PKX-B':      {'displacement_t': 250,   'reserve_buoyancy': 0.18, 'compartments': 4,  'dc_rating': 0.0006},
+    'LPH':        {'displacement_t': 18800, 'reserve_buoyancy': 0.40, 'compartments': 16, 'dc_rating': 0.0012},
+    'AOE':        {'displacement_t': 23000, 'reserve_buoyancy': 0.30, 'compartments': 12, 'dc_rating': 0.0008},
+    # ── 미 해군 ────────────────────────────────────────────────────────────
+    'DDG-51':     {'displacement_t': 9700,  'reserve_buoyancy': 0.46, 'compartments': 14, 'dc_rating': 0.0018},
+    'CG-47':      {'displacement_t': 9800,  'reserve_buoyancy': 0.43, 'compartments': 13, 'dc_rating': 0.0016},
+    'CVN':        {'displacement_t': 100000,'reserve_buoyancy': 0.55, 'compartments': 23, 'dc_rating': 0.0020},
+    'LPD':        {'displacement_t': 25000, 'reserve_buoyancy': 0.38, 'compartments': 15, 'dc_rating': 0.0011},
+    'LST':        {'displacement_t': 4900,  'reserve_buoyancy': 0.30, 'compartments': 9,  'dc_rating': 0.0009},
+    'AO':         {'displacement_t': 9000,  'reserve_buoyancy': 0.28, 'compartments': 11, 'dc_rating': 0.0008},
+    # ── 잠수함(KSS-I/II/III·SSN)은 침수=즉시 압괴 물리가 달라 침수 모델 제외 ──
+    #    (enable_flooding 무관하게 기존 HP 경로 유지 — is_submarine/타입으로 분기)
+}
+
+# 침수 모델 튜닝 상수 (전술급 빠른 침수 — 700초 시뮬 실효 반영)
+#   파공 크기 breach = FLOOD_WARHEAD_FACTOR / sqrt(compartments)
+#     └ sqrt로 함정 크기 스케일링: 소형함은 어뢰 1발 즉사, 항모는 1발 견딤(중상)
+#   초기 침수속도 flood_rate += breach · FLOOD_INFLOW_K (/초), 매 틱 dc_rating(펌프)과 경쟁
+FLOOD_WARHEAD_FACTOR = {   # 무기 종류별 침수 위력 계수
+    'torpedo': 2.2,        # 어뢰 — 용골 아래 폭발, 선체 절단급(가장 치명적)
+    'heavy':   1.0,        # 중대형·초음속 대함미사일(대형 탄두)
+    'medium':  0.7,        # 일반 아음속 대함미사일
+    'light':   0.4,        # 소형·경량 탄두
+}
+FLOOD_BELOW_WL_PROB = {    # 수선하(침수 유발) 명중 확률
+    'torpedo':   0.80,     # 어뢰는 본질적으로 수선하
+    'missile':   0.30,     # 대함미사일 대부분 sea-skimming 상부 명중
+    'ballistic': 0.10,     # 탄도·극초음속은 상부 수직 강하 — 수선하 드묾
+    'arm':       0.05,     # ARM은 레이더(상부) 직격
+}
+FLOOD_INFLOW_K = 0.004     # 파공당 초기 침수 속도 계수(/초) — breach 1당 이 비율로 유입
+
 # ── 편대 프리셋 (한국 해군 기동전단 교리 기반) ──────────────────────────────
 # KDX-III Batch I (세종대왕·율곡이이·서애류성룡) → 'KDX-III-B1'  (SM-3 없음)
 # KDX-III Batch II (정조대왕함)                 → 'KDX-III-B2'  (SM-3 × 32)

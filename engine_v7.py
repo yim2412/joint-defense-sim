@@ -84,6 +84,7 @@ from engine import (
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
     normalize_enemy_db,
+    SHIP_SURVIVABILITY, FLOOD_WARHEAD_FACTOR, FLOOD_BELOW_WL_PROB, FLOOD_INFLOW_K,
 )
 try:
     from ocean_acoustic_db import (
@@ -906,6 +907,13 @@ class FriendlyShipObj:
         self.radar_off_until: float = 0.0  # ARM 회피 전술: 이 시각까지 레이더 OFF
         self.eccm_factor: float = spec.get('eccm_factor', 0.40)  # v8.26: 재밍 상쇄 능력
 
+        # v12.4: 동적 침수·복원력 모델 (enable_flooding ON 경로). 잠수함은 제외.
+        self._surv = SHIP_SURVIVABILITY.get(ship_type)
+        self.is_sub_hull = self.is_submarine or ship_type in ('SSN', 'KSS-I', 'KSS-II', 'KSS-III')
+        self.flood       = 0.0    # 현재 침수율 (0~1)
+        self.flood_rate  = 0.0    # 침수 진행 속도 (/초)
+        self.sunk_by_flood = False  # 침수로 침몰 (HP 즉사와 구분, 집계용)
+
     @property
     def max_channels(self):
         # 채널 계산 시 부분 피해 반영
@@ -967,6 +975,14 @@ class FriendlyShipObj:
         self.radar_factor = max(0.10, self.radar_factor * 0.30)
         if self.hp <= 0:
             self.alive = False
+
+    def add_flooding(self, breach: float):
+        """v12.4: 수선하 피격 → 격실 침수 누적 (enable_flooding ON 경로).
+        breach: 즉시 침수율 증가량(0~1). 잠수함·생존성 데이터 없으면 무시."""
+        if self._surv is None or self.is_sub_hull:
+            return
+        self.flood      += breach
+        self.flood_rate += breach * FLOOD_INFLOW_K   # 파공 유입 속도 가산
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3418,6 +3434,8 @@ class TimeStepEngine:
                     if random.random() < m.pk_base:
                         tgt.take_hit(m.name, self.t, subsystem)
                         self.stats['friendly_hits'] += 1
+                        # v12.4: 수선하 피격 시 격실 침수 (HP와 병행 레이어)
+                        self._apply_flood_hit(m, tgt)
                         _dmg = {
                             'radar':      f'레이더 피탄 (탐지 {tgt.radar_factor:.0%})',
                             'propulsion': f'추진 피탄 (속도 {tgt.speed_factor:.0%})',
@@ -3506,6 +3524,57 @@ class TimeStepEngine:
         return m.altitude_m
 
     # ── 종료 조건 ─────────────────────────────────────────────────────────────
+
+    # ── v12.4: 동적 침수·복원력 모델 (enable_flooding ON 경로) ────────────────
+    def _apply_flood_hit(self, m: 'MissileObj', tgt: 'FriendlyShipObj'):
+        """피격 무기 종류·위치(수선 위/아래)에 따라 격실 침수 유발."""
+        if not self.cfg.get('enable_flooding', False):
+            return
+        if not tgt.alive or tgt.is_sub_hull or tgt._surv is None:
+            return   # 치명적 HP 피격으로 이미 격침된 함정은 침수 무의미
+        # 무기 위력·피격위치 분류
+        if getattr(m, 'is_torpedo', False):
+            wclass, pcat = 'torpedo', 'torpedo'
+        elif getattr(m, 'is_ballistic', False) or getattr(m, 'is_hgv', False):
+            wclass, pcat = 'heavy', 'ballistic'      # 상부 수직 강하 — 수선하 드묾
+        else:
+            wclass = 'heavy' if m.speed_ms >= 600 else 'medium'  # 초음속=대형 탄두
+            pcat   = 'missile'
+        if random.random() >= FLOOD_BELOW_WL_PROB.get(pcat, 0.30):
+            return   # 수선상 명중 — 침수 없음 (서브시스템 피해만)
+        comp   = max(1, tgt._surv['compartments'])
+        breach = FLOOD_WARHEAD_FACTOR[wclass] / math.sqrt(comp)
+        tgt.add_flooding(breach)
+        self._log(f"[침수] {tgt.name} 수선하 피격 — 격실 침수 (침수율 {tgt.flood:.0%})")
+
+    def _update_flooding(self):
+        """매 틱 침수 진행 + 손상통제(펌프) 경쟁 → 복원력 한계 초과 시 침몰."""
+        if not self.cfg.get('enable_flooding', False):
+            return
+        for ship in self.friendly_ships:
+            if not ship.alive or ship.is_sub_hull or ship._surv is None:
+                continue
+            if ship.flood <= 0.0 and ship.flood_rate <= 0.0:
+                continue
+            rb  = ship._surv['reserve_buoyancy']
+            net = ship.flood_rate - ship._surv['dc_rating']   # 유입 vs 펌프 배수
+            ship.flood += net * DT
+            if ship.flood <= 0.0:
+                ship.flood = 0.0; ship.flood_rate = 0.0       # 완전 배수·봉쇄 → 복구
+                ship._flood_warned = False
+                continue
+            if ship.flood >= rb:
+                ship.alive = False
+                ship.sunk_by_flood = True
+                self._log(f"[침몰] {ship.name} 복원력 한계 초과 — 침수 침몰 "
+                          f"(침수율 {ship.flood:.0%})")
+                continue
+            # 침수가 손상통제를 앞서는 중 → 침몰 예상 시간 1회 경고
+            if net > 0 and not getattr(ship, '_flood_warned', False):
+                ship._flood_warned = True
+                eta = (rb - ship.flood) / net
+                self._log(f"[침수 경고] {ship.name} 손상통제 역부족 — "
+                          f"침수율 {ship.flood:.0%}, 침몰 예상 {eta/60:.1f}분")
 
     def _is_over(self) -> bool:
         active_threats = [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike']
@@ -3632,6 +3701,7 @@ class TimeStepEngine:
             _t0 = _pc()
             self._check_intercepts()
             self._check_hits()
+            self._update_flooding()   # v12.4: 침수 진행·침몰 판정
             pt['교전판정'] += _pc() - _t0
 
             # 소멸·요격 미사일의 추적 채널 반환
@@ -3676,6 +3746,9 @@ class TimeStepEngine:
 
     def _compile(self) -> dict:
         self.stats['friendly_ships_lost']   = sum(1 for s in self.friendly_ships if not s.alive)
+        # v12.4: 침수로 침몰한 함정 수 + 생존 함정 중 침수 진행 중인 수
+        self.stats['ships_sunk_by_flood']   = sum(1 for s in self.friendly_ships if getattr(s, 'sunk_by_flood', False))
+        self.stats['ships_flooding']        = sum(1 for s in self.friendly_ships if s.alive and getattr(s, 'flood', 0.0) > 0.0)
         # 이탈 항공기(alive=False, is_retreating=True, intercepted=False)는 "격침" 아님
         self.stats['enemy_ships_destroyed'] = sum(
             1 for et in self.enemy_threats

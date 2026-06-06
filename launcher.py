@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.03.02 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.04.01 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.04.01 — 함정 침수·복원력 모델 (실험적 ON/OFF)]                         ║
+║  NEW-A  함정 피해를 즉사 HP 대신 동적 침수로 시뮬 — 수선하 피격이 격실       ║
+║         침수를 유발하고 손상통제(펌프)가 침수와 경쟁. 복원력 한계 초과 시     ║
+║         침몰, 침몰 예상 시간 실시간 표시. 함종별 배수량·격실·DC 반영          ║
+║         (소형함 어뢰 1발 침몰·항모 견딤). HP와 병행, 기본 OFF(기존과 동일)    ║
 ║  [v12.03.02 — 능동 소나 추가: 반향 탐지·표적강도·천해 잔향]                  ║
 ║  NEW-A  능동 소나(왕복 전달손실+표적강도 반향)로 정온 잠수함 탐지           ║
 ║         동해 심해는 능동이 조용한 잠수함도 포착, 서해 천해는 바닥 잔향이      ║
@@ -4480,6 +4485,8 @@ class MainWindow(QMainWindow):
             self.chk_png.setChecked(cfg.get('enable_png', False))
         if hasattr(self, 'chk_sonar_eq'):
             self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
+        if hasattr(self, 'chk_flooding'):
+            self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
         # v9.14: 해협 진입로
         strait_type = cfg.get('strait_type', '')
         if strait_type and hasattr(self, 'cmb_strait_type'):
@@ -4715,6 +4722,19 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_eq.setChecked(False)
 
+        # v12.4: 동적 침수·복원력 — 정적 HP 즉사 위에 침수 침몰 레이어 추가
+        self.chk_flooding = QCheckBox("함정 침수·복원력 모델 (실험적)")
+        self.chk_flooding.setToolTip(
+            "v12.4 — 함정 피해를 즉사 HP 대신 동적 침수로 시뮬합니다.\n"
+            "수선 아래 피격(어뢰 80%·대함미사일 30%)이 격실 침수를 유발하고,\n"
+            "손상통제(펌프 배수)가 침수 속도와 경쟁합니다.\n"
+            "침수율이 함정별 복원력 한계를 넘으면 침몰 — 침몰 예상 시간이 실시간 표시됩니다.\n"
+            "함종별 배수량·격실 수·손상통제 효율을 반영(소형함은 어뢰 1발 침몰, 항모는 견딤).\n"
+            "전술급(700초)에서 의미 있도록 침수 속도를 압축 — 실제 침몰은 더 느립니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_flooding.setChecked(False)
+
         # v9.14: 해협 통과 시나리오 — 대한해협 선택 시에만 표시
         self.cmb_strait_type = NoScrollComboBox()
         self.cmb_strait_type.addItems(['서수도 (서→동)', '동수도 (동→서)', '양방향 협공'])
@@ -4751,6 +4771,7 @@ class MainWindow(QMainWindow):
         fl.addRow("",            self.chk_isa)
         fl.addRow("",            self.chk_png)
         fl.addRow("",            self.chk_sonar_eq)
+        fl.addRow("",            self.chk_flooding)
         fl.addRow(self._row_strait_label, self.cmb_strait_type)
         fl.addRow("탐지 정보",   self.lbl_detect_info)
 
@@ -6164,6 +6185,7 @@ class MainWindow(QMainWindow):
             'enable_isa':        self.chk_isa.isChecked(),
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
+            'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
             # v9.14: 해협 진입로 (대한해협 선택 시 유효)
             'strait_type': {'서수도 (서→동)': 'korea_west',
                             '동수도 (동→서)': 'korea_east',
@@ -8337,10 +8359,6 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.4", "매우 높음", "함정 생존 모델 (침수·복원력)",
-             "현재 정적 피해 → 침수 속도·복원력·격실 침수 시뮬. "
-             "피격 위치(수선 위/아래)·함종별 격실 반영. 침몰 예상 시간 실시간 표시. "
-             "【현실성】격실 배치는 기밀이라 추정 모델 — 과도한 정밀 주장 금지."),
             ("v12.5", "중간", "동적 기상 변화",
              "교전 중 태풍 접근·날씨 시간 변화. 기상청 계절 패턴 기반 확률적 전이. "
              "탐지·교전 능력 실시간 변동. 작전급(72시간)에서 진가, 전술급(700초)엔 효과 작음."),
