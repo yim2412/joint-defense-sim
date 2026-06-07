@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+회귀 검증 스크립트 — 엔진 동작이 의도치 않게 바뀌었는지 자동 점검.
+
+고정 시나리오 × 고정 seed의 결과를 골든값(regression_golden.json)과 대조한다.
+같은 seed면 엔진은 결정론적이므로, 결과가 한 지표라도 다르면 동작이 바뀐 것.
+
+사용법:
+    python verify_regression.py            # 골든값과 비교 (PASS/FAIL)
+    python verify_regression.py --update   # 현재 결과를 새 골든값으로 저장 (의도된 변경 후)
+
+언제 쓰나 (CLAUDE.md 감사 정책):
+    engine.py / engine_v7.py 의 교전·물리·로직 변경 시 빌드·커밋 전에 실행.
+    - PASS  → 동작 보존됨, 안전.
+    - FAIL  → 의도한 변경이면 --update로 골든 갱신, 아니면 버그(원인 추적).
+
+주의: 결정론 의존(random/numpy seed 고정). 신규 random 호출 추가·순서 변경은
+      정상 변경이어도 FAIL이 날 수 있다 → 의도 확인 후 --update.
+"""
+import sys
+import io
+import json
+import os
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from engine_v7 import run_v7_simulation  # noqa: E402
+
+GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           'regression_golden.json')
+
+# 모든 신모델 ON + 날짜 의존(해류) 제외 → 결정론 보장
+_BASE = dict(
+    fleet_region='동해 북부', season='summer', weather='맑음 (주간)',
+    enable_ecm=True, enable_evasion=True, enable_decoy=True, enable_selfdefense=True,
+    enable_layered_defense=True, enable_cec=True, enable_radar_off=True,
+    enable_png=True, enable_sonar_equation=True, enable_flooding=True,
+    enable_weather_dynamics=False, enable_iff=False,
+    enable_current=False,   # datetime.today 의존 제거 (결정론)
+    enemy_fleet_mode='preset',
+    n_threads=4, cd_time_s=10, confirm_time_s=3,
+)
+
+# 다양한 교전 경로를 자극: 항공기 이탈/재공격·적함 SAM·항모 파도·CAP 격추·자폭·잠수함
+CASES = [
+    ('랴오닝-기본',     dict(_BASE, fleet_preset='기동전단 기본',   enemy_fleet_preset='랴오닝 항모전단'),   [1, 2, 3]),
+    ('입체포화-이지스', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='입체 포화 (최강)'),  [1, 2]),
+    ('공격+CAP',        dict(_BASE, fleet_preset='기동전단 기본',   enemy_fleet_preset='랴오닝 항모전단',
+                             enable_strike=True, haesong2_stock=16, harpoon_stock=8,
+                             enable_kf21=True, enable_helo=True),                                            [7]),
+    ('잠수함복합',      dict(_BASE, fleet_preset='대잠전단',        enemy_fleet_preset='잠수함 복합 포화'),  [4, 5]),
+]
+
+# 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
+_KEYS = ['total_threats', 'intercepted_threats', 'friendly_hits', 'enemy_hits',
+         'friendly_ships_lost', 'enemy_ships_destroyed', 'total_cost', 'aircraft_sorties',
+         'peak_concurrent_threats', 't_first_fire', 'total_missiles_fired',
+         'kor_shots', 'usa_shots', 'kor_cost', 'usa_cost',
+         'ashore_sm3_fired', 'thaad_fired', 'iff_failures', 'iff_fratricide',
+         'ships_sunk_by_flood', 'intercept_rate', 'sim_time', 'total_channels']
+
+
+def snapshot() -> dict:
+    """전 케이스를 돌려 결과 지표를 dict로 반환."""
+    out = {}
+    for cname, cfg, seeds in CASES:
+        for s in seeds:
+            r = run_v7_simulation(dict(cfg, sim_seed=s))
+            rec = {k: r.get(k) for k in _KEYS}
+            rec['n_alive_ships'] = sum(1 for sh in r.get('friendly_ships', []) if sh.alive)
+            rec['n_alive_threats'] = sum(1 for et in r.get('enemy_ships', []) if et.alive)
+            rec['n_threats_total'] = len(r.get('enemy_ships', []))
+            out[f'{cname}#{s}'] = rec
+    return out
+
+
+def do_update():
+    snap = snapshot()
+    with open(GOLDEN_PATH, 'w', encoding='utf-8') as f:
+        json.dump(snap, f, ensure_ascii=False, indent=2)
+    print(f'✅ 골든값 갱신: {len(snap)}개 케이스 → regression_golden.json')
+    for k, v in snap.items():
+        print(f'  {k}: 요격={v["intercepted_threats"]}/{v["total_threats"]}, '
+              f'아군손실={v["friendly_ships_lost"]}, 비용=${v["total_cost"]/1e6:.2f}M')
+
+
+def do_check() -> int:
+    if not os.path.exists(GOLDEN_PATH):
+        print('❌ regression_golden.json 없음 — 먼저 `python verify_regression.py --update` 실행')
+        return 2
+    with open(GOLDEN_PATH, encoding='utf-8') as f:
+        golden = json.load(f)
+    snap = snapshot()
+    diffs = 0
+    for key in golden:
+        if key not in snap:
+            print(f'  [누락] 케이스 {key} 가 현재 결과에 없음')
+            diffs += 1
+            continue
+        for fld, gval in golden[key].items():
+            nval = snap[key].get(fld)
+            if gval != nval:
+                print(f'  [불일치] {key}.{fld}: 골든={gval} → 현재={nval}')
+                diffs += 1
+    # 골든에 없는 새 케이스
+    for key in snap:
+        if key not in golden:
+            print(f'  [신규] 케이스 {key} (골든에 없음 — --update 필요)')
+            diffs += 1
+    n_metrics = len(_KEYS) + 3
+    if diffs == 0:
+        print(f'✅ PASS — {len(golden)}개 케이스 × {n_metrics}개 지표 모두 골든값과 일치 (동작 보존)')
+        return 0
+    print(f'❌ FAIL — {diffs}건 불일치.')
+    print('   의도한 변경이면: python verify_regression.py --update')
+    print('   의도치 않았으면: 동작이 바뀐 버그 — 원인 추적 필요')
+    return 1
+
+
+if __name__ == '__main__':
+    if '--update' in sys.argv:
+        do_update()
+    else:
+        sys.exit(do_check())
