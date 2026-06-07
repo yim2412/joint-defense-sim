@@ -14,6 +14,7 @@
 | `spec_db.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
 | `launcher.spec` | PyInstaller 빌드 스펙 |
+| `_make_bg.py` | 홈 배경 이미지 생성 스크립트 (src_kf21_source.jpg → home_bg.jpg). 빌드 제외, 수동 실행용 |
 
 ### 실행 방법
 
@@ -301,6 +302,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 | `_enemy_defense()` | 적 수상함 SAM/CIWS로 아군 미사일 요격 |
 | `_aircraft_asw()` | 함재 헬기·초계기 대잠 공격 |
 | `_aircraft_cap()` | 아군 CAP 전투기 적 항공기 BVR 요격 |
+| `_aircraft_aas()` | CAP 전투기 해성-II 등으로 적 수상함 공격 (항모 우선) |
 | `_arm_radar_off_check()` | ARM 탐지 시 레이더 OFF 전술 |
 | `monte_carlo_v7()` | 표준 MC 분석 |
 | `monte_carlo_lhs()` | LHS 샘플링 기반 고속 MC |

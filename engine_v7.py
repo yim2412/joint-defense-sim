@@ -831,7 +831,75 @@ class MissileObj:
 #  EnemyThreatObj — 적 플랫폼 위협 통합 (항공기 / 수상함 / 잠수함)
 #  독립 미사일(탄도/순항/HGV/QBM)은 _build_enemies()에서 MissileObj로 생성.
 # ════════════════════════════════════════════════════════════════════════════
+def _et_col(col: str):
+    """EnemyThreatObj proxy 속성 → 엔진 _et_* 컬럼(행 i)으로 위임하는 property.
+    v12.7 단계1: 데이터는 엔진 컬럼에 있고 객체는 (엔진, 행 i)만 든다."""
+    def _get(self):
+        return getattr(self._eng, col)[self._i]
+    def _set(self, v):
+        getattr(self._eng, col)[self._i] = v
+    return property(_get, _set)
+
+
+class _ThreatPosView:
+    """EnemyThreatObj.pos — 엔진 컬럼(_et_lat/_et_lon)의 행 i를 LatLon처럼 노출.
+    별도 좌표 저장 없이 컬럼을 직접 읽고 쓴다 (배열이 정본). LatLon과 동일 인터페이스."""
+    __slots__ = ('_eng', '_i')
+
+    def __init__(self, eng, i: int):
+        self._eng = eng
+        self._i   = i
+
+    @property
+    def lat(self): return self._eng._et_lat[self._i]
+    @lat.setter
+    def lat(self, v): self._eng._et_lat[self._i] = v
+
+    @property
+    def lon(self): return self._eng._et_lon[self._i]
+    @lon.setter
+    def lon(self, v): self._eng._et_lon[self._i] = v
+
+    @property
+    def x(self): return (self.lon - _ref_lon) * _ref_m_per_deg_lon
+    @x.setter
+    def x(self, v): self.lon = _ref_lon + v / _ref_m_per_deg_lon
+
+    @property
+    def y(self): return (self.lat - _ref_lat) * _ref_m_per_deg_lat
+    @y.setter
+    def y(self, v): self.lat = _ref_lat + v / _ref_m_per_deg_lat
+
+    def dist_to(self, other) -> float:
+        dy = (other.lat - self.lat) * _ref_m_per_deg_lat
+        dx = (other.lon - self.lon) * _ref_m_per_deg_lon
+        return math.sqrt(dx * dx + dy * dy)
+
+    def bearing_to(self, other) -> float:
+        return math.atan2(other.y - self.y, other.x - self.x)
+
+    def move_toward(self, target, speed_ms: float, dt: float) -> bool:
+        d = self.dist_to(target)
+        step = speed_ms * dt
+        if d <= step:
+            self.lat, self.lon = target.lat, target.lon
+            return True
+        angle = self.bearing_to(target)
+        self.lat += math.sin(angle) * step / _ref_m_per_deg_lat
+        self.lon += math.cos(angle) * step / _ref_m_per_deg_lon
+        return False
+
+    def copy(self) -> 'LatLon':
+        return LatLon(self.lat, self.lon)
+
+
 class EnemyThreatObj:
+    """v12.7 단계1: SoA 전환 — 실데이터는 엔진 _et_* 컬럼에 저장하고, 이 객체는
+    (엔진, 행 인덱스 _i)만 들고 속성 접근을 컬럼으로 위임하는 얇은 뷰(proxy).
+    생성은 TimeStepEngine._new_threat()가 담당(컬럼 append + 파생값 계산).
+    행은 삭제하지 않으므로(기존도 alive=False만) 인덱스·id(et)가 시뮬 내내 안정."""
+    __slots__ = ('_eng', '_i', '_posview')
+
     _id_counter = 0
 
     _HP_MAP = {
@@ -842,76 +910,69 @@ class EnemyThreatObj:
         '항모': 5,
     }
 
-    def __init__(self, preset_name: str, pos: Vec2):
-        EnemyThreatObj._id_counter += 1
-        self.uid         = f"ET{EnemyThreatObj._id_counter:03d}"
-        self.preset_name = preset_name
-        self.name        = preset_name   # 요격 로그 호환
-        self.info        = ENEMY_DB[preset_name].copy()
-        self.pos         = pos
-        self.speed_ms    = self.info['speed_ms']
-        self.altitude_m  = self.info.get('altitude_m', 0)
+    def __init__(self, eng, i: int):
+        self._eng     = eng
+        self._i       = i
+        self._posview = _ThreatPosView(eng, i)
 
-        cat   = self.info.get('category', '대함')
-        ttype = self.info.get('type', '')
-        self.category    = cat
-        self.threat_type = ttype
-        self.is_aircraft = ttype in ('전투기', '폭격기', '전폭기')
-        self.is_ship     = cat == '대함'
-        self.is_sub      = cat == '대잠'
-        self._r50_cache  = {}   # v12.3: dB 소나 방정식 R50 캐시 (조건 변할 때만 재계산)
+    # ── 위치 (컬럼 뷰) ────────────────────────────────────────────────────────
+    @property
+    def pos(self):
+        return self._posview
+    @pos.setter
+    def pos(self, v):
+        self._eng._et_lat[self._i] = v.lat
+        self._eng._et_lon[self._i] = v.lon
 
-        # ENEMY_DB hp 필드 우선, 없으면 _HP_MAP 기본값
-        _db_hp = self.info.get('hp', None)
-        self.hp = _db_hp if _db_hp is not None else self._HP_MAP.get(ttype, 2)
-        self.high_value_target    = self.info.get('high_value_target', False)
-        self.carrier_aircraft     = self.info.get('carrier_aircraft', None)
-        self.carrier_wave_interval = self.info.get('carrier_wave_interval', 0)
-        self._last_wave_t         = 0.0   # 마지막 함재기 발진 시각
+    # ── 컬럼 위임 속성 (name·preset_name은 동일 컬럼) ──────────────────────────
+    name                  = _et_col('_et_preset')
+    preset_name           = _et_col('_et_preset')
+    info                  = _et_col('_et_info')
+    uid                   = _et_col('_et_uid')
+    speed_ms              = _et_col('_et_speed')
+    altitude_m            = _et_col('_et_alt')
+    category              = _et_col('_et_category')
+    threat_type           = _et_col('_et_threat_type')
+    is_aircraft           = _et_col('_et_is_aircraft')
+    is_ship               = _et_col('_et_is_ship')
+    is_sub                = _et_col('_et_is_sub')
+    _r50_cache            = _et_col('_et_r50_cache')
+    hp                    = _et_col('_et_hp')
+    high_value_target     = _et_col('_et_high_value')
+    carrier_aircraft      = _et_col('_et_carrier_aircraft')
+    carrier_wave_interval = _et_col('_et_carrier_wave_interval')
+    _last_wave_t          = _et_col('_et_last_wave_t')
+    sam_inventory         = _et_col('_et_sam_inventory')
+    sam_max_channels      = _et_col('_et_sam_max_channels')
+    sam_channels_used     = _et_col('_et_sam_channels_used')
+    alive                 = _et_col('_et_alive')
+    intercepted           = _et_col('_et_intercepted')
+    hit_count             = _et_col('_et_hit_count')
+    hit_by                = _et_col('_et_hit_by')
+    has_fired             = _et_col('_et_has_fired')
+    t_intercept           = _et_col('_et_t_intercept')
+    is_retreating         = _et_col('_et_is_retreating')
+    retreat_pos           = _et_col('_et_retreat_pos')
+    reattack_count        = _et_col('_et_reattack_count')
+    max_reattacks         = _et_col('_et_max_reattacks')
+    ecm_power             = _et_col('_et_ecm_power')
+    hidden_until          = _et_col('_et_hidden_until')
+    ambush_revealed       = _et_col('_et_ambush_revealed')
 
-        if self.is_ship:
-            loadout = ENEMY_SHIP_SAM_LOADOUT.get(preset_name, [])
-            self.sam_inventory = {item['name']: item['stock'] for item in loadout}
-            self.sam_max_channels = sum(
-                ENEMY_SAM_DB[n]['channels']
-                for n in self.sam_inventory if n in ENEMY_SAM_DB
-            )
-        else:
-            self.sam_inventory    = {}
-            self.sam_max_channels = 0
-        self.sam_channels_used = 0
-
-        self.alive        = True
-        self.intercepted  = False
-        self.hit_count    = 0
-        self.hit_by: list = []
-        self.has_fired    = False
-        self.t_intercept: Optional[float] = None
-
-        # 항공기 이탈 상태
-        self.is_retreating             = False
-        self.retreat_pos: Optional[Vec2] = None
-        # MED-12: 항공기 재공격 — 이탈 후 재접근 허용
-        self.reattack_count = 0
-        self.max_reattacks  = 1 if self.is_aircraft else 0
-
-        self.ecm_power = self.info.get('ecm_power', 0.0)
-
-        # v9.6: 잠수함 기습 은닉 상태 — hidden_until 초까지 탐지 불가
-        self.hidden_until    = 0.0
-        self.ambush_revealed = False
-
+    # ── 메서드 ────────────────────────────────────────────────────────────────
     def take_hit(self, weapon_name: str, t: float):
-        self.hit_count += 1
-        self.hit_by.append((weapon_name, t))
-        self.hp -= 1
-        if self.hp <= 0:
-            self.alive = False
+        eng, i = self._eng, self._i
+        eng._et_hit_count[i] += 1
+        eng._et_hit_by[i].append((weapon_name, t))
+        eng._et_hp[i] -= 1
+        if eng._et_hp[i] <= 0:
+            eng._et_alive[i] = False
 
     def select_sam(self, missile_dist_m: float) -> Optional[str]:
         """수상함용: 사거리 내 SAM 선택 (장거리 우선)"""
+        inv = self._eng._et_sam_inventory[self._i]
         for sam_name in ['HHQ-9B', 'HHQ-16', 'HHQ-10', '1130-CIWS']:
-            if self.sam_inventory.get(sam_name, 0) <= 0:
+            if inv.get(sam_name, 0) <= 0:
                 continue
             sam = ENEMY_SAM_DB.get(sam_name)
             if sam and missile_dist_m <= sam['range_km'] * 1000:
@@ -1252,6 +1313,7 @@ class TimeStepEngine:
 
         self.friendly_ships: List[FriendlyShipObj]    = self._build_friendly()
         self.missiles:       List[MissileObj]         = []
+        self._init_threat_columns()   # v12.7 단계1: SoA 컬럼 (반드시 _build_enemies 전)
         self.enemy_threats:  List[EnemyThreatObj]     = self._build_enemies()
         self.aircraft:       List[FriendlyAircraftObj] = self._build_aircraft()
         self.frames:         List[SimFrame]            = []
@@ -1305,6 +1367,99 @@ class TimeStepEngine:
                 )
             ships.append(s)
         return ships
+
+    def _init_threat_columns(self):
+        """v12.7 단계1: 적 위협 SoA 컬럼 초기화 (행=위협 1기, 열=속성). _new_threat가 append.
+        numpy 변환은 2단계 hot 경로에서 — 단계1은 파이썬 리스트(동적 증설 단순)."""
+        self._et_uid: list                  = []
+        self._et_preset: list               = []
+        self._et_info: list                 = []
+        self._et_lat: list                  = []
+        self._et_lon: list                  = []
+        self._et_speed: list                = []
+        self._et_alt: list                  = []
+        self._et_category: list             = []
+        self._et_threat_type: list          = []
+        self._et_is_aircraft: list          = []
+        self._et_is_ship: list              = []
+        self._et_is_sub: list               = []
+        self._et_r50_cache: list            = []
+        self._et_hp: list                   = []
+        self._et_high_value: list           = []
+        self._et_carrier_aircraft: list     = []
+        self._et_carrier_wave_interval: list = []
+        self._et_last_wave_t: list          = []
+        self._et_sam_inventory: list        = []
+        self._et_sam_max_channels: list     = []
+        self._et_sam_channels_used: list    = []
+        self._et_alive: list                = []
+        self._et_intercepted: list          = []
+        self._et_hit_count: list            = []
+        self._et_hit_by: list               = []
+        self._et_has_fired: list            = []
+        self._et_t_intercept: list          = []
+        self._et_is_retreating: list        = []
+        self._et_retreat_pos: list          = []
+        self._et_reattack_count: list       = []
+        self._et_max_reattacks: list        = []
+        self._et_ecm_power: list            = []
+        self._et_hidden_until: list         = []
+        self._et_ambush_revealed: list      = []
+
+    def _new_threat(self, preset_name: str, pos: 'LatLon') -> EnemyThreatObj:
+        """적 플랫폼 위협 1기 생성 — ENEMY_DB 파생값 계산 후 _et_* 컬럼에 행 추가, proxy 반환.
+        (구 EnemyThreatObj.__init__ 로직을 SoA 컬럼 기록으로 이전. RNG 미소비 → 결정론 유지.)"""
+        EnemyThreatObj._id_counter += 1
+        info    = ENEMY_DB[preset_name].copy()
+        cat     = info.get('category', '대함')
+        ttype   = info.get('type', '')
+        is_ship = (cat == '대함')
+        if is_ship:
+            loadout = ENEMY_SHIP_SAM_LOADOUT.get(preset_name, [])
+            sam_inv = {item['name']: item['stock'] for item in loadout}
+            sam_max = sum(ENEMY_SAM_DB[n]['channels']
+                          for n in sam_inv if n in ENEMY_SAM_DB)
+        else:
+            sam_inv, sam_max = {}, 0
+        _db_hp = info.get('hp', None)
+        _is_air = ttype in ('전투기', '폭격기', '전폭기')
+
+        self._et_uid.append(f"ET{EnemyThreatObj._id_counter:03d}")
+        self._et_preset.append(preset_name)
+        self._et_info.append(info)
+        self._et_lat.append(pos.lat)
+        self._et_lon.append(pos.lon)
+        self._et_speed.append(info['speed_ms'])
+        self._et_alt.append(info.get('altitude_m', 0))
+        self._et_category.append(cat)
+        self._et_threat_type.append(ttype)
+        self._et_is_aircraft.append(_is_air)
+        self._et_is_ship.append(is_ship)
+        self._et_is_sub.append(cat == '대잠')
+        self._et_r50_cache.append({})
+        self._et_hp.append(_db_hp if _db_hp is not None else EnemyThreatObj._HP_MAP.get(ttype, 2))
+        self._et_high_value.append(info.get('high_value_target', False))
+        self._et_carrier_aircraft.append(info.get('carrier_aircraft', None))
+        self._et_carrier_wave_interval.append(info.get('carrier_wave_interval', 0))
+        self._et_last_wave_t.append(0.0)
+        self._et_sam_inventory.append(sam_inv)
+        self._et_sam_max_channels.append(sam_max)
+        self._et_sam_channels_used.append(0)
+        self._et_alive.append(True)
+        self._et_intercepted.append(False)
+        self._et_hit_count.append(0)
+        self._et_hit_by.append([])
+        self._et_has_fired.append(False)
+        self._et_t_intercept.append(None)
+        self._et_is_retreating.append(False)
+        self._et_retreat_pos.append(None)
+        self._et_reattack_count.append(0)
+        self._et_max_reattacks.append(1 if _is_air else 0)
+        self._et_ecm_power.append(info.get('ecm_power', 0.0))
+        self._et_hidden_until.append(0.0)
+        self._et_ambush_revealed.append(False)
+
+        return EnemyThreatObj(self, len(self._et_uid) - 1)
 
     def _build_enemies(self) -> List[EnemyThreatObj]:
         """
@@ -1475,7 +1630,7 @@ class TimeStepEngine:
                     self.missiles.append(m)
                     self.stats['total_threats'] += 1
                 else:
-                    et = EnemyThreatObj(name, pos)
+                    et = self._new_threat(name, pos)
                     et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
                     # 전술 기동 대형: V자 or 포위 초기 배치 오프셋
                     if _tactics == 'v_formation':
@@ -1602,7 +1757,7 @@ class TimeStepEngine:
                 m.enemy_info              = info.copy()
                 self.missiles.append(m)
             else:
-                et = EnemyThreatObj(name, pos)
+                et = self._new_threat(name, pos)
                 et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
                 self.enemy_threats.append(et)
             self.stats['total_threats'] += 1
@@ -1783,7 +1938,7 @@ class TimeStepEngine:
                      + max(0, n_alive - 3) * 0.02)
         if random.random() >= p_fail:
             return True
-        self._cd_fire_time[id(target)] = self.t + IFF_RECHECK_DELAY_S
+        self._cd_fire_time[target.uid] = self.t + IFF_RECHECK_DELAY_S
         self.stats['iff_failures'] += 1
         if not self._mc_mode:
             self._log(f"⚠️ IFF 식별 실패 → {IFF_RECHECK_DELAY_S:.0f}s 재확인")
@@ -2251,9 +2406,10 @@ class TimeStepEngine:
 
     # ── 3단계: 아군 방어 TEWA ─────────────────────────────────────────────────
 
-    def _cd_allowed(self, target_key: int) -> bool:
+    def _cd_allowed(self, target_key: str) -> bool:
         """
-        C&D 딜레이 판정.
+        C&D 딜레이 판정. target_key는 위협/미사일의 uid(안정 문자열).
+        (id() 키는 객체 소멸 후 주소 재사용으로 stale 충돌 위험 → uid로 고정)
         첫 탐지 시: 레이더 빔 드웰(1~3s) + cd_time_s*날씨계수 + confirm_time_s + uniform(2,10)s
         야간/악천후: cd_time_factor로 딜레이 자동 증가.
         이후 시각 도달하면 True.
@@ -2465,7 +2621,7 @@ class TimeStepEngine:
             if not self.track_radar.try_track(m.uid, self.t):
                 continue
             # 3단계(C&D): 분류·교전 결심 딜레이
-            if not self._cd_allowed(id(m)):
+            if not self._cd_allowed(m.uid):
                 continue
             # 4단계: 피아식별 (IFF)
             if not self._iff_check(m):
@@ -2530,7 +2686,7 @@ class TimeStepEngine:
             if not self.track_radar.try_track(et.uid, self.t):
                 continue
             # 3단계(C&D): 분류·교전 결심 딜레이
-            if not self._cd_allowed(id(et)):
+            if not self._cd_allowed(et.uid):
                 continue
             # 4단계: 피아식별 (IFF)
             if not self._iff_check(et):
