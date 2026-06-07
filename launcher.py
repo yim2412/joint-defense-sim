@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.07.03 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.08.01 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.08.01 — 검증된 환경물리 기능 5종 기본 활성화]                         ║
+║  수정  지형 음영·증발 덕팅·ISA 대기·소나 방정식·침수 모델 기본값 OFF→ON     ║
 ║  [v12.07.03 — 회귀 검증 스크립트 도입 + 향후 계획에 CI 추가]               ║
 ║  NEW-A  verify_regression.py: 고정 8시나리오×seed 결과를 골든값과 대조해    ║
 ║         엔진 동작 변화 자동 점검. CLAUDE.md 감사 정책 편입. CI는 v12.7 후    ║
@@ -582,7 +584,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.07.03"
+APP_VERSION = "v12.08.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4688,10 +4690,9 @@ class MainWindow(QMainWindow):
             "해역별 산맥 레이더 차폐 효과 적용.\n"
             "동해: 태백·설악(3.4~8.1°) — 저고도 위협 탐지 최대 22% 감소\n"
             "서해: 낭림산맥 원거리(0.4°) — 미약 (~4%)\n"
-            "대한해협: 소백산맥(0.9°) — 중간 (~10%)\n"
-            "기본값 OFF — 기존 결과와 동일"
+            "대한해협: 소백산맥(0.9°) — 중간 (~10%)"
         )
-        self.chk_terrain.setChecked(False)
+        self.chk_terrain.setChecked(True)
 
         # v10.8: 해류 연동
         self.chk_current = QCheckBox("해류 연동  (ocean_environment_db 해류 벡터 적용)")
@@ -4709,10 +4710,9 @@ class MainWindow(QMainWindow):
             "대기 하층 수증기 농도 역전으로 레이더 전파가 해면을 따라 굴절.\n"
             "저고도 표적(해면밀착 대함미사일 등)의 탐지거리 증가 효과.\n"
             "동해 여름: EDH 10m, 탐지 ×1.25 / 동해 겨울: EDH 6m, ×1.12\n"
-            "풍랑(BF7) 이상 강풍 시 덕트 파괴 → 자동 비활성화.\n"
-            "기본값 OFF — 기존 결과와 동일"
+            "풍랑(BF7) 이상 강풍 시 덕트 파괴 → 자동 비활성화."
         )
-        self.chk_evap_duct.setChecked(False)
+        self.chk_evap_duct.setChecked(True)
 
         self.chk_anti_sam = QCheckBox("적 Anti-SAM 방어 적용")
         self.chk_anti_sam.setToolTip(
@@ -4730,10 +4730,9 @@ class MainWindow(QMainWindow):
             "고고도(≥1000m) 표적: 트로포스캐터 산란 추가 +7~16%.\n"
             "  예) 동해 여름 탄도미사일(고도10km): 탐지거리 최대 ×1.23\n"
             "  예) 동해 겨울 순항미사일(고도500m): ×1.03\n"
-            "풍랑(BF6) 이상 강풍 시 트로포스캐터 자동 비활성화.\n"
-            "기본값 OFF — 기존 결과와 동일"
+            "풍랑(BF6) 이상 강풍 시 트로포스캐터 자동 비활성화."
         )
-        self.chk_isa.setChecked(False)
+        self.chk_isa.setChecked(True)
 
         # v12.1: 비례항법(PNG) 종말 유도
         self.chk_png = QCheckBox("비례항법(PNG) 종말 유도 (실험적)")
@@ -4748,29 +4747,27 @@ class MainWindow(QMainWindow):
         self.chk_png.setChecked(False)
 
         # v12.3: dB 소나 방정식 — 잠수함 탐지를 음향 전파 물리로 대체
-        self.chk_sonar_eq = QCheckBox("dB 소나 방정식 잠수함 탐지 (실험적)")
+        self.chk_sonar_eq = QCheckBox("dB 소나 방정식 잠수함 탐지")
         self.chk_sonar_eq.setToolTip(
             "v12.3 — 잠수함 탐지를 곱셈식 사거리 휴리스틱 대신\n"
             "수동 소나 방정식(FOM = 방사소음 − 주변소음 + 배열이득 − 탐지임계)으로 계산합니다.\n"
             "음원 준위(잠수함별)·전달손실(확산+흡수+수온약층)·주변소음(해상상태)으로\n"
             "50% 탐지거리 R50을 구하고, 신호초과 기반 정규분포 확률로 탐지를 판정합니다.\n"
-            "정온화된 잠수함(킬로·위안급 AIP)은 탐지가 어렵고, 서해 천해는 탐지거리가 급감합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "정온화된 잠수함(킬로·위안급 AIP)은 탐지가 어렵고, 서해 천해는 탐지거리가 급감합니다."
         )
-        self.chk_sonar_eq.setChecked(False)
+        self.chk_sonar_eq.setChecked(True)
 
         # v12.4: 동적 침수·복원력 — 정적 HP 즉사 위에 침수 침몰 레이어 추가
-        self.chk_flooding = QCheckBox("함정 침수·복원력 모델 (실험적)")
+        self.chk_flooding = QCheckBox("함정 침수·복원력 모델")
         self.chk_flooding.setToolTip(
             "v12.4 — 함정 피해를 즉사 HP 대신 동적 침수로 시뮬합니다.\n"
             "수선 아래 피격(어뢰 80%·대함미사일 30%)이 격실 침수를 유발하고,\n"
             "손상통제(펌프 배수)가 침수 속도와 경쟁합니다.\n"
             "침수율이 함정별 복원력 한계를 넘으면 침몰 — 침몰 예상 시간이 실시간 표시됩니다.\n"
             "함종별 배수량·격실 수·손상통제 효율을 반영(소형함은 어뢰 1발 침몰, 항모는 견딤).\n"
-            "전술급(700초)에서 의미 있도록 침수 속도를 압축 — 실제 침몰은 더 느립니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "전술급(700초)에서 의미 있도록 침수 속도를 압축 — 실제 침몰은 더 느립니다."
         )
-        self.chk_flooding.setChecked(False)
+        self.chk_flooding.setChecked(True)
 
         self.chk_weather_dyn = QCheckBox("동적 기상 변화 (실험적)")
         self.chk_weather_dyn.setToolTip(
@@ -4827,8 +4824,6 @@ class MainWindow(QMainWindow):
             self.cmb_strait_type.setVisible(visible)
             if visible:
                 self.chk_terrain.setChecked(True)   # 소백산맥 음영 자동 활성화
-            else:
-                self.chk_terrain.setChecked(False)
 
         self.cmb_region.currentTextChanged.connect(_on_region_changed)
         _on_region_changed(self.cmb_region.currentText())

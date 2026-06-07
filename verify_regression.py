@@ -37,6 +37,7 @@ _BASE = dict(
     enable_ecm=True, enable_evasion=True, enable_decoy=True, enable_selfdefense=True,
     enable_layered_defense=True, enable_cec=True, enable_radar_off=True,
     enable_png=True, enable_sonar_equation=True, enable_flooding=True,
+    enable_terrain=True, enable_evap_duct=True, enable_isa=True,
     enable_weather_dynamics=False, enable_iff=False,
     enable_current=False,   # datetime.today 의존 제거 (결정론)
     enemy_fleet_mode='preset',
