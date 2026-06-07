@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.08.01 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v12.08.03 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v12.08.03 — 향후 계획 v12.7 항목 현행화 (SoA 완료·numpy 폐기 반영)]      ║
+║  [v12.08.02 — MC 3경로 침수·IFF 통계 누락 수정 (CLAUDE.md 규칙 보완)]      ║
+║  수정  침수·IFF 회당 평균이 MC 분석(배치·LHS·순차) 결과에 모두 집계됨       ║
 ║  [v12.08.01 — 검증된 환경물리 기능 5종 기본 활성화]                         ║
 ║  수정  지형 음영·증발 덕팅·ISA 대기·소나 방정식·침수 모델 기본값 OFF→ON     ║
 ║  [v12.07.03 — 회귀 검증 스크립트 도입 + 향후 계획에 CI 추가]               ║
@@ -584,7 +587,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.08.01"
+APP_VERSION = "v12.08.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2259,6 +2262,7 @@ class SimWorker(QThread):
                     _set_pool_priority(pool)  # BUG-1: 인라인 풀도 BELOW_NORMAL
                 batch_done_n = 0
                 _phase_acc: dict = {}   # v8.26: 배치별 단계 타이밍 누적
+                _extra_acc: dict = {}   # v12.4·v12.6: 침수·IFF 통계 누적
                 futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
                 for fut in as_completed(futs):
                     if self.isInterruptionRequested():
@@ -2267,7 +2271,7 @@ class SimWorker(QThread):
                         if _own:
                             pool.shutdown(wait=False)
                         return
-                    rates, fh, ed, fl, cs, wu, sh, wz, pt = fut.result()
+                    rates, fh, ed, fl, cs, wu, sh, wz, pt, xs = fut.result()
                     all_rates.extend(rates);  all_f_hits.extend(fh)
                     all_e_dest.extend(ed);    all_f_lost.extend(fl)
                     all_costs.extend(cs)
@@ -2275,6 +2279,7 @@ class SimWorker(QThread):
                     for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
                     for k, v in wz.items(): all_wzero[k] = all_wzero.get(k, 0) + v
                     for k, v in pt.items(): _phase_acc[k] = _phase_acc.get(k, 0.0) + v
+                    for k, v in xs.items(): _extra_acc.setdefault(k, []).extend(v)
                     done_count += len(rates)
                     batch_done_n += 1
                     self.batch_done.emit(batch_done_n, len(batches))
@@ -2306,6 +2311,10 @@ class SimWorker(QThread):
                     'std_intercept':           float(arr.std()),
                     'full_pass_rate':          float((arr == 1.0).mean()),
                     'n':                       len(all_rates),
+                    'mean_ships_sunk_by_flood': float(np.mean(_extra_acc.get('ships_sunk_by_flood', [0]))),
+                    'mean_ships_flooding':      float(np.mean(_extra_acc.get('ships_flooding', [0]))),
+                    'mean_iff_failures':        float(np.mean(_extra_acc.get('iff_failures', [0]))),
+                    'mean_iff_fratricide':      float(np.mean(_extra_acc.get('iff_fratricide', [0]))),
                 }
 
             # ── CVaR: 기존 MC rates에서 직접 계산 (추가 시뮬 불필요) ─────────
@@ -8433,12 +8442,12 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v12.x — 물리 엔진 고도화 ──────────────────────────────────────
-            ("v12.7", "매우 높음", "엔진 numpy 전면 재설계",
-             "v12.x 물리 완성 후 객체 루프 → numpy 배열 연산으로 전환. "
-             "위치·속도·거리를 numpy 배열로 일괄 계산해 반복 분석 속도 향상. "
-             "v12 기준값 대비 결과 오차 5% 이내 검증 필수. "
-             "v14.x AI 학습 데이터 생성·v17.x 캠페인 엔진의 고속 연산 토대. "
-             "(단계적 진행: 위협 데이터 구조화 → 미사일·종말유도 벡터화 → 통합)"),
+            ("v12.7", "완료", "엔진 SoA 배열화 (단계1 완료, 단계2 폐기)",
+             "적 위협 객체를 엔진 컬럼(_et_*) + proxy 뷰로 전환(단계1, v12.07.02). "
+             "C&D 교전결심 타이머 id() 키 재사용 버그 발견·수정(v12.07.01). "
+             "단계2(미사일 SoA + PNG 벡터화) 실험 결과 폐기: numpy는 엔티티 N~30 규모에서 "
+             "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
+             "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             ("🔧 인프라", "v12.7후", "회귀 검증 자동화 (CI)",
              "v12.7 엔진 재설계 완료 후 도입. 코드를 원격 저장소에 올릴 때마다 고정 시나리오의 "
              "교전 결과가 이전과 달라지지 않았는지 자동으로 점검·표시하는 체계. 엔진을 고쳐도 "

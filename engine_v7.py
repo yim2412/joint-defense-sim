@@ -4277,6 +4277,8 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     # v9.4: VLS 고갈 통계
     vls_dep_count: int = 0
     vls_dep_times: list = []
+    # v12.4·v12.6: 침수·IFF 통계
+    flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
 
     step = max(1, n // 5)
     if desc:
@@ -4294,6 +4296,10 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
         costs.append(r['total_cost'])
+        flood_sunk.append(r.get('ships_sunk_by_flood', 0))
+        flood_on.append(r.get('ships_flooding', 0))
+        iff_fail.append(r.get('iff_failures', 0))
+        iff_frat.append(r.get('iff_fratricide', 0))
 
         # 무기별 소모량 (초기 재고 - 잔여 재고) + 소진 횟수 집계
         for wpn, remaining in r.get('remaining_inventory', {}).items():
@@ -4349,6 +4355,11 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         # v9.4: VLS 고갈 통계
         'vls_depletion_rate':      vls_dep_count / n,
         'vls_depletion_t_mean':    float(np.mean(vls_dep_times)) if vls_dep_times else None,
+        # v12.4·v12.6: 침수·IFF 회당 평균
+        'mean_ships_sunk_by_flood': float(np.mean(flood_sunk)),
+        'mean_ships_flooding':      float(np.mean(flood_on)),
+        'mean_iff_failures':        float(np.mean(iff_fail)),
+        'mean_iff_fratricide':      float(np.mean(iff_frat)),
     }
 
 
@@ -4361,6 +4372,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     weapon_zero:  dict = {}
     ship_hits_mc: dict = {}
     phase_times_acc: dict = {}   # v8.26: 배치 내 단계별 시간 누적
+    flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
         run_cfg = dict(cfg)
@@ -4372,6 +4384,10 @@ def _mc_batch_worker(args: tuple) -> tuple:
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
         costs.append(r['total_cost'])
+        flood_sunk.append(r.get('ships_sunk_by_flood', 0))
+        flood_on.append(r.get('ships_flooding', 0))
+        iff_fail.append(r.get('iff_failures', 0))
+        iff_frat.append(r.get('iff_fratricide', 0))
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             weapon_usage.setdefault(wpn, []).append(remaining)
             if remaining == 0:
@@ -4386,7 +4402,9 @@ def _mc_batch_worker(args: tuple) -> tuple:
         phase_times_avg = {k: v / n for k, v in phase_times_acc.items()}
     else:
         phase_times_avg = {}
-    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg
+    extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
+                   'iff_failures': iff_fail, 'iff_fratricide': iff_frat}
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
 
 def _mc_lhs_batch_worker(args: tuple) -> tuple:
@@ -4396,6 +4414,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}
     ship_hits_mc: dict = {}
+    flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
         for j, (key, lo, hi, _) in enumerate(param_defs):
@@ -4406,11 +4425,17 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
         costs.append(r['total_cost'])
+        flood_sunk.append(r.get('ships_sunk_by_flood', 0))
+        flood_on.append(r.get('ships_flooding', 0))
+        iff_fail.append(r.get('iff_failures', 0))
+        iff_frat.append(r.get('iff_fratricide', 0))
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             weapon_usage.setdefault(wpn, []).append(remaining)
         for ship in r.get('friendly_ships', []):
             ship_hits_mc.setdefault(ship.name, []).append(getattr(ship, 'hits_taken', 0))
-    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc
+    extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
+                   'iff_failures': iff_fail, 'iff_fratricide': iff_frat}
+    return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -4472,6 +4497,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
     weapon_usage: dict = {}
     ship_hits_mc: dict = {}
+    flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
     batch_size = max(1, n // n_workers)
@@ -4483,9 +4509,13 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             futs = {pool.submit(_mc_lhs_batch_worker, a): len(a[1]) for a in args_list}
             for fut in as_completed(futs):
-                br, bh, bd, bl, bc, bwu, bsh = fut.result()
+                br, bh, bd, bl, bc, bwu, bsh, bxs = fut.result()
                 rates.extend(br); f_hits.extend(bh); e_dest.extend(bd)
                 f_lost.extend(bl); costs.extend(bc)
+                flood_sunk.extend(bxs['ships_sunk_by_flood'])
+                flood_on.extend(bxs['ships_flooding'])
+                iff_fail.extend(bxs['iff_failures'])
+                iff_frat.extend(bxs['iff_fratricide'])
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
                 for k, v in bsh.items(): ship_hits_mc.setdefault(k, []).extend(v)
                 done += futs[fut]
@@ -4502,6 +4532,10 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             rates.append(r['intercept_rate']); f_hits.append(r['friendly_hits'])
             e_dest.append(r['enemy_ships_destroyed']); f_lost.append(r['friendly_ships_lost'])
             costs.append(r['total_cost'])
+            flood_sunk.append(r.get('ships_sunk_by_flood', 0))
+            flood_on.append(r.get('ships_flooding', 0))
+            iff_fail.append(r.get('iff_failures', 0))
+            iff_frat.append(r.get('iff_fratricide', 0))
             for wpn, rem in r.get('remaining_inventory', {}).items():
                 weapon_usage.setdefault(wpn, []).append(rem)
             for ship in r.get('friendly_ships', []):
@@ -4511,21 +4545,25 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
 
     arr = np.array(rates)
     return {
-        'intercept_rates':      rates,
-        'friendly_hits':        f_hits,
-        'enemy_destroyed':      e_dest,
-        'friendly_lost':        f_lost,
-        'total_costs':          costs,
-        'weapon_avg_remaining': {k: float(np.mean(v)) for k, v in weapon_usage.items()},
-        'ship_avg_hits':        {k: float(np.mean(v)) for k, v in ship_hits_mc.items()},
-        'mean_intercept':       float(arr.mean()),
-        'std_intercept':        float(arr.std()),
-        'full_pass_rate':       float((arr == 1.0).mean()),
-        'cvar':                 compute_cvar(rates),
-        'n':                    n,
-        'method':               'LHS',
-        'mean_enemy_destroyed': float(np.mean(e_dest)) if e_dest else 0.0,
-        'max_enemy_destroyed':  int(max(e_dest)) if e_dest else 0,
+        'intercept_rates':          rates,
+        'friendly_hits':            f_hits,
+        'enemy_destroyed':          e_dest,
+        'friendly_lost':            f_lost,
+        'total_costs':              costs,
+        'weapon_avg_remaining':     {k: float(np.mean(v)) for k, v in weapon_usage.items()},
+        'ship_avg_hits':            {k: float(np.mean(v)) for k, v in ship_hits_mc.items()},
+        'mean_intercept':           float(arr.mean()),
+        'std_intercept':            float(arr.std()),
+        'full_pass_rate':           float((arr == 1.0).mean()),
+        'cvar':                     compute_cvar(rates),
+        'n':                        n,
+        'method':                   'LHS',
+        'mean_enemy_destroyed':     float(np.mean(e_dest)) if e_dest else 0.0,
+        'max_enemy_destroyed':      int(max(e_dest)) if e_dest else 0,
+        'mean_ships_sunk_by_flood': float(np.mean(flood_sunk)) if flood_sunk else 0.0,
+        'mean_ships_flooding':      float(np.mean(flood_on)) if flood_on else 0.0,
+        'mean_iff_failures':        float(np.mean(iff_fail)) if iff_fail else 0.0,
+        'mean_iff_fratricide':      float(np.mean(iff_frat)) if iff_frat else 0.0,
     }
 
 
