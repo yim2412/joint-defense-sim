@@ -1,14 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.15 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.16 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.15 — 전 섹션 hover 플로팅 팝업 도입]                               ║
-║  NEW-A  공통 _HoverPopup 클래스: 버튼 hover 시 우측 플로팅 패널 표시        ║
-║  NEW-B  아군 편대: 함정 목록 항시표시 → hover 팝업으로 전환                 ║
-║  NEW-C  날씨·계절: 레이더×, 소나×, 교전 영향 hover 팝업 추가               ║
-║  NEW-D  해역: 수심·수온약층·레이더 음영 항시표시 → hover 팝업으로 전환      ║
-║  NEW-E  작전 시나리오: 리스트 → 버튼 그리드 + 시나리오 설명 hover 팝업     ║
-║  NEW-F  적군 편대·혼합 시나리오: 콤보박스 → 버튼 그리드 + hover 팝업       ║
+║  [v13.01.16 — 레이아웃 재구성: 시뮬모드↓ + 셀 분리 + 하단 hover 팝업]      ║
+║  NEW-A  상단 바: [아군편대][적군편대][시나리오][날씨계절][해역] 5셀로 재편  ║
+║  NEW-B  시뮬레이션 모드를 하단 고급 열로 이동, 실행 버튼은 최하단 고정     ║
+║  NEW-C  환경·방어전술·항공자산·고급 항목 툴팁 → hover 팝업으로 전환        ║
+║  NEW-D  상단 비율 2:3으로 조정 (적군 편대 23개 프리셋 표시 공간 확보)      ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
 ║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
@@ -615,7 +613,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.15"
+APP_VERSION = "v13.01.16"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3209,6 +3207,15 @@ def _install_hover(btn: QWidget, text: str, popup: _HoverPopup):
     btn.installEventFilter(_HF())
 
 
+def _install_section_popups(grp: QWidget, popup: _HoverPopup):
+    """그룹박스 내 툴팁이 있는 체크박스·콤보박스에 hover 팝업 자동 설치."""
+    for _w in grp.findChildren((QCheckBox, QComboBox)):
+        _tip = _w.toolTip()
+        if _tip and len(_tip) > 15:
+            _install_hover(_w, _tip, popup)
+            _w.setToolTip('')
+
+
 class _WrapCheckBox(QWidget):
     """긴 레이블 자동 줄바꿈 체크박스 (QCheckBox drop-in)."""
     toggled = pyqtSignal(bool)
@@ -4620,7 +4627,7 @@ class MainWindow(QMainWindow):
         tbl.setContentsMargins(0, 0, 0, 0)
         tbl.setSpacing(0)
 
-        top_labels = ["아군 편대", "적군·시나리오", "날씨 / 계절", "해역", "시뮬레이션"]
+        top_labels = ["아군 편대", "적군 편대", "시나리오", "날씨 / 계절", "해역"]
         self._setup_top_cells: list = []
         for i, lbl_txt in enumerate(top_labels):
             cell = QWidget()
@@ -4662,9 +4669,9 @@ class MainWindow(QMainWindow):
                 sep.setFixedWidth(1)
                 tbl.addWidget(sep)
 
-        outer.addWidget(top_bar, stretch=1)
+        outer.addWidget(top_bar, stretch=2)
 
-        # ── 하단: 4칸 (전체 높이의 2/3) ─────────────────────────────────
+        # ── 하단: 4칸 (전체 높이의 3/5) ─────────────────────────────────
         split_w = QWidget()
         split_w.setStyleSheet(f"background:{C_BG};")
         split_layout = QHBoxLayout(split_w)
@@ -4712,7 +4719,16 @@ class MainWindow(QMainWindow):
                 sep.setFixedWidth(1)
                 split_layout.addWidget(sep)
 
-        outer.addWidget(split_w, stretch=2)
+        outer.addWidget(split_w, stretch=3)
+
+        # ── 실행 버튼 홀더 (설정 모드 전용, _cfg_bottom이 이동해 옴) ─────
+        self._setup_run_holder = QWidget()
+        self._setup_run_holder.setStyleSheet(
+            f"background:{C_PANEL}; border-top:2px solid {C_ACCENT};")
+        _srhl = QVBoxLayout(self._setup_run_holder)
+        _srhl.setContentsMargins(0, 0, 0, 0)
+        _srhl.setSpacing(0)
+        outer.addWidget(self._setup_run_holder)
 
         return page
 
@@ -4752,11 +4768,11 @@ class MainWindow(QMainWindow):
 
     def _enter_setup_mode(self):
         """설정 전체화면으로 전환."""
-        # 상단 5칸에 위젯 배치 (stretch 앞 index 0에 삽입)
+        # 상단 5칸: [아군편대, 적군편대, 시나리오, 날씨계절, 해역]
         for cell, widget in zip(self._setup_top_cells,
-                                [self._cfg_fleet, self._cfg_enemy_scenario,
-                                 self._cfg_weather, self._cfg_region,
-                                 self._cfg_bottom]):
+                                [self._cfg_fleet, self._cfg_enemy,
+                                 self._cfg_scenario,
+                                 self._cfg_weather, self._cfg_region]):
             cell.layout().insertWidget(0, widget)
             widget.show()
 
@@ -4766,6 +4782,10 @@ class MainWindow(QMainWindow):
             for j, grp in enumerate(groups):
                 cl.insertWidget(j, grp)
                 grp.show()
+
+        # 실행 버튼 → 하단 실행 홀더
+        self._setup_run_holder.layout().insertWidget(0, self._cfg_bottom)
+        self._cfg_bottom.show()
 
         self._in_results_mode = False
         self._main_stack.setCurrentIndex(0)
@@ -4784,7 +4804,8 @@ class MainWindow(QMainWindow):
 
         # 분리된 설정 위젯 → container 앞에 순서대로 복귀
         cl = self._cfg_container_layout
-        for idx, w in enumerate([self._cfg_fleet, self._cfg_enemy_scenario,
+        for idx, w in enumerate([self._cfg_fleet, self._cfg_enemy,
+                                  self._cfg_scenario,
                                   self._cfg_weather, self._cfg_region]):
             cl.insertWidget(idx, w)
             w.show()
@@ -5439,17 +5460,21 @@ class MainWindow(QMainWindow):
             if self.cmb_mixed_scenario.count():
                 self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
 
-        # ── 적군 편대·시나리오 묶음 (상단 바 cell 2) ──────────────────────
-        _esc = QWidget()
-        _esc.setStyleSheet(f"background:{C_PANEL};")
-        _escl = QVBoxLayout(_esc)
-        _escl.setContentsMargins(4, 4, 4, 4)
-        _escl.setSpacing(4)
-        _escl.addWidget(grp_sc)
-        _escl.addWidget(grp_e)
-        _escl.addStretch()
-        self._cfg_enemy_scenario = _esc
-        container_layout.addWidget(self._cfg_enemy_scenario)
+        # ── 적군 편대 (상단 바 cell 2) ─────────────────────────────────────
+        _ew = QWidget(); _ew.setStyleSheet(f"background:{C_PANEL};")
+        _ewl = QVBoxLayout(_ew)
+        _ewl.setContentsMargins(4, 4, 4, 4); _ewl.setSpacing(4)
+        _ewl.addWidget(grp_e); _ewl.addStretch()
+        self._cfg_enemy = _ew
+        container_layout.addWidget(self._cfg_enemy)
+
+        # ── 시나리오 (상단 바 cell 3) ────────────────────────────────────────
+        _sw = QWidget(); _sw.setStyleSheet(f"background:{C_PANEL};")
+        _swl = QVBoxLayout(_sw)
+        _swl.setContentsMargins(4, 4, 4, 4); _swl.setSpacing(4)
+        _swl.addWidget(grp_sc); _swl.addStretch()
+        self._cfg_scenario = _sw
+        container_layout.addWidget(self._cfg_scenario)
 
         # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
         grp_t = QGroupBox("⚙️ 전술 옵션")
@@ -5686,25 +5711,7 @@ class MainWindow(QMainWindow):
         lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         cdl.addWidget(lbl_cd_fixed)
 
-        # ── 섹션 조립 ────────────────────────────────────────────────────
-        _sections = [
-            ("환경",     [grp_env],                   False),
-            ("방어전술", [grp_def, grp_strike],        False),
-            ("항공자산", [grp_ac],                     False),
-            ("고급",     [grp_t, grp_bmd, grp_cd],    False),
-        ]
-        self._sec_contents:   list = []
-        self._sec_groups_ref: list = []
-        for sec_title, groups, expanded in _sections:
-            content = _make_content(*groups)
-            content.setVisible(expanded)
-            hdr = _CfgSectionHeader(sec_title, content, expanded)
-            layout.addWidget(hdr)
-            layout.addWidget(content)
-            self._sec_contents.append(content)
-            self._sec_groups_ref.append(list(groups))
-
-        # ── 시뮬레이션 모드 선택 ─────────────────────────────────────────────
+        # ── 시뮬레이션 모드 선택 (고급 열에 포함) ────────────────────────
         grp_mc = QGroupBox("📊 시뮬레이션 모드")
         mcl = QVBoxLayout(grp_mc)
         mcl.setSpacing(6)
@@ -5728,7 +5735,6 @@ class MainWindow(QMainWindow):
         lbl_mode_hint = QLabel()
         lbl_mode_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
 
-        # Sobol 포인트당 반복 수 (정밀 모드 전용)
         lbl_npp = QLabel("Sobol 포인트당 반복:")
         lbl_npp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.spn_sobol_npp = QSpinBox()
@@ -5743,7 +5749,7 @@ class MainWindow(QMainWindow):
             "정밀 모드 선택 시에만 사용됩니다.")
         self.spn_sobol_npp.setStyleSheet(
             f"background:#1c2128; color:#e6edf3; border:1px solid #444c56; font-size:13px;")
-        self.spn_sobol_npp.setEnabled(False)  # 정밀 모드일 때만 활성화
+        self.spn_sobol_npp.setEnabled(False)
 
         lbl_mode_hint = QLabel()
         lbl_mode_hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
@@ -5785,9 +5791,32 @@ class MainWindow(QMainWindow):
         row2.addWidget(self._lbl_sobol_total)
         row2.addStretch()
         mcl.addLayout(row2)
-
         mcl.addWidget(lbl_mode_hint)
-        # 초기 함대 편성 + 탐지 정보 레이블
+
+        # ── 하단 섹션 hover 팝업 일괄 설치 ──────────────────────────────
+        _bot_popup = _HoverPopup(self)
+        for _g in [grp_env, grp_def, grp_strike, grp_bmd, grp_cd, grp_t, grp_ac, grp_mc]:
+            _install_section_popups(_g, _bot_popup)
+
+        # ── 섹션 조립 ────────────────────────────────────────────────────
+        _sections = [
+            ("환경",     [grp_env],                        False),
+            ("방어전술", [grp_def, grp_strike],             False),
+            ("항공자산", [grp_ac],                          False),
+            ("고급",     [grp_t, grp_bmd, grp_cd, grp_mc], False),
+        ]
+        self._sec_contents:   list = []
+        self._sec_groups_ref: list = []
+        for sec_title, groups, expanded in _sections:
+            content = _make_content(*groups)
+            content.setVisible(expanded)
+            hdr = _CfgSectionHeader(sec_title, content, expanded)
+            layout.addWidget(hdr)
+            layout.addWidget(content)
+            self._sec_contents.append(content)
+            self._sec_groups_ref.append(list(groups))
+
+        # 초기 탐지 정보 갱신
         if _V7_OK and self.cmb_fleet.count():
             self._update_fleet_detail(self.cmb_fleet.currentText())
             self._update_detect_info()
@@ -5795,15 +5824,13 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         scroll.setWidget(inner)
 
-        # ── 고정 하단 영역 (스크롤 밖 — 항상 표시) ───────────────────────
+        # ── 고정 하단 영역 (실행 버튼만) ─────────────────────────────────
         bottom = QWidget()
         bottom.setStyleSheet(
             f"background:{C_PANEL}; border-top: 1px solid #2a3a4a;")
         bottom_layout = QVBoxLayout(bottom)
         bottom_layout.setContentsMargins(8, 6, 8, 8)
         bottom_layout.setSpacing(6)
-
-        bottom_layout.addWidget(grp_mc)
 
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
         self.btn_run.setFixedHeight(44)
