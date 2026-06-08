@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.07 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.08 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.07 — 실행 전/후 2-페이지 UI 구조 도입]                             ║
+║  [v13.01.08 — 설정 섹션 탭 제거, 전체 섹션 항시 노출]                       ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.07"
+APP_VERSION = "v13.01.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4563,59 +4563,18 @@ class MainWindow(QMainWindow):
         qh_layout.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._setup_quick_holder)
 
-        # 섹션 탭 바
-        tab_bar = QWidget()
-        tab_bar.setFixedHeight(46)
-        tab_bar.setStyleSheet(
-            f"background:{C_PANEL}; border-bottom:1px solid {C_BORDER};")
-        tbl = QHBoxLayout(tab_bar)
-        tbl.setContentsMargins(20, 6, 20, 6)
-        tbl.setSpacing(8)
+        # 섹션 콘텐츠 — 단일 스크롤 (모든 섹션 항시 노출)
+        self._setup_content_page = QWidget()
+        self._setup_content_page.setStyleSheet(f"background:{C_BG};")
+        scl = QVBoxLayout(self._setup_content_page)
+        scl.setContentsMargins(40, 16, 40, 16)
+        scl.setSpacing(10)
 
-        self._setup_tab_btns: list = []
-        for i, name in enumerate(["기본", "환경", "방어전술", "항공자산", "고급"]):
-            btn = QPushButton(name)
-            btn.setFixedHeight(32)
-            btn.setCheckable(True)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background:{C_BG}; color:{C_SUBTEXT};
-                    border:1px solid {C_BORDER}; border-radius:4px;
-                    font-size:13px; padding:0 22px;
-                }}
-                QPushButton:checked {{
-                    background:{C_ACCENT}; color:white;
-                    border:1px solid {C_ACCENT};
-                }}
-                QPushButton:hover:!checked {{
-                    background:#1f2d40; color:{C_TEXT};
-                }}
-            """)
-            btn.clicked.connect(lambda _, idx=i: self._on_setup_tab(idx))
-            tbl.addWidget(btn)
-            self._setup_tab_btns.append(btn)
-        tbl.addStretch()
-        outer.addWidget(tab_bar)
-
-        # 탭 콘텐츠 영역 (QStackedWidget, 각 탭은 스크롤 가능)
-        self._setup_tab_stack = QStackedWidget()
-        self._setup_tab_pages: list = []
-        for _ in range(5):
-            inner = QWidget()
-            inner.setStyleSheet(f"background:{C_BG};")
-            il = QVBoxLayout(inner)
-            il.setContentsMargins(40, 16, 40, 16)
-            il.setSpacing(10)
-            il.addStretch()
-            self._setup_tab_pages.append(inner)
-
-            sc = QScrollArea()
-            sc.setWidgetResizable(True)
-            sc.setWidget(inner)
-            sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
-            self._setup_tab_stack.addWidget(sc)
-
-        outer.addWidget(self._setup_tab_stack, stretch=1)
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setWidget(self._setup_content_page)
+        sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
+        outer.addWidget(sc, stretch=1)
 
         # 하단 홀더 (MC 모드 + 실행 버튼)
         self._setup_bottom_holder = QWidget()
@@ -4659,30 +4618,24 @@ class MainWindow(QMainWindow):
 
         return page
 
-    def _on_setup_tab(self, idx: int):
-        for i, btn in enumerate(self._setup_tab_btns):
-            btn.setChecked(i == idx)
-        self._setup_tab_stack.setCurrentIndex(idx)
-
     def _enter_setup_mode(self):
-        """설정 전체화면으로 전환 (탭 방식)."""
+        """설정 전체화면으로 전환 (단일 스크롤)."""
         # 퀵 폼 → 설정 홀더
         self._setup_quick_holder.layout().addWidget(self._cfg_quick)
         self._cfg_quick.show()
 
-        # 섹션 그룹 → 탭 페이지
-        for groups, tab_page in zip(self._sec_groups_ref, self._setup_tab_pages):
-            tl = tab_page.layout()
-            for j, grp in enumerate(groups):
-                tl.insertWidget(j, grp)
+        # 모든 섹션 그룹 → 단일 스크롤 페이지에 순서대로 배치
+        cl = self._setup_content_page.layout()
+        idx = 0
+        for groups in self._sec_groups_ref:
+            for grp in groups:
+                cl.insertWidget(idx, grp)
                 grp.show()
+                idx += 1
 
         # 하단(MC+실행) → 하단 홀더
         self._setup_bottom_holder.layout().addWidget(self._cfg_bottom)
         self._cfg_bottom.show()
-
-        # 첫 번째 탭 선택
-        self._on_setup_tab(0)
 
         self._in_results_mode = False
         self._main_stack.setCurrentIndex(0)
