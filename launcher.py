@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.09 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.10 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.09 — 설정 섹션 5-컬럼 분할 배치 (스크롤 없이 동시 노출)]           ║
+║  [v13.01.10 — 상단 바에 시뮬레이션 모드 통합, 5-컬럼 높이 균일화]           ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.09"
+APP_VERSION = "v13.01.10"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4556,12 +4556,33 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # 퀵 폼 홀더
+        # 상단 바 — 퀵폼(좌) + 시뮬레이션 모드·실행버튼(우) 수평 배치
+        top_bar = QWidget()
+        top_bar.setStyleSheet(
+            f"background:{C_PANEL}; border-bottom:1px solid {C_BORDER};")
+        tbl = QHBoxLayout(top_bar)
+        tbl.setContentsMargins(0, 0, 0, 0)
+        tbl.setSpacing(0)
+
         self._setup_quick_holder = QWidget()
         self._setup_quick_holder.setStyleSheet(f"background:{C_PANEL};")
         qh_layout = QVBoxLayout(self._setup_quick_holder)
         qh_layout.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self._setup_quick_holder)
+        tbl.addWidget(self._setup_quick_holder, stretch=3)
+
+        vsep = QFrame()
+        vsep.setFrameShape(QFrame.Shape.VLine)
+        vsep.setStyleSheet(f"QFrame {{ color:{C_BORDER}; }}")
+        vsep.setFixedWidth(1)
+        tbl.addWidget(vsep)
+
+        self._setup_bottom_holder = QWidget()
+        self._setup_bottom_holder.setStyleSheet(f"background:{C_PANEL};")
+        bh_layout = QVBoxLayout(self._setup_bottom_holder)
+        bh_layout.setContentsMargins(0, 0, 0, 0)
+        tbl.addWidget(self._setup_bottom_holder, stretch=2)
+
+        outer.addWidget(top_bar)
 
         # 섹션 컬럼 분할 — 5개 섹션을 좌우로 배치해 동시 노출
         split_w = QWidget()
@@ -4612,12 +4633,6 @@ class MainWindow(QMainWindow):
                 split_layout.addWidget(sep)
 
         outer.addWidget(split_w, stretch=1)
-
-        # 하단 홀더 (MC 모드 + 실행 버튼)
-        self._setup_bottom_holder = QWidget()
-        bh_layout = QVBoxLayout(self._setup_bottom_holder)
-        bh_layout.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self._setup_bottom_holder)
 
         return page
 
