@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.03 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.04 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.04 — 설정 패널 퀵 폼 + 전체 섹션 기본 접힘]                       ║
+║  NEW-A  편대·날씨·해역·계절 핵심 드롭다운을 스크롤 위 퀵 폼으로 분리       ║
+║         탐지 정보도 퀵 폼에서 항상 보임. 5개 섹션은 기본 전부 접힘         ║
 ║  [v13.01.03 — 항공자산·방어전술 긴 체크박스 자동 줄바꿈]                    ║
 ║  BUG-1  항공자산·방어전술 섹션의 긴 체크박스 텍스트 우측 잘림 수정          ║
 ║         (_WrapCheckBox: QLabel word-wrap + 클릭 토글 연동)                  ║
@@ -598,7 +601,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.03"
+APP_VERSION = "v13.01.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4699,6 +4702,75 @@ class MainWindow(QMainWindow):
                 cl.addWidget(g)
             return w
 
+        # ── 퀵 폼 (항상 표시: 핵심 설정) ────────────────────────────────
+        _quick = QWidget()
+        _quick.setStyleSheet(
+            f"background:{C_PANEL}; border-bottom:2px solid {C_BORDER};")
+        _qfl = QFormLayout(_quick)
+        _qfl.setContentsMargins(10, 10, 10, 10)
+        _qfl.setSpacing(7)
+        _qfl.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self.cmb_fleet = NoScrollComboBox()
+        self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
+        if _V7_OK:
+            for _i, _n in enumerate(V7_FLEET_PRESETS.keys()):
+                self.cmb_fleet.setItemData(_i, self._friendly_preset_tooltip(_n),
+                                           Qt.ItemDataRole.ToolTipRole)
+        self.lbl_fleet_detail = QLabel()
+        self.lbl_fleet_detail.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
+        self.lbl_fleet_detail.setWordWrap(True)
+        self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
+        _qfl.addRow("아군 편대", self.cmb_fleet)
+        _qfl.addRow("", self.lbl_fleet_detail)
+
+        self.cmb_weather = NoScrollComboBox()
+        self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
+        self.cmb_season = NoScrollComboBox()
+        self.cmb_season.addItems(
+            ['봄 (3~5월)', '여름 (6~9월)', '가을 (10~11월)', '겨울 (12~2월)'])
+        self.cmb_season.setCurrentIndex(1)
+        self.cmb_season.setToolTip(
+            "계절 선택 — 수온약층·대기 굴절·증발 덕팅·고층 바람 CEP에 영향.\n"
+            "봄 (3~5월): 황사 시즌, 수온약층 약함, 제트기류 북상 중\n"
+            "여름 (6~9월): 수온약층 최강, 쿠로시오 수증기 → ISA 굴절 최대\n"
+            "가을 (10~11월): 수온약층 감소 시작, 제트기류 남하 시작\n"
+            "겨울 (12~2월): 수온약층 소멸(서해)/약화(동해), 대륙성 한기 → 굴절 최소"
+        )
+        _ws_row = QWidget()
+        _ws_rl = QHBoxLayout(_ws_row)
+        _ws_rl.setContentsMargins(0, 0, 0, 0)
+        _ws_rl.setSpacing(4)
+        _ws_rl.addWidget(self.cmb_weather, 2)
+        _lbl_s = QLabel("계절")
+        _lbl_s.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
+        _ws_rl.addWidget(_lbl_s)
+        _ws_rl.addWidget(self.cmb_season, 3)
+        _qfl.addRow("날씨", _ws_row)
+
+        self.cmb_region = NoScrollComboBox()
+        self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
+        self.cmb_region.setToolTip(
+            "작전 해역 선택 — 소나 탐지(수온약층)·레이더 음영(지형) 보정에 반영됩니다.\n"
+            "동해 북부: 쓰시마 난류 약화, 북한한류 영향권, 수온약층 강\n"
+            "동해 중부: 쓰시마 난류 주류, 여름 수온약층 최강\n"
+            "서해: 평균수심 44m, 여름 냉수괴(YSCBW), 수온약층 10m부터\n"
+            "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
+        )
+        _qfl.addRow("해역", self.cmb_region)
+
+        self.lbl_detect_info = QLabel()
+        self.lbl_detect_info.setStyleSheet(
+            f"color:{C_ACCENT}; font-size:14px; padding:2px 0;")
+        self.lbl_detect_info.setWordWrap(True)
+        _qfl.addRow("", self.lbl_detect_info)
+
+        self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
+        self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
+        container_layout.addWidget(_quick)
+
         # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
         grp_sc = QGroupBox("🎯 작전 시나리오")
         scl = QVBoxLayout(grp_sc)
@@ -4720,61 +4792,10 @@ class MainWindow(QMainWindow):
         self.btn_apply_scenario.clicked.connect(self._apply_scenario)
         scl.addWidget(self.btn_apply_scenario)
 
-        # ── 아군 편대 기본 (편대 프리셋) ──────────────────────────────────
-        grp_basic = QGroupBox("🔵 아군 편대")
-        fl = QFormLayout(grp_basic)
-        fl.setSpacing(4)
-
-        self.cmb_fleet = NoScrollComboBox()
-        self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
-        if _V7_OK:
-            for _i, _n in enumerate(V7_FLEET_PRESETS.keys()):
-                self.cmb_fleet.setItemData(_i, self._friendly_preset_tooltip(_n),
-                                           Qt.ItemDataRole.ToolTipRole)
-        self.lbl_fleet_detail = QLabel()
-        self.lbl_fleet_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:15px; padding:2px 0;")
-        self.lbl_fleet_detail.setWordWrap(True)
-        self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
-
-        # grp_basic: 편대 프리셋 + 랜덤 배치
-        fl.addRow("편대 프리셋", self.cmb_fleet)
-        fl.addRow("",            self.lbl_fleet_detail)
-        rp_row = QHBoxLayout()
-        lbl_rp = QLabel("함정 위치 랜덤 배치  (반경 10 km 고정)")
-        lbl_rp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        rp_row.addWidget(lbl_rp)
-        fl.addRow("", rp_row)
-
-        # ── 환경 설정 ─────────────────────────────────────────────────────
-        grp_env = QGroupBox("🌍 환경 설정")
+        # ── 환경 세부 옵션 ────────────────────────────────────────────────
+        grp_env = QGroupBox("🌍 환경 세부 옵션")
         fl_env = QFormLayout(grp_env)
         fl_env.setSpacing(4)
-
-        self.cmb_weather = NoScrollComboBox()
-        self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
-        self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
-        self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
-
-        self.cmb_region = NoScrollComboBox()
-        self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
-        self.cmb_region.setToolTip(
-            "작전 해역 선택 — 소나 탐지(수온약층)·레이더 음영(지형) 보정에 반영됩니다.\n"
-            "동해 북부: 쓰시마 난류 약화, 북한한류 영향권, 수온약층 강\n"
-            "동해 중부: 쓰시마 난류 주류, 여름 수온약층 최강\n"
-            "서해: 평균수심 44m, 여름 냉수괴(YSCBW), 수온약층 10m부터\n"
-            "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
-        )
-        self.cmb_season = NoScrollComboBox()
-        self.cmb_season.addItems(['봄 (3~5월)', '여름 (6~9월)', '가을 (10~11월)', '겨울 (12~2월)'])
-        self.cmb_season.setCurrentIndex(1)
-        self.cmb_season.setToolTip(
-            "계절 선택 — 수온약층·대기 굴절·증발 덕팅·고층 바람 CEP에 영향.\n"
-            "봄 (3~5월): 황사 시즌, 수온약층 약함, 제트기류 북상 중\n"
-            "여름 (6~9월): 수온약층 최강, 쿠로시오 수증기 → ISA 굴절 최대\n"
-            "가을 (10~11월): 수온약층 감소 시작, 제트기류 남하 시작\n"
-            "겨울 (12~2월): 수온약층 소멸(서해)/약화(동해), 대륙성 한기 → 굴절 최소"
-        )
         self.chk_terrain = QCheckBox("지형 음영 적용")
         self.chk_terrain.setToolTip(
             "해역별 산맥 레이더 차폐 효과 적용.\n"
@@ -4928,9 +4949,6 @@ class MainWindow(QMainWindow):
                     self.chk_flooding, self.chk_weather_dyn, self.chk_iff]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
 
-        fl_env.addRow("날씨",        self.cmb_weather)
-        fl_env.addRow("작전 해역",   self.cmb_region)
-        fl_env.addRow("계절",        self.cmb_season)
         fl_env.addRow("",            self.chk_terrain)
         fl_env.addRow("",            self.chk_evap_duct)
         fl_env.addRow("",            self.chk_anti_sam)
@@ -4942,7 +4960,6 @@ class MainWindow(QMainWindow):
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
         fl_env.addRow("",            self.chk_iff)
         fl_env.addRow(self._row_strait_label, self.cmb_strait_type)
-        fl_env.addRow("탐지 정보",   self.lbl_detect_info)
 
 
         # ── 적군 편대 (포팅 A) ────────────────────────────────────────────
@@ -5255,11 +5272,11 @@ class MainWindow(QMainWindow):
 
         # ── 섹션 조립 ────────────────────────────────────────────────────
         _sections = [
-            ("기본",     [grp_sc, grp_basic, grp_e], True),
-            ("환경",     [grp_env],                  True),
-            ("방어전술", [grp_def, grp_strike],       False),
-            ("항공자산", [grp_ac],                    False),
-            ("고급",     [grp_t, grp_bmd, grp_cd],   False),
+            ("기본",     [grp_sc, grp_e],            False),
+            ("환경",     [grp_env],                   False),
+            ("방어전술", [grp_def, grp_strike],        False),
+            ("항공자산", [grp_ac],                     False),
+            ("고급",     [grp_t, grp_bmd, grp_cd],    False),
         ]
         for sec_title, groups, expanded in _sections:
             content = _make_content(*groups)
