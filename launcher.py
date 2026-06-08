@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.25 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.27 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.27 — 지상 BMD 자산 재고 스핀박스 제거 (24발 고정)]                 ║
+║  DEL-A  어쇼어 SM-3·THAAD 재고 스핀박스 제거, 24발 고정값 사용             ║
+║  [v13.01.26 — 체크박스 인디케이터 배경을 네이비로 변경]                     ║
+║  BUG-1  인디케이터 배경(#1c2128)이 패널(#161b22)과 동일 → #1e3048 네이비로 ║
 ║  [v13.01.25 — hover 팝업 설명 전면 확충 + 적군 프리셋 팁 보완]              ║
 ║  NEW-A  날씨·해역·계절 팝업 설명을 전술 수치 포함 상세 서술로 확대          ║
 ║  NEW-B  적군 프리셋 팁 누락 14종 추가, 아군 프리셋 팁 모든 항목 상세화      ║
@@ -631,7 +635,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.25"
+APP_VERSION = "v13.01.27"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1046,9 +1050,9 @@ def _wire_chk_color(chk, font_size: int = 13) -> None:
     """체크 여부에 따라 라벨 색상 변경(체크=흰색/미체크=빨간색) + 인디케이터 스타일."""
     _IND = (
         f"QCheckBox::indicator{{width:17px;height:17px;"
-        f"border:2px solid #8b98a5;border-radius:3px;background:#1c2128;}}"
+        f"border:2px solid #7a9ab8;border-radius:3px;background:#1e3048;}}"
         f"QCheckBox::indicator:checked{{background:{C_ACCENT};border-color:{C_ACCENT};}}"
-        f"QCheckBox::indicator:hover{{border-color:{C_ACCENT};background:#252d3a;}}"
+        f"QCheckBox::indicator:hover{{border-color:#a0c0d8;background:#263d56;}}"
         f"QCheckBox::indicator:checked:hover{{background:#5dade2;border-color:#5dade2;}}"
     )
     def _upd(state: int):
@@ -5836,13 +5840,6 @@ class MainWindow(QMainWindow):
         bmdl.addRow("", self.chk_ashore)
         _wire_chk_color(self.chk_ashore, 13)
 
-        self.spn_ashore_sm3 = NoScrollSpinBox()
-        self.spn_ashore_sm3.setRange(4, 48)
-        self.spn_ashore_sm3.setValue(24)
-        self.spn_ashore_sm3.setEnabled(False)
-        self.spn_ashore_sm3.setToolTip("어쇼어 SM-3 Block IIA 재고 (기본 24발).")
-        bmdl.addRow("  어쇼어 SM-3 재고", self.spn_ashore_sm3)
-        self.chk_ashore.toggled.connect(self.spn_ashore_sm3.setEnabled)
 
         self.chk_thaad = QCheckBox("THAAD 연동 (성주 기지)")
         self.chk_thaad.setToolTip(
@@ -5853,13 +5850,6 @@ class MainWindow(QMainWindow):
         bmdl.addRow("", self.chk_thaad)
         _wire_chk_color(self.chk_thaad, 13)
 
-        self.spn_thaad = NoScrollSpinBox()
-        self.spn_thaad.setRange(4, 48)
-        self.spn_thaad.setValue(24)
-        self.spn_thaad.setEnabled(False)
-        self.spn_thaad.setToolTip("THAAD 요격탄 재고 (기본 24발).")
-        bmdl.addRow("  THAAD 요격탄 재고", self.spn_thaad)
-        self.chk_thaad.toggled.connect(self.spn_thaad.setEnabled)
 
         # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
         grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
@@ -7298,9 +7288,9 @@ class MainWindow(QMainWindow):
             'hyunmoo4_stock':  self.spn_hyunmoo4.value(),
             # v9.11: 지상 BMD 자산
             'enable_ashore':   self.chk_ashore.isChecked(),
-            'ashore_sm3_stock': self.spn_ashore_sm3.value() if self.chk_ashore.isChecked() else 0,
+            'ashore_sm3_stock': 24 if self.chk_ashore.isChecked() else 0,
             'enable_thaad':    self.chk_thaad.isChecked(),
-            'thaad_stock':     self.spn_thaad.value() if self.chk_thaad.isChecked() else 0,
+            'thaad_stock':     24 if self.chk_thaad.isChecked() else 0,
             # C&D 시간
             'cd_time_s':      10,
             'confirm_time_s': 3,
