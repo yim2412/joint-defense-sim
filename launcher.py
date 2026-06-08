@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.04 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.05 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.05 — 결과 패널 토글 (기본 숨김, 아이콘 클릭 시 열림)]              ║
+║  NEW-A  결과 패널 기본 숨김. 토글 스트립(▶/◀) 클릭으로 열기·닫기           ║
+║         시뮬 실행 완료 시 결과 패널 자동 열림                               ║
 ║  [v13.01.04 — 설정 패널 퀵 폼 + 전체 섹션 기본 접힘]                       ║
 ║  NEW-A  편대·날씨·해역·계절 핵심 드롭다운을 스크롤 위 퀵 폼으로 분리       ║
 ║         탐지 정보도 퀵 폼에서 항상 보임. 5개 섹션은 기본 전부 접힘         ║
@@ -601,7 +604,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.04"
+APP_VERSION = "v13.01.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4501,13 +4504,31 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(2)
-        root.addWidget(splitter)
+        root.addWidget(self._build_config_panel())
 
-        splitter.addWidget(self._build_config_panel())
-        splitter.addWidget(self._build_result_panel())
-        splitter.setSizes([430, 1070])
+        # 결과 패널 토글 스트립 (항상 표시)
+        toggle_strip = QWidget()
+        toggle_strip.setFixedWidth(20)
+        toggle_strip.setStyleSheet(f"background:{C_PANEL}; border-left:1px solid {C_BORDER};")
+        ts_layout = QVBoxLayout(toggle_strip)
+        ts_layout.setContentsMargins(0, 0, 0, 0)
+        self._btn_result_toggle = QPushButton("▶")
+        self._btn_result_toggle.setFixedSize(20, 60)
+        self._btn_result_toggle.setStyleSheet(
+            f"QPushButton {{ background:{C_ACCENT}; color:{C_TEXT}; border:none;"
+            f" font-size:10px; font-weight:bold; border-radius:0; }}"
+            f"QPushButton:hover {{ background:#2a7ab5; }}"
+        )
+        self._btn_result_toggle.setToolTip("결과 패널 열기/닫기")
+        self._btn_result_toggle.clicked.connect(self._toggle_result_panel)
+        ts_layout.addStretch()
+        ts_layout.addWidget(self._btn_result_toggle)
+        ts_layout.addStretch()
+        root.addWidget(toggle_strip)
+
+        self._result_widget = self._build_result_panel()
+        self._result_widget.hide()
+        root.addWidget(self._result_widget, stretch=1)
 
         # 상태바
         self.status = QStatusBar()
@@ -4530,6 +4551,12 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
+
+    def _toggle_result_panel(self):
+        visible = not self._result_widget.isVisible()
+        self._result_widget.setVisible(visible)
+        self._btn_result_toggle.setText("◀" if visible else "▶")
+        self._btn_result_toggle.setToolTip("결과 패널 닫기" if visible else "결과 패널 열기")
 
     def _open_log_file(self):
         try:
@@ -7102,6 +7129,10 @@ class MainWindow(QMainWindow):
 
     def _update_cards(self, result: dict, mc: dict):
         self._result_outer_stack.setCurrentIndex(1)
+        if not self._result_widget.isVisible():
+            self._result_widget.show()
+            self._btn_result_toggle.setText("◀")
+            self._btn_result_toggle.setToolTip("결과 패널 닫기")
         self._cards['intercept'].setText(f"{mc['mean_intercept']:.1%}")
         self._cards['intercept'].setStyleSheet(
             f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
