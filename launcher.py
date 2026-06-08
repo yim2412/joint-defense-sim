@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.05 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.06 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.02.06 — LHS·스트레스 테스트 중단 + CPU 급감]                          ║
+║  BUG-1  LHS·스트레스 테스트 구간에 중단 체크 추가 (콜백 경유 즉시 탈출)     ║
+║  BUG-2  배치당 최대 50개로 축소 — 취소 후 남은 서브프로세스 CPU 부하 최소화 ║
 ║  [v13.02.05 — 중단 버튼 실제 미중단 수정]                                   ║
 ║  BUG-1  as_completed() 블로킹으로 배치 완료까지 중단 체크 불가 →             ║
 ║         cf_wait(timeout=0.5) 폴링으로 교체, 0.5초 내 반응                   ║
@@ -653,7 +656,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.02.05"
+APP_VERSION = "v13.02.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2265,6 +2268,10 @@ class HeatmapWorker(QThread):
             self.error.emit(str(e))
 
 
+class _SimCancelled(BaseException):
+    """중단 요청 전파용 — except Exception에 잡히지 않도록 BaseException 상속."""
+
+
 class SimWorker(QThread):
     progress        = pyqtSignal(str)
     progress_detail = pyqtSignal(int, int, float)  # (현재, 전체, ETA초)
@@ -2344,7 +2351,8 @@ class SimWorker(QThread):
                     mc = monte_carlo_v7(self.cfg, n=self.mc_n)
             else:
                 # 멀티프로세싱 병렬 MC
-                batch_size = max(10, self.mc_n // n_cores)
+                # 배치당 최대 50개 — 취소 시 실행 중 서브프로세스 수×크기 최소화
+                batch_size = max(10, min(50, self.mc_n // n_cores))
                 batches, seed_offset = [], 0
                 while seed_offset < self.mc_n:
                     actual = min(batch_size, self.mc_n - seed_offset)
@@ -2374,8 +2382,7 @@ class SimWorker(QThread):
                             f.cancel()
                         if _own:
                             pool.shutdown(wait=False)
-                        self.cancelled.emit()
-                        return
+                        raise _SimCancelled()
                     done_futs, remaining = cf_wait(remaining, timeout=0.5,
                                                    return_when=FIRST_COMPLETED)
                     for fut in done_futs:
@@ -2436,12 +2443,16 @@ class SimWorker(QThread):
             # 빠름=1,000  표준=2,000  정밀=10,000
             lhs_result = {}
             if _V7_OK:
+                if self.isInterruptionRequested():
+                    raise _SimCancelled()
                 lhs_n_map  = {5_000: 1_000, 10_000: 2_000, 100_000: 10_000}
                 lhs_n      = lhs_n_map.get(self.mc_n, 2_000)
                 self.progress.emit(f"LHS 파라미터 불확실성 분석 중... ({lhs_n:,}회)")
                 lhs_t0 = time.time()
 
                 def _lhs_cb(done, total):
+                    if self.isInterruptionRequested():
+                        raise _SimCancelled()
                     if done % max(1, total // 10) == 0:
                         ela = time.time() - lhs_t0
                         eta = ela / done * (total - done) if done > 0 else 0
@@ -2449,12 +2460,16 @@ class SimWorker(QThread):
 
                 try:
                     lhs_result = monte_carlo_lhs(self.cfg, n=lhs_n, progress_cb=_lhs_cb)
+                except _SimCancelled:
+                    raise
                 except Exception as ex:
                     lhs_result = {'error': str(ex)}
 
             # ── 스트레스 테스트 (모든 모드, n_per_cell 가변) ─────────────────
             stress_result = {}
             if _V7_OK:
+                if self.isInterruptionRequested():
+                    raise _SimCancelled()
                 n_cell_map = {5_000: 300, 10_000: 500, 100_000: 3_000}
                 n_per_cell = n_cell_map.get(self.mc_n, 500)
                 total_stress = len(STRESS_DIMS['channel_degrade']['values']) * \
@@ -2462,11 +2477,15 @@ class SimWorker(QThread):
                 self.progress.emit(f"스트레스 테스트 중... (셀당 {n_per_cell}회, 총 {total_stress}셀)")
 
                 def _stress_cb(done, total):
+                    if self.isInterruptionRequested():
+                        raise _SimCancelled()
                     self.progress.emit(f"스트레스 테스트 {done}/{total} 셀 완료")
 
                 try:
                     stress_result = stress_test_grid(
                         self.cfg, n_per_cell=n_per_cell, progress_cb=_stress_cb)
+                except _SimCancelled:
+                    raise
                 except Exception as ex:
                     stress_result = {'error': str(ex)}
 
@@ -2510,6 +2529,8 @@ class SimWorker(QThread):
             # v8.26: 이전 실행 결과 캐싱 (델타 비교용)
             SimWorker._last_intercept_rate = mc.get('mean_intercept', -1.0)
             self.finished.emit(result, mc)
+        except _SimCancelled:
+            self.cancelled.emit()
         except Exception as e:
             self.error.emit(str(e))
         finally:
