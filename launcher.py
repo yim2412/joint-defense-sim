@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.04 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.05 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.02.05 — 중단 버튼 실제 미중단 수정]                                   ║
+║  BUG-1  as_completed() 블로킹으로 배치 완료까지 중단 체크 불가 →             ║
+║         cf_wait(timeout=0.5) 폴링으로 교체, 0.5초 내 반응                   ║
 ║  [v13.02.04 — 중단 버튼 클릭 후 UI가 초기화되지 않던 문제 해결]             ║
 ║  BUG-1  cancelled 시그널 + try/finally로 중단 시 btn_run 재활성화·팝업 닫힘 ║
 ║  [v13.02.03 — 시뮬 진행 콜백 last_log tuple → str 수정]                    ║
@@ -646,11 +649,11 @@
 """
 
 import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp, traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wait, FIRST_COMPLETED
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.02.04"
+APP_VERSION = "v13.02.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2363,36 +2366,41 @@ class SimWorker(QThread):
                 _phase_acc: dict = {}   # v8.26: 배치별 단계 타이밍 누적
                 _extra_acc: dict = {}   # v12.4·v12.6: 침수·IFF 통계 누적
                 futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
-                for fut in as_completed(futs):
+                # 0.5초마다 중단 체크 — as_completed()는 배치 완료까지 블로킹되어 즉시 반응 불가
+                remaining = set(futs)
+                while remaining:
                     if self.isInterruptionRequested():
-                        for f in futs:
+                        for f in remaining:
                             f.cancel()
                         if _own:
                             pool.shutdown(wait=False)
                         self.cancelled.emit()
                         return
-                    rates, fh, ed, fl, cs, wu, sh, wz, pt, xs = fut.result()
-                    all_rates.extend(rates);  all_f_hits.extend(fh)
-                    all_e_dest.extend(ed);    all_f_lost.extend(fl)
-                    all_costs.extend(cs)
-                    for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
-                    for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
-                    for k, v in wz.items(): all_wzero[k] = all_wzero.get(k, 0) + v
-                    for k, v in pt.items(): _phase_acc[k] = _phase_acc.get(k, 0.0) + v
-                    for k, v in xs.items(): _extra_acc.setdefault(k, []).extend(v)
-                    done_count += len(rates)
-                    batch_done_n += 1
-                    self.batch_done.emit(batch_done_n, len(batches))
-                    _cb(done_count, self.mc_n)
-                    if all_rates:
-                        self.rate_update.emit(
-                            float(np.mean(all_rates)),
-                            float(np.mean(all_e_dest)) if all_e_dest else 0.0,
-                            float(np.mean(all_f_hits)) if all_f_hits else 0.0,
-                        )
-                    if _phase_acc:
-                        _n_b = max(batch_done_n, 1)
-                        self.phase_update.emit({k: v / _n_b for k, v in _phase_acc.items()})
+                    done_futs, remaining = cf_wait(remaining, timeout=0.5,
+                                                   return_when=FIRST_COMPLETED)
+                    for fut in done_futs:
+                        rates, fh, ed, fl, cs, wu, sh, wz, pt, xs = fut.result()
+                        all_rates.extend(rates);  all_f_hits.extend(fh)
+                        all_e_dest.extend(ed);    all_f_lost.extend(fl)
+                        all_costs.extend(cs)
+                        for k, v in wu.items(): all_weapon.setdefault(k, []).extend(v)
+                        for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
+                        for k, v in wz.items(): all_wzero[k] = all_wzero.get(k, 0) + v
+                        for k, v in pt.items(): _phase_acc[k] = _phase_acc.get(k, 0.0) + v
+                        for k, v in xs.items(): _extra_acc.setdefault(k, []).extend(v)
+                        done_count += len(rates)
+                        batch_done_n += 1
+                        self.batch_done.emit(batch_done_n, len(batches))
+                        _cb(done_count, self.mc_n)
+                        if all_rates:
+                            self.rate_update.emit(
+                                float(np.mean(all_rates)),
+                                float(np.mean(all_e_dest)) if all_e_dest else 0.0,
+                                float(np.mean(all_f_hits)) if all_f_hits else 0.0,
+                            )
+                        if _phase_acc:
+                            _n_b = max(batch_done_n, 1)
+                            self.phase_update.emit({k: v / _n_b for k, v in _phase_acc.items()})
                 if _own:
                     pool.shutdown(wait=False)
 
