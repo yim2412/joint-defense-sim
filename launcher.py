@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v12.08.04 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.01 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.01 — 설정 패널 아코디언 5섹션 + 결과 패널 스택·카드 개선]          ║
+║  NEW-A  설정 패널을 기본/환경/방어전술/항공자산/고급 5개 접이식 섹션으로 재편║
+║  NEW-B  결과 패널에 실행 전 플레이스홀더 추가 (QStackedWidget)              ║
+║  NEW-C  카드 높이 72→80px, 폰트 17→18pt, Export 버튼 카드 행 통합          ║
 ║  [v12.08.04 — 향후 계획에서 CI 항목 제거 (1인 단일 PC, 로컬 회귀로 충분)]  ║
 ║  [v12.08.03 — 향후 계획 v12.7 항목 현행화 (SoA 완료·numpy 폐기 반영)]      ║
 ║  [v12.08.02 — MC 3경로 침수·IFF 통계 누락 수정 (CLAUDE.md 규칙 보완)]      ║
@@ -588,7 +592,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v12.08.04"
+APP_VERSION = "v13.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3130,6 +3134,39 @@ class AccordionSidebar(QWidget):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  설정 패널 아코디언 섹션 헤더
+# ════════════════════════════════════════════════════════════════════════════
+class _CfgSectionHeader(QPushButton):
+    """설정 패널 클릭 접이식 섹션 헤더."""
+    def __init__(self, title: str, content: QWidget, expanded: bool = True):
+        super().__init__()
+        self._content = content
+        self._expanded = expanded
+        self._title = title
+        self.setFlat(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(30)
+        self.setStyleSheet(
+            f"QPushButton {{ background:#1a2332; color:{C_TEXT}; "
+            f"border:none; border-top:1px solid {C_BORDER}; "
+            f"font-size:12px; font-weight:bold; "
+            f"text-align:left; padding:0 10px; letter-spacing:1px; }}"
+            f"QPushButton:hover {{ background:#1f2d40; }}"
+        )
+        self._refresh()
+        self.clicked.connect(self._toggle)
+
+    def _toggle(self):
+        self._expanded = not self._expanded
+        self._content.setVisible(self._expanded)
+        self._refresh()
+
+    def _refresh(self):
+        arrow = "▼" if self._expanded else "▶"
+        self.setText(f"  {arrow}   {self._title}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  시스템 모니터 탭
 # ════════════════════════════════════════════════════════════════════════════
 class SysMonitorTab(QWidget):
@@ -4601,7 +4638,6 @@ class MainWindow(QMainWindow):
         self._lbl_status.setText(f"🎯 '{name}' 시나리오 적용 완료")
 
     def _build_config_panel(self) -> QWidget:
-        # 컨테이너: 스크롤(위) + 고정 하단(모드·실행버튼)으로 구성
         container = QWidget()
         container.setFixedWidth(430)
         container.setStyleSheet(f"background: {C_PANEL};")
@@ -4617,15 +4653,18 @@ class MainWindow(QMainWindow):
         inner = QWidget()
         inner.setStyleSheet(f"background: {C_PANEL};")
         layout = QVBoxLayout(inner)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 타이틀
-        title = QLabel("⚓ 이지스 기동전단\n통합 방어 시뮬레이터")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFont(QFont('Malgun Gothic', 17, QFont.Weight.Bold))
-        title.setStyleSheet(f"color:{C_ACCENT}; padding: 8px 0;")
-        layout.addWidget(title)
+        def _make_content(*groups) -> QWidget:
+            w = QWidget()
+            w.setStyleSheet(f"background:{C_PANEL};")
+            cl = QVBoxLayout(w)
+            cl.setContentsMargins(8, 4, 8, 8)
+            cl.setSpacing(5)
+            for g in groups:
+                cl.addWidget(g)
+            return w
 
         # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
         grp_sc = QGroupBox("🎯 작전 시나리오")
@@ -4647,35 +4686,43 @@ class MainWindow(QMainWindow):
         self.btn_apply_scenario.setEnabled(False)
         self.btn_apply_scenario.clicked.connect(self._apply_scenario)
         scl.addWidget(self.btn_apply_scenario)
-        layout.addWidget(grp_sc)
 
-        # ── 아군 편대 ──────────────────────────────────────────────────────
-        grp_f = QGroupBox("🔵 아군 편대")
-        fl = QFormLayout(grp_f)
+        # ── 아군 편대 기본 (편대 프리셋) ──────────────────────────────────
+        grp_basic = QGroupBox("🔵 아군 편대")
+        fl = QFormLayout(grp_basic)
         fl.setSpacing(4)
 
-        self.cmb_fleet   = NoScrollComboBox()
+        self.cmb_fleet = NoScrollComboBox()
         self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
         if _V7_OK:
             for _i, _n in enumerate(V7_FLEET_PRESETS.keys()):
                 self.cmb_fleet.setItemData(_i, self._friendly_preset_tooltip(_n),
                                            Qt.ItemDataRole.ToolTipRole)
-        self.cmb_weather = NoScrollComboBox()
-        self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
         self.lbl_fleet_detail = QLabel()
         self.lbl_fleet_detail.setStyleSheet(
             f"color:{C_SUBTEXT}; font-size:15px; padding:2px 0;")
         self.lbl_fleet_detail.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
 
-        self.lbl_detect_info = QLabel()
-        self.lbl_detect_info.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:15px; padding:2px 0;")
-        self.lbl_detect_info.setWordWrap(True)
+        # grp_basic: 편대 프리셋 + 랜덤 배치
+        fl.addRow("편대 프리셋", self.cmb_fleet)
+        fl.addRow("",            self.lbl_fleet_detail)
+        rp_row = QHBoxLayout()
+        lbl_rp = QLabel("함정 위치 랜덤 배치  (반경 10 km 고정)")
+        lbl_rp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        rp_row.addWidget(lbl_rp)
+        fl.addRow("", rp_row)
+
+        # ── 환경 설정 ─────────────────────────────────────────────────────
+        grp_env = QGroupBox("🌍 환경 설정")
+        fl_env = QFormLayout(grp_env)
+        fl_env.setSpacing(4)
+
+        self.cmb_weather = NoScrollComboBox()
+        self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
 
-        # v9.12: 작전 해역 / 계절 드롭다운
         self.cmb_region = NoScrollComboBox()
         self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
         self.cmb_region.setToolTip(
@@ -4687,7 +4734,7 @@ class MainWindow(QMainWindow):
         )
         self.cmb_season = NoScrollComboBox()
         self.cmb_season.addItems(['봄 (3~5월)', '여름 (6~9월)', '가을 (10~11월)', '겨울 (12~2월)'])
-        self.cmb_season.setCurrentIndex(1)  # 기본값: 여름
+        self.cmb_season.setCurrentIndex(1)
         self.cmb_season.setToolTip(
             "계절 선택 — 수온약층·대기 굴절·증발 덕팅·고층 바람 CEP에 영향.\n"
             "봄 (3~5월): 황사 시즌, 수온약층 약함, 제트기류 북상 중\n"
@@ -4704,7 +4751,7 @@ class MainWindow(QMainWindow):
         )
         self.chk_terrain.setChecked(True)
 
-        # v10.8: 해류 연동
+        # v10.8: 해류 연동 (UI 미노출 — ocean_environment_db 필요)
         self.chk_current = QCheckBox("해류 연동  (ocean_environment_db 해류 벡터 적용)")
         self.chk_current.setChecked(False)
         self.chk_current.setToolTip(
@@ -4756,7 +4803,7 @@ class MainWindow(QMainWindow):
         )
         self.chk_png.setChecked(False)
 
-        # v12.3: dB 소나 방정식 — 잠수함 탐지를 음향 전파 물리로 대체
+        # v12.3: dB 소나 방정식
         self.chk_sonar_eq = QCheckBox("dB 소나 방정식 잠수함 탐지")
         self.chk_sonar_eq.setToolTip(
             "v12.3 — 잠수함 탐지를 곱셈식 사거리 휴리스틱 대신\n"
@@ -4767,7 +4814,7 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_eq.setChecked(True)
 
-        # v12.4: 동적 침수·복원력 — 정적 HP 즉사 위에 침수 침몰 레이어 추가
+        # v12.4: 동적 침수·복원력
         self.chk_flooding = QCheckBox("함정 침수·복원력 모델")
         self.chk_flooding.setToolTip(
             "v12.4 — 함정 피해를 즉사 HP 대신 동적 침수로 시뮬합니다.\n"
@@ -4833,36 +4880,36 @@ class MainWindow(QMainWindow):
             self._row_strait_label.setVisible(visible)
             self.cmb_strait_type.setVisible(visible)
             if visible:
-                self.chk_terrain.setChecked(True)   # 소백산맥 음영 자동 활성화
+                self.chk_terrain.setChecked(True)
 
         self.cmb_region.currentTextChanged.connect(_on_region_changed)
         _on_region_changed(self.cmb_region.currentText())
 
-        fl.addRow("편대 프리셋", self.cmb_fleet)
-        fl.addRow("",            self.lbl_fleet_detail)
-        fl.addRow("날씨",        self.cmb_weather)
-        fl.addRow("작전 해역",   self.cmb_region)
-        fl.addRow("계절",        self.cmb_season)
-        fl.addRow("",            self.chk_terrain)
-        fl.addRow("",            self.chk_evap_duct)
-        fl.addRow("",            self.chk_anti_sam)
-        fl.addRow("",            self.chk_isa)
-        fl.addRow("",            self.chk_png)
-        fl.addRow("",            self.chk_sonar_eq)
-        fl.addRow("",            self.chk_flooding)
-        fl.addRow("",            self.chk_weather_dyn)
-        fl.addRow("기상 추세",   self.cmb_weather_trend)
-        fl.addRow("",            self.chk_iff)
-        fl.addRow(self._row_strait_label, self.cmb_strait_type)
-        fl.addRow("탐지 정보",   self.lbl_detect_info)
+        self.lbl_detect_info = QLabel()
+        self.lbl_detect_info.setStyleSheet(
+            f"color:{C_ACCENT}; font-size:15px; padding:2px 0;")
+        self.lbl_detect_info.setWordWrap(True)
 
-        # 랜덤 배치 — 항상 활성화 (반경 10km 고정)
-        rp_row = QHBoxLayout()
-        lbl_rp = QLabel("함정 위치 랜덤 배치  (반경 10 km 고정)")
-        lbl_rp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
-        rp_row.addWidget(lbl_rp)
-        fl.addRow("", rp_row)
-        layout.addWidget(grp_f)
+        for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
+                    self.chk_isa, self.chk_png, self.chk_sonar_eq,
+                    self.chk_flooding, self.chk_weather_dyn, self.chk_iff]:
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+
+        fl_env.addRow("날씨",        self.cmb_weather)
+        fl_env.addRow("작전 해역",   self.cmb_region)
+        fl_env.addRow("계절",        self.cmb_season)
+        fl_env.addRow("",            self.chk_terrain)
+        fl_env.addRow("",            self.chk_evap_duct)
+        fl_env.addRow("",            self.chk_anti_sam)
+        fl_env.addRow("",            self.chk_isa)
+        fl_env.addRow("",            self.chk_png)
+        fl_env.addRow("",            self.chk_sonar_eq)
+        fl_env.addRow("",            self.chk_flooding)
+        fl_env.addRow("",            self.chk_weather_dyn)
+        fl_env.addRow("기상 추세",   self.cmb_weather_trend)
+        fl_env.addRow("",            self.chk_iff)
+        fl_env.addRow(self._row_strait_label, self.cmb_strait_type)
+        fl_env.addRow("탐지 정보",   self.lbl_detect_info)
 
 
         # ── 적군 편대 (포팅 A) ────────────────────────────────────────────
@@ -4931,8 +4978,6 @@ class MainWindow(QMainWindow):
                 self._update_difficulty_tooltip(self.cmb_difficulty.currentText())
             if self.cmb_mixed_scenario.count():
                 self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
-        layout.addWidget(grp_e)
-
         # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
         grp_t = QGroupBox("⚙️ 전술 옵션")
         tl = QVBoxLayout(grp_t)
@@ -4946,9 +4991,6 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]:
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             tl.addWidget(chk)
-
-        grp_t.hide()
-        layout.addWidget(grp_t)
 
         # ── 항공 자산 (포팅 C + v10.5 CAP) ──────────────────────────────────
         grp_ac = QGroupBox("✈️ 항공 자산")
@@ -4981,9 +5023,6 @@ class MainWindow(QMainWindow):
             chk.setChecked(False)
             chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
             acl.addWidget(chk)
-
-        grp_ac.hide()
-        layout.addWidget(grp_ac)
 
         # ── 방어 전술 옵션 ─────────────────────────────────────────────────
         grp_def = QGroupBox("🛡️ 방어 전술")
@@ -5102,9 +5141,6 @@ class MainWindow(QMainWindow):
         seed_row.addWidget(self.spn_sim_seed)
         defl.addLayout(seed_row)
 
-        grp_def.hide()
-        layout.addWidget(grp_def)
-
         # ── 공격 임무 옵션 (v9.3) ─────────────────────────────────────────────
         grp_strike = QGroupBox("⚔️ 공격 임무 (아군 대함 공격)")
         strl = QFormLayout(grp_strike)
@@ -5138,9 +5174,6 @@ class MainWindow(QMainWindow):
             "60초 간격으로 1발씩 발사 (재보급 준비 시간)."
         )
         strl.addRow("현무-4 재고 (지상 발사)", self.spn_hyunmoo4)
-
-        grp_strike.hide()
-        layout.addWidget(grp_strike)
 
         # v9.11: 이지스 어쇼어 + THAAD 지상 BMD
         grp_bmd = QGroupBox("🛡 지상 BMD 자산")
@@ -5179,9 +5212,6 @@ class MainWindow(QMainWindow):
         bmdl.addRow("  THAAD 요격탄 재고", self.spn_thaad)
         self.chk_thaad.toggled.connect(self.spn_thaad.setEnabled)
 
-        layout.addWidget(grp_bmd)
-
-
         # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
         grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
         cdl = QHBoxLayout(grp_cd)
@@ -5189,7 +5219,21 @@ class MainWindow(QMainWindow):
         lbl_cd_fixed = QLabel("C&&D  10초  /  확인  3초  (고정)")
         lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
         cdl.addWidget(lbl_cd_fixed)
-        layout.addWidget(grp_cd)
+
+        # ── 섹션 조립 ────────────────────────────────────────────────────
+        _sections = [
+            ("기본",     [grp_sc, grp_basic, grp_e], True),
+            ("환경",     [grp_env],                  True),
+            ("방어전술", [grp_def, grp_strike],       False),
+            ("항공자산", [grp_ac],                    False),
+            ("고급",     [grp_t, grp_bmd, grp_cd],   False),
+        ]
+        for sec_title, groups, expanded in _sections:
+            content = _make_content(*groups)
+            content.setVisible(expanded)
+            hdr = _CfgSectionHeader(sec_title, content, expanded)
+            layout.addWidget(hdr)
+            layout.addWidget(content)
 
         # ── 시뮬레이션 모드 선택 ─────────────────────────────────────────────
         grp_mc = QGroupBox("📊 시뮬레이션 모드")
@@ -5310,9 +5354,30 @@ class MainWindow(QMainWindow):
         return container
 
     def _build_result_panel(self) -> QWidget:
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self._result_outer_stack = QStackedWidget()
+
+        # 페이지 0: 실행 전 플레이스홀더
+        _placeholder = QWidget()
+        _ph_layout = QVBoxLayout(_placeholder)
+        _ph_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _ph_lbl = QLabel("시뮬레이션을 실행하면 결과가 여기에 표시됩니다")
+        _ph_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _ph_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:16px;")
+        _ph_layout.addWidget(_ph_lbl)
+        self._result_outer_stack.addWidget(_placeholder)  # index 0
+
+        # 페이지 1: 결과 패널
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        self._result_outer_stack.addWidget(panel)  # index 1
+        outer_layout.addWidget(self._result_outer_stack, stretch=1)
 
         # 핵심 지표 카드 영역
         self.card_row = QWidget()
@@ -5332,15 +5397,34 @@ class MainWindow(QMainWindow):
         ]
         for label, key in card_defs:
             card = QGroupBox(label)
-            card.setFixedHeight(72)
+            card.setFixedHeight(80)
             cl = QVBoxLayout(card)
             lbl = QLabel("—")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setFont(QFont('Malgun Gothic', 17, QFont.Weight.Bold))
+            lbl.setFont(QFont('Malgun Gothic', 18, QFont.Weight.Bold))
             lbl.setStyleSheet(f"color:{C_ACCENT};")
             cl.addWidget(lbl)
             card_layout.addWidget(card)
             self._cards[key] = lbl
+
+        # Export 버튼 + 시드 레이블을 카드 행 우측에 통합
+        card_layout.addStretch()
+        self.btn_excel = QPushButton("📊 Excel")
+        self.btn_pdf   = QPushButton("📄 PDF")
+        for b in [self.btn_excel, self.btn_pdf]:
+            b.setFixedHeight(36)
+            b.setStyleSheet(
+                f"background:{C_PANEL}; color:{C_TEXT}; "
+                f"border:1px solid #3a5a7a; font-size:14px; padding:0 8px;")
+        self.btn_excel.clicked.connect(self._export_excel)
+        self.btn_pdf.clicked.connect(self._export_pdf)
+        card_layout.addWidget(self.btn_excel)
+        card_layout.addWidget(self.btn_pdf)
+
+        self._lbl_seed_used = QLabel("")
+        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        card_layout.addSpacing(4)
+        card_layout.addWidget(self._lbl_seed_used)
 
         layout.addWidget(self.card_row)
 
@@ -5362,31 +5446,6 @@ class MainWindow(QMainWindow):
         notice_rl.addWidget(self._lbl_vls_warn)
         notice_rl.addStretch()
         layout.addWidget(notice_row)
-
-        # 내보내기 버튼 행
-        export_row = QWidget()
-        export_rl  = QHBoxLayout(export_row)
-        export_rl.setContentsMargins(12, 4, 12, 0)
-        export_rl.setSpacing(6)
-        export_rl.addStretch()
-        self.btn_excel = QPushButton("📊 Excel 보고서")
-        self.btn_pdf   = QPushButton("📄 PDF 보고서")
-        for b in [self.btn_excel, self.btn_pdf]:
-            b.setFixedHeight(28)
-            b.setStyleSheet(
-                f"background:{C_PANEL}; color:{C_TEXT}; "
-                f"border:1px solid #3a5a7a; font-size:15px; padding:0 8px;")
-        self.btn_excel.clicked.connect(self._export_excel)
-        self.btn_pdf.clicked.connect(self._export_pdf)
-        export_rl.addWidget(self.btn_excel)
-        export_rl.addWidget(self.btn_pdf)
-
-        # 시드 표시 레이블 (재현용)
-        self._lbl_seed_used = QLabel("")
-        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
-        export_rl.addSpacing(12)
-        export_rl.addWidget(self._lbl_seed_used)
-        layout.addWidget(export_row)
 
         # ── 사이드바 + QStackedWidget ─────────────────────────────────────
         self.tab_engagement  = EngagementAnalysisTab()
@@ -5470,7 +5529,7 @@ class MainWindow(QMainWindow):
         # 지연 렌더링 dirty 집합 초기화
         self._page_dirty: set = set()
 
-        return panel
+        return outer
 
     def _on_page_changed(self, idx: int):
         """사이드바 선택 시 200ms 디바운스 후 지연 렌더링 (BUG-1)."""
@@ -6992,6 +7051,7 @@ class MainWindow(QMainWindow):
     # ── 결과 렌더링 ──────────────────────────────────────────────────────────
 
     def _update_cards(self, result: dict, mc: dict):
+        self._result_outer_stack.setCurrentIndex(1)
         self._cards['intercept'].setText(f"{mc['mean_intercept']:.1%}")
         self._cards['intercept'].setStyleSheet(
             f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
@@ -8450,13 +8510,6 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            # 런처 폴리싱 먼저(quick win) → 대형 시각화는 뒤로
-            ("v13.1", "높음", "실행 화면 전면 레이아웃 재설계",
-             "시뮬레이터 실행 화면의 정보 구조를 전면 재설계. 설정·결과 영역의 화면 비율과 빈 공간을 정리하고, "
-             "시뮬레이션 실행 전/후 화면 상태를 분리(실행 전 안내·요약 → 실행 후 지표·차트 표시). "
-             "설정 옵션을 기본·환경·방어전술·항공자산·고급 5개 묶음으로 명확히 그룹화. "
-             "핵심 지표 카드·표·차트의 타이포 위계·여백·강조색·구분선 체계 정비, 다크 테마 대비 일관성 향상. "
-             "결과·DB·향후 계획 탭 전반에 통일된 디자인 언어 적용 (레이아웃 재구성 + 가독성 폴리싱 통합)."),
             ("v13.2", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
              "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
