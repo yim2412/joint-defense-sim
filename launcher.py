@@ -4660,7 +4660,7 @@ class MainWindow(QMainWindow):
             w = QWidget()
             w.setStyleSheet(f"background:{C_PANEL};")
             cl = QVBoxLayout(w)
-            cl.setContentsMargins(8, 4, 8, 8)
+            cl.setContentsMargins(4, 4, 4, 8)
             cl.setSpacing(5)
             for g in groups:
                 cl.addWidget(g)
@@ -5398,6 +5398,7 @@ class MainWindow(QMainWindow):
         for label, key in card_defs:
             card = QGroupBox(label)
             card.setFixedHeight(80)
+            card.setMinimumWidth(90)
             cl = QVBoxLayout(card)
             lbl = QLabel("—")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -5407,31 +5408,12 @@ class MainWindow(QMainWindow):
             card_layout.addWidget(card)
             self._cards[key] = lbl
 
-        # Export 버튼 + 시드 레이블을 카드 행 우측에 통합
-        card_layout.addStretch()
-        self.btn_excel = QPushButton("📊 Excel")
-        self.btn_pdf   = QPushButton("📄 PDF")
-        for b in [self.btn_excel, self.btn_pdf]:
-            b.setFixedHeight(36)
-            b.setStyleSheet(
-                f"background:{C_PANEL}; color:{C_TEXT}; "
-                f"border:1px solid #3a5a7a; font-size:14px; padding:0 8px;")
-        self.btn_excel.clicked.connect(self._export_excel)
-        self.btn_pdf.clicked.connect(self._export_pdf)
-        card_layout.addWidget(self.btn_excel)
-        card_layout.addWidget(self.btn_pdf)
-
-        self._lbl_seed_used = QLabel("")
-        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
-        card_layout.addSpacing(4)
-        card_layout.addWidget(self._lbl_seed_used)
-
         layout.addWidget(self.card_row)
 
-        # Pk 추정값 경고 + VLS 소진 경고
+        # Pk 경고 + VLS 경고 + Export 버튼 + 시드 레이블 (한 행)
         notice_row = QWidget()
         notice_rl  = QHBoxLayout(notice_row)
-        notice_rl.setContentsMargins(12, 0, 12, 0)
+        notice_rl.setContentsMargins(12, 2, 12, 0)
         notice_rl.setSpacing(12)
 
         lbl_pk_note = QLabel(
@@ -5445,6 +5427,24 @@ class MainWindow(QMainWindow):
             f"color:{C_RED}; font-size:11px; font-weight:bold;")
         notice_rl.addWidget(self._lbl_vls_warn)
         notice_rl.addStretch()
+
+        self.btn_excel = QPushButton("📊 Excel 보고서")
+        self.btn_pdf   = QPushButton("📄 PDF 보고서")
+        for b in [self.btn_excel, self.btn_pdf]:
+            b.setFixedHeight(26)
+            b.setStyleSheet(
+                f"background:{C_PANEL}; color:{C_TEXT}; "
+                f"border:1px solid #3a5a7a; font-size:14px; padding:0 8px;")
+        self.btn_excel.clicked.connect(self._export_excel)
+        self.btn_pdf.clicked.connect(self._export_pdf)
+        notice_rl.addWidget(self.btn_excel)
+        notice_rl.addWidget(self.btn_pdf)
+
+        self._lbl_seed_used = QLabel("")
+        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        notice_rl.addSpacing(8)
+        notice_rl.addWidget(self._lbl_seed_used)
+
         layout.addWidget(notice_row)
 
         # ── 사이드바 + QStackedWidget ─────────────────────────────────────
