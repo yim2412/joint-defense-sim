@@ -1,11 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.13 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.14 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.13 — 콤보박스 → 리스트·토글버튼으로 교체, 빈 공간 채움]            ║
-║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
-║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
-║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
+║  [v13.01.14 — 스크롤 제거: 전술옵션·항공자산 2열 그리드, 앱 최대화 시작]    ║
+║  NEW-A  전술 옵션(ECM·회피·기만·자체방어) 2열 그리드로 변경                 ║
+║  NEW-B  항공 자산 6종 2열 그리드로 변경 (툴팁으로 상세 설명 제공)           ║
+║  NEW-C  앱 시작 시 최대화 창으로 실행                                       ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
 ║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.13"
+APP_VERSION = "v13.01.14"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4948,7 +4948,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-weight:bold;")
             return l
 
-        # ── 아군 편대 — 리스트 위젯 ──────────────────────────────────────
+        # ── 아군 편대 — 2열 버튼 그리드 ─────────────────────────────────
         _fleet, _ffl = _cell_widget()
         self.cmb_fleet = NoScrollComboBox()           # 하위 호환용 숨김 콤보
         self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
@@ -4958,19 +4958,25 @@ class MainWindow(QMainWindow):
                                            Qt.ItemDataRole.ToolTipRole)
         self.cmb_fleet.hide()
 
-        self._lst_fleet = QListWidget()
-        self._lst_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
-        self._lst_fleet.setStyleSheet(_LIST_SS)
-        self._lst_fleet.setCurrentRow(0)
-        self._lst_fleet.currentRowChanged.connect(self.cmb_fleet.setCurrentIndex)
+        _fleet_names = list(V7_FLEET_PRESETS.keys()) if _V7_OK else []
+        _fleet_bg = QButtonGroup(self); _fleet_bg.setExclusive(True)
+        _fleet_grid_w = QWidget(); _fgrid = QGridLayout(_fleet_grid_w)
+        _fgrid.setContentsMargins(0,0,0,0); _fgrid.setSpacing(3)
+        for _i, _n in enumerate(_fleet_names):
+            _b = QPushButton(_n); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setToolTip(self._friendly_preset_tooltip(_n) if _V7_OK else "")
+            if _i == 0: _b.setChecked(True)
+            _fleet_bg.addButton(_b, _i)
+            _fgrid.addWidget(_b, _i // 2, _i % 2)
+        _fleet_bg.idClicked.connect(self.cmb_fleet.setCurrentIndex)
         self.cmb_fleet.currentIndexChanged.connect(
-            lambda i: self._lst_fleet.setCurrentRow(i)
-            if self._lst_fleet.currentRow() != i else None)
-        _ffl.addWidget(self._lst_fleet)
+            lambda i: _fleet_bg.button(i).setChecked(True) if _fleet_bg.button(i) else None)
+        _ffl.addWidget(_fleet_grid_w)
 
         self.lbl_fleet_detail = QLabel()
         self.lbl_fleet_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
+            f"color:{C_SUBTEXT}; font-size:12px; padding:2px 0;")
         self.lbl_fleet_detail.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
         _ffl.addWidget(self.lbl_fleet_detail)
@@ -4983,15 +4989,20 @@ class MainWindow(QMainWindow):
         self.cmb_weather.hide()
 
         _wxl.addWidget(_sec_label("날씨"))
-        self._lst_weather = QListWidget()
-        self._lst_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
-        self._lst_weather.setStyleSheet(_LIST_SS)
-        self._lst_weather.setCurrentRow(0)
-        self._lst_weather.currentRowChanged.connect(self.cmb_weather.setCurrentIndex)
+        _wx_names = list(WEATHER_DB.keys()) if _V7_OK else []
+        _wx_bg = QButtonGroup(self); _wx_bg.setExclusive(True)
+        _wx_grid_w = QWidget(); _wgrid = QGridLayout(_wx_grid_w)
+        _wgrid.setContentsMargins(0,0,0,0); _wgrid.setSpacing(3)
+        for _i, _wn in enumerate(_wx_names):
+            _b = QPushButton(_wn); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            if _i == 0: _b.setChecked(True)
+            _wx_bg.addButton(_b, _i)
+            _wgrid.addWidget(_b, _i // 2, _i % 2)
+        _wx_bg.idClicked.connect(self.cmb_weather.setCurrentIndex)
         self.cmb_weather.currentIndexChanged.connect(
-            lambda i: self._lst_weather.setCurrentRow(i)
-            if self._lst_weather.currentRow() != i else None)
-        _wxl.addWidget(self._lst_weather, stretch=1)
+            lambda i: _wx_bg.button(i).setChecked(True) if _wx_bg.button(i) else None)
+        _wxl.addWidget(_wx_grid_w)
 
         self.cmb_season = NoScrollComboBox()           # 하위 호환용 숨김 콤보
         self.cmb_season.addItems(
@@ -5357,49 +5368,42 @@ class MainWindow(QMainWindow):
 
         # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
         grp_t = QGroupBox("⚙️ 전술 옵션")
-        tl = QVBoxLayout(grp_t)
-        tl.setSpacing(4)
+        tl = QGridLayout(grp_t)
+        tl.setSpacing(3)
 
-        self.chk_ecm   = QCheckBox("ECM 재밍 (거리 반비례 Pk 감소)");  self.chk_ecm.setChecked(True)
-        self.chk_eva   = QCheckBox("회피 기동 (종말·함정 어뢰)");       self.chk_eva.setChecked(True)
-        self.chk_dcoy  = QCheckBox("음향 기만기 AN/SLQ-25 (어뢰)");    self.chk_dcoy.setChecked(True)
-        self.chk_sd    = QCheckBox("적 자체방어 (CIWS + 채프/플레어)"); self.chk_sd.setChecked(True)
+        self.chk_ecm   = QCheckBox("ECM 재밍");        self.chk_ecm.setChecked(True)
+        self.chk_eva   = QCheckBox("회피 기동");        self.chk_eva.setChecked(True)
+        self.chk_dcoy  = QCheckBox("음향 기만기");      self.chk_dcoy.setChecked(True)
+        self.chk_sd    = QCheckBox("적 자체방어");      self.chk_sd.setChecked(True)
+        self.chk_ecm.setToolTip("ECM 재밍 (거리 반비례 Pk 감소)")
+        self.chk_eva.setToolTip("회피 기동 (종말·함정 어뢰)")
+        self.chk_dcoy.setToolTip("음향 기만기 AN/SLQ-25 (어뢰)")
+        self.chk_sd.setToolTip("적 자체방어 (CIWS + 채프/플레어)")
 
-        for chk in [self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
-            tl.addWidget(chk)
+        for _i, chk in enumerate([self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]):
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+            tl.addWidget(chk, _i // 2, _i % 2)
 
         # ── 항공 자산 (포팅 C + v10.5 CAP) ──────────────────────────────────
         grp_ac = QGroupBox("✈️ 항공 자산")
-        acl = QVBoxLayout(grp_ac)
-        acl.setSpacing(4)
+        acl = QGridLayout(grp_ac)
+        acl.setSpacing(3)
 
-        self.chk_helo = _WrapCheckBox("AW-159 와일드캣  (함재 헬기, 청상어 2발, 140km)")
-        self.chk_p3c  = _WrapCheckBox("P-3C 오라이온  (포항기지, Mk.46 4발, 소노부이+15km)")
-        self.chk_p8a  = _WrapCheckBox("P-8A 포세이돈  (포항기지, Mk.46 5발, 소노부이+18km)")
-
-        # v10.5: 한국 공군 CAP
-        self.chk_f35a = _WrapCheckBox("F-35A 라이트닝 II  (청주기지, AIM-120D×4, CAP 600km)")
-        self.chk_f35a.setToolTip(
-            "스텔스 CAP — BVR 교전 AIM-120D (Pk 65%, 사거리 160km).\n"
-            "청주기지 출격 준비 30분. 탑재 4발, 전천후 운용."
-        )
-        self.chk_kf21 = _WrapCheckBox("KF-21 보라매  (대구기지, IRIS-T/AIM-120C×6, CAP 500km)")
-        self.chk_kf21.setToolTip(
-            "다목적 CAP — IRIS-T SL + AIM-120C 복합 탑재 (Pk 55%, 사거리 80km).\n"
-            "대구기지 출격 준비 20분. 탑재 6발."
-        )
-        self.chk_fa50 = _WrapCheckBox("FA-50 파이팅이글  (원주기지, AIM-9X×4, CAP 400km)")
-        self.chk_fa50.setToolTip(
-            "경전투 CAP — AIM-9X 단거리 (Pk 45%, 사거리 35km).\n"
-            "원주기지 출격 준비 15분. 탑재 4발."
-        )
-
-        for chk in [self.chk_helo, self.chk_p3c, self.chk_p8a,
-                    self.chk_f35a, self.chk_kf21, self.chk_fa50]:
+        _ac_items = [
+            ("chk_helo",  "AW-159 와일드캣",    "함재 헬기 · 청상어 2발 · 140km"),
+            ("chk_p3c",   "P-3C 오라이온",      "포항기지 · Mk.46 4발 · 소노부이+15km"),
+            ("chk_p8a",   "P-8A 포세이돈",      "포항기지 · Mk.46 5발 · 소노부이+18km"),
+            ("chk_f35a",  "F-35A 라이트닝 II",  "청주기지 · AIM-120D×4 · CAP 600km"),
+            ("chk_kf21",  "KF-21 보라매",       "대구기지 · IRIS-T/AIM-120C×6 · CAP 500km"),
+            ("chk_fa50",  "FA-50 파이팅이글",   "원주기지 · AIM-9X×4 · CAP 400km"),
+        ]
+        for _i, (_attr, _label, _tip) in enumerate(_ac_items):
+            chk = QCheckBox(_label)
             chk.setChecked(False)
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
-            acl.addWidget(chk)
+            chk.setToolTip(_tip)
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            setattr(self, _attr, chk)
+            acl.addWidget(chk, _i // 2, _i % 2)
 
         # ── 방어 전술 옵션 ─────────────────────────────────────────────────
         grp_def = QGroupBox("🛡️ 방어 전술")
@@ -9656,7 +9660,7 @@ def main():
         splash.close()
         win = MainWindow()
         _main_win.append(win)
-        win.show()
+        win.showMaximized()
 
     app.aboutToQuit.connect(_shutdown_global_pool)
     app.aboutToQuit.connect(_stop_sys_data_worker)
