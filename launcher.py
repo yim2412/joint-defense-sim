@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.03 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.04 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.02.04 — 중단 버튼 클릭 후 UI가 초기화되지 않던 문제 해결]             ║
+║  BUG-1  cancelled 시그널 + try/finally로 중단 시 btn_run 재활성화·팝업 닫힘 ║
 ║  [v13.02.03 — 시뮬 진행 콜백 last_log tuple → str 수정]                    ║
 ║  BUG-1  step_update 시그널 5번째 인자에 (t, msg) 튜플이 전달되어 실행 즉시  ║
 ║         TypeError로 팝업 + 실행 로그 팅기던 문제 해결 ([1] 인덱스로 str 추출) ║
@@ -648,7 +650,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.02.03"
+APP_VERSION = "v13.02.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2267,6 +2269,7 @@ class SimWorker(QThread):
     error           = pyqtSignal(str)
     sim_started     = pyqtSignal()
     sim_ended       = pyqtSignal()
+    cancelled       = pyqtSignal()                  # 중단 버튼으로 인터럽트 시
     batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
     # v8.26: 진행 팝업 상세화
@@ -2366,6 +2369,7 @@ class SimWorker(QThread):
                             f.cancel()
                         if _own:
                             pool.shutdown(wait=False)
+                        self.cancelled.emit()
                         return
                     rates, fh, ed, fl, cs, wu, sh, wz, pt, xs = fut.result()
                     all_rates.extend(rates);  all_f_hits.extend(fh)
@@ -2497,11 +2501,11 @@ class SimWorker(QThread):
                 _PERF_HISTORY.pop(0)
             # v8.26: 이전 실행 결과 캐싱 (델타 비교용)
             SimWorker._last_intercept_rate = mc.get('mean_intercept', -1.0)
-            self.sim_ended.emit()
             self.finished.emit(result, mc)
         except Exception as e:
-            self.sim_ended.emit()
             self.error.emit(str(e))
+        finally:
+            self.sim_ended.emit()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -7349,6 +7353,7 @@ class MainWindow(QMainWindow):
         self._worker.rate_update.connect(self._float_mon.update_rate)
         self._worker.step_update.connect(self._float_mon.update_step)
         self._worker.phase_update.connect(self._float_mon.update_phases)
+        self._worker.cancelled.connect(self._on_cancelled)
         self._float_mon.stop_requested.connect(self._stop_worker)
         # v10.7: 전술 의사결정 모드 — 워커 일시정지 시 다이얼로그 표시
         self._worker.tactical_pause.connect(self._on_tactical_pause)
@@ -7377,6 +7382,12 @@ class MainWindow(QMainWindow):
         if self._worker and self._worker.isRunning():
             self._worker.requestInterruption()
             self._lbl_status.setText("중단 요청 중…")
+
+    def _on_cancelled(self):
+        """워커 인터럽트 확정 → UI 초기화."""
+        self.btn_run.setEnabled(True)
+        self._prog.setVisible(False)
+        self._lbl_status.setText("중단됨")
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -9432,6 +9443,16 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
+            ("v13.1", "낮음", "시뮬 실행 중 창 최소화 연동",
+             "메인 창을 최소화하면 MC 진행 팝업도 함께 숨김(hide). "
+             "복원 시 팝업 자동 재표시. changeEvent 오버라이드로 구현."),
+            ("v13.1", "낮음", "MC 분석 진행 상황 표시 강화",
+             "① 하단 상태바: 'MC 5000회 분석 중...' → 'MC 1234/5000 (24%) | 요격률 12.3% | 8.5회/s' 형태로 실시간 갱신. "
+             "② MC 진행 팝업 상단에 QProgressBar 삽입해 완료율 시각화. "
+             "③ 팝업 내 수렴 그래프: x축 반복 횟수·y축 누적 평균 요격률 실시간 표시 — '수렴 분석 중...' 자리 대체. "
+             "④ ETA 표시: 현재 처리 속도 기반 '약 X분 Y초 후 완료' 팝업·상태바 병기. "
+             "⑤ Windows 태스크바 진행 바: ctypes ITaskbarList3로 창 최소화 중에도 아이콘에 진행률 표시. "
+             "모두 기존 step_update 시그널에 연결."),
             ("v13.2", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
              "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
