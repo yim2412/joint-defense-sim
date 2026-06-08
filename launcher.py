@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.10 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.11 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.10 — 상단 바에 시뮬레이션 모드 통합, 5-컬럼 높이 균일화]           ║
+║  [v13.01.11 — 상단 5칸(1/3)·하단 4칸(2/3) 분할, 적군·시나리오 상단 배치]   ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.10"
+APP_VERSION = "v13.01.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4549,42 +4549,61 @@ class MainWindow(QMainWindow):
     # ── 설정/결과 화면 전환 ───────────────────────────────────────────────────
 
     def _build_setup_page(self) -> QWidget:
-        """전체 화면 설정 페이지 (실행 전)."""
+        """전체 화면 설정 페이지 (실행 전).
+        상단(1/3): 5칸 — 아군편대·적군+시나리오·날씨계절·해역·시뮬모드+실행
+        하단(2/3): 4칸 — 환경·방어전술·항공자산·고급
+        """
         page = QWidget()
         page.setStyleSheet(f"background:{C_BG};")
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # 상단 바 — 퀵폼(좌) + 시뮬레이션 모드·실행버튼(우) 수평 배치
+        # ── 상단 바: 5칸 (전체 높이의 1/3) ─────────────────────────────
         top_bar = QWidget()
         top_bar.setStyleSheet(
-            f"background:{C_PANEL}; border-bottom:1px solid {C_BORDER};")
+            f"background:{C_PANEL}; border-bottom:2px solid {C_BORDER};")
         tbl = QHBoxLayout(top_bar)
         tbl.setContentsMargins(0, 0, 0, 0)
         tbl.setSpacing(0)
 
-        self._setup_quick_holder = QWidget()
-        self._setup_quick_holder.setStyleSheet(f"background:{C_PANEL};")
-        qh_layout = QVBoxLayout(self._setup_quick_holder)
-        qh_layout.setContentsMargins(0, 0, 0, 0)
-        tbl.addWidget(self._setup_quick_holder, stretch=3)
+        top_labels = ["아군 편대", "적군·시나리오", "날씨 / 계절", "해역", "시뮬레이션"]
+        self._setup_top_cells: list = []
+        for i, lbl_txt in enumerate(top_labels):
+            cell = QWidget()
+            cell.setStyleSheet(f"background:{C_PANEL};")
+            cl = QVBoxLayout(cell)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.setSpacing(0)
 
-        vsep = QFrame()
-        vsep.setFrameShape(QFrame.Shape.VLine)
-        vsep.setStyleSheet(f"QFrame {{ color:{C_BORDER}; }}")
-        vsep.setFixedWidth(1)
-        tbl.addWidget(vsep)
+            hdr = QLabel(f"  {lbl_txt}")
+            hdr.setFixedHeight(26)
+            hdr.setStyleSheet(
+                f"background:#1a2332; color:{C_ACCENT}; "
+                f"font-size:11px; font-weight:bold; letter-spacing:1px; "
+                f"border-bottom:1px solid {C_BORDER};")
+            cl.addWidget(hdr)
 
-        self._setup_bottom_holder = QWidget()
-        self._setup_bottom_holder.setStyleSheet(f"background:{C_PANEL};")
-        bh_layout = QVBoxLayout(self._setup_bottom_holder)
-        bh_layout.setContentsMargins(0, 0, 0, 0)
-        tbl.addWidget(self._setup_bottom_holder, stretch=2)
+            # 콘텐츠 홀더 (위젯이 reparent되어 들어옴)
+            holder = QWidget()
+            holder.setStyleSheet(f"background:{C_PANEL};")
+            hl = QVBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            cl.addWidget(holder, stretch=1)
 
-        outer.addWidget(top_bar)
+            self._setup_top_cells.append(holder)
+            tbl.addWidget(cell, stretch=1)
 
-        # 섹션 컬럼 분할 — 5개 섹션을 좌우로 배치해 동시 노출
+            if i < len(top_labels) - 1:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.Shape.VLine)
+                sep.setStyleSheet(f"QFrame {{ color:{C_BORDER}; }}")
+                sep.setFixedWidth(1)
+                tbl.addWidget(sep)
+
+        outer.addWidget(top_bar, stretch=1)
+
+        # ── 하단: 4칸 (전체 높이의 2/3) ─────────────────────────────────
         split_w = QWidget()
         split_w.setStyleSheet(f"background:{C_BG};")
         split_layout = QHBoxLayout(split_w)
@@ -4592,7 +4611,7 @@ class MainWindow(QMainWindow):
         split_layout.setSpacing(0)
 
         self._setup_col_pages: list = []
-        col_names = ["기본", "환경", "방어전술", "항공자산", "고급"]
+        col_names = ["환경", "방어전술", "항공자산", "고급"]
         for i, name in enumerate(col_names):
             col_frame = QWidget()
             col_frame.setStyleSheet(f"background:{C_BG};")
@@ -4601,7 +4620,7 @@ class MainWindow(QMainWindow):
             cfl.setSpacing(0)
 
             hdr = QLabel(f"  {name}")
-            hdr.setFixedHeight(32)
+            hdr.setFixedHeight(30)
             hdr.setStyleSheet(
                 f"background:#1a2332; color:{C_ACCENT}; "
                 f"font-size:12px; font-weight:bold; letter-spacing:2px; "
@@ -4632,7 +4651,7 @@ class MainWindow(QMainWindow):
                 sep.setFixedWidth(1)
                 split_layout.addWidget(sep)
 
-        outer.addWidget(split_w, stretch=1)
+        outer.addWidget(split_w, stretch=2)
 
         return page
 
@@ -4671,21 +4690,21 @@ class MainWindow(QMainWindow):
         return page
 
     def _enter_setup_mode(self):
-        """설정 전체화면으로 전환 (단일 스크롤)."""
-        # 퀵 폼 → 설정 홀더
-        self._setup_quick_holder.layout().addWidget(self._cfg_quick)
-        self._cfg_quick.show()
+        """설정 전체화면으로 전환."""
+        # 상단 5칸에 위젯 배치
+        for cell, widget in zip(self._setup_top_cells,
+                                [self._cfg_fleet, self._cfg_enemy_scenario,
+                                 self._cfg_weather, self._cfg_region,
+                                 self._cfg_bottom]):
+            cell.layout().addWidget(widget)
+            widget.show()
 
-        # 섹션별 그룹 → 해당 컬럼에 배치
+        # 섹션 그룹 → 하단 컬럼
         for groups, col_page in zip(self._sec_groups_ref, self._setup_col_pages):
             cl = col_page.layout()
             for j, grp in enumerate(groups):
                 cl.insertWidget(j, grp)
                 grp.show()
-
-        # 하단(MC+실행) → 하단 홀더
-        self._setup_bottom_holder.layout().addWidget(self._cfg_bottom)
-        self._cfg_bottom.show()
 
         self._in_results_mode = False
         self._main_stack.setCurrentIndex(0)
@@ -4702,12 +4721,15 @@ class MainWindow(QMainWindow):
                 cl.insertWidget(j, grp)
                 grp.show()
 
-        # 퀵 폼 → container 맨 앞
-        self._cfg_container_layout.insertWidget(0, self._cfg_quick)
-        self._cfg_quick.show()
+        # 분리된 설정 위젯 → container 앞에 순서대로 복귀
+        cl = self._cfg_container_layout
+        for idx, w in enumerate([self._cfg_fleet, self._cfg_enemy_scenario,
+                                  self._cfg_weather, self._cfg_region]):
+            cl.insertWidget(idx, w)
+            w.show()
 
         # 하단 → container 맨 뒤
-        self._cfg_container_layout.addWidget(self._cfg_bottom)
+        cl.addWidget(self._cfg_bottom)
         self._cfg_bottom.show()
 
         # container → results 홀더 (최초 1회만 reparent)
@@ -4889,16 +4911,20 @@ class MainWindow(QMainWindow):
                 cl.addWidget(g)
             return w
 
-        # ── 퀵 폼 (항상 표시: 핵심 설정) ────────────────────────────────
-        _quick = QWidget()
-        _quick.setStyleSheet(
-            f"background:{C_PANEL}; border-bottom:2px solid {C_BORDER};")
-        _qfl = QFormLayout(_quick)
-        _qfl.setContentsMargins(10, 10, 10, 10)
-        _qfl.setSpacing(7)
-        _qfl.setLabelAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # ── 퀵 폼 공통 스타일 ─────────────────────────────────────────────
+        def _make_qform(border_right=False):
+            w = QWidget()
+            br = f"border-right:1px solid {C_BORDER};" if border_right else ""
+            w.setStyleSheet(f"background:{C_PANEL}; {br}")
+            fl = QFormLayout(w)
+            fl.setContentsMargins(10, 8, 10, 8)
+            fl.setSpacing(6)
+            fl.setLabelAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            return w, fl
 
+        # ── 아군 편대 ─────────────────────────────────────────────────────
+        _fleet, _ffl = _make_qform()
         self.cmb_fleet = NoScrollComboBox()
         self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
         if _V7_OK:
@@ -4910,9 +4936,12 @@ class MainWindow(QMainWindow):
             f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
         self.lbl_fleet_detail.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
-        _qfl.addRow("아군 편대", self.cmb_fleet)
-        _qfl.addRow("", self.lbl_fleet_detail)
+        _ffl.addRow("아군 편대", self.cmb_fleet)
+        _ffl.addRow("", self.lbl_fleet_detail)
+        self._cfg_fleet = _fleet
 
+        # ── 날씨 / 계절 ───────────────────────────────────────────────────
+        _wx, _wxfl = _make_qform()
         self.cmb_weather = NoScrollComboBox()
         self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
         self.cmb_season = NoScrollComboBox()
@@ -4935,8 +4964,11 @@ class MainWindow(QMainWindow):
         _lbl_s.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
         _ws_rl.addWidget(_lbl_s)
         _ws_rl.addWidget(self.cmb_season, 3)
-        _qfl.addRow("날씨", _ws_row)
+        _wxfl.addRow("날씨", _ws_row)
+        self._cfg_weather = _wx
 
+        # ── 해역 ──────────────────────────────────────────────────────────
+        _reg, _regl = _make_qform()
         self.cmb_region = NoScrollComboBox()
         self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
         self.cmb_region.setToolTip(
@@ -4946,18 +4978,21 @@ class MainWindow(QMainWindow):
             "서해: 평균수심 44m, 여름 냉수괴(YSCBW), 수온약층 10m부터\n"
             "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
         )
-        _qfl.addRow("해역", self.cmb_region)
-
+        _regl.addRow("해역", self.cmb_region)
         self.lbl_detect_info = QLabel()
         self.lbl_detect_info.setStyleSheet(
             f"color:{C_ACCENT}; font-size:14px; padding:2px 0;")
         self.lbl_detect_info.setWordWrap(True)
-        _qfl.addRow("", self.lbl_detect_info)
+        _regl.addRow("", self.lbl_detect_info)
+        self._cfg_region = _reg
 
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
-        self._cfg_quick = _quick          # 설정/결과 모드 간 재배치용
-        container_layout.addWidget(_quick)
+
+        # 결과 사이드바용: 3개 위젯을 container_layout 앞에 쌓아 둠
+        container_layout.addWidget(self._cfg_fleet)
+        container_layout.addWidget(self._cfg_weather)
+        container_layout.addWidget(self._cfg_region)
 
         # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
         grp_sc = QGroupBox("🎯 작전 시나리오")
@@ -5216,6 +5251,19 @@ class MainWindow(QMainWindow):
                 self._update_difficulty_tooltip(self.cmb_difficulty.currentText())
             if self.cmb_mixed_scenario.count():
                 self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
+
+        # ── 적군 편대·시나리오 묶음 (상단 바 cell 2) ──────────────────────
+        _esc = QWidget()
+        _esc.setStyleSheet(f"background:{C_PANEL};")
+        _escl = QVBoxLayout(_esc)
+        _escl.setContentsMargins(4, 4, 4, 4)
+        _escl.setSpacing(4)
+        _escl.addWidget(grp_sc)
+        _escl.addWidget(grp_e)
+        _escl.addStretch()
+        self._cfg_enemy_scenario = _esc
+        container_layout.addWidget(self._cfg_enemy_scenario)
+
         # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
         grp_t = QGroupBox("⚙️ 전술 옵션")
         tl = QVBoxLayout(grp_t)
@@ -5460,7 +5508,6 @@ class MainWindow(QMainWindow):
 
         # ── 섹션 조립 ────────────────────────────────────────────────────
         _sections = [
-            ("기본",     [grp_sc, grp_e],            False),
             ("환경",     [grp_env],                   False),
             ("방어전술", [grp_def, grp_strike],        False),
             ("항공자산", [grp_ac],                     False),
