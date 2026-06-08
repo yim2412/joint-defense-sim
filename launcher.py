@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.18 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.20 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.20 — 기본 창 모드 시작 (최대화 해제)]                              ║
+║  BUG-1  실행 시 창이 항상 전체화면으로 뜨던 문제 — 기본 1800×1060 창 모드로 ║
+║  [v13.01.19 — 혼합 시나리오·날씨 버튼 라벨 단축]                           ║
+║  BUG-1  혼합 시나리오 버튼 텍스트가 버튼 너비를 초과해 잘리던 문제 해결      ║
 ║  [v13.01.18 — 체크박스 라벨 단축 + 시뮬레이션 실행 버튼 모드 그룹 하단 이동] ║
 ║  BUG-1  방어전술·환경 열 체크박스 라벨이 창 너비를 초과해 잘리던 문제 해결   ║
 ║  NEW-A  시뮬레이션 실행 버튼을 시뮬레이션 모드 그룹 바로 아래로 이동         ║
@@ -612,7 +616,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.18"
+APP_VERSION = "v13.01.20"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5067,12 +5071,13 @@ class MainWindow(QMainWindow):
             '농무 (야간)':     '레이더 ×0.76  |  소나 ×0.94\n요격 보정 −5%  |  사실상 레이더만 의존',
             '황사 (새벽)':     '레이더 ×0.70  |  소나 ×1.00\n요격 보정 −3%  |  봄철 황해 전형',
         }
+        _WX_SHORT = {'농무 (시정 200m 이하)': '농무 (200m↓)'}
         _wx_bg = QButtonGroup(self); _wx_bg.setExclusive(True)
         _wx_grid_w = QWidget(); _wgrid = QGridLayout(_wx_grid_w)
         _wgrid.setContentsMargins(0,0,0,0); _wgrid.setSpacing(3)
         _wx_popup = _HoverPopup(self)
         for _i, _wn in enumerate(_wx_names):
-            _b = QPushButton(_wn); _b.setCheckable(True)
+            _b = QPushButton(_WX_SHORT.get(_wn, _wn)); _b.setCheckable(True)
             _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
             _install_hover(_b, _wx_popup_texts.get(_wn, ''), _wx_popup)
             if _i == 0: _b.setChecked(True)
@@ -5412,6 +5417,12 @@ class MainWindow(QMainWindow):
 
         # NEW-A: 혼합 시나리오 선택 (혼합 모드용) — 버튼 그리드
         _mx_names = list(V7_MIXED_SCENARIOS.keys()) if _V7_OK else []
+        _MX_SHORT = {
+            '순항미사일 + 탄도탄 복합':          '순항+탄도탄 복합',
+            '잠수함 어뢰 + 대함미사일 병행':      '잠수함+대함미사일',
+            '항모 킬 체인 (스텔스→HGV→초음속)':  '항모 킬 체인',
+            '전방위 포화 공격 (채널 포화)':       '전방위 포화 공격',
+        }
         self._mixed_row = QWidget(); mixed_rl = QVBoxLayout(self._mixed_row)
         mixed_rl.setContentsMargins(0, 0, 0, 0); mixed_rl.setSpacing(3)
         self.cmb_mixed_scenario = NoScrollComboBox()        # 하위 호환용 숨김 콤보
@@ -5422,7 +5433,7 @@ class MainWindow(QMainWindow):
         _mxgl.setContentsMargins(0,0,0,0); _mxgl.setSpacing(3)
         _mx_popup = _HoverPopup(self)
         for _i, _mn in enumerate(_mx_names):
-            _b = QPushButton(_mn); _b.setCheckable(True)
+            _b = QPushButton(_MX_SHORT.get(_mn, _mn)); _b.setCheckable(True)
             _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
             _mx_desc = V7_MIXED_SCENARIOS[_mn].get('description','') if _V7_OK else ""
             _install_hover(_b, _mx_desc, _mx_popup)
@@ -9726,7 +9737,7 @@ def main():
         splash.close()
         win = MainWindow()
         _main_win.append(win)
-        win.showMaximized()
+        win.show()
 
     app.aboutToQuit.connect(_shutdown_global_pool)
     app.aboutToQuit.connect(_stop_sys_data_worker)
