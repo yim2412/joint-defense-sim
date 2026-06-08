@@ -1,10 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.17 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.18 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.17 — 시드 입력 제거 + 1800×1060 창 모드 UI 비율 최적화]            ║
-║  DEL-A  적군 랜덤 씨앗 · 시뮬 시드 입력 제거 (항상 랜덤)                   ║
-║  NEW-A  하단 체크박스 폰트 16px→13px, 마진 10→6px, 간격 8→4px 압축        ║
+║  [v13.01.18 — 체크박스 라벨 단축 + 시뮬레이션 실행 버튼 모드 그룹 하단 이동] ║
+║  BUG-1  방어전술·환경 열 체크박스 라벨이 창 너비를 초과해 잘리던 문제 해결   ║
+║  NEW-A  시뮬레이션 실행 버튼을 시뮬레이션 모드 그룹 바로 아래로 이동         ║
 ║  NEW-B  상단:하단 비율 1:2, 실행 버튼 36px 로 1800×1060 창 모드 최적화     ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.17"
+APP_VERSION = "v13.01.18"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5246,7 +5246,7 @@ class MainWindow(QMainWindow):
         )
         self.chk_anti_sam.setChecked(False)
 
-        self.chk_isa = QCheckBox("정밀 대기 모델 (ISA+트로포스캐터)")
+        self.chk_isa = QCheckBox("정밀 대기 모델 (ISA)")
         self.chk_isa.setToolTip(
             "v10.1 — ICAO 표준 대기 + 기상청 라디오존데 계절별 실측값 적용.\n"
             "중고도(≥500m) 표적: 대기 굴절 지수 증가로 탐지거리 +2~6%.\n"
@@ -5258,7 +5258,7 @@ class MainWindow(QMainWindow):
         self.chk_isa.setChecked(True)
 
         # v12.1: 비례항법(PNG) 종말 유도
-        self.chk_png = QCheckBox("비례항법(PNG) 종말 유도 (실험적)")
+        self.chk_png = QCheckBox("비례항법(PNG) 종말 유도")
         self.chk_png.setToolTip(
             "v12.1 — 함대공 미사일이 비례항법으로 회피 기동하는 적 대함미사일을\n"
             "종말 10km 구간에서 물리적으로 추격합니다.\n"
@@ -5292,7 +5292,7 @@ class MainWindow(QMainWindow):
         )
         self.chk_flooding.setChecked(True)
 
-        self.chk_weather_dyn = QCheckBox("동적 기상 변화 (실험적)")
+        self.chk_weather_dyn = QCheckBox("동적 기상 변화")
         self.chk_weather_dyn.setToolTip(
             "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
             "5분마다 1단계씩 악화·호전 판정. 계절·해역에 따라 확률이 달라집니다.\n"
@@ -5518,14 +5518,14 @@ class MainWindow(QMainWindow):
         defl = QVBoxLayout(grp_def)
         defl.setSpacing(4)
 
-        self.chk_layered = _WrapCheckBox("다층 방어  (KDX-III-B2 → B1 → KDX-II → FFX 순서)")
+        self.chk_layered = QCheckBox("다층 방어")
         self.chk_layered.setChecked(True)
         self.chk_layered.setToolTip(
             "1차 교전 함정(KDX-III Batch II)이 요격 실패 시 다음 레이어(Batch I → KDX-II → FFX)가 자동 인계.\n"
             "우선순위 정렬로 최고 성능 함정이 항상 먼저 교전합니다."
         )
 
-        self.chk_cec = QCheckBox("CEC 협동 교전  (탐지 커버리지 통합)")
+        self.chk_cec = QCheckBox("CEC 협동 교전")
         self.chk_cec.setChecked(True)   # 기본 ON — 이지스 전단 실전 운용 표준
         self.chk_cec.setToolTip(
             "v10.4 — Cooperative Engagement Capability (협동 교전 능력).\n"
@@ -5537,14 +5537,14 @@ class MainWindow(QMainWindow):
             "OFF 시: 각 함정은 자체 탐지거리 내 위협만 교전 가능."
         )
 
-        self.chk_multibearing = QCheckBox("다방위 공격  (여러 방향에서 동시 접근)")
+        self.chk_multibearing = QCheckBox("다방위 공격")
         self.chk_multibearing.setChecked(False)
         self.chk_multibearing.setToolTip(
             "적 위협이 전방위(0°~360°) 무작위 방향에서 접근합니다.\n"
             "OFF 시 기본 단일 방향 접근."
         )
 
-        self.chk_cec_jammed = QCheckBox("CEC 두절  (재밍 → 함정 독립 교전)")
+        self.chk_cec_jammed = QCheckBox("CEC 두절")
         self.chk_cec_jammed.setChecked(False)
         self.chk_cec_jammed.setToolTip(
             "적 전자전으로 CEC 네트워크가 차단됩니다.\n"
@@ -5552,14 +5552,14 @@ class MainWindow(QMainWindow):
             "CEC 사전 배정이 ON이어도 강제 비활성화됩니다."
         )
 
-        self.chk_ship_evasion = QCheckBox("함정 회피 기동  (적 미사일 15km 이내 지그재그)")
+        self.chk_ship_evasion = QCheckBox("함정 회피 기동")
         self.chk_ship_evasion.setChecked(False)
         self.chk_ship_evasion.setToolTip(
             "적 대함미사일이 15km 이내 접근 시\n"
             "아군 함정이 지그재그 회피 기동으로 피탄율을 낮춥니다."
         )
 
-        self.chk_radar_off = QCheckBox("레이더 OFF 전술  (ARM 탐지 시 8초 레이더 차단)")
+        self.chk_radar_off = QCheckBox("레이더 OFF 전술")
         self.chk_radar_off.setChecked(True)
         self.chk_radar_off.setToolTip(
             "적 대방사미사일(ARM)이 탐지 범위 내 진입 시\n"
@@ -5569,7 +5569,7 @@ class MainWindow(QMainWindow):
         )
 
         # v10.7: 전술 의사결정 모드
-        self.chk_tactical = QCheckBox("전술 의사결정 모드  (구간마다 시뮬 일시정지)")
+        self.chk_tactical = QCheckBox("전술 의사결정 모드")
         self.chk_tactical.setChecked(False)
         self.chk_tactical.setToolTip(
             "v10.7 — 전술 의사결정 모드 (워게임 / 훈련용).\n"
@@ -5628,7 +5628,7 @@ class MainWindow(QMainWindow):
         strl = QFormLayout(grp_strike)
         strl.setSpacing(6)
 
-        self.chk_strike = QCheckBox("공격 임무 활성화 (적 수상함 자동 공격)")
+        self.chk_strike = QCheckBox("공격 임무 활성화")
         self.chk_strike.setChecked(True)
         self.chk_strike.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
         self.chk_strike.setToolTip(
@@ -5784,6 +5784,14 @@ class MainWindow(QMainWindow):
         mcl.addLayout(row2)
         mcl.addWidget(lbl_mode_hint)
 
+        self.btn_run = QPushButton("🚀  시뮬레이션 실행")
+        self.btn_run.setFixedHeight(36)
+        self.btn_run.setFont(QFont('Malgun Gothic', 13))
+        self.btn_run.clicked.connect(self._run_sim)
+        if not _V7_OK:
+            self.btn_run.setEnabled(False)
+        mcl.addWidget(self.btn_run)
+
         # ── 하단 섹션 hover 팝업 일괄 설치 ──────────────────────────────
         _bot_popup = _HoverPopup(self)
         for _g in [grp_env, grp_def, grp_strike, grp_bmd, grp_cd, grp_t, grp_ac, grp_mc]:
@@ -5822,12 +5830,6 @@ class MainWindow(QMainWindow):
         bottom_layout = QVBoxLayout(bottom)
         bottom_layout.setContentsMargins(8, 6, 8, 8)
         bottom_layout.setSpacing(6)
-
-        self.btn_run = QPushButton("🚀  시뮬레이션 실행")
-        self.btn_run.setFixedHeight(36)
-        self.btn_run.setFont(QFont('Malgun Gothic', 13))
-        self.btn_run.clicked.connect(self._run_sim)
-        bottom_layout.addWidget(self.btn_run)
 
         if not _V7_OK:
             err_lbl = QLabel(f"⚠️ engine_v7 로드 실패\n{_V7_ERR}")
