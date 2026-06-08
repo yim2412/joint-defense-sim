@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.27 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.28 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.28 — 해역 탐지거리 기준함 정보 패널 제거]                          ║
+║  DEL-A  "대공 882km · 기준함: 정조대왕함" 패널 제거                         ║
+║         — 단일 함 기준으로 편대 성능을 오해할 수 있어 제거                   ║
 ║  [v13.01.27 — 지상 BMD 자산 재고 스핀박스 제거 (24발 고정)]                 ║
 ║  DEL-A  어쇼어 SM-3·THAAD 재고 스핀박스 제거, 24발 고정값 사용             ║
 ║  [v13.01.26 — 체크박스 인디케이터 배경을 네이비로 변경]                     ║
@@ -635,7 +638,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.27"
+APP_VERSION = "v13.01.28"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1004,7 +1007,6 @@ try:
         find_all_min_stocks_v7,
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
-        calculate_fleet_detect_ranges,
         save_json_report_v7,
         _mc_batch_worker, _mc_lhs_batch_worker,
         FRIENDLY_DB as V7_FRIENDLY_DB,
@@ -5297,16 +5299,8 @@ class MainWindow(QMainWindow):
             lambda t: _region_bg.button(_region_names.index(t)).setChecked(True)
             if t in _region_names else None)
 
-        self.lbl_detect_info = QLabel()
-        self.lbl_detect_info.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:13px; padding:2px 0;")
-        self.lbl_detect_info.setWordWrap(True)
-        _regl.addWidget(self.lbl_detect_info)
         _regl.addStretch()
         self._cfg_region = _reg
-
-        self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
-        self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
 
         # 결과 사이드바용: 3개 위젯을 container_layout 앞에 쌓아 둠
         container_layout.addWidget(self._cfg_fleet)
@@ -5973,10 +5967,8 @@ class MainWindow(QMainWindow):
             self._sec_contents.append(content)
             self._sec_groups_ref.append(list(groups))
 
-        # 초기 탐지 정보 갱신
         if _V7_OK and self.cmb_fleet.count():
             self._update_fleet_detail(self.cmb_fleet.currentText())
-            self._update_detect_info()
 
         layout.addStretch()
         scroll.setWidget(inner)
@@ -7137,20 +7129,6 @@ class MainWindow(QMainWindow):
 
     def _update_fleet_detail(self, preset_name: str):
         pass  # hover 팝업으로 대체 — lbl_fleet_detail 제거됨
-
-    def _update_detect_info(self, _=None):
-        if not _V7_OK:
-            return
-        r = calculate_fleet_detect_ranges(
-            self.cmb_fleet.currentText(),
-            self.cmb_weather.currentText())
-        rf_pct = int(r['radar_factor'] * 100)
-        sf_pct = int(r['sonar_factor'] * 100)
-        self.lbl_detect_info.setText(
-            f"📡 대공 {r['대공']}km  대함 {r['대함']}km  (레이더 ×{rf_pct}%)\n"
-            f"🔊 대잠 {r['대잠']}km  (소나 ×{sf_pct}%)\n"
-            f"기준함: {r['leading_ship']} · 데이터링크 적용"
-        )
 
     def _update_enemy_row_tooltip(self, cmb: QComboBox, name: str):
         if not _V7_OK or name not in V7_ENEMY_DB:
