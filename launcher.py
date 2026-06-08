@@ -950,7 +950,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QStatusBar, QMessageBox, QHeaderView,
     QSizePolicy, QCheckBox, QFileDialog, QLineEdit,
     QListWidget, QListWidgetItem, QStackedWidget, QGraphicsDropShadowEffect,
-    QTextBrowser,
+    QTextBrowser, QButtonGroup,
 )
 from PyQt6.QtGui import (
     QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter,
