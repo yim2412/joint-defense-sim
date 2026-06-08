@@ -1,11 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.14 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.15 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.14 — 스크롤 제거: 전술옵션·항공자산 2열 그리드, 앱 최대화 시작]    ║
-║  NEW-A  전술 옵션(ECM·회피·기만·자체방어) 2열 그리드로 변경                 ║
-║  NEW-B  항공 자산 6종 2열 그리드로 변경 (툴팁으로 상세 설명 제공)           ║
-║  NEW-C  앱 시작 시 최대화 창으로 실행                                       ║
+║  [v13.01.15 — 전 섹션 hover 플로팅 팝업 도입]                               ║
+║  NEW-A  공통 _HoverPopup 클래스: 버튼 hover 시 우측 플로팅 패널 표시        ║
+║  NEW-B  아군 편대: 함정 목록 항시표시 → hover 팝업으로 전환                 ║
+║  NEW-C  날씨·계절: 레이더×, 소나×, 교전 영향 hover 팝업 추가               ║
+║  NEW-D  해역: 수심·수온약층·레이더 음영 항시표시 → hover 팝업으로 전환      ║
+║  NEW-E  작전 시나리오: 리스트 → 버튼 그리드 + 시나리오 설명 hover 팝업     ║
+║  NEW-F  적군 편대·혼합 시나리오: 콤보박스 → 버튼 그리드 + hover 팝업       ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
 ║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
@@ -612,7 +615,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.14"
+APP_VERSION = "v13.01.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -956,7 +959,7 @@ from PyQt6.QtGui import (
     QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter,
     QPainterPath, QPen,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF, QEvent, QObject, QPoint
 
 import matplotlib
 matplotlib.use('QtAgg')
@@ -3156,6 +3159,56 @@ class AccordionSidebar(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  설정 패널 아코디언 섹션 헤더
 # ════════════════════════════════════════════════════════════════════════════
+class _HoverPopup(QFrame):
+    """버튼 hover 시 상세 정보를 표시하는 플로팅 패널."""
+    def __init__(self, parent: QWidget):
+        super().__init__(parent, Qt.WindowType.Tool |
+                         Qt.WindowType.FramelessWindowHint |
+                         Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setStyleSheet(
+            "QFrame { background:#1e2430; border:1px solid #4a9eff; border-radius:7px; }"
+            "QLabel { color:#e0e8f0; font-size:13px; border:none; background:transparent; }"
+        )
+        _l = QVBoxLayout(self)
+        _l.setContentsMargins(12, 9, 12, 9)
+        _l.setSpacing(3)
+        self._lbl = QLabel()
+        self._lbl.setWordWrap(True)
+        self._lbl.setMaximumWidth(300)
+        _l.addWidget(self._lbl)
+        self.hide()
+
+    def show_for(self, trigger: QWidget, text: str):
+        self._lbl.setText(text)
+        self.adjustSize()
+        gpos = trigger.mapToGlobal(QPoint(trigger.width() + 8, 0))
+        screen = QApplication.primaryScreen().availableGeometry()
+        x, y = gpos.x(), gpos.y()
+        if x + self.width() > screen.right() - 4:
+            x = trigger.mapToGlobal(QPoint(-self.width() - 8, 0)).x()
+        if y + self.height() > screen.bottom() - 4:
+            y = screen.bottom() - self.height() - 4
+        self.move(x, y)
+        self.show()
+        self.raise_()
+
+
+def _install_hover(btn: QWidget, text: str, popup: _HoverPopup):
+    """버튼에 hover 이벤트 필터를 설치해 팝업을 표시."""
+    class _HF(QObject):
+        def __init__(self2):
+            super().__init__(btn)
+            self2._text = text
+        def eventFilter(self2, obj, event):
+            if event.type() == QEvent.Type.Enter:
+                popup.show_for(obj, self2._text)
+            elif event.type() == QEvent.Type.Leave:
+                popup.hide()
+            return False
+    btn.installEventFilter(_HF())
+
+
 class _WrapCheckBox(QWidget):
     """긴 레이블 자동 줄바꿈 체크박스 (QCheckBox drop-in)."""
     toggled = pyqtSignal(bool)
@@ -4872,14 +4925,8 @@ class MainWindow(QMainWindow):
 
 
     def _on_scenario_changed(self, name: str):
-        """시나리오 선택 시 설명 표시 + 적용 버튼 활성화."""
-        sc = SCENARIO_LIBRARY.get(name)
-        if sc:
-            self.lbl_scenario_desc.setText(sc['desc'] + '\n▸ 권장: ' + sc['recommend'])
-            self.btn_apply_scenario.setEnabled(True)
-        else:
-            self.lbl_scenario_desc.setText('')
-            self.btn_apply_scenario.setEnabled(False)
+        """시나리오 선택 시 적용 버튼 활성화."""
+        self.btn_apply_scenario.setEnabled(bool(SCENARIO_LIBRARY.get(name)))
 
     def _apply_scenario(self):
         """선택한 시나리오 설정을 UI에 일괄 적용 (편대·해역·날씨·계절·적 편대)."""
@@ -4962,10 +5009,12 @@ class MainWindow(QMainWindow):
         _fleet_bg = QButtonGroup(self); _fleet_bg.setExclusive(True)
         _fleet_grid_w = QWidget(); _fgrid = QGridLayout(_fleet_grid_w)
         _fgrid.setContentsMargins(0,0,0,0); _fgrid.setSpacing(3)
+        _fleet_popup = _HoverPopup(self)
         for _i, _n in enumerate(_fleet_names):
             _b = QPushButton(_n); _b.setCheckable(True)
             _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
-            _b.setToolTip(self._friendly_preset_tooltip(_n) if _V7_OK else "")
+            _tip = self._friendly_preset_tooltip(_n) if _V7_OK else ""
+            _install_hover(_b, _tip, _fleet_popup)
             if _i == 0: _b.setChecked(True)
             _fleet_bg.addButton(_b, _i)
             _fgrid.addWidget(_b, _i // 2, _i % 2)
@@ -4973,13 +5022,7 @@ class MainWindow(QMainWindow):
         self.cmb_fleet.currentIndexChanged.connect(
             lambda i: _fleet_bg.button(i).setChecked(True) if _fleet_bg.button(i) else None)
         _ffl.addWidget(_fleet_grid_w)
-
-        self.lbl_fleet_detail = QLabel()
-        self.lbl_fleet_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:12px; padding:2px 0;")
-        self.lbl_fleet_detail.setWordWrap(True)
-        self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
-        _ffl.addWidget(self.lbl_fleet_detail)
+        _ffl.addStretch()
         self._cfg_fleet = _fleet
 
         # ── 날씨 / 계절 — 리스트 + 토글 버튼 ────────────────────────────
@@ -4990,12 +5033,28 @@ class MainWindow(QMainWindow):
 
         _wxl.addWidget(_sec_label("날씨"))
         _wx_names = list(WEATHER_DB.keys()) if _V7_OK else []
+        _wx_popup_texts = {
+            '맑음 (주간)':     '레이더 ×1.00  |  소나 ×1.00\n요격 보정 ±0  |  함정 최상 전투력',
+            '맑음 (야간)':     '레이더 ×0.95  |  소나 ×0.98\n요격 보정 −1%  |  광학 식별 불가',
+            '흐림 (박무)':     '레이더 ×0.90  |  소나 ×0.85\n요격 보정 −3%  |  해상 소음 증가',
+            '황사 (봄철 황사)':'레이더 ×0.72  |  소나 ×1.00\n요격 보정 −2%  |  레이더 흡수·산란 심각',
+            '풍랑 (7~8등급)': '레이더 ×0.92  |  소나 ×0.60\n요격 보정 −6%  |  C&D 지연 ×1.20',
+            '폭풍 (해상 악화)':'레이더 ×0.55  |  소나 ×0.40\n요격 보정 −8%  |  항공 출격 제한',
+            '태풍 (9~12등급)': '레이더 ×0.62  |  소나 ×0.22\n요격 보정 −15%  |  항공 전면 불가',
+            '농무 (시정 200m 이하)':'레이더 ×0.80  |  소나 ×0.94\n요격 보정 −3%  |  시정 200m 이하',
+            '폭풍 (야간)':     '레이더 ×0.52  |  소나 ×0.40\n요격 보정 −10%  |  야간+폭풍 복합',
+            '태풍 (야간)':     '레이더 ×0.59  |  소나 ×0.22\n요격 보정 −17%  |  최악 기상',
+            '농무 (야간)':     '레이더 ×0.76  |  소나 ×0.94\n요격 보정 −5%  |  사실상 레이더만 의존',
+            '황사 (새벽)':     '레이더 ×0.70  |  소나 ×1.00\n요격 보정 −3%  |  봄철 황해 전형',
+        }
         _wx_bg = QButtonGroup(self); _wx_bg.setExclusive(True)
         _wx_grid_w = QWidget(); _wgrid = QGridLayout(_wx_grid_w)
         _wgrid.setContentsMargins(0,0,0,0); _wgrid.setSpacing(3)
+        _wx_popup = _HoverPopup(self)
         for _i, _wn in enumerate(_wx_names):
             _b = QPushButton(_wn); _b.setCheckable(True)
             _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _install_hover(_b, _wx_popup_texts.get(_wn, ''), _wx_popup)
             if _i == 0: _b.setChecked(True)
             _wx_bg.addButton(_b, _i)
             _wgrid.addWidget(_b, _i // 2, _i % 2)
@@ -5015,14 +5074,16 @@ class MainWindow(QMainWindow):
         _srl.setContentsMargins(0,0,0,0); _srl.setSpacing(4)
         _season_bg = QButtonGroup(self)
         _season_bg.setExclusive(True)
+        _season_popup = _HoverPopup(self)
         for _i, (_s, _tip) in enumerate([
-            ('봄',  '황사 시즌 · 수온약층 약함'),
-            ('여름','수온약층 최강 · ISA 굴절 최대'),
-            ('가을','수온약층 감소 · 제트기류 남하'),
-            ('겨울','수온약층 소멸(서해) · 대륙성 한기'),
+            ('봄',  '황사 시즌(3~5월) · 수온약층 약함\n서해 안개 빈발 · 황사 레이더 감쇠'),
+            ('여름','수온약층 최강(6~9월) · ISA 굴절 최대\n소나 성능 최대 저하 · 태풍 시즌'),
+            ('가을','수온약층 감소(10~11월) · 제트기류 남하\n소나 성능 회복 · 황천 빈도↑'),
+            ('겨울','수온약층 소멸 서해(12~2월) · 대륙성 한기\n소나 유리 · 북서 계절풍 강풍'),
         ]):
             _b = QPushButton(_s); _b.setCheckable(True)
-            _b.setToolTip(_tip); _b.setStyleSheet(_TOG_SS)
+            _b.setStyleSheet(_TOG_SS)
+            _install_hover(_b, _tip, _season_popup)
             if _i == 1: _b.setChecked(True)
             _season_bg.addButton(_b, _i)
             _srl.addWidget(_b)
@@ -5031,6 +5092,7 @@ class MainWindow(QMainWindow):
             lambda i: _season_bg.button(i).setChecked(True)
             if _season_bg.button(i) else None)
         _wxl.addWidget(_season_row)
+        _wxl.addStretch()
         self._cfg_weather = _wx
 
         # ── 해역 — 토글 버튼 + 특성 설명 ────────────────────────────────
@@ -5051,28 +5113,21 @@ class MainWindow(QMainWindow):
         _region_bg.setExclusive(True)
         _reg_grid = QWidget(); _rgl = QGridLayout(_reg_grid)
         _rgl.setContentsMargins(0,0,0,0); _rgl.setSpacing(4)
+        _region_popup = _HoverPopup(self)
         for _i, _rn in enumerate(_region_names):
             _b = QPushButton(_rn); _b.setCheckable(True)
             _b.setStyleSheet(_TOG_SS)
+            _install_hover(_b, _region_info[_rn], _region_popup)
             if _i == 0: _b.setChecked(True)
             _region_bg.addButton(_b, _i)
             _rgl.addWidget(_b, _i // 2, _i % 2)
         _regl.addWidget(_reg_grid)
 
-        self.lbl_region_info = QLabel(_region_info['동해 북부'])
-        self.lbl_region_info.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:12px; padding:4px 0;")
-        self.lbl_region_info.setWordWrap(True)
-        _regl.addWidget(self.lbl_region_info)
-
         def _on_region_btn(idx):
-            name = _region_names[idx]
-            self.cmb_region.setCurrentText(name)
-            self.lbl_region_info.setText(_region_info[name])
+            self.cmb_region.setCurrentText(_region_names[idx])
         _region_bg.idClicked.connect(_on_region_btn)
         self.cmb_region.currentTextChanged.connect(
-            lambda t: (_region_bg.button(_region_names.index(t)).setChecked(True),
-                       self.lbl_region_info.setText(_region_info[t]))
+            lambda t: _region_bg.button(_region_names.index(t)).setChecked(True)
             if t in _region_names else None)
 
         self.lbl_detect_info = QLabel()
@@ -5095,28 +5150,35 @@ class MainWindow(QMainWindow):
         grp_sc = QGroupBox("🎯 작전 시나리오")
         scl = QVBoxLayout(grp_sc)
         scl.setSpacing(4)
-        _sc_items = ['— 선택 안 함 —'] + list(SCENARIO_LIBRARY.keys())
+        _sc_names = list(SCENARIO_LIBRARY.keys())
+        _sc_items = ['— 선택 안 함 —'] + _sc_names
         self.cmb_scenario = NoScrollComboBox()         # 하위 호환용 숨김 콤보
         self.cmb_scenario.addItems(_sc_items)
         self.cmb_scenario.hide()
 
-        self._lst_scenario = QListWidget()
-        self._lst_scenario.addItems(_sc_items)
-        self._lst_scenario.setStyleSheet(_LIST_SS)
-        self._lst_scenario.setCurrentRow(0)
-        self._lst_scenario.setMaximumHeight(110)
-        self._lst_scenario.currentRowChanged.connect(self.cmb_scenario.setCurrentIndex)
+        _sc_bg = QButtonGroup(self); _sc_bg.setExclusive(True)
+        _sc_grid = QWidget(); _sgl = QGridLayout(_sc_grid)
+        _sgl.setContentsMargins(0,0,0,0); _sgl.setSpacing(3)
+        _sc_popup = _HoverPopup(self)
+        # "선택 안 함" 버튼
+        _b0 = QPushButton('— 선택 안 함 —'); _b0.setCheckable(True); _b0.setChecked(True)
+        _b0.setStyleSheet(_TOG_SS); _b0.setFixedHeight(26)
+        _install_hover(_b0, '시나리오 없이 수동 설정 사용', _sc_popup)
+        _sc_bg.addButton(_b0, 0)
+        _sgl.addWidget(_b0, 0, 0, 1, 2)
+        for _i, _sn in enumerate(_sc_names):
+            _sc_d = SCENARIO_LIBRARY[_sn]
+            _tip = f"{_sc_d.get('desc','')}\n\n권장: {_sc_d.get('recommend','')}"
+            _b = QPushButton(_sn); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _install_hover(_b, _tip, _sc_popup)
+            _sc_bg.addButton(_b, _i + 1)
+            _sgl.addWidget(_b, (_i // 2) + 1, _i % 2)
+        _sc_bg.idClicked.connect(self.cmb_scenario.setCurrentIndex)
         self.cmb_scenario.currentIndexChanged.connect(
-            lambda i: self._lst_scenario.setCurrentRow(i)
-            if self._lst_scenario.currentRow() != i else None)
+            lambda i: _sc_bg.button(i).setChecked(True) if _sc_bg.button(i) else None)
         self.cmb_scenario.currentTextChanged.connect(self._on_scenario_changed)
-        scl.addWidget(self._lst_scenario)
-
-        self.lbl_scenario_desc = QLabel()
-        self.lbl_scenario_desc.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
-        self.lbl_scenario_desc.setWordWrap(True)
-        scl.addWidget(self.lbl_scenario_desc)
+        scl.addWidget(_sc_grid)
         self.btn_apply_scenario = QPushButton("▶ 시나리오 적용")
         self.btn_apply_scenario.setEnabled(False)
         self.btn_apply_scenario.clicked.connect(self._apply_scenario)
@@ -5301,35 +5363,58 @@ class MainWindow(QMainWindow):
         mode_rl.addWidget(self.cmb_enemy_mode, stretch=1)
         el.addWidget(mode_row)
 
-        # 프리셋 선택 (프리셋 모드용)
-        self.cmb_fleet_preset_e = NoScrollComboBox()
-        self.cmb_fleet_preset_e.addItems(list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else [])
-        if _V7_OK:
-            for _i, _n in enumerate(V7_ENEMY_FLEET_PRESETS.keys()):
-                self.cmb_fleet_preset_e.setItemData(_i, self._enemy_preset_tooltip(_n),
-                                                    Qt.ItemDataRole.ToolTipRole)
+        # 프리셋 선택 (프리셋 모드용) — 버튼 그리드
+        _ep_names = list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else []
+        self.cmb_fleet_preset_e = NoScrollComboBox()        # 하위 호환용 숨김 콤보
+        self.cmb_fleet_preset_e.addItems(_ep_names)
+        self.cmb_fleet_preset_e.hide()
+        self._ep_preset_row = QWidget()
+        _eprl = QVBoxLayout(self._ep_preset_row)
+        _eprl.setContentsMargins(0,0,0,0); _eprl.setSpacing(3)
+        _ep_bg = QButtonGroup(self); _ep_bg.setExclusive(True)
+        _ep_grid = QWidget(); _epgl = QGridLayout(_ep_grid)
+        _epgl.setContentsMargins(0,0,0,0); _epgl.setSpacing(3)
+        _ep_popup = _HoverPopup(self)
+        for _i, _en in enumerate(_ep_names):
+            _b = QPushButton(_en); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _tip = self._enemy_preset_tooltip(_en) if _V7_OK else ""
+            _install_hover(_b, _tip, _ep_popup)
+            if _i == 0: _b.setChecked(True)
+            _ep_bg.addButton(_b, _i)
+            _epgl.addWidget(_b, _i // 2, _i % 2)
+        _ep_bg.idClicked.connect(self.cmb_fleet_preset_e.setCurrentIndex)
+        self.cmb_fleet_preset_e.currentIndexChanged.connect(
+            lambda i: _ep_bg.button(i).setChecked(True) if _ep_bg.button(i) else None)
         self.cmb_fleet_preset_e.currentTextChanged.connect(self._update_enemy_preset_detail)
-        el.addWidget(self.cmb_fleet_preset_e)
+        _eprl.addWidget(_ep_grid)
+        el.addWidget(self._ep_preset_row)
 
-        # NEW-A: 혼합 시나리오 선택 (혼합 모드용)
+        # NEW-A: 혼합 시나리오 선택 (혼합 모드용) — 버튼 그리드
+        _mx_names = list(V7_MIXED_SCENARIOS.keys()) if _V7_OK else []
         self._mixed_row = QWidget(); mixed_rl = QVBoxLayout(self._mixed_row)
         mixed_rl.setContentsMargins(0, 0, 0, 0); mixed_rl.setSpacing(3)
-        self.cmb_mixed_scenario = NoScrollComboBox()
-        self.cmb_mixed_scenario.addItems(list(V7_MIXED_SCENARIOS.keys()) if _V7_OK else [])
+        self.cmb_mixed_scenario = NoScrollComboBox()        # 하위 호환용 숨김 콤보
+        self.cmb_mixed_scenario.addItems(_mx_names)
+        self.cmb_mixed_scenario.hide()
+        _mx_bg = QButtonGroup(self); _mx_bg.setExclusive(True)
+        _mx_grid = QWidget(); _mxgl = QGridLayout(_mx_grid)
+        _mxgl.setContentsMargins(0,0,0,0); _mxgl.setSpacing(3)
+        _mx_popup = _HoverPopup(self)
+        for _i, _mn in enumerate(_mx_names):
+            _b = QPushButton(_mn); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _mx_desc = V7_MIXED_SCENARIOS[_mn].get('description','') if _V7_OK else ""
+            _install_hover(_b, _mx_desc, _mx_popup)
+            if _i == 0: _b.setChecked(True)
+            _mx_bg.addButton(_b, _i)
+            _mxgl.addWidget(_b, _i // 2, _i % 2)
+        _mx_bg.idClicked.connect(self.cmb_mixed_scenario.setCurrentIndex)
+        self.cmb_mixed_scenario.currentIndexChanged.connect(
+            lambda i: _mx_bg.button(i).setChecked(True) if _mx_bg.button(i) else None)
         self.cmb_mixed_scenario.currentTextChanged.connect(self._update_mixed_scenario_detail)
-        mixed_rl.addWidget(self.cmb_mixed_scenario)
-        self.lbl_mixed_detail = QLabel()
-        self.lbl_mixed_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
-        self.lbl_mixed_detail.setWordWrap(True)
-        mixed_rl.addWidget(self.lbl_mixed_detail)
+        mixed_rl.addWidget(_mx_grid)
         el.addWidget(self._mixed_row)
-
-        self.lbl_enemy_preset_detail = QLabel()
-        self.lbl_enemy_preset_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:15px; padding:2px 0;")
-        self.lbl_enemy_preset_detail.setWordWrap(True)
-        el.addWidget(self.lbl_enemy_preset_detail)
 
         # 랜덤 난이도 + 시드 (랜덤 모드용)
         self._rand_row = QWidget(); rand_rl = QHBoxLayout(self._rand_row)
@@ -6750,15 +6835,7 @@ class MainWindow(QMainWindow):
         return '\n'.join(lines)
 
     def _update_fleet_detail(self, preset_name: str):
-        if not _V7_OK or preset_name not in V7_FLEET_PRESETS:
-            self.lbl_fleet_detail.setText('')
-            return
-        lines = []
-        for s in V7_FLEET_PRESETS[preset_name]:
-            disp = self._SHIP_DISPLAY.get(s['type'], s['type'])
-            lines.append(f"• {s['name']}  ({disp})")
-        self.lbl_fleet_detail.setText('\n'.join(lines))
-        self.cmb_fleet.setToolTip(self._friendly_preset_tooltip(preset_name))
+        pass  # hover 팝업으로 대체 — lbl_fleet_detail 제거됨
 
     def _update_detect_info(self, _=None):
         if not _V7_OK:
@@ -6780,15 +6857,7 @@ class MainWindow(QMainWindow):
         cmb.setToolTip(self._enemy_tip(name))
 
     def _update_enemy_preset_detail(self, preset_name: str):
-        if not _V7_OK or preset_name not in V7_ENEMY_FLEET_PRESETS:
-            self.lbl_enemy_preset_detail.setText('')
-            return
-        units = V7_ENEMY_FLEET_PRESETS[preset_name]
-        label_lines = []
-        for e in units:
-            label_lines.append(f"• {e['preset']}  ×{e['count']}")
-        self.lbl_enemy_preset_detail.setText('\n'.join(label_lines))
-        self.cmb_fleet_preset_e.setToolTip(self._enemy_preset_tooltip(preset_name))
+        pass  # hover 팝업으로 대체
 
     def _update_difficulty_tooltip(self, diff: str):
         if not _V7_OK or diff not in V7_RANDOM_CFG:
@@ -6828,28 +6897,12 @@ class MainWindow(QMainWindow):
         mode = self.cmb_enemy_mode.currentText()
         is_preset = mode == '프리셋'
         is_mixed  = mode == '혼합 시나리오'
-        self.cmb_fleet_preset_e.setVisible(is_preset)
-        self.lbl_enemy_preset_detail.setVisible(is_preset)
+        self._ep_preset_row.setVisible(is_preset)
         self._mixed_row.setVisible(is_mixed)
         self._rand_row.setVisible(mode == '랜덤')
-        if is_preset and self.cmb_fleet_preset_e.count():
-            self._update_enemy_preset_detail(self.cmb_fleet_preset_e.currentText())
-        if is_mixed and self.cmb_mixed_scenario.count():
-            self._update_mixed_scenario_detail(self.cmb_mixed_scenario.currentText())
 
     def _update_mixed_scenario_detail(self, scenario_name: str):
-        """NEW-A: 혼합 시나리오 설명 업데이트."""
-        if not _V7_OK or scenario_name not in V7_MIXED_SCENARIOS:
-            self.lbl_mixed_detail.setText('')
-            return
-        sc = V7_MIXED_SCENARIOS[scenario_name]
-        desc = sc.get('description', '')
-        wave_lines = []
-        for w in sc.get('waves', []):
-            d = w['delay_s']
-            parts = ', '.join(f"{s['preset']} ×{s['count']}" for s in w['threats'])
-            wave_lines.append(f"  +{d:>3}s  {parts}")
-        self.lbl_mixed_detail.setText(desc + '\n' + '\n'.join(wave_lines))
+        pass  # hover 팝업으로 대체
 
     def _apply_style(self):
         self.setStyleSheet(STYLE_MAIN)
