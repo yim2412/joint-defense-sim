@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.05 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.06 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
+║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
+║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
+║         편대·날씨·계절·해역 변경 시 실시간 업데이트                         ║
 ║  [v13.01.05 — 결과 패널 토글 (기본 숨김, 아이콘 클릭 시 열림)]              ║
 ║  NEW-A  결과 패널 기본 숨김. 토글 스트립(▶/◀) 클릭으로 열기·닫기           ║
 ║         시뮬 실행 완료 시 결과 패널 자동 열림                               ║
@@ -604,7 +608,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.05"
+APP_VERSION = "v13.01.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4504,31 +4508,15 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_config_panel())
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(2)
+        root.addWidget(splitter)
 
-        # 결과 패널 토글 스트립 (항상 표시)
-        toggle_strip = QWidget()
-        toggle_strip.setFixedWidth(20)
-        toggle_strip.setStyleSheet(f"background:{C_PANEL}; border-left:1px solid {C_BORDER};")
-        ts_layout = QVBoxLayout(toggle_strip)
-        ts_layout.setContentsMargins(0, 0, 0, 0)
-        self._btn_result_toggle = QPushButton("▶")
-        self._btn_result_toggle.setFixedSize(20, 60)
-        self._btn_result_toggle.setStyleSheet(
-            f"QPushButton {{ background:{C_ACCENT}; color:{C_TEXT}; border:none;"
-            f" font-size:10px; font-weight:bold; border-radius:0; }}"
-            f"QPushButton:hover {{ background:#2a7ab5; }}"
-        )
-        self._btn_result_toggle.setToolTip("결과 패널 열기/닫기")
-        self._btn_result_toggle.clicked.connect(self._toggle_result_panel)
-        ts_layout.addStretch()
-        ts_layout.addWidget(self._btn_result_toggle)
-        ts_layout.addStretch()
-        root.addWidget(toggle_strip)
+        splitter.addWidget(self._build_config_panel())
+        splitter.addWidget(self._build_result_panel())
+        splitter.setSizes([430, 1370])
 
-        self._result_widget = self._build_result_panel()
-        self._result_widget.hide()
-        root.addWidget(self._result_widget, stretch=1)
+        self._update_scenario_preview()
 
         # 상태바
         self.status = QStatusBar()
@@ -4551,12 +4539,6 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
-
-    def _toggle_result_panel(self):
-        visible = not self._result_widget.isVisible()
-        self._result_widget.setVisible(visible)
-        self._btn_result_toggle.setText("◀" if visible else "▶")
-        self._btn_result_toggle.setToolTip("결과 패널 닫기" if visible else "결과 패널 열기")
 
     def _open_log_file(self):
         try:
@@ -4796,6 +4778,10 @@ class MainWindow(QMainWindow):
 
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
+        self.cmb_fleet.currentTextChanged.connect(lambda _: self._update_scenario_preview())
+        self.cmb_weather.currentTextChanged.connect(lambda _: self._update_scenario_preview())
+        self.cmb_season.currentTextChanged.connect(lambda _: self._update_scenario_preview())
+        self.cmb_region.currentTextChanged.connect(lambda _: self._update_scenario_preview())
         container_layout.addWidget(_quick)
 
         # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
@@ -5438,15 +5424,8 @@ class MainWindow(QMainWindow):
 
         self._result_outer_stack = QStackedWidget()
 
-        # 페이지 0: 실행 전 플레이스홀더
-        _placeholder = QWidget()
-        _ph_layout = QVBoxLayout(_placeholder)
-        _ph_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _ph_lbl = QLabel("시뮬레이션을 실행하면 결과가 여기에 표시됩니다")
-        _ph_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _ph_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:16px;")
-        _ph_layout.addWidget(_ph_lbl)
-        self._result_outer_stack.addWidget(_placeholder)  # index 0
+        # 페이지 0: 방어권역 개요 (실행 전)
+        self._result_outer_stack.addWidget(self._build_scenario_preview())  # index 0
 
         # 페이지 1: 결과 패널
         panel = QWidget()
@@ -5652,6 +5631,168 @@ class MainWindow(QMainWindow):
             render_map[idx]()
             self._page_dirty.discard(idx)
             self._page_render_cache[idx] = result_id
+
+    # ── 방어권역 개요 패널 (실행 전) ─────────────────────────────────────────
+
+    def _build_scenario_preview(self) -> QWidget:
+        """실행 전 시나리오 개요: 방어권역 다이어그램 + 편대·환경·무장 요약."""
+        w = QWidget()
+        w.setStyleSheet(f"background:{C_BG};")
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(10)
+
+        hdr = QHBoxLayout()
+        t = QLabel("  방어권역 개요")
+        t.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:bold; letter-spacing:1px;")
+        hdr.addWidget(t)
+        hdr.addStretch()
+        hint = QLabel("시뮬레이션을 실행하면 결과가 표시됩니다")
+        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-style:italic;")
+        hdr.addWidget(hint)
+        outer.addLayout(hdr)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color:{C_BORDER};")
+        outer.addWidget(sep)
+
+        body = QHBoxLayout()
+        body.setSpacing(16)
+
+        self._preview_fig = Figure(facecolor=C_BG)
+        self._preview_canvas = FigureCanvas(self._preview_fig)
+        self._preview_canvas.setMinimumSize(320, 280)
+        body.addWidget(self._preview_canvas, stretch=3)
+
+        right = QVBoxLayout()
+        right.setSpacing(8)
+        self._prev_lbl_fleet = self._make_prev_card(right, "🛥  아군 편대", "—")
+        self._prev_lbl_env   = self._make_prev_card(right, "🌤  교전 환경", "—")
+        self._prev_lbl_wpn   = self._make_prev_card(right, "🚀  대공 무장", "—")
+
+        guide = QGroupBox()
+        guide.setStyleSheet(
+            f"QGroupBox {{ background:#162416; border:1px solid #2a4a2a;"
+            f" border-radius:6px; padding:8px; }}")
+        gl = QVBoxLayout(guide)
+        gl.setSpacing(4)
+        for line in [
+            "설정을 확인한 뒤 시뮬레이션을 실행하세요.",
+            "MC 분석: 10,000회 반복으로 통계 신뢰도 확보.",
+            "CVaR은 최악 5% 시나리오의 평균 요격률입니다.",
+        ]:
+            ql = QLabel(line)
+            ql.setWordWrap(True)
+            ql.setStyleSheet(f"color:#4caf50; font-size:11px;")
+            gl.addWidget(ql)
+        right.addWidget(guide)
+        right.addStretch()
+
+        body.addLayout(right, stretch=2)
+        outer.addLayout(body, stretch=1)
+        return w
+
+    def _make_prev_card(self, layout: QVBoxLayout, title: str, value: str) -> QLabel:
+        card = QGroupBox()
+        card.setStyleSheet(
+            f"QGroupBox {{ background:{C_PANEL}; border:1px solid {C_BORDER};"
+            f" border-radius:6px; padding:6px; }}")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(8, 4, 8, 6)
+        cl.setSpacing(3)
+        t_lbl = QLabel(title)
+        t_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px; font-weight:bold;")
+        cl.addWidget(t_lbl)
+        v_lbl = QLabel(value)
+        v_lbl.setWordWrap(True)
+        v_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px; line-height:160%;")
+        cl.addWidget(v_lbl)
+        layout.addWidget(card)
+        return v_lbl
+
+    def _update_scenario_preview(self):
+        """방어권역 다이어그램 및 요약 카드를 현재 설정으로 갱신."""
+        if not hasattr(self, '_preview_fig') or not hasattr(self, '_preview_canvas'):
+            return
+        import matplotlib.patches as _mp
+
+        fleet_name = self.cmb_fleet.currentText()   if hasattr(self, 'cmb_fleet')   else '—'
+        region     = self.cmb_region.currentText()  if hasattr(self, 'cmb_region')  else '—'
+        weather    = self.cmb_weather.currentText() if hasattr(self, 'cmb_weather') else '—'
+        season     = self.cmb_season.currentText()  if hasattr(self, 'cmb_season')  else '—'
+
+        # ── 다이어그램 ──────────────────────────────────────────────────────
+        fig = self._preview_fig
+        fig.clear()
+        ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        ax.set_facecolor('#0d1117')
+        ax.set_aspect('equal')
+
+        # 방어 레이어 (시각 반지름 / 실제 km 표기)
+        layers = [
+            (185, '#1565c0', 0.10, '#5b9bd5', 'SM-6  370 km'),
+            (130, '#1a6b3a', 0.16, '#4caf50', 'SM-2  170 km'),
+            ( 70, '#7b5a00', 0.22, '#f39c12', 'ESSM/해궁  50 km'),
+            ( 22, '#7b1500', 0.38, '#e74c3c', 'CIWS  9 km'),
+        ]
+        for r, fc, fa, lc, label in layers:
+            ax.add_patch(_mp.Circle((0, 0), r, color=fc, fill=True, alpha=fa))
+            ax.add_patch(_mp.Circle((0, 0), r, color=lc, fill=False,
+                                     linewidth=1.2, linestyle='--', alpha=0.7))
+            ax.text(r * 0.695 + 3, r * 0.695 + 3, label,
+                    color=lc, fontsize=7.5, alpha=0.9, ha='left', va='bottom')
+
+        ax.scatter([0], [0], marker='^', s=110, color='white', zorder=10)
+        ax.text(0, -10, '기동전단', color='white', ha='center', va='top', fontsize=9)
+
+        _dirs = {
+            '동해 북부': [330, 0, 30],
+            '동해':      [0, 30, 60],
+            '황해':      [240, 270, 300],
+            '남해':      [160, 200, 240],
+            '독도':      [300, 330, 0],
+            '대한해협':  [220, 260, 300, 340],
+        }
+        for deg in _dirs.get(region, [0, 90, 180, 270]):
+            rad = np.radians(90 - deg)
+            cx, cy = np.cos(rad), np.sin(rad)
+            ax.annotate('',
+                xy=(cx * 195, cy * 195), xytext=(cx * 215, cy * 215),
+                arrowprops=dict(arrowstyle='->', color='#e74c3c', lw=1.8, alpha=0.8))
+
+        for ang, lbl in [(90, 'N'), (0, 'E'), (-90, 'S'), (180, 'W')]:
+            r = np.radians(ang)
+            ax.text(np.cos(r) * 228, np.sin(r) * 228, lbl,
+                    color='#555e6b', ha='center', va='center', fontsize=9, alpha=0.7)
+
+        ax.set_xlim(-240, 240)
+        ax.set_ylim(-240, 240)
+        ax.axis('off')
+        fig.tight_layout(pad=0)
+        self._preview_canvas.draw()
+
+        # ── 요약 카드 ───────────────────────────────────────────────────────
+        if _V7_OK and fleet_name in V7_FLEET_PRESETS:
+            ships = V7_FLEET_PRESETS[fleet_name].get('ships', {})
+            total = sum(ships.values())
+            lines = [f"{k}  ×{v}" for k, v in ships.items()]
+            self._prev_lbl_fleet.setText(f"{fleet_name}  ({total}척)\n" + '\n'.join(lines[:5]))
+        else:
+            self._prev_lbl_fleet.setText('—')
+
+        self._prev_lbl_env.setText(
+            f"날씨:  {weather}\n계절:  {season}\n해역:  {region}")
+
+        wpn_lines = []
+        if _V7_OK and fleet_name in V7_FLEET_PRESETS:
+            inv = V7_FLEET_PRESETS[fleet_name].get('weapons', {})
+            aa = {k: v for k, v in inv.items()
+                  if k in V7_FRIENDLY_DB and '대공' in V7_FRIENDLY_DB[k].get('category', [])}
+            for k, v in list(aa.items())[:4]:
+                rng = V7_FRIENDLY_DB[k].get('range_km', 0)
+                wpn_lines.append(f"{k}  {v}발  ({rng} km)")
+        self._prev_lbl_wpn.setText('\n'.join(wpn_lines) if wpn_lines else '—')
 
     def _build_req_tab(self) -> QWidget:
         """포팅 D: REQ 판정 결과 테이블 + 자동 취약점 진단 카드."""
@@ -7129,10 +7270,6 @@ class MainWindow(QMainWindow):
 
     def _update_cards(self, result: dict, mc: dict):
         self._result_outer_stack.setCurrentIndex(1)
-        if not self._result_widget.isVisible():
-            self._result_widget.show()
-            self._btn_result_toggle.setText("◀")
-            self._btn_result_toggle.setToolTip("결과 패널 닫기")
         self._cards['intercept'].setText(f"{mc['mean_intercept']:.1%}")
         self._cards['intercept'].setStyleSheet(
             f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
