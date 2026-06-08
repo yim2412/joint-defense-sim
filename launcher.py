@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.11 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.12 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.11 — 상단 5칸(1/3)·하단 4칸(2/3) 분할, 적군·시나리오 상단 배치]   ║
+║  [v13.01.12 — 상단 5칸에 스크롤 추가, 설정 항목 전체 표시]                  ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.11"
+APP_VERSION = "v13.01.12"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4584,12 +4584,20 @@ class MainWindow(QMainWindow):
                 f"border-bottom:1px solid {C_BORDER};")
             cl.addWidget(hdr)
 
-            # 콘텐츠 홀더 (위젯이 reparent되어 들어옴)
+            # 콘텐츠 홀더 — 스크롤 영역 안에 배치
             holder = QWidget()
             holder.setStyleSheet(f"background:{C_PANEL};")
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(0, 0, 0, 0)
-            cl.addWidget(holder, stretch=1)
+            hl.setContentsMargins(6, 6, 6, 6)
+            hl.setSpacing(4)
+            hl.addStretch()
+
+            sc = QScrollArea()
+            sc.setWidgetResizable(True)
+            sc.setWidget(holder)
+            sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_PANEL}; }}")
+            sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            cl.addWidget(sc, stretch=1)
 
             self._setup_top_cells.append(holder)
             tbl.addWidget(cell, stretch=1)
@@ -4691,12 +4699,12 @@ class MainWindow(QMainWindow):
 
     def _enter_setup_mode(self):
         """설정 전체화면으로 전환."""
-        # 상단 5칸에 위젯 배치
+        # 상단 5칸에 위젯 배치 (stretch 앞 index 0에 삽입)
         for cell, widget in zip(self._setup_top_cells,
                                 [self._cfg_fleet, self._cfg_enemy_scenario,
                                  self._cfg_weather, self._cfg_region,
                                  self._cfg_bottom]):
-            cell.layout().addWidget(widget)
+            cell.layout().insertWidget(0, widget)
             widget.show()
 
         # 섹션 그룹 → 하단 컬럼
