@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.06 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.07 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.07 — 실행 전/후 2-페이지 UI 구조 도입]                             ║
+║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
+║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
+║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
 ║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
@@ -608,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.06"
+APP_VERSION = "v13.01.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4504,19 +4508,21 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(2)
-        root.addWidget(splitter)
+        self._main_stack = QStackedWidget()
+        root.addWidget(self._main_stack)
 
-        splitter.addWidget(self._build_config_panel())
-        splitter.addWidget(self._build_result_panel())
-        splitter.setSizes([430, 1370])
+        # 설정 패널 위젯을 먼저 생성 (위젯 참조 저장)
+        self._cfg_container = self._build_config_panel()
 
-        self._update_scenario_preview()
+        self._main_stack.addWidget(self._build_setup_page())    # index 0: 설정 화면
+        self._main_stack.addWidget(self._build_results_page())  # index 1: 결과 화면
+
+        self._in_results_mode = False
+        self._enter_setup_mode()
 
         # 상태바
         self.status = QStatusBar()
@@ -4539,6 +4545,175 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
+
+    # ── 설정/결과 화면 전환 ───────────────────────────────────────────────────
+
+    def _build_setup_page(self) -> QWidget:
+        """전체 화면 설정 페이지 (실행 전)."""
+        page = QWidget()
+        page.setStyleSheet(f"background:{C_BG};")
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 퀵 폼 홀더
+        self._setup_quick_holder = QWidget()
+        self._setup_quick_holder.setStyleSheet(f"background:{C_PANEL};")
+        qh_layout = QVBoxLayout(self._setup_quick_holder)
+        qh_layout.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._setup_quick_holder)
+
+        # 섹션 탭 바
+        tab_bar = QWidget()
+        tab_bar.setFixedHeight(46)
+        tab_bar.setStyleSheet(
+            f"background:{C_PANEL}; border-bottom:1px solid {C_BORDER};")
+        tbl = QHBoxLayout(tab_bar)
+        tbl.setContentsMargins(20, 6, 20, 6)
+        tbl.setSpacing(8)
+
+        self._setup_tab_btns: list = []
+        for i, name in enumerate(["기본", "환경", "방어전술", "항공자산", "고급"]):
+            btn = QPushButton(name)
+            btn.setFixedHeight(32)
+            btn.setCheckable(True)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:{C_BG}; color:{C_SUBTEXT};
+                    border:1px solid {C_BORDER}; border-radius:4px;
+                    font-size:13px; padding:0 22px;
+                }}
+                QPushButton:checked {{
+                    background:{C_ACCENT}; color:white;
+                    border:1px solid {C_ACCENT};
+                }}
+                QPushButton:hover:!checked {{
+                    background:#1f2d40; color:{C_TEXT};
+                }}
+            """)
+            btn.clicked.connect(lambda _, idx=i: self._on_setup_tab(idx))
+            tbl.addWidget(btn)
+            self._setup_tab_btns.append(btn)
+        tbl.addStretch()
+        outer.addWidget(tab_bar)
+
+        # 탭 콘텐츠 영역 (QStackedWidget, 각 탭은 스크롤 가능)
+        self._setup_tab_stack = QStackedWidget()
+        self._setup_tab_pages: list = []
+        for _ in range(5):
+            inner = QWidget()
+            inner.setStyleSheet(f"background:{C_BG};")
+            il = QVBoxLayout(inner)
+            il.setContentsMargins(40, 16, 40, 16)
+            il.setSpacing(10)
+            il.addStretch()
+            self._setup_tab_pages.append(inner)
+
+            sc = QScrollArea()
+            sc.setWidgetResizable(True)
+            sc.setWidget(inner)
+            sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
+            self._setup_tab_stack.addWidget(sc)
+
+        outer.addWidget(self._setup_tab_stack, stretch=1)
+
+        # 하단 홀더 (MC 모드 + 실행 버튼)
+        self._setup_bottom_holder = QWidget()
+        bh_layout = QVBoxLayout(self._setup_bottom_holder)
+        bh_layout.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._setup_bottom_holder)
+
+        return page
+
+    def _build_results_page(self) -> QWidget:
+        """결과 화면 (실행 후): 왼쪽 설정 패널 + 오른쪽 결과."""
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 왼쪽: 설정 패널 홀더
+        self._results_cfg_holder = QWidget()
+        self._results_cfg_holder.setFixedWidth(430)
+        rl = QVBoxLayout(self._results_cfg_holder)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+
+        btn_back = QPushButton("← 설정 화면으로")
+        btn_back.setFixedHeight(28)
+        btn_back.setStyleSheet(f"""
+            QPushButton {{
+                background:{C_PANEL}; color:{C_SUBTEXT};
+                border:none; border-bottom:1px solid {C_BORDER};
+                font-size:12px;
+            }}
+            QPushButton:hover {{ color:{C_TEXT}; background:#1f2d40; }}
+        """)
+        btn_back.clicked.connect(self._enter_setup_mode)
+        rl.addWidget(btn_back)
+
+        layout.addWidget(self._results_cfg_holder)
+
+        # 오른쪽: 결과 패널
+        layout.addWidget(self._build_result_panel(), stretch=1)
+
+        return page
+
+    def _on_setup_tab(self, idx: int):
+        for i, btn in enumerate(self._setup_tab_btns):
+            btn.setChecked(i == idx)
+        self._setup_tab_stack.setCurrentIndex(idx)
+
+    def _enter_setup_mode(self):
+        """설정 전체화면으로 전환 (탭 방식)."""
+        # 퀵 폼 → 설정 홀더
+        self._setup_quick_holder.layout().addWidget(self._cfg_quick)
+        self._cfg_quick.show()
+
+        # 섹션 그룹 → 탭 페이지
+        for groups, tab_page in zip(self._sec_groups_ref, self._setup_tab_pages):
+            tl = tab_page.layout()
+            for j, grp in enumerate(groups):
+                tl.insertWidget(j, grp)
+                grp.show()
+
+        # 하단(MC+실행) → 하단 홀더
+        self._setup_bottom_holder.layout().addWidget(self._cfg_bottom)
+        self._cfg_bottom.show()
+
+        # 첫 번째 탭 선택
+        self._on_setup_tab(0)
+
+        self._in_results_mode = False
+        self._main_stack.setCurrentIndex(0)
+
+    def _enter_results_mode(self):
+        """결과 화면으로 전환 (설정 사이드바 + 결과 패널)."""
+        if self._in_results_mode:
+            return
+
+        # 섹션 그룹 → 아코디언 content 위젯
+        for groups, content_w in zip(self._sec_groups_ref, self._sec_contents):
+            cl = content_w.layout()
+            for j, grp in enumerate(groups):
+                cl.insertWidget(j, grp)
+                grp.show()
+
+        # 퀵 폼 → container 맨 앞
+        self._cfg_container_layout.insertWidget(0, self._cfg_quick)
+        self._cfg_quick.show()
+
+        # 하단 → container 맨 뒤
+        self._cfg_container_layout.addWidget(self._cfg_bottom)
+        self._cfg_bottom.show()
+
+        # container → results 홀더 (최초 1회만 reparent)
+        if self._cfg_container.parent() is not self._results_cfg_holder:
+            self._results_cfg_holder.layout().addWidget(self._cfg_container)
+        self._cfg_container.show()
+
+        self._in_results_mode = True
+        self._main_stack.setCurrentIndex(1)
 
     def _open_log_file(self):
         try:
@@ -4778,10 +4953,7 @@ class MainWindow(QMainWindow):
 
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
         self.cmb_weather.currentTextChanged.connect(self._update_detect_info)
-        self.cmb_fleet.currentTextChanged.connect(lambda _: self._update_scenario_preview())
-        self.cmb_weather.currentTextChanged.connect(lambda _: self._update_scenario_preview())
-        self.cmb_season.currentTextChanged.connect(lambda _: self._update_scenario_preview())
-        self.cmb_region.currentTextChanged.connect(lambda _: self._update_scenario_preview())
+        self._cfg_quick = _quick          # 설정/결과 모드 간 재배치용
         container_layout.addWidget(_quick)
 
         # ── 작전 시나리오 (v11.5) ────────────────────────────────────────
@@ -5291,12 +5463,16 @@ class MainWindow(QMainWindow):
             ("항공자산", [grp_ac],                     False),
             ("고급",     [grp_t, grp_bmd, grp_cd],    False),
         ]
+        self._sec_contents:   list = []
+        self._sec_groups_ref: list = []
         for sec_title, groups, expanded in _sections:
             content = _make_content(*groups)
             content.setVisible(expanded)
             hdr = _CfgSectionHeader(sec_title, content, expanded)
             layout.addWidget(hdr)
             layout.addWidget(content)
+            self._sec_contents.append(content)
+            self._sec_groups_ref.append(list(groups))
 
         # ── 시뮬레이션 모드 선택 ─────────────────────────────────────────────
         grp_mc = QGroupBox("📊 시뮬레이션 모드")
@@ -5412,6 +5588,8 @@ class MainWindow(QMainWindow):
             bottom_layout.addWidget(err_lbl)
             self.btn_run.setEnabled(False)
 
+        self._cfg_bottom           = bottom
+        self._cfg_container_layout = container_layout
         container_layout.addWidget(scroll, stretch=1)
         container_layout.addWidget(bottom)
         return container
@@ -5424,8 +5602,14 @@ class MainWindow(QMainWindow):
 
         self._result_outer_stack = QStackedWidget()
 
-        # 페이지 0: 방어권역 개요 (실행 전)
-        self._result_outer_stack.addWidget(self._build_scenario_preview())  # index 0
+        # 페이지 0: 대기 화면 (결과 수신 전)
+        _ph = QWidget()
+        _phl = QVBoxLayout(_ph)
+        _phl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _phlbl = QLabel("시뮬레이션을 실행하면 결과가 여기에 표시됩니다")
+        _phlbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        _phl.addWidget(_phlbl)
+        self._result_outer_stack.addWidget(_ph)  # index 0
 
         # 페이지 1: 결과 패널
         panel = QWidget()
@@ -7275,6 +7459,8 @@ class MainWindow(QMainWindow):
 
     def _update_cards(self, result: dict, mc: dict):
         self._result_outer_stack.setCurrentIndex(1)
+        if not self._in_results_mode:
+            self._enter_results_mode()
         self._cards['intercept'].setText(f"{mc['mean_intercept']:.1%}")
         self._cards['intercept'].setStyleSheet(
             f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
