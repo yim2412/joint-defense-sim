@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.22 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.23 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.23 — 체크박스 ON/OFF 색상 구분 + 인디케이터 스타일]                ║
+║  NEW-A  체크 ON → 흰색, OFF → 빨간색으로 라벨 동적 변경 (ON/OFF 즉시 식별) ║
+║  NEW-B  인디케이터: 미체크=어두운 테두리, 체크=파란색 채움 (가시성 향상)    ║
 ║  [v13.01.22 — 대한해협 전환 시 환경 열 레이아웃 움찔 수정]                  ║
 ║  BUG-1  대한해협 선택 시 해협 진입로 행이 나타나며 환경 열이 이동하던 문제    ║
 ║         — 행을 항상 유지하고 비활성 시 회색 처리로 변경                       ║
@@ -621,7 +624,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.22"
+APP_VERSION = "v13.01.23"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1031,6 +1034,21 @@ C_SUBTEXT = '#7d8590'
 C_GREEN   = '#2ecc71'
 C_RED     = '#e74c3c'
 C_ORANGE  = '#f39c12'
+
+def _wire_chk_color(chk, font_size: int = 13) -> None:
+    """체크 여부에 따라 라벨 색상 변경(체크=흰색/미체크=빨간색) + 인디케이터 스타일."""
+    _IND = (
+        f"QCheckBox::indicator{{width:15px;height:15px;"
+        f"border:2px solid #4a5568;border-radius:3px;background:{C_BG};}}"
+        f"QCheckBox::indicator:checked{{background:{C_ACCENT};border-color:{C_ACCENT};}}"
+        f"QCheckBox::indicator:hover{{border-color:{C_ACCENT};}}"
+        f"QCheckBox::indicator:checked:hover{{background:#5dade2;border-color:#5dade2;}}"
+    )
+    def _upd(state: int):
+        color = C_TEXT if state else C_RED
+        chk.setStyleSheet(f"color:{color};font-size:{font_size}px;" + _IND)
+    chk.stateChanged.connect(_upd)
+    _upd(2 if chk.isChecked() else 0)
 
 # 차트 렌더 DPI — main()에서 화면 크기 기반으로 갱신 (min 150, max 300)
 CHART_DPI: int = 150
@@ -5365,7 +5383,7 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
                     self.chk_flooding, self.chk_weather_dyn, self.chk_iff]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+            _wire_chk_color(chk, 13)
 
         fl_env.addRow("",            self.chk_terrain)
         fl_env.addRow("",            self.chk_evap_duct)
@@ -5506,7 +5524,7 @@ class MainWindow(QMainWindow):
         self.chk_sd.setToolTip("적 자체방어 (CIWS + 채프/플레어)")
 
         for _i, chk in enumerate([self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]):
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+            _wire_chk_color(chk, 13)
             tl.addWidget(chk, _i // 2, _i % 2)
 
         # ── 항공 자산 (포팅 C + v10.5 CAP) ──────────────────────────────────
@@ -5526,7 +5544,7 @@ class MainWindow(QMainWindow):
             chk = QCheckBox(_label)
             chk.setChecked(False)
             chk.setToolTip(_tip)
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            _wire_chk_color(chk, 12)
             setattr(self, _attr, chk)
             acl.addWidget(chk, _i // 2, _i % 2)
 
@@ -5629,7 +5647,7 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_tactical]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+            _wire_chk_color(chk, 13)
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
         defl.addLayout(ai_tactic_row)
@@ -5647,7 +5665,7 @@ class MainWindow(QMainWindow):
 
         self.chk_strike = QCheckBox("공격 임무 활성화")
         self.chk_strike.setChecked(True)
-        self.chk_strike.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+        _wire_chk_color(self.chk_strike, 13)
         self.chk_strike.setToolTip(
             "ON: 아군 함정이 탐지 범위 내 적 수상함을 해성·하푼으로 자동 공격합니다.\n"
             "OFF: 방어 전용 모드 (공격 임무 비활성화)."
@@ -5686,6 +5704,7 @@ class MainWindow(QMainWindow):
             "함정 SM-3보다 먼저 교전 — 함정 SM-3은 소진 시 백업만."
         )
         bmdl.addRow("", self.chk_ashore)
+        _wire_chk_color(self.chk_ashore, 13)
 
         self.spn_ashore_sm3 = NoScrollSpinBox()
         self.spn_ashore_sm3.setRange(4, 48)
@@ -5702,6 +5721,7 @@ class MainWindow(QMainWindow):
             "어쇼어 SM-3 → THAAD → 함정 SM-3 순으로 교전."
         )
         bmdl.addRow("", self.chk_thaad)
+        _wire_chk_color(self.chk_thaad, 13)
 
         self.spn_thaad = NoScrollSpinBox()
         self.spn_thaad.setRange(4, 48)
