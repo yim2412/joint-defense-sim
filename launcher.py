@@ -3136,6 +3136,33 @@ class AccordionSidebar(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  설정 패널 아코디언 섹션 헤더
 # ════════════════════════════════════════════════════════════════════════════
+class _WrapCheckBox(QWidget):
+    """긴 레이블 자동 줄바꿈 체크박스 (QCheckBox drop-in)."""
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 1, 0, 1)
+        row.setSpacing(6)
+        self._chk = QCheckBox()
+        self._chk.toggled.connect(self.toggled)
+        row.addWidget(self._chk, 0, Qt.AlignmentFlag.AlignTop)
+        self._lbl = QLabel(text)
+        self._lbl.setWordWrap(True)
+        self._lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl.mousePressEvent = lambda e: self._chk.toggle()
+        row.addWidget(self._lbl, 1)
+
+    def isChecked(self) -> bool:         return self._chk.isChecked()
+    def setChecked(self, v: bool):       self._chk.setChecked(v)
+    def setEnabled(self, v: bool):
+        self._chk.setEnabled(v); self._lbl.setEnabled(v); super().setEnabled(v)
+    def setStyleSheet(self, s: str):     self._lbl.setStyleSheet(s)
+    def setToolTip(self, tip: str):
+        self._chk.setToolTip(tip); self._lbl.setToolTip(tip)
+
+
 class _CfgSectionHeader(QPushButton):
     """설정 패널 클릭 접이식 섹션 헤더."""
     def __init__(self, title: str, content: QWidget, expanded: bool = True):
@@ -4997,22 +5024,22 @@ class MainWindow(QMainWindow):
         acl = QVBoxLayout(grp_ac)
         acl.setSpacing(4)
 
-        self.chk_helo = QCheckBox("AW-159 와일드캣  (함재 헬기, 청상어 2발, 140km)")
-        self.chk_p3c  = QCheckBox("P-3C 오라이온  (포항기지, Mk.46 4발, 소노부이+15km)")
-        self.chk_p8a  = QCheckBox("P-8A 포세이돈  (포항기지, Mk.46 5발, 소노부이+18km)")
+        self.chk_helo = _WrapCheckBox("AW-159 와일드캣  (함재 헬기, 청상어 2발, 140km)")
+        self.chk_p3c  = _WrapCheckBox("P-3C 오라이온  (포항기지, Mk.46 4발, 소노부이+15km)")
+        self.chk_p8a  = _WrapCheckBox("P-8A 포세이돈  (포항기지, Mk.46 5발, 소노부이+18km)")
 
         # v10.5: 한국 공군 CAP
-        self.chk_f35a = QCheckBox("F-35A 라이트닝 II  (청주기지, AIM-120D×4, CAP 600km)")
+        self.chk_f35a = _WrapCheckBox("F-35A 라이트닝 II  (청주기지, AIM-120D×4, CAP 600km)")
         self.chk_f35a.setToolTip(
             "스텔스 CAP — BVR 교전 AIM-120D (Pk 65%, 사거리 160km).\n"
             "청주기지 출격 준비 30분. 탑재 4발, 전천후 운용."
         )
-        self.chk_kf21 = QCheckBox("KF-21 보라매  (대구기지, IRIS-T/AIM-120C×6, CAP 500km)")
+        self.chk_kf21 = _WrapCheckBox("KF-21 보라매  (대구기지, IRIS-T/AIM-120C×6, CAP 500km)")
         self.chk_kf21.setToolTip(
             "다목적 CAP — IRIS-T SL + AIM-120C 복합 탑재 (Pk 55%, 사거리 80km).\n"
             "대구기지 출격 준비 20분. 탑재 6발."
         )
-        self.chk_fa50 = QCheckBox("FA-50 파이팅이글  (원주기지, AIM-9X×4, CAP 400km)")
+        self.chk_fa50 = _WrapCheckBox("FA-50 파이팅이글  (원주기지, AIM-9X×4, CAP 400km)")
         self.chk_fa50.setToolTip(
             "경전투 CAP — AIM-9X 단거리 (Pk 45%, 사거리 35km).\n"
             "원주기지 출격 준비 15분. 탑재 4발."
@@ -5029,7 +5056,7 @@ class MainWindow(QMainWindow):
         defl = QVBoxLayout(grp_def)
         defl.setSpacing(4)
 
-        self.chk_layered = QCheckBox("다층 방어  (KDX-III-B2 → B1 → KDX-II → FFX 순서)")
+        self.chk_layered = _WrapCheckBox("다층 방어  (KDX-III-B2 → B1 → KDX-II → FFX 순서)")
         self.chk_layered.setChecked(True)
         self.chk_layered.setToolTip(
             "1차 교전 함정(KDX-III Batch II)이 요격 실패 시 다음 레이어(Batch I → KDX-II → FFX)가 자동 인계.\n"
