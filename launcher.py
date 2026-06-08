@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.28 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.02 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.02.02 — 시뮬레이션 실행 버튼 그라디언트 적용]                         ║
+║  NEW-A  실행 버튼에 위→아래 청색 그라디언트 + border-radius 8px 적용        ║
+║  [v13.02.01 — 전역 UI 스타일 폴리싱]                                        ║
+║  NEW-A  QGroupBox border-radius 8px + 타이틀 배지화 (배경·패딩 추가)        ║
+║  NEW-B  QScrollBar 슬림화(6px)·투명 배경·hover 강조·화살표 제거             ║
+║  NEW-C  QTabBar 상단 둥근 탭 (border-top-left/right-radius 6px)             ║
+║  NEW-D  QComboBox·QSpinBox border-radius 4→6px, 토글 버튼 radius 3→8px     ║
 ║  [v13.01.28 — 해역 탐지거리 기준함 정보 패널 제거]                          ║
 ║  DEL-A  "대공 882km · 기준함: 정조대왕함" 패널 제거                         ║
 ║         — 단일 함 기준으로 편대 성능을 오해할 수 있어 제거                   ║
@@ -638,7 +645,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.28"
+APP_VERSION = "v13.02.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1087,9 +1094,9 @@ QMainWindow, QWidget {{
 }}
 QGroupBox {{
     border: 1px solid {C_BORDER};
-    border-radius: 6px;
-    margin-top: 10px;
-    padding-top: 8px;
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
     font-weight: bold;
     color: {C_ACCENT};
     font-size: 17px;
@@ -1097,13 +1104,15 @@ QGroupBox {{
 QGroupBox::title {{
     subcontrol-origin: margin;
     left: 10px;
-    padding: 0 4px;
+    padding: 2px 8px;
+    background: {C_PANEL};
+    border-radius: 4px;
     font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
 }}
 QComboBox, QSpinBox {{
     background-color: {C_PANEL};
     border: 1px solid {C_BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     padding: 6px 12px;
     color: {C_TEXT};
     font-size: 17px;
@@ -1135,6 +1144,9 @@ QTabBar::tab {{
     background: {C_PANEL};
     color: {C_SUBTEXT};
     border: 1px solid {C_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
     padding: 9px 20px;
     margin-right: 2px;
     font-size: 16px;
@@ -1160,13 +1172,29 @@ QTableWidget QHeaderView::section {{
     font-size: 16px;
 }}
 QScrollBar:vertical {{
-    background: {C_PANEL};
-    width: 8px;
+    background: transparent;
+    width: 6px;
+    margin: 0;
 }}
 QScrollBar::handle:vertical {{
-    background: {C_BORDER};
-    border-radius: 4px;
+    background: #3d4a5a;
+    border-radius: 3px;
+    min-height: 20px;
 }}
+QScrollBar::handle:vertical:hover {{ background: {C_SUBTEXT}; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 6px;
+    margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: #3d4a5a;
+    border-radius: 3px;
+    min-width: 20px;
+}}
+QScrollBar::handle:horizontal:hover {{ background: {C_SUBTEXT}; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 QSlider::groove:horizontal {{
     background: {C_BORDER};
     height: 4px;
@@ -5040,7 +5068,7 @@ class MainWindow(QMainWindow):
         _TOG_SS = f"""
             QPushButton {{
                 background:{C_BG}; color:{C_SUBTEXT};
-                border:1px solid {C_BORDER}; border-radius:3px;
+                border:1px solid {C_BORDER}; border-radius:8px;
                 font-size:12px; padding:5px 4px;
             }}
             QPushButton:checked {{ background:{C_ACCENT}; color:white; border:1px solid {C_ACCENT}; }}
@@ -5939,6 +5967,15 @@ class MainWindow(QMainWindow):
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
         self.btn_run.setFixedHeight(36)
         self.btn_run.setFont(QFont('Malgun Gothic', 13))
+        self.btn_run.setStyleSheet(
+            f"QPushButton{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            f"stop:0 #4aabe8,stop:1 {C_ACCENT});color:white;border:none;"
+            f"border-radius:8px;font-weight:bold;}}"
+            f"QPushButton:hover{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            f"stop:0 #5bbaf0,stop:1 #2980b9);}}"
+            f"QPushButton:pressed{{background:{C_ACCENT};}}"
+            f"QPushButton:disabled{{background:{C_BORDER};color:{C_SUBTEXT};}}"
+        )
         self.btn_run.clicked.connect(self._run_sim)
         if not _V7_OK:
             self.btn_run.setEnabled(False)
@@ -9392,16 +9429,6 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            ("v13.1", "낮음", "UI 전체 폴리싱 — 둥근 모서리 + 스타일 통일",
-             "설정·결과 패널 전반을 시각적으로 다듬는 작업. "
-             "QGroupBox border-radius 8px 적용 및 타이틀 배지화, "
-             "토글 버튼(해역·날씨·계절 등) border-radius 6~8px로 확대, "
-             "시뮬 실행 버튼 미세 그라디언트 추가, "
-             "QComboBox·QSpinBox 입력 필드 스타일 통일(둥근 테두리), "
-             "QScrollBar 얇고 둥근 모던 스크롤바, "
-             "결과 탭 상단 둥근 탭 스타일로 교체. "
-             "엔진 미변경 — 스타일시트 전역 상수화 후 위젯별 순차 적용. "
-             "UI 전용이므로 회귀는 스모크 실행만."),
             ("v13.2", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
              "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
