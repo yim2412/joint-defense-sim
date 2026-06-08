@@ -4062,7 +4062,7 @@ class TimeStepEngine:
             if self._step_cb and int(self.t) % _step_interval == 0:
                 vls_rem = sum(
                     getattr(s, 'vls_remaining', 0) for s in self.friendly_ships)
-                last_log = self._log_entries[-1] if self._log_entries else ""
+                last_log = self._log_entries[-1][1] if self._log_entries else ""
                 self._step_cb(self.t, MAX_SIM_TIME, alive_count, vls_rem, last_log)
 
             if self._is_over():
