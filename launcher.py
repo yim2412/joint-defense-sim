@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.08 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.09 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.08 — 설정 섹션 탭 제거, 전체 섹션 항시 노출]                       ║
+║  [v13.01.09 — 설정 섹션 5-컬럼 분할 배치 (스크롤 없이 동시 노출)]           ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.08"
+APP_VERSION = "v13.01.09"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4563,18 +4563,55 @@ class MainWindow(QMainWindow):
         qh_layout.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._setup_quick_holder)
 
-        # 섹션 콘텐츠 — 단일 스크롤 (모든 섹션 항시 노출)
-        self._setup_content_page = QWidget()
-        self._setup_content_page.setStyleSheet(f"background:{C_BG};")
-        scl = QVBoxLayout(self._setup_content_page)
-        scl.setContentsMargins(40, 16, 40, 16)
-        scl.setSpacing(10)
+        # 섹션 컬럼 분할 — 5개 섹션을 좌우로 배치해 동시 노출
+        split_w = QWidget()
+        split_w.setStyleSheet(f"background:{C_BG};")
+        split_layout = QHBoxLayout(split_w)
+        split_layout.setContentsMargins(0, 0, 0, 0)
+        split_layout.setSpacing(0)
 
-        sc = QScrollArea()
-        sc.setWidgetResizable(True)
-        sc.setWidget(self._setup_content_page)
-        sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
-        outer.addWidget(sc, stretch=1)
+        self._setup_col_pages: list = []
+        col_names = ["기본", "환경", "방어전술", "항공자산", "고급"]
+        for i, name in enumerate(col_names):
+            col_frame = QWidget()
+            col_frame.setStyleSheet(f"background:{C_BG};")
+            cfl = QVBoxLayout(col_frame)
+            cfl.setContentsMargins(0, 0, 0, 0)
+            cfl.setSpacing(0)
+
+            hdr = QLabel(f"  {name}")
+            hdr.setFixedHeight(32)
+            hdr.setStyleSheet(
+                f"background:#1a2332; color:{C_ACCENT}; "
+                f"font-size:12px; font-weight:bold; letter-spacing:2px; "
+                f"border-bottom:2px solid {C_ACCENT};")
+            cfl.addWidget(hdr)
+
+            inner = QWidget()
+            inner.setStyleSheet(f"background:{C_BG};")
+            il = QVBoxLayout(inner)
+            il.setContentsMargins(10, 10, 10, 10)
+            il.setSpacing(8)
+            il.addStretch()
+            self._setup_col_pages.append(inner)
+
+            sc = QScrollArea()
+            sc.setWidgetResizable(True)
+            sc.setWidget(inner)
+            sc.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
+            sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            cfl.addWidget(sc)
+
+            split_layout.addWidget(col_frame, stretch=1)
+
+            if i < len(col_names) - 1:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.Shape.VLine)
+                sep.setStyleSheet(f"QFrame {{ color:{C_BORDER}; }}")
+                sep.setFixedWidth(1)
+                split_layout.addWidget(sep)
+
+        outer.addWidget(split_w, stretch=1)
 
         # 하단 홀더 (MC 모드 + 실행 버튼)
         self._setup_bottom_holder = QWidget()
@@ -4624,14 +4661,12 @@ class MainWindow(QMainWindow):
         self._setup_quick_holder.layout().addWidget(self._cfg_quick)
         self._cfg_quick.show()
 
-        # 모든 섹션 그룹 → 단일 스크롤 페이지에 순서대로 배치
-        cl = self._setup_content_page.layout()
-        idx = 0
-        for groups in self._sec_groups_ref:
-            for grp in groups:
-                cl.insertWidget(idx, grp)
+        # 섹션별 그룹 → 해당 컬럼에 배치
+        for groups, col_page in zip(self._sec_groups_ref, self._setup_col_pages):
+            cl = col_page.layout()
+            for j, grp in enumerate(groups):
+                cl.insertWidget(j, grp)
                 grp.show()
-                idx += 1
 
         # 하단(MC+실행) → 하단 홀더
         self._setup_bottom_holder.layout().addWidget(self._cfg_bottom)
