@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.06 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.07 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.02.07 — 테스트 모드 추가]                                              ║
+║  NEW-A  테스트 모드 체크박스 — MC 10회·LHS 10회·스트레스 셀당 3회 단축 실행  ║
 ║  [v13.02.06 — LHS·스트레스 테스트 중단 + CPU 급감]                          ║
 ║  BUG-1  LHS·스트레스 테스트 구간에 중단 체크 추가 (콜백 경유 즉시 탈출)     ║
 ║  BUG-2  배치당 최대 50개로 축소 — 취소 후 남은 서브프로세스 CPU 부하 최소화 ║
@@ -656,7 +658,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.02.06"
+APP_VERSION = "v13.02.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2291,13 +2293,14 @@ class SimWorker(QThread):
     _last_intercept_rate: float = -1.0   # 이전 실행 결과 캐시 (클래스 변수)
 
     def __init__(self, cfg: dict, mc_n: int, precision_mode: bool = False,
-                 sobol_npp: int = 3, sim_mode_idx: int = 1):
+                 sobol_npp: int = 3, sim_mode_idx: int = 1, test_mode: bool = False):
         super().__init__()
         self.cfg            = cfg
         self.mc_n           = mc_n
         self.precision_mode = precision_mode
         self.sobol_npp      = sobol_npp
         self.sim_mode_idx   = sim_mode_idx
+        self.test_mode      = test_mode
         # v10.7: 전술 모드 동기화 객체
         import threading, queue as _queue
         self._tactical_event  = threading.Event()
@@ -2446,7 +2449,7 @@ class SimWorker(QThread):
                 if self.isInterruptionRequested():
                     raise _SimCancelled()
                 lhs_n_map  = {5_000: 1_000, 10_000: 2_000, 100_000: 10_000}
-                lhs_n      = lhs_n_map.get(self.mc_n, 2_000)
+                lhs_n      = 10 if self.test_mode else lhs_n_map.get(self.mc_n, 2_000)
                 self.progress.emit(f"LHS 파라미터 불확실성 분석 중... ({lhs_n:,}회)")
                 lhs_t0 = time.time()
 
@@ -2471,7 +2474,7 @@ class SimWorker(QThread):
                 if self.isInterruptionRequested():
                     raise _SimCancelled()
                 n_cell_map = {5_000: 300, 10_000: 500, 100_000: 3_000}
-                n_per_cell = n_cell_map.get(self.mc_n, 500)
+                n_per_cell = 3 if self.test_mode else n_cell_map.get(self.mc_n, 500)
                 total_stress = len(STRESS_DIMS['channel_degrade']['values']) * \
                                len(STRESS_DIMS['radar_degrade']['values'])
                 self.progress.emit(f"스트레스 테스트 중... (셀당 {n_per_cell}회, 총 {total_stress}셀)")
@@ -6000,6 +6003,13 @@ class MainWindow(QMainWindow):
         mcl.addLayout(row2)
         mcl.addWidget(lbl_mode_hint)
 
+        self.chk_test_mode = QCheckBox("⚡ 테스트 모드 (MC 10회, 빠른 완료)")
+        self.chk_test_mode.setToolTip(
+            "MC 10회·LHS 10회·스트레스 셀당 3회로 단축 실행.\n"
+            "동작 확인용 — 통계적 의미 없음.")
+        self.chk_test_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        mcl.addWidget(self.chk_test_mode)
+
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
         self.btn_run.setFixedHeight(36)
         self.btn_run.setFont(QFont('Malgun Gothic', 13))
@@ -7350,6 +7360,9 @@ class MainWindow(QMainWindow):
         mc_n = [5_000, 10_000, 100_000][mode_idx]
         precision_mode = (mode_idx == 2)
         sobol_npp = self.spn_sobol_npp.value() if hasattr(self, 'spn_sobol_npp') else 3
+        test_mode = hasattr(self, 'chk_test_mode') and self.chk_test_mode.isChecked()
+        if test_mode:
+            mc_n = 10
 
         self.btn_run.setEnabled(False)
         self._prog.setVisible(True)
@@ -7365,7 +7378,8 @@ class MainWindow(QMainWindow):
                 self._worker.wait(500)
 
         self._worker = SimWorker(cfg, mc_n, precision_mode=precision_mode,
-                                 sobol_npp=sobol_npp, sim_mode_idx=mode_idx)
+                                 sobol_npp=sobol_npp, sim_mode_idx=mode_idx,
+                                 test_mode=test_mode)
         self._worker.progress.connect(self._on_progress)
         self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)

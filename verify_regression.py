@@ -17,6 +17,8 @@
 
 주의: 결정론 의존(random/numpy seed 고정). 신규 random 호출 추가·순서 변경은
       정상 변경이어도 FAIL이 날 수 있다 → 의도 확인 후 --update.
+주의: --smoke는 엔진 직접 호출이므로 GUI 워커 경로(시그널 emit 등)를 검증하지 않는다.
+      GUI 경로 확인은 exe에서 테스트 모드 체크박스를 켜고 직접 실행해야 한다.
 """
 import sys
 import io
@@ -120,8 +122,61 @@ def do_check() -> int:
     return 1
 
 
+def do_smoke() -> int:
+    """엔진 레벨 빠른 동작 확인 — MC 10회·LHS 10회·스트레스 셀당 3회.
+    GUI 워커 경로는 검증하지 않음 (exe 테스트 모드와 역할 분리).
+    """
+    from engine_v7 import monte_carlo_v7, monte_carlo_lhs, stress_test_grid
+    cfg = dict(_BASE, fleet_preset='기동전단 기본',
+               enemy_fleet_preset='랴오닝 항모전단', sim_seed=1)
+    errors = []
+
+    print('── 엔진 레벨 스모크 테스트 ──')
+
+    # 1. 단일 시뮬
+    try:
+        r = run_v7_simulation(cfg)
+        rate = r.get('intercept_rate', -1)
+        print(f'  [1/4] 단일 시뮬       ✅  요격률={rate:.1%}')
+    except Exception as e:
+        print(f'  [1/4] 단일 시뮬       ❌  {e}')
+        errors.append(str(e))
+
+    # 2. MC 10회
+    try:
+        mc = monte_carlo_v7(cfg, n=10)
+        print(f'  [2/4] MC 10회         ✅  평균={mc["mean_intercept"]:.1%}')
+    except Exception as e:
+        print(f'  [2/4] MC 10회         ❌  {e}')
+        errors.append(str(e))
+
+    # 3. LHS 10회
+    try:
+        lhs = monte_carlo_lhs(cfg, n=10)
+        print(f'  [3/4] LHS 10회        ✅  평균={lhs["mean_intercept"]:.1%}')
+    except Exception as e:
+        print(f'  [3/4] LHS 10회        ❌  {e}')
+        errors.append(str(e))
+
+    # 4. 스트레스 테스트 셀당 3회
+    try:
+        st = stress_test_grid(cfg, n_per_cell=3)
+        print(f'  [4/4] 스트레스 테스트 ✅  그리드 {len(st["grid"])}×{len(st["grid"][0])}')
+    except Exception as e:
+        print(f'  [4/4] 스트레스 테스트 ❌  {e}')
+        errors.append(str(e))
+
+    if errors:
+        print(f'\n❌ FAIL — {len(errors)}건 오류')
+        return 1
+    print('\n✅ PASS — 엔진 4개 경로 모두 정상')
+    return 0
+
+
 if __name__ == '__main__':
     if '--update' in sys.argv:
         do_update()
+    elif '--smoke' in sys.argv:
+        sys.exit(do_smoke())
     else:
         sys.exit(do_check())
