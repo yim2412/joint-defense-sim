@@ -1,12 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.16 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.17 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.16 — 레이아웃 재구성: 시뮬모드↓ + 셀 분리 + 하단 hover 팝업]      ║
-║  NEW-A  상단 바: [아군편대][적군편대][시나리오][날씨계절][해역] 5셀로 재편  ║
-║  NEW-B  시뮬레이션 모드를 하단 고급 열로 이동, 실행 버튼은 최하단 고정     ║
-║  NEW-C  환경·방어전술·항공자산·고급 항목 툴팁 → hover 팝업으로 전환        ║
-║  NEW-D  상단 비율 2:3으로 조정 (적군 편대 23개 프리셋 표시 공간 확보)      ║
+║  [v13.01.17 — 시드 입력 제거 + 1800×1060 창 모드 UI 비율 최적화]            ║
+║  DEL-A  적군 랜덤 씨앗 · 시뮬 시드 입력 제거 (항상 랜덤)                   ║
+║  NEW-A  하단 체크박스 폰트 16px→13px, 마진 10→6px, 간격 8→4px 압축        ║
+║  NEW-B  상단:하단 비율 1:2, 실행 버튼 36px 로 1800×1060 창 모드 최적화     ║
 ║  [v13.01.06 — 방어권역 개요 다이어그램 (실행 전 시나리오 시각화)]            ║
 ║  NEW-A  실행 전 결과 패널에 방어권역 개요 표시: 동심원 방어레이어 도해       ║
 ║         (SM-6·SM-2·ESSM/해궁·CIWS), 해역별 위협 벡터, 편대·환경·무장 요약  ║
@@ -613,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.16"
+APP_VERSION = "v13.01.17"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4669,9 +4668,9 @@ class MainWindow(QMainWindow):
                 sep.setFixedWidth(1)
                 tbl.addWidget(sep)
 
-        outer.addWidget(top_bar, stretch=2)
+        outer.addWidget(top_bar, stretch=1)
 
-        # ── 하단: 4칸 (전체 높이의 3/5) ─────────────────────────────────
+        # ── 하단: 4칸 (전체 높이의 2/3) ─────────────────────────────────
         split_w = QWidget()
         split_w.setStyleSheet(f"background:{C_BG};")
         split_layout = QHBoxLayout(split_w)
@@ -4698,8 +4697,8 @@ class MainWindow(QMainWindow):
             inner = QWidget()
             inner.setStyleSheet(f"background:{C_BG};")
             il = QVBoxLayout(inner)
-            il.setContentsMargins(10, 10, 10, 10)
-            il.setSpacing(8)
+            il.setContentsMargins(6, 6, 6, 6)
+            il.setSpacing(4)
             il.addStretch()
             self._setup_col_pages.append(inner)
 
@@ -4719,7 +4718,7 @@ class MainWindow(QMainWindow):
                 sep.setFixedWidth(1)
                 split_layout.addWidget(sep)
 
-        outer.addWidget(split_w, stretch=3)
+        outer.addWidget(split_w, stretch=2)
 
         # ── 실행 버튼 홀더 (설정 모드 전용, _cfg_bottom이 이동해 옴) ─────
         self._setup_run_holder = QWidget()
@@ -5355,7 +5354,7 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
                     self.chk_flooding, self.chk_weather_dyn, self.chk_iff]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
 
         fl_env.addRow("",            self.chk_terrain)
         fl_env.addRow("",            self.chk_evap_duct)
@@ -5445,9 +5444,8 @@ class MainWindow(QMainWindow):
         self.cmb_difficulty.setCurrentText('보통')
         self.cmb_difficulty.currentTextChanged.connect(self._update_difficulty_tooltip)
         self.spn_seed = NoScrollSpinBox(); self.spn_seed.setRange(0, 99999); self.spn_seed.setValue(0)
-        self.spn_seed.setPrefix("씨앗: ")
+        self.spn_seed.hide()   # 씨앗 입력 숨김 (항상 랜덤)
         rand_rl.addWidget(self.cmb_difficulty, stretch=1)
-        rand_rl.addWidget(self.spn_seed, stretch=1)
         el.addWidget(self._rand_row)
 
         self.cmb_enemy_mode.currentIndexChanged.connect(self._on_enemy_mode_changed)
@@ -5585,7 +5583,7 @@ class MainWindow(QMainWindow):
         # 적 편대 전술 기동
         tactics_row = QHBoxLayout()
         lbl_tactics = QLabel("적 전술 기동:")
-        lbl_tactics.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        lbl_tactics.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.cmb_enemy_tactics = NoScrollComboBox()
         self.cmb_enemy_tactics.addItems(['없음', 'V자 대형', '포위 기동'])
         self.cmb_enemy_tactics.setToolTip(
@@ -5599,7 +5597,7 @@ class MainWindow(QMainWindow):
         # 적 전술 AI (채널 포화 / 시차 공격 / 약점 공략)
         ai_tactic_row = QHBoxLayout()
         lbl_ai_tactic = QLabel("전술 AI:")
-        lbl_ai_tactic.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        lbl_ai_tactic.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.cmb_ai_tactic = NoScrollComboBox()
         self.cmb_ai_tactic.addItems(['없음', '채널 포화', '시차 공격', '약점 공략'])
         self.cmb_ai_tactic.setToolTip(
@@ -5614,23 +5612,16 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_tactical]:
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
+            chk.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
         defl.addLayout(ai_tactic_row)
 
-        # 시뮬 시드
-        seed_row = QHBoxLayout()
-        lbl_seed = QLabel("시뮬 시드  (0=랜덤, 재현 시 동일 값 입력)")
-        lbl_seed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        # 시뮬 시드 — 숨김 (항상 랜덤)
         self.spn_sim_seed = NoScrollSpinBox()
         self.spn_sim_seed.setRange(0, 99999)
         self.spn_sim_seed.setValue(0)
-        self.spn_sim_seed.setFixedWidth(80)
-        seed_row.addWidget(lbl_seed)
-        seed_row.addStretch()
-        seed_row.addWidget(self.spn_sim_seed)
-        defl.addLayout(seed_row)
+        self.spn_sim_seed.hide()
 
         # ── 공격 임무 옵션 (v9.3) ─────────────────────────────────────────────
         grp_strike = QGroupBox("⚔️ 공격 임무 (아군 대함 공격)")
@@ -5708,7 +5699,7 @@ class MainWindow(QMainWindow):
         cdl = QHBoxLayout(grp_cd)
         cdl.setSpacing(16)
         lbl_cd_fixed = QLabel("C&&D  10초  /  확인  3초  (고정)")
-        lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         cdl.addWidget(lbl_cd_fixed)
 
         # ── 시뮬레이션 모드 선택 (고급 열에 포함) ────────────────────────
@@ -5716,7 +5707,7 @@ class MainWindow(QMainWindow):
         mcl = QVBoxLayout(grp_mc)
         mcl.setSpacing(6)
         lbl_mode = QLabel("정밀도:")
-        lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:15px;")
+        lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.cmb_sim_mode = QComboBox()
         self.cmb_sim_mode.addItems(["⚡ 빠름  (5,000회)", "📊 표준  (10,000회)", "🔬 정밀  (100,000회)"])
         self.cmb_sim_mode.setCurrentIndex(1)
@@ -5833,8 +5824,8 @@ class MainWindow(QMainWindow):
         bottom_layout.setSpacing(6)
 
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
-        self.btn_run.setFixedHeight(44)
-        self.btn_run.setFont(QFont('Malgun Gothic', 15))
+        self.btn_run.setFixedHeight(36)
+        self.btn_run.setFont(QFont('Malgun Gothic', 13))
         self.btn_run.clicked.connect(self._run_sim)
         bottom_layout.addWidget(self.btn_run)
 
@@ -5937,10 +5928,7 @@ class MainWindow(QMainWindow):
         notice_rl.addWidget(self.btn_excel)
         notice_rl.addWidget(self.btn_pdf)
 
-        self._lbl_seed_used = QLabel("")
-        self._lbl_seed_used.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
-        notice_rl.addSpacing(8)
-        notice_rl.addWidget(self._lbl_seed_used)
+        self._lbl_seed_used = QLabel("")   # 하위 호환용 (숨김)
 
         layout.addWidget(notice_row)
 
@@ -7705,11 +7693,7 @@ class MainWindow(QMainWindow):
         sorties = result.get('aircraft_sorties', 0)
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
         # 사용된 시드 표시 (재현용)
-        seed = result.get('used_seed')
-        if seed:
-            self._lbl_seed_used.setText(f"시드: {seed}  (재현하려면 시뮬 시드에 동일 값 입력)")
-        else:
-            self._lbl_seed_used.setText("시드: 랜덤  (재현 불가)")
+        pass  # 시드 표시 제거
 
     def _draw_mc_chart(self, result: dict, mc: dict, cfg: dict):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
