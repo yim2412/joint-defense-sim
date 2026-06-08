@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.20 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.22 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.01.22 — 대한해협 전환 시 환경 열 레이아웃 움찔 수정]                  ║
+║  BUG-1  대한해협 선택 시 해협 진입로 행이 나타나며 환경 열이 이동하던 문제    ║
+║         — 행을 항상 유지하고 비활성 시 회색 처리로 변경                       ║
+║  [v13.01.21 — hover 팝업 폰트·크기 확대]                                    ║
+║  NEW-A  팝업 폰트 13→15px, 최대 너비 300→440px, 여백 확대                  ║
 ║  [v13.01.20 — 기본 창 모드 시작 (최대화 해제)]                              ║
 ║  BUG-1  실행 시 창이 항상 전체화면으로 뜨던 문제 — 기본 1800×1060 창 모드로 ║
 ║  [v13.01.19 — 혼합 시나리오·날씨 버튼 라벨 단축]                           ║
@@ -616,7 +621,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.20"
+APP_VERSION = "v13.01.22"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3169,14 +3174,14 @@ class _HoverPopup(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setStyleSheet(
             "QFrame { background:#1e2430; border:1px solid #4a9eff; border-radius:7px; }"
-            "QLabel { color:#e0e8f0; font-size:13px; border:none; background:transparent; }"
+            "QLabel { color:#e0e8f0; font-size:15px; border:none; background:transparent; }"
         )
         _l = QVBoxLayout(self)
-        _l.setContentsMargins(12, 9, 12, 9)
-        _l.setSpacing(3)
+        _l.setContentsMargins(14, 11, 14, 11)
+        _l.setSpacing(4)
         self._lbl = QLabel()
         self._lbl.setWordWrap(True)
-        self._lbl.setMaximumWidth(300)
+        self._lbl.setMaximumWidth(440)
         _l.addWidget(self._lbl)
         self.hide()
 
@@ -5347,10 +5352,11 @@ class MainWindow(QMainWindow):
         self._row_strait_label.setStyleSheet(f"color:{C_TEXT}; font-size:15px;")
 
         def _on_region_changed(txt: str):
-            visible = (txt == '대한해협')
-            self._row_strait_label.setVisible(visible)
-            self.cmb_strait_type.setVisible(visible)
-            if visible:
+            is_strait = (txt == '대한해협')
+            self.cmb_strait_type.setEnabled(is_strait)
+            self._row_strait_label.setStyleSheet(
+                f"color:{C_TEXT if is_strait else C_SUBTEXT}; font-size:15px;")
+            if is_strait:
                 self.chk_terrain.setChecked(True)
 
         self.cmb_region.currentTextChanged.connect(_on_region_changed)
