@@ -1,8 +1,8 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.12 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.01.13 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v13.01.12 — 상단 5칸에 스크롤 추가, 설정 항목 전체 표시]                  ║
+║  [v13.01.13 — 콤보박스 → 리스트·토글버튼으로 교체, 빈 공간 채움]            ║
 ║  NEW-A  실행 전: 전체화면 설정 (퀵폼 + 5개 섹션 탭 + 실행버튼)             ║
 ║  NEW-B  실행 후: 왼쪽 조작 가능한 설정 패널 + 오른쪽 결과 (← 설정화면 버튼)║
 ║         같은 설정 위젯을 두 모드 간 재배치하여 상태 완전 보존               ║
@@ -612,7 +612,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.01.12"
+APP_VERSION = "v13.01.13"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4919,79 +4919,157 @@ class MainWindow(QMainWindow):
                 cl.addWidget(g)
             return w
 
-        # ── 퀵 폼 공통 스타일 ─────────────────────────────────────────────
-        def _make_qform(border_right=False):
-            w = QWidget()
-            br = f"border-right:1px solid {C_BORDER};" if border_right else ""
-            w.setStyleSheet(f"background:{C_PANEL}; {br}")
-            fl = QFormLayout(w)
-            fl.setContentsMargins(10, 8, 10, 8)
-            fl.setSpacing(6)
-            fl.setLabelAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            return w, fl
+        # ── 공통 스타일 ───────────────────────────────────────────────────
+        _LIST_SS = f"""
+            QListWidget {{
+                background:#1c2128; color:{C_TEXT};
+                border:1px solid {C_BORDER}; border-radius:3px;
+                font-size:13px; outline:none;
+            }}
+            QListWidget::item {{ padding:3px 8px; }}
+            QListWidget::item:selected {{ background:{C_ACCENT}; color:white; }}
+            QListWidget::item:hover:!selected {{ background:#1f2d40; }}
+        """
+        _TOG_SS = f"""
+            QPushButton {{
+                background:{C_BG}; color:{C_SUBTEXT};
+                border:1px solid {C_BORDER}; border-radius:3px;
+                font-size:12px; padding:5px 4px;
+            }}
+            QPushButton:checked {{ background:{C_ACCENT}; color:white; border:1px solid {C_ACCENT}; }}
+            QPushButton:hover:!checked {{ background:#1f2d40; color:{C_TEXT}; }}
+        """
+        def _cell_widget():
+            w = QWidget(); w.setStyleSheet(f"background:{C_PANEL};")
+            l = QVBoxLayout(w); l.setContentsMargins(8,8,8,8); l.setSpacing(6)
+            return w, l
+        def _sec_label(txt):
+            l = QLabel(txt)
+            l.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-weight:bold;")
+            return l
 
-        # ── 아군 편대 ─────────────────────────────────────────────────────
-        _fleet, _ffl = _make_qform()
-        self.cmb_fleet = NoScrollComboBox()
+        # ── 아군 편대 — 리스트 위젯 ──────────────────────────────────────
+        _fleet, _ffl = _cell_widget()
+        self.cmb_fleet = NoScrollComboBox()           # 하위 호환용 숨김 콤보
         self.cmb_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
         if _V7_OK:
             for _i, _n in enumerate(V7_FLEET_PRESETS.keys()):
                 self.cmb_fleet.setItemData(_i, self._friendly_preset_tooltip(_n),
                                            Qt.ItemDataRole.ToolTipRole)
+        self.cmb_fleet.hide()
+
+        self._lst_fleet = QListWidget()
+        self._lst_fleet.addItems(list(V7_FLEET_PRESETS.keys()) if _V7_OK else [])
+        self._lst_fleet.setStyleSheet(_LIST_SS)
+        self._lst_fleet.setCurrentRow(0)
+        self._lst_fleet.currentRowChanged.connect(self.cmb_fleet.setCurrentIndex)
+        self.cmb_fleet.currentIndexChanged.connect(
+            lambda i: self._lst_fleet.setCurrentRow(i)
+            if self._lst_fleet.currentRow() != i else None)
+        _ffl.addWidget(self._lst_fleet)
+
         self.lbl_fleet_detail = QLabel()
         self.lbl_fleet_detail.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
+            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
         self.lbl_fleet_detail.setWordWrap(True)
         self.cmb_fleet.currentTextChanged.connect(self._update_fleet_detail)
-        _ffl.addRow("아군 편대", self.cmb_fleet)
-        _ffl.addRow("", self.lbl_fleet_detail)
+        _ffl.addWidget(self.lbl_fleet_detail)
         self._cfg_fleet = _fleet
 
-        # ── 날씨 / 계절 ───────────────────────────────────────────────────
-        _wx, _wxfl = _make_qform()
-        self.cmb_weather = NoScrollComboBox()
+        # ── 날씨 / 계절 — 리스트 + 토글 버튼 ────────────────────────────
+        _wx, _wxl = _cell_widget()
+        self.cmb_weather = NoScrollComboBox()          # 하위 호환용 숨김 콤보
         self.cmb_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
-        self.cmb_season = NoScrollComboBox()
+        self.cmb_weather.hide()
+
+        _wxl.addWidget(_sec_label("날씨"))
+        self._lst_weather = QListWidget()
+        self._lst_weather.addItems(list(WEATHER_DB.keys()) if _V7_OK else [])
+        self._lst_weather.setStyleSheet(_LIST_SS)
+        self._lst_weather.setCurrentRow(0)
+        self._lst_weather.currentRowChanged.connect(self.cmb_weather.setCurrentIndex)
+        self.cmb_weather.currentIndexChanged.connect(
+            lambda i: self._lst_weather.setCurrentRow(i)
+            if self._lst_weather.currentRow() != i else None)
+        _wxl.addWidget(self._lst_weather, stretch=1)
+
+        self.cmb_season = NoScrollComboBox()           # 하위 호환용 숨김 콤보
         self.cmb_season.addItems(
             ['봄 (3~5월)', '여름 (6~9월)', '가을 (10~11월)', '겨울 (12~2월)'])
         self.cmb_season.setCurrentIndex(1)
-        self.cmb_season.setToolTip(
-            "계절 선택 — 수온약층·대기 굴절·증발 덕팅·고층 바람 CEP에 영향.\n"
-            "봄 (3~5월): 황사 시즌, 수온약층 약함, 제트기류 북상 중\n"
-            "여름 (6~9월): 수온약층 최강, 쿠로시오 수증기 → ISA 굴절 최대\n"
-            "가을 (10~11월): 수온약층 감소 시작, 제트기류 남하 시작\n"
-            "겨울 (12~2월): 수온약층 소멸(서해)/약화(동해), 대륙성 한기 → 굴절 최소"
-        )
-        _ws_row = QWidget()
-        _ws_rl = QHBoxLayout(_ws_row)
-        _ws_rl.setContentsMargins(0, 0, 0, 0)
-        _ws_rl.setSpacing(4)
-        _ws_rl.addWidget(self.cmb_weather, 2)
-        _lbl_s = QLabel("계절")
-        _lbl_s.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
-        _ws_rl.addWidget(_lbl_s)
-        _ws_rl.addWidget(self.cmb_season, 3)
-        _wxfl.addRow("날씨", _ws_row)
+        self.cmb_season.hide()
+
+        _wxl.addWidget(_sec_label("계절"))
+        _season_row = QWidget(); _srl = QHBoxLayout(_season_row)
+        _srl.setContentsMargins(0,0,0,0); _srl.setSpacing(4)
+        _season_bg = QButtonGroup(self)
+        _season_bg.setExclusive(True)
+        for _i, (_s, _tip) in enumerate([
+            ('봄',  '황사 시즌 · 수온약층 약함'),
+            ('여름','수온약층 최강 · ISA 굴절 최대'),
+            ('가을','수온약층 감소 · 제트기류 남하'),
+            ('겨울','수온약층 소멸(서해) · 대륙성 한기'),
+        ]):
+            _b = QPushButton(_s); _b.setCheckable(True)
+            _b.setToolTip(_tip); _b.setStyleSheet(_TOG_SS)
+            if _i == 1: _b.setChecked(True)
+            _season_bg.addButton(_b, _i)
+            _srl.addWidget(_b)
+        _season_bg.idClicked.connect(self.cmb_season.setCurrentIndex)
+        self.cmb_season.currentIndexChanged.connect(
+            lambda i: _season_bg.button(i).setChecked(True)
+            if _season_bg.button(i) else None)
+        _wxl.addWidget(_season_row)
         self._cfg_weather = _wx
 
-        # ── 해역 ──────────────────────────────────────────────────────────
-        _reg, _regl = _make_qform()
-        self.cmb_region = NoScrollComboBox()
+        # ── 해역 — 토글 버튼 + 특성 설명 ────────────────────────────────
+        _reg, _regl = _cell_widget()
+        self.cmb_region = NoScrollComboBox()           # 하위 호환용 숨김 콤보
         self.cmb_region.addItems(['동해 북부', '동해 중부', '서해', '대한해협'])
-        self.cmb_region.setToolTip(
-            "작전 해역 선택 — 소나 탐지(수온약층)·레이더 음영(지형) 보정에 반영됩니다.\n"
-            "동해 북부: 쓰시마 난류 약화, 북한한류 영향권, 수온약층 강\n"
-            "동해 중부: 쓰시마 난류 주류, 여름 수온약층 최강\n"
-            "서해: 평균수심 44m, 여름 냉수괴(YSCBW), 수온약층 10m부터\n"
-            "대한해협: 쓰시마 난류 통과로 연중 수온약층 존재"
-        )
-        _regl.addRow("해역", self.cmb_region)
+        self.cmb_region.hide()
+
+        _region_info = {
+            '동해 북부': '수심 평균 1,700m  |  북한한류 영향권\n수온약층 강  |  레이더 음영: 태백·설악(최대 22%)',
+            '동해 중부': '수심 평균 2,000m  |  쓰시마 난류 주류\n수온약층 최강(여름)  |  레이더 음영: 약',
+            '서해':     '평균 수심 44m  |  여름 냉수괴(YSCBW)\n수온약층 10m부터  |  레이더 음영: 낭림산맥(미약)',
+            '대한해협': '수심 평균 100m  |  쓰시마 난류 통과\n연중 수온약층 존재  |  레이더 음영: 소백산맥(중간)',
+        }
+        _region_names = ['동해 북부', '동해 중부', '서해', '대한해협']
+
+        _region_bg = QButtonGroup(self)
+        _region_bg.setExclusive(True)
+        _reg_grid = QWidget(); _rgl = QGridLayout(_reg_grid)
+        _rgl.setContentsMargins(0,0,0,0); _rgl.setSpacing(4)
+        for _i, _rn in enumerate(_region_names):
+            _b = QPushButton(_rn); _b.setCheckable(True)
+            _b.setStyleSheet(_TOG_SS)
+            if _i == 0: _b.setChecked(True)
+            _region_bg.addButton(_b, _i)
+            _rgl.addWidget(_b, _i // 2, _i % 2)
+        _regl.addWidget(_reg_grid)
+
+        self.lbl_region_info = QLabel(_region_info['동해 북부'])
+        self.lbl_region_info.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:12px; padding:4px 0;")
+        self.lbl_region_info.setWordWrap(True)
+        _regl.addWidget(self.lbl_region_info)
+
+        def _on_region_btn(idx):
+            name = _region_names[idx]
+            self.cmb_region.setCurrentText(name)
+            self.lbl_region_info.setText(_region_info[name])
+        _region_bg.idClicked.connect(_on_region_btn)
+        self.cmb_region.currentTextChanged.connect(
+            lambda t: (_region_bg.button(_region_names.index(t)).setChecked(True),
+                       self.lbl_region_info.setText(_region_info[t]))
+            if t in _region_names else None)
+
         self.lbl_detect_info = QLabel()
         self.lbl_detect_info.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:14px; padding:2px 0;")
+            f"color:{C_ACCENT}; font-size:13px; padding:2px 0;")
         self.lbl_detect_info.setWordWrap(True)
-        _regl.addRow("", self.lbl_detect_info)
+        _regl.addWidget(self.lbl_detect_info)
+        _regl.addStretch()
         self._cfg_region = _reg
 
         self.cmb_fleet.currentTextChanged.connect(self._update_detect_info)
@@ -5006,16 +5084,26 @@ class MainWindow(QMainWindow):
         grp_sc = QGroupBox("🎯 작전 시나리오")
         scl = QVBoxLayout(grp_sc)
         scl.setSpacing(4)
-        self.cmb_scenario = NoScrollComboBox()
-        self.cmb_scenario.addItems(['— 선택 안 함 —'] + list(SCENARIO_LIBRARY.keys()))
-        self.cmb_scenario.setToolTip(
-            "교리 기반 작전 시나리오 — 선택 후 '적용'을 누르면 "
-            "편대·해역·날씨·계절·적 편대가 한 번에 설정됩니다.")
+        _sc_items = ['— 선택 안 함 —'] + list(SCENARIO_LIBRARY.keys())
+        self.cmb_scenario = NoScrollComboBox()         # 하위 호환용 숨김 콤보
+        self.cmb_scenario.addItems(_sc_items)
+        self.cmb_scenario.hide()
+
+        self._lst_scenario = QListWidget()
+        self._lst_scenario.addItems(_sc_items)
+        self._lst_scenario.setStyleSheet(_LIST_SS)
+        self._lst_scenario.setCurrentRow(0)
+        self._lst_scenario.setMaximumHeight(110)
+        self._lst_scenario.currentRowChanged.connect(self.cmb_scenario.setCurrentIndex)
+        self.cmb_scenario.currentIndexChanged.connect(
+            lambda i: self._lst_scenario.setCurrentRow(i)
+            if self._lst_scenario.currentRow() != i else None)
         self.cmb_scenario.currentTextChanged.connect(self._on_scenario_changed)
-        scl.addWidget(self.cmb_scenario)
+        scl.addWidget(self._lst_scenario)
+
         self.lbl_scenario_desc = QLabel()
         self.lbl_scenario_desc.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:14px; padding:2px 0;")
+            f"color:{C_SUBTEXT}; font-size:13px; padding:2px 0;")
         self.lbl_scenario_desc.setWordWrap(True)
         scl.addWidget(self.lbl_scenario_desc)
         self.btn_apply_scenario = QPushButton("▶ 시나리오 적용")
@@ -5169,11 +5257,6 @@ class MainWindow(QMainWindow):
 
         self.cmb_region.currentTextChanged.connect(_on_region_changed)
         _on_region_changed(self.cmb_region.currentText())
-
-        self.lbl_detect_info = QLabel()
-        self.lbl_detect_info.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:15px; padding:2px 0;")
-        self.lbl_detect_info.setWordWrap(True)
 
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
