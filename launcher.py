@@ -5769,27 +5769,32 @@ class MainWindow(QMainWindow):
         ax.set_xlim(-240, 240)
         ax.set_ylim(-240, 240)
         ax.axis('off')
-        fig.tight_layout(pad=0)
         self._preview_canvas.draw()
 
         # ── 요약 카드 ───────────────────────────────────────────────────────
         if _V7_OK and fleet_name in V7_FLEET_PRESETS:
-            ships = V7_FLEET_PRESETS[fleet_name].get('ships', {})
-            total = sum(ships.values())
-            lines = [f"{k}  ×{v}" for k, v in ships.items()]
-            self._prev_lbl_fleet.setText(f"{fleet_name}  ({total}척)\n" + '\n'.join(lines[:5]))
+            ship_list = V7_FLEET_PRESETS[fleet_name]   # list of {'name':..,'type':..}
+            total = len(ship_list)
+            lines = [f"{s['name']}  ({s['type']})" for s in ship_list]
+            self._prev_lbl_fleet.setText(f"{fleet_name}  ({total}척)\n" + '\n'.join(lines[:6]))
         else:
             self._prev_lbl_fleet.setText('—')
 
         self._prev_lbl_env.setText(
             f"날씨:  {weather}\n계절:  {season}\n해역:  {region}")
 
+        # 대공 무장: 편대 내 모든 함정의 default_inventory 합산
         wpn_lines = []
         if _V7_OK and fleet_name in V7_FLEET_PRESETS:
-            inv = V7_FLEET_PRESETS[fleet_name].get('weapons', {})
-            aa = {k: v for k, v in inv.items()
-                  if k in V7_FRIENDLY_DB and '대공' in V7_FRIENDLY_DB[k].get('category', [])}
-            for k, v in list(aa.items())[:4]:
+            aa_total: dict[str, int] = {}
+            for s in V7_FLEET_PRESETS[fleet_name]:
+                stype = s.get('type', '')
+                if stype in V7_SHIP_DB:
+                    inv = V7_SHIP_DB[stype].get('default_inventory', {})
+                    for k, v in inv.items():
+                        if k in V7_FRIENDLY_DB and '대공' in V7_FRIENDLY_DB[k].get('category', []):
+                            aa_total[k] = aa_total.get(k, 0) + v
+            for k, v in list(aa_total.items())[:5]:
                 rng = V7_FRIENDLY_DB[k].get('range_km', 0)
                 wpn_lines.append(f"{k}  {v}발  ({rng} km)")
         self._prev_lbl_wpn.setText('\n'.join(wpn_lines) if wpn_lines else '—')
