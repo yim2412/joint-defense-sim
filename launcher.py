@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.22 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.23 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.23 — REQ 판정 실패 항목 강조]                                     ║
+║  NEW-A  REQ 판정표에서 미달(FAIL) 항목에 옅은 적색 배경 + ✅/❌ 아이콘 +    ║
+║         볼드 처리로 한눈에 식별                                            ║
 ║  [v13.05.20~22 — 주요 무기 제원 현실화 (DB 수치 감사)]                     ║
 ║  NEW-A  SM-3 Block IIA 사거리 650→2,500km (BMD 실제 교전 반경)             ║
 ║  NEW-B  하푼 Block II 사거리 280→140km (RGM-84 공개 제원)                  ║
@@ -751,7 +754,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.22"
+APP_VERSION = "v13.05.23"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7635,17 +7638,21 @@ class MainWindow(QMainWindow):
             pass
         verdicts, details = evaluate_req_v7(result, mc, cfg)
         self.req_table.setRowCount(0)
+        _fail_bg = QColor(231, 76, 60, 38)   # 실패 행 옅은 적색 배경 — 한눈에 식별
         for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
             row = self.req_table.rowCount()
             self.req_table.insertRow(row)
             for col, text in enumerate([req['id'], req['name'],
-                                        'PASS' if v else 'FAIL', d]):
+                                        '✅ PASS' if v else '❌ FAIL', d]):
                 item = QTableWidgetItem(text)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter
                                       if col != 3 else Qt.AlignmentFlag.AlignLeft
                                       | Qt.AlignmentFlag.AlignVCenter)
                 if col == 2:
                     item.setForeground(QColor('#2ecc71' if v else '#e74c3c'))
+                    f = item.font(); f.setBold(True); item.setFont(f)
+                if not v:
+                    item.setBackground(_fail_bg)   # 실패 행 전체 강조
                 self.req_table.setItem(row, col, item)
 
     def _fill_diagnosis(self, result: dict, mc: dict, cfg: dict):
