@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.13 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.15 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.14~15 — REQ 판정·충족률 통합 + 종료 정리 버그 수정]               ║
+║  NEW-A  REQ 판정 탭에 충족률 radar를 통합 — 좌측 PASS/FAIL 개요 +          ║
+║         우측 상세 판정표 한 화면 (결과 사이드바 별도 '충족률' 항목 제거)   ║
+║  BUG-1  창 종료 시 일부 빈 탭에 정리 호출이 막혀 종료 정리가 중간에        ║
+║         끊기던 문제 해결 (hasattr 가드)                                    ║
 ║  [v13.05.13 — 레이더·소나 첫 탐지 이벤트 로깅]                             ║
 ║  NEW-A  위협을 처음 포착한 시점·거리를 교전 로그/타임라인에 기록 →          ║
 ║         장거리 탐지 후 사거리 밖 스탠드오프 상황이 한눈에 보임             ║
@@ -730,7 +735,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.13"
+APP_VERSION = "v13.05.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3177,8 +3182,7 @@ class AccordionSidebar(QWidget):
             (18, "🔥  스트레스 테스트"),
         ]),
         ("✅", "성능 평가", [
-            (2,  "✅  REQ 판정"),
-            (14, "🎯  REQ 충족률"),
+            (2,  "✅  REQ 판정 & 충족률"),
             (7,  "💰  비용 효과"),
             (21, "🔧  최적 조합 추천"),
             (22, "⚖  A/B 편대 비교"),
@@ -4366,23 +4370,27 @@ def _render_ci_chart(mc: dict) -> Figure:
     return fig
 
 
-def _render_req_radar(result: dict, mc: dict, cfg: dict = None) -> Figure:
-    fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
-    if not _V7_OK:
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, 'v7 엔진 미로드', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        return fig
+def _plot_req_radar(fig: Figure, result, mc, cfg=None):
+    """주어진 Figure에 REQ 충족률 radar(PASS/FAIL 개요)를 그린다. result 없으면 안내."""
+    fig.clear()
+    fig.patch.set_facecolor(C_BG)
+    if result is None or not _V7_OK:
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.axis('off')
+        ax.text(0.5, 0.5, '시뮬레이션 실행 후 표시',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=11,
+                transform=ax.transAxes)
+        return
     try:
         verdicts, _ = evaluate_req_v7(result, mc, cfg)
     except Exception:
-        return fig
-    ax = fig.add_subplot(111, polar=True)
-    ax.set_facecolor('#0a0e1a')
+        return
     labels = [r['id'] for r in REQ_ITEMS_V7]
     N = len(labels)
     if N == 0:
-        return fig
+        return
+    ax = fig.add_subplot(111, polar=True)
+    ax.set_facecolor('#0a0e1a')
     vals     = [1.0 if v else 0.0 for v in verdicts]
     angles   = np.linspace(0, 2 * np.pi, N, endpoint=False)
     vals_c   = np.concatenate([vals,   [vals[0]]])
@@ -4390,17 +4398,16 @@ def _render_req_radar(result: dict, mc: dict, cfg: dict = None) -> Figure:
     ax.plot(angles_c, vals_c, 'o-', color=C_ACCENT, lw=2)
     ax.fill(angles_c, vals_c, alpha=0.3, color=C_ACCENT)
     ax.set_xticks(angles)
-    ax.set_xticklabels(labels, color=C_TEXT, fontsize=12)
+    ax.set_xticklabels(labels, color=C_TEXT, fontsize=10)
     ax.set_yticks([0, 0.5, 1.0])
-    ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=10)
+    ax.set_yticklabels(['FAIL', '', 'PASS'], color=C_SUBTEXT, fontsize=9)
     ax.set_ylim(0, 1.2)
     pass_cnt = sum(verdicts)
     ax.set_title(f'REQ 충족률  {pass_cnt}/{N}  ({pass_cnt/N:.0%})',
-                 color=C_TEXT, fontsize=14, pad=15)
+                 color=C_TEXT, fontsize=13, pad=14)
     ax.spines['polar'].set_color('#1e2a3a')
     ax.grid(color='#1e2a3a')
     fig.tight_layout()
-    return fig
 
 
 def _render_stress_test(stress: dict) -> Figure:
@@ -6197,7 +6204,7 @@ class MainWindow(QMainWindow):
         self.tab_sensitivity = QWidget()
         self.tab_min_stock   = ChartPageWidget()   # 백그라운드 렌더
         self.tab_bearing     = QWidget()
-        self.tab_req_radar   = ChartPageWidget()
+        self.tab_req_radar   = QWidget()   # REQ 충족률은 REQ 판정 탭(2)에 통합 — 인덱스 유지용 placeholder
         self.tab_threat_type = QWidget()
         self.tab_vuln_time   = QWidget()
         self.tab_history     = QWidget()
@@ -6293,7 +6300,6 @@ class MainWindow(QMainWindow):
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
             12: lambda: self._lazy_start_min_stock(),
-            14: lambda: self._draw_req_radar(self._result, self._mc),
             18: lambda: self._draw_stress_test(self._mc),
             19: lambda: self._draw_sobol_chart(self._mc),
             20: lambda: self._draw_subsystem_damage(self._result),
@@ -6479,11 +6485,25 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # ── REQ 판정 테이블 (상단) ────────────────────────────────────────
-        req_lbl = QLabel("  ✅  REQ 요구조건 판정")
+        # ── REQ 판정 & 충족률 (상단: 좌 radar 개요 + 우 판정 상세표) ──────────
+        req_lbl = QLabel("  ✅  REQ 요구조건 판정 & 충족률")
         req_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
         layout.addWidget(req_lbl)
 
+        top_row = QWidget()
+        top_h = QHBoxLayout(top_row)
+        top_h.setContentsMargins(0, 0, 0, 0)
+        top_h.setSpacing(8)
+
+        # 좌: 충족률 radar (PASS/FAIL 한눈에)
+        self._req_radar_fig    = Figure(figsize=(4.2, 4), facecolor=C_BG)
+        self._req_radar_canvas = FigureCanvas(self._req_radar_fig)
+        self._req_radar_canvas.setMinimumWidth(300)
+        self._req_radar_canvas.setMaximumWidth(400)
+        _plot_req_radar(self._req_radar_fig, None, None, None)
+        top_h.addWidget(self._req_radar_canvas)
+
+        # 우: 판정 상세 테이블
         self.req_table = QTableWidget(0, 4)
         self.req_table.setHorizontalHeaderLabels(["ID", "요구조건", "판정", "상세"])
         hh = self.req_table.horizontalHeader()
@@ -6495,7 +6515,9 @@ class MainWindow(QMainWindow):
         self.req_table.setAlternatingRowColors(True)
         self.req_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self.req_table, stretch=2)
+        top_h.addWidget(self.req_table, stretch=1)
+
+        layout.addWidget(top_row, stretch=2)
 
         # ── 자동 취약점 진단 카드 영역 (하단 — 넓게) ─────────────────────
         diag_header = QLabel("  🩺  자동 취약점 진단")
@@ -7506,10 +7528,17 @@ class MainWindow(QMainWindow):
         _write_sim_db(cfg, result, mc, sim_mode_idx)
 
     def _fill_req(self, result: dict, mc: dict):
-        """포팅 D: REQ 판정 테이블 채우기."""
+        """포팅 D: REQ 판정 테이블 + 충족률 radar 채우기."""
         if not _V7_OK:
             return
-        verdicts, details = evaluate_req_v7(result, mc, self._worker.cfg if self._worker else None)
+        cfg = self._worker.cfg if self._worker else None
+        # 충족률 radar (개요) 갱신
+        try:
+            _plot_req_radar(self._req_radar_fig, result, mc, cfg)
+            self._req_radar_canvas.draw_idle()
+        except Exception:
+            pass
+        verdicts, details = evaluate_req_v7(result, mc, cfg)
         self.req_table.setRowCount(0)
         for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
             row = self.req_table.rowCount()
@@ -7930,15 +7959,12 @@ class MainWindow(QMainWindow):
             if not hm.wait(800):
                 hm.terminate()
                 hm.wait(300)
-        # 차트 렌더 워커 11개 중단 (ChartPageWidget._worker)
+        # 차트 렌더 워커 중단 (ChartPageWidget._worker) — placeholder QWidget은 hasattr로 건너뜀
         for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
-                     'tab_ammo_curve', 'tab_ci', 'tab_timeline',
-                     'tab_bearing', 'tab_req_radar', 'tab_threat_type',
-                     'tab_vuln_time', 'tab_history',
-                     'tab_sensitivity', 'tab_min_stock', 'tab_optimize',
-                     'tab_cec_compare'):
+                     'tab_ammo_curve', 'tab_ci', 'tab_min_stock',
+                     'tab_optimize', 'tab_stress', 'tab_sobol'):
             widget = getattr(self, attr, None)
-            if widget:
+            if widget is not None and hasattr(widget, 'stop_worker'):
                 widget.stop_worker()
         # 교전 분석 탭 차트 워커 중단
         if hasattr(self, 'tab_engagement'):
@@ -8121,10 +8147,6 @@ class MainWindow(QMainWindow):
                 f"최적 조합: 요격률 {best['rate']:.1%} | "
                 + '  '.join(f"{k.split()[0]}×{v}"
                             for k, v in best['combo'].items() if v > 0))
-
-    def _draw_req_radar(self, result: dict, mc: dict):
-        cfg = self._worker.cfg if self._worker else None
-        self.tab_req_radar.start_render(_render_req_radar, result, mc, cfg)
 
     def _draw_stress_test(self, mc: dict):
         self.tab_stress.start_render(_render_stress_test, mc.get('stress', {}))
@@ -8364,9 +8386,6 @@ _FEATURES = [
     ("📈  요격률 신뢰 구간",
      "요격률이 몇 %~몇 % 범위 안에 들어오는지 95% 신뢰구간으로 표시. "
      "함정별 평균 피격 횟수 히스토그램도 함께 표시."),
-    ("🎯  요구조건 충족률",
-     "8가지 전술 요구조건 각각을 얼마나 충족했는지 방사형 그래프로 한눈에 비교. "
-     "전체적인 방어 역량의 균형이 잡혀 있는지 시각적으로 파악."),
     ("📋  시나리오 프로필 저장",
      "적 종류·날씨·재고·편대 구성 등 시뮬레이션 설정 전체를 이름 붙여 저장하고 "
      "언제든 불러올 수 있음. 자주 쓰는 시나리오를 매번 다시 설정할 필요 없음."),
@@ -9386,9 +9405,6 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            ("v13.1", "중간", "REQ 판정·충족률 통합 (결과 탭 간소화 잔여)",
-             "REQ 판정과 REQ 충족률을 한 항목으로 합친다 — 단일 결과 판정과 MC 충족 비율을 한 화면에서 모드별로 분기 표시. "
-             "(결과 탭 간소화의 분석 8종 삭제·교전 로그 시간축 시각화·MC 신뢰구간 확장은 완료. 이 통합만 남음.)"),
             ("v13.1", "중간", "결과 탭 시각화 추가 개선",
              "① 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
              "② 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
