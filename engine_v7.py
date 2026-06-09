@@ -4709,28 +4709,11 @@ def _optimize_coarse_worker(args):
     return (monte_carlo_v7(run_cfg, n=n)['mean_intercept'], combo)
 
 
-def _optimize_fine_worker(args):
-    """조합 1개의 정밀 MC 검증 — 풀 병렬화용 top-level 워커. 결과 dict 반환."""
-    cfg, combo, n = args
-    run_cfg = {**cfg}
-    for (_, key), val in zip(_OPTIMIZE_WEAPONS, combo):
-        run_cfg[key] = val
-    mc = monte_carlo_v7(run_cfg, n=n)
-    combo_dict = {wpn: val for (wpn, _), val in zip(_OPTIMIZE_WEAPONS, combo)}
-    combo_cost = sum(cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
-                     for wpn, cnt in combo_dict.items())
-    mean_e_dest = float(sum(mc.get('enemy_destroyed', [0])) /
-                        max(len(mc.get('enemy_destroyed', [1])), 1))
-    return {
-        'combo':      combo_dict,
-        'rate':       mc['mean_intercept'],
-        'std':        mc['std_intercept'],
-        'total':      sum(combo),
-        'combo_cost': combo_cost,
-        'mean_cost':  mc.get('mean_cost', 0),
-        'cost_per_kill': (mc.get('mean_cost', 0) / mean_e_dest
-                          if mean_e_dest > 0 else float('inf')),
-    }
+def _sim_metrics_worker(cfg):
+    """단일 시뮬의 (요격률, 비용, 적 격침수)만 반환 — 정밀 검증 시뮬 단위 병렬화용 워커.
+    결과 dict의 함정 객체 등 비피클 항목을 피해 스칼라 3개만 전달."""
+    r = run_v7_simulation(cfg)
+    return (r['intercept_rate'], r['total_cost'], r['enemy_ships_destroyed'])
 
 
 def optimize_weapon_loadout_v7(cfg: dict,
@@ -4745,10 +4728,11 @@ def optimize_weapon_loadout_v7(cfg: dict,
     """
     VLS 예산 안에서 최적 무기 조합 탐색 (그리드 서치 + 정밀 검증).
 
-    1단계: 모든 조합을 coarse_n 회 MC로 빠르게 평가
-    2단계: 상위 top_k 조합을 fine_n 회 MC로 정밀 검증
-    map_fn: 조합 평가를 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시 8코어 병렬.
-            각 조합은 독립 평가라 결과는 직렬과 동일.
+    1단계: 모든 조합을 coarse_n 회 MC로 빠르게 평가 (조합 단위 병렬 — 조합 수가 코어보다 많음)
+    2단계: 상위 top_k 조합을 fine_n 회 MC로 정밀 검증 (시뮬 단위 병렬 — top_k가 코어보다 적어
+           조합 단위로는 코어가 남으므로, 전 시뮬을 펼쳐 분산)
+    map_fn: 평가를 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시 8코어 병렬.
+            각 평가는 독립이고 seed가 고정이라 결과(요격률·순위)는 직렬과 동일.
     반환: [{'combo': dict, 'rate': float, 'std': float, 'total': int}, ...]
     """
     import itertools as _it
@@ -4770,14 +4754,47 @@ def optimize_weapon_loadout_v7(cfg: dict,
 
     coarse_results.sort(reverse=True)
 
-    # 2단계: 상위 top_k 정밀 검증 (조합 단위 병렬)
+    # 2단계: 상위 top_k 정밀 검증 — 전 시뮬(top_k × fine_n)을 펼쳐 시뮬 단위로 병렬화.
+    # seed = base_seed + i (monte_carlo_v7와 동일)이라 요격률·순위는 직렬 검증과 일치.
     top_combos = [combo for _, combo in coarse_results[:top_k]]
-    fine_args  = [(cfg, combo, fine_n) for combo in top_combos]
+    base_seed  = cfg.get('sim_seed', None)
+    fine_cfgs: list = []
+    for combo in top_combos:
+        run_cfg = {**cfg, 'mc_mode': True}
+        for (_, key), val in zip(_OPTIMIZE_WEAPONS, combo):
+            run_cfg[key] = val
+        for i in range(fine_n):
+            rc = dict(run_cfg)
+            if base_seed:
+                rc['sim_seed'] = int(base_seed) + i
+            fine_cfgs.append(rc)
+
+    metrics: list = []
+    for idx, m in enumerate(map_fn(_sim_metrics_worker, fine_cfgs)):
+        metrics.append(m)
+        if progress_cb and (idx + 1) % fine_n == 0:
+            progress_cb(total + (idx + 1) // fine_n, total + top_k, 'fine')
+
     final: list = []
-    for idx, res in enumerate(map_fn(_optimize_fine_worker, fine_args)):
-        final.append(res)
-        if progress_cb:
-            progress_cb(total + idx + 1, total + top_k, 'fine')
+    for ci, combo in enumerate(top_combos):
+        seg   = metrics[ci * fine_n:(ci + 1) * fine_n]
+        arr   = np.array([m[0] for m in seg])
+        costs = [m[1] for m in seg]
+        edest = [m[2] for m in seg]
+        combo_dict = {wpn: val for (wpn, _), val in zip(_OPTIMIZE_WEAPONS, combo)}
+        combo_cost = sum(cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
+                         for wpn, cnt in combo_dict.items())
+        mean_cost   = float(np.mean(costs)) if costs else 0.0
+        mean_e_dest = float(np.mean(edest)) if edest else 0.0
+        final.append({
+            'combo':      combo_dict,
+            'rate':       float(arr.mean()),
+            'std':        float(arr.std()),
+            'total':      sum(combo),
+            'combo_cost': combo_cost,
+            'mean_cost':  mean_cost,
+            'cost_per_kill': (mean_cost / mean_e_dest if mean_e_dest > 0 else float('inf')),
+        })
 
     return sorted(final, key=lambda x: -x['rate'])
 
