@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.05 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.08 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.08 — MC 신뢰구간 탭 백분위 표시]                                   ║
+║  NEW-A  요격률 분포에 P10/P50/P90 백분위선 + 95% CI 음영 추가              ║
+║  [v13.03.07 — 결과 카드 이전 실행 대비 변화량]                              ║
+║  NEW-A  카드 하단에 직전 실행 대비 delta 표시 (▲/▼ · 좋음 녹색/나쁨 적색) ║
+║  [v13.03.06 — 결과 카드 툴팁]                                               ║
+║  NEW-A  각 지표 카드에 의미 설명 툴팁 추가 (요격률·CVaR 등)                ║
 ║  [v13.03.05 — 항상 ON 전술 토글 제거]                                       ║
 ║  DEL-A  ECM·회피·기만기·자체방어·다층방어 체크박스 제거 (항상 ON 고정)     ║
 ║         — 현실 교전 상시 작동 능력, 토글해도 무시되던 UI 정리             ║
@@ -671,7 +677,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.05"
+APP_VERSION = "v13.03.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4155,17 +4161,21 @@ def _render_ci_chart(mc: dict) -> Figure:
     std   = float(arr.std())
     ci_lo = max(0.0, mean - 1.96 * std / np.sqrt(len(arr)))
     ci_hi = min(1.0, mean + 1.96 * std / np.sqrt(len(arr)))
+    p10, p50, p90 = (float(np.percentile(arr, q)) for q in (10, 50, 90))
     gs = fig.add_gridspec(1, 2, wspace=0.35)
     ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
     ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
     ax1.hist(arr, bins=20, color=C_ACCENT, alpha=0.75, edgecolor='#1e2a3a')
-    ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}')
-    ax1.axvline(ci_lo, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 하한 {ci_lo:.1%}')
-    ax1.axvline(ci_hi, color=C_ORANGE, lw=1.5, ls='--', label=f'CI 상한 {ci_hi:.1%}')
+    ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}  (95% CI {ci_lo:.1%}~{ci_hi:.1%})')
+    ax1.axvspan(ci_lo, ci_hi, color=C_GREEN, alpha=0.10)
+    # 백분위수 P10/P50(중앙값)/P90
+    ax1.axvline(p50, color='#f1c40f', lw=1.5, ls='-',  label=f'중앙값 P50 {p50:.1%}')
+    ax1.axvline(p10, color=C_ORANGE, lw=1.2, ls=':',  label=f'P10 {p10:.1%}')
+    ax1.axvline(p90, color=C_ORANGE, lw=1.2, ls=':',  label=f'P90 {p90:.1%}')
     ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=12)
     ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=12)
     ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=13)
-    ax1.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax1.legend(fontsize=10, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
     ax1.tick_params(colors=C_SUBTEXT, labelsize=11)
     for sp in ax1.spines.values():
         sp.set_color('#1e2a3a')
@@ -6138,6 +6148,7 @@ class MainWindow(QMainWindow):
         card_layout.setSpacing(8)
 
         self._cards = {}
+        self._card_deltas = {}
         card_defs = [
             ('요격률 (MC)',      'intercept'),
             ('완전 요격 비율',   'full_pass'),
@@ -6147,11 +6158,23 @@ class MainWindow(QMainWindow):
             ('총 비용',          'cost'),
             ('항공 출격',        'aircraft'),
         ]
+        card_tips = {
+            'intercept':    '몬테카를로 평균 요격률 — 전체 위협 중 요격 성공 비율의 MC 평균.\n90% 이상이면 녹색.',
+            'full_pass':    '완전 요격 비율 — 위협을 하나도 놓치지 않은(누수 0) 시뮬의 비율.',
+            'cvar':         'CVaR(조건부 위험가치, 최악 5%) — 하위 5% 시나리오의 평균 요격률.\n방어망이 가장 나쁠 때의 성능 지표.',
+            'friendly_hit': '아군 피격 횟수 — 대표 단일 시뮬에서 아군 함정이 받은 명중 수.',
+            'enemy_dest':   '격침한 적 수상함 수 — 대표 단일 시뮬 기준.',
+            'cost':         '총 교전 비용 — 대표 단일 시뮬의 소모 미사일·탄약 비용 합계(백만 달러).',
+            'aircraft':     '항공 출격 횟수 — 대표 단일 시뮬의 CAP·대잠 등 항공 출격 수.',
+        }
         for label, key in card_defs:
             card = QGroupBox(label)
             card.setFixedHeight(80)
             card.setMinimumWidth(90)
+            card.setToolTip(card_tips.get(key, ''))
             cl = QVBoxLayout(card)
+            cl.setContentsMargins(6, 4, 6, 4)
+            cl.setSpacing(0)
             lbl = QLabel("—")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setFont(QFont('Malgun Gothic', 18, QFont.Weight.Bold))
@@ -6159,8 +6182,14 @@ class MainWindow(QMainWindow):
             # 결과 수치 마우스로 선택·복사 가능
             lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             cl.addWidget(lbl)
+            # 이전 실행 대비 변화량 (delta) — 첫 실행 시 빈칸
+            dl = QLabel("")
+            dl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            cl.addWidget(dl)
             card_layout.addWidget(card)
             self._cards[key] = lbl
+            self._card_deltas[key] = dl
 
         layout.addWidget(self.card_row)
 
@@ -7521,6 +7550,7 @@ class MainWindow(QMainWindow):
             'mean_intercept': mc['mean_intercept'],
             'full_pass_rate': mc.get('full_pass_rate', 0),
             'mean_cost':      mc.get('mean_cost', result.get('total_cost', 0)),
+            'total_cost':     result.get('total_cost', 0),
             'label': f"#{len(self._history)+1}  {cfg.get('weather','?')} / "
                      f"{cfg.get('mixed_scenario') or cfg.get('enemy_fleet_preset') or cfg.get('enemy_fleet_mode','?')}",
         })
@@ -8105,8 +8135,46 @@ class MainWindow(QMainWindow):
         self._cards['cost'].setText(f"${result['total_cost'] / 1_000_000:.1f}M")
         sorties = result.get('aircraft_sorties', 0)
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
-        # 사용된 시드 표시 (재현용)
-        pass  # 시드 표시 제거
+        # 이전 실행 대비 변화량(delta) 표시 — 직전 기록과 비교
+        self._update_card_deltas(result, mc)
+
+    def _update_card_deltas(self, result: dict, mc: dict):
+        """직전 실행(_history[-1]) 대비 주요 지표 변화량을 카드 하단에 표시.
+        요격률·완전요격은 상승=녹색(좋음), 비용은 상승=적색(나쁨)."""
+        deltas = getattr(self, '_card_deltas', None)
+        if not deltas:
+            return
+        prev = self._history[-1] if getattr(self, '_history', None) else None
+        if not prev:
+            for dl in deltas.values():
+                dl.setText("")
+            return
+
+        def _fmt(dl, cur, old, unit, higher_is_good):
+            if old is None:
+                dl.setText("")
+                return
+            d = cur - old
+            if abs(d) < 1e-9:
+                dl.setText("± 0")
+                dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+                return
+            arrow = "▲" if d > 0 else "▼"
+            good  = (d > 0) == higher_is_good
+            color = '#2ecc71' if good else '#e74c3c'
+            dl.setText(f"{arrow} {d:+.1f}{unit} vs 직전")
+            dl.setStyleSheet(f"color:{color}; font-size:10px;")
+
+        _fmt(deltas['intercept'], mc['mean_intercept'] * 100,
+             prev.get('mean_intercept', 0) * 100, "%p", True)
+        _fmt(deltas['full_pass'], mc['full_pass_rate'] * 100,
+             prev.get('full_pass_rate', 0) * 100, "%p", True)
+        if 'total_cost' in prev:
+            _fmt(deltas['cost'], result['total_cost'] / 1_000_000,
+                 prev['total_cost'] / 1_000_000, "M", False)
+        # 비교 데이터 없는 카드는 비움
+        for k in ('cvar', 'friendly_hit', 'enemy_dest', 'aircraft'):
+            deltas[k].setText("")
 
     def _draw_mc_chart(self, result: dict, mc: dict, cfg: dict):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
@@ -9594,11 +9662,8 @@ class SplashWindow(QWidget):
             ("v13.1", "중간", "결과 탭 표시·차트·분석 품질 개선",
              "【표시·레이아웃】"
              "숫자 포맷 통일 — 소수점 자릿수·단위(km·m) 불일치 구간 전수 정리. "
-             "결과 카드에 이전 실행 대비 delta 표시 — '▲ +2.3%' 형태로 변화량 한눈에 파악. "
-             "신뢰구간(95% CI) 및 백분위수(P10/P50/P90) 명시적 표시. "
              "서브탭 아이콘 추가. "
              "결과 탭 진입 시 첫 번째 서브탭으로 초기화 확인. "
-             "각 지표 툴팁 설명 추가 — 요격률·CVaR 등 의미를 hover 시 표시. "
              "【차트】"
              "차트 색상 테마를 앱 다크 테마와 통일. "
              "데이터 없을 때 '결과 없음' 플레이스홀더 표시. "
