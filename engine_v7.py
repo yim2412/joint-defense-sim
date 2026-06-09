@@ -463,7 +463,7 @@ _AIRCRAFT_V7_SORTIE = {
 FRIENDLY_STRIKE_DB = {
     '해성-I': {
         'speed_ms': 250,   # Mach 0.73 (아음속 순항, SSM-700K 실제 속도)
-        'range_km': 180,
+        'range_km': 150,   # SSM-700K 해성 공개 사거리 ~150km (기존 180 과대·FRIENDLY_DB와 불일치 → 통일)
         'cost_usd': 800_000,
         'pk_base':  0.80,
         'seeker':   'radar',    # v8.26: 액티브 레이더 탐색기
@@ -476,8 +476,8 @@ FRIENDLY_STRIKE_DB = {
         'seeker':   'radar',
     },
     '하푼 Block II': {
-        'speed_ms': 245,   # BUG-4: Mach 0.72, 기존 278 m/s 과대
-        'range_km': 280,
+        'speed_ms': 240,   # Mach 0.71
+        'range_km': 140,   # RGM-84 Block II 공개 사거리 ~140km (기존 280 과대)
         'cost_usd': 1_500_000,
         'pk_base':  0.78,
         'seeker':   'radar',    # AN/DSQ-61 액티브 레이더

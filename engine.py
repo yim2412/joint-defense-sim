@@ -743,11 +743,11 @@ ENEMY_DB = {
 FRIENDLY_DB = {
     'SM-3 Block IIA':
         # PHY-1: range 500→650km (실효 요격거리 700~900km 하한), Pk 0.900→0.850 (실전 단발 Pk 조정)
-        {'speed_ms':4500,'range_km':650,'cost_usd':25000000,'stock':8,
+        {'speed_ms':4500,'range_km':2500,'cost_usd':25000000,'stock':8,  # 2,500km (SM-3 Block IIA 공개 교전 사거리)
          'category':['대공','탄도미사일'],
          'pk_dist':{'alpha':17,'beta':3,'mean':0.850},'requires_illuminator':False},
     'SM-6':
-        {'speed_ms':1000,'range_km':370,'cost_usd':4200000,'stock':32,  # 370 km (RIM-174 ERAM Block IB 공개 사거리)
+        {'speed_ms':1190,'range_km':370,'cost_usd':4200000,'stock':32,  # 370km / Mach 3.5(~1190 m/s) RIM-174 ERAM
          'category':['대공','탄도미사일'],
          # LOW-6: Pk mean 0.905→0.75 (SM-6 실전 교전 Pk 과대 평가 수정)
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
@@ -784,7 +784,7 @@ FRIENDLY_DB = {
          'category':['대함'],
          'pk_dist':{'alpha':8,'beta':2,'mean':0.800},'requires_illuminator':False},
     '하푼 Block II (AGM-84)':
-        {'speed_ms':270,'range_km':280,'cost_usd':1200000,'stock':0,
+        {'speed_ms':240,'range_km':140,'cost_usd':1200000,'stock':0,  # RGM-84 Block II ~140km / Mach 0.71
          'category':['대함'],
          'pk_dist':{'alpha':7,'beta':3,'mean':0.700},'requires_illuminator':False},
     # NEW-B2: 국산 단거리 함대공 해궁 (K-SAAM, KVLS 탑재 — FFX-II/III 전용)
