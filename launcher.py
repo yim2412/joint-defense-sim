@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.23 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.24 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.24 — MC 진행률 Windows 작업표시줄 표시]                           ║
+║  NEW-A  반복 시뮬 진행률을 작업표시줄 아이콘에 표시 (창 최소화 중에도       ║
+║         완료율 확인 — ITaskbarList3)                                       ║
 ║  [v13.05.23 — REQ 판정 실패 항목 강조]                                     ║
 ║  NEW-A  REQ 판정표에서 미달(FAIL) 항목에 옅은 적색 배경 + ✅/❌ 아이콘 +    ║
 ║         볼드 처리로 한눈에 식별                                            ║
@@ -754,7 +757,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.23"
+APP_VERSION = "v13.05.24"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1297,6 +1300,71 @@ class NoScrollComboBox(QComboBox):
     """마우스 휠로 항목이 바뀌지 않는 ComboBox."""
     def wheelEvent(self, event):
         event.ignore()
+
+
+class _TaskbarProgress:
+    """Windows 작업표시줄 진행바 (ITaskbarList3) — 창 최소화 중에도 아이콘에 진행률 표시.
+    COM을 ctypes로 직접 호출. 초기화/호출 실패 시 모든 동작이 무해한 no-op."""
+    _NOPROGRESS = 0
+    _NORMAL     = 0x2
+
+    def __init__(self):
+        self._ok = False
+        self._tbl = None
+        self._set_value = None
+        self._set_state = None
+        if sys.platform != 'win32':
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes, POINTER, c_void_p, byref
+
+            class GUID(ctypes.Structure):
+                _fields_ = [('Data1', wintypes.DWORD), ('Data2', wintypes.WORD),
+                            ('Data3', wintypes.WORD), ('Data4', ctypes.c_ubyte * 8)]
+
+            def _g(d1, d2, d3, rest):
+                g = GUID(); g.Data1 = d1; g.Data2 = d2; g.Data3 = d3
+                for i, b in enumerate(rest):
+                    g.Data4[i] = b
+                return g
+
+            CLSID = _g(0x56FDF344, 0xFD6D, 0x11d0, (0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90))
+            IID   = _g(0xea1afb91, 0x9e28, 0x4b86, (0x90, 0xe9, 0x9e, 0x9f, 0x8a, 0x5e, 0xef, 0xaf))
+            ole32 = ctypes.windll.ole32
+            ole32.CoInitialize(None)
+            ptr = c_void_p()
+            if ole32.CoCreateInstance(byref(CLSID), None, 1, byref(IID), byref(ptr)) != 0 or not ptr.value:
+                return
+            vtbl  = ctypes.cast(ptr, POINTER(c_void_p))[0]
+            funcs = ctypes.cast(vtbl, POINTER(c_void_p))
+            # vtable: 3=HrInit, 9=SetProgressValue, 10=SetProgressState
+            ctypes.WINFUNCTYPE(ctypes.c_long, c_void_p)(funcs[3])(ptr)
+            self._set_value = ctypes.WINFUNCTYPE(
+                ctypes.c_long, c_void_p, wintypes.HWND, ctypes.c_ulonglong, ctypes.c_ulonglong)(funcs[9])
+            self._set_state = ctypes.WINFUNCTYPE(
+                ctypes.c_long, c_void_p, wintypes.HWND, ctypes.c_int)(funcs[10])
+            self._tbl = ptr
+            self._ok = True
+        except Exception:
+            self._ok = False
+
+    def set_progress(self, hwnd: int, done: int, total: int):
+        if not self._ok or not hwnd or total <= 0:
+            return
+        try:
+            self._set_state(self._tbl, hwnd, self._NORMAL)
+            self._set_value(self._tbl, hwnd, int(done), int(total))
+        except Exception:
+            pass
+
+    def clear(self, hwnd: int):
+        if not self._ok or not hwnd:
+            return
+        try:
+            self._set_state(self._tbl, hwnd, self._NOPROGRESS)
+        except Exception:
+            pass
 
 
 class GaugeWidget(QWidget):
@@ -4716,6 +4784,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 680)
         self.resize(1800, 1060)
         self._worker         = None
+        self._taskbar        = _TaskbarProgress()   # ⑤ 작업표시줄 진행바
         self._result = None
         self._mc     = None
         self._t0     = 0.0
@@ -7552,6 +7621,7 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
         self._lbl_status.setText("중단됨")
+        self._taskbar.clear(int(self.winId()))
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -7560,6 +7630,8 @@ class MainWindow(QMainWindow):
         pct = f" ({done / total:.0%})" if total else ""
         eta_str = f" | 잔여 {eta:.0f}s" if eta > 0 else ""
         self._lbl_status.setText(f"MC {done}/{total}{pct}{eta_str}")
+        # ⑤ Windows 작업표시줄 진행바 (최소화 중에도 아이콘에 진행률)
+        self._taskbar.set_progress(int(self.winId()), done, total)
 
     def _on_finished(self, result: dict, mc: dict):
         elapsed = time.time() - self._t0
@@ -7568,6 +7640,7 @@ class MainWindow(QMainWindow):
 
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
+        self._taskbar.clear(int(self.winId()))
         cvar_str = f" | CVaR {mc.get('cvar', 0):.1%}" if mc.get('cvar') is not None else ''
         self._lbl_status.setText(
             f"완료 ({elapsed:.1f}s) | "
