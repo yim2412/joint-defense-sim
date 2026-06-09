@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.15 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.16 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.16 — 결과 요약에 요격률 게이지 추가]                             ║
+║  NEW-A  핵심 지표 카드 좌측에 반원 아크 게이지 — 요격률을 임계값 색상      ║
+║         (녹90%·주황60%·적)으로 한눈에 (QPainter 경량 렌더)                 ║
 ║  [v13.05.14~15 — REQ 판정·충족률 통합 + 종료 정리 버그 수정]               ║
 ║  NEW-A  REQ 판정 탭에 충족률 radar를 통합 — 좌측 PASS/FAIL 개요 +          ║
 ║         우측 상세 판정표 한 화면 (결과 사이드바 별도 '충족률' 항목 제거)   ║
@@ -735,7 +738,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.15"
+APP_VERSION = "v13.05.16"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1278,6 +1281,65 @@ class NoScrollComboBox(QComboBox):
     """마우스 휠로 항목이 바뀌지 않는 ComboBox."""
     def wheelEvent(self, event):
         event.ignore()
+
+
+class GaugeWidget(QWidget):
+    """0~100% 값을 반원 아크 게이지로 표시 — matplotlib 없이 QPainter로 경량 렌더.
+    임계값 색상(≥90% 녹색·≥60% 주황·미만 적색)으로 헤드라인 지표를 한눈에."""
+    def __init__(self, title: str = "요격률", parent=None):
+        super().__init__(parent)
+        self._value = None     # 0.0~1.0 또는 None(미실행)
+        self._title = title
+        self.setMinimumSize(132, 80)
+        self.setMaximumWidth(160)
+
+    def setValue(self, v):
+        self._value = None if v is None else float(v)
+        self.update()
+
+    @staticmethod
+    def _color(v: float) -> QColor:
+        if v >= 0.90:
+            return QColor('#2ecc71')
+        if v >= 0.60:
+            return QColor('#f39c12')
+        return QColor('#e74c3c')
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        base_y = h - 16          # 반원 평평한 변(직경)의 y
+        d = min(w - 16, (base_y) * 2 - 6)   # 반원 지름
+        rect = QRectF((w - d) / 2, base_y - d / 2, d, d)
+
+        # 배경 아크 (윗 반원 180°)
+        bg = QPen(QColor('#1e2a3a'), 9)
+        bg.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(bg)
+        p.drawArc(rect, 0, 180 * 16)
+
+        if self._value is not None:
+            v = max(0.0, min(1.0, self._value))
+            fg = QPen(self._color(v), 9)
+            fg.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(fg)
+            # 좌(180°)에서 값만큼 시계방향으로 채움
+            p.drawArc(rect, 180 * 16, -int(180 * v * 16))
+            p.setPen(QColor('#e6edf3'))
+            p.setFont(QFont('Malgun Gothic', 16, QFont.Weight.Bold))
+            p.drawText(QRectF(0, base_y - d * 0.42, w, d * 0.38),
+                       Qt.AlignmentFlag.AlignCenter, f"{v:.0%}")
+        else:
+            p.setPen(QColor('#7d8590'))
+            p.setFont(QFont('Malgun Gothic', 13, QFont.Weight.Bold))
+            p.drawText(QRectF(0, base_y - d * 0.42, w, d * 0.38),
+                       Qt.AlignmentFlag.AlignCenter, "—")
+
+        p.setPen(QColor('#7d8590'))
+        p.setFont(QFont('Malgun Gothic', 9))
+        p.drawText(QRectF(0, h - 15, w, 14), Qt.AlignmentFlag.AlignCenter, self._title)
+        p.end()
 
 STYLE_MAIN = f"""
 QMainWindow, QWidget {{
@@ -6107,6 +6169,11 @@ class MainWindow(QMainWindow):
         card_layout.setContentsMargins(12, 8, 12, 0)
         card_layout.setSpacing(8)
 
+        # 요격률 게이지 (헤드라인 지표 시각화 — 카드 좌측)
+        self._gauge = GaugeWidget("요격률 (MC)")
+        self._gauge.setToolTip("몬테카를로 평균 요격률 — 녹색 ≥90% · 주황 ≥60% · 적색 미만")
+        card_layout.addWidget(self._gauge)
+
         self._cards = {}
         self._card_deltas = {}
         card_defs = [
@@ -7986,6 +8053,7 @@ class MainWindow(QMainWindow):
         # 비정상값 방어: 요격률·완전요격은 0~100% 범위를 벗어나면 경고색(주황)으로 표시
         m_int = mc['mean_intercept']
         _abn  = (m_int < 0.0 or m_int > 1.0)
+        self._gauge.setValue(None if _abn else m_int)   # 요격률 게이지 갱신
         self._cards['intercept'].setText(f"{m_int:.1%}" + (" ⚠" if _abn else ""))
         self._cards['intercept'].setStyleSheet(
             f"color:{'#f39c12' if _abn else ('#2ecc71' if m_int >= 0.9 else '#e74c3c')};")
