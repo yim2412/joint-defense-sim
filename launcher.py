@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.24 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.26 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.25~26 — MC 수렴 라인 그래프 + 차트 경고 정리 (v13.1 마무리)]      ║
+║  NEW-A  진행 팝업에 누적 평균 요격률 실시간 수렴 라인 그래프 추가          ║
+║         (스파크박스 → x-y 라인, y축 자동 스케일)                           ║
+║  NEW-B  일부 복합 차트의 무해한 tight_layout 경고 억제                     ║
 ║  [v13.05.24 — MC 진행률 Windows 작업표시줄 표시]                           ║
 ║  NEW-A  반복 시뮬 진행률을 작업표시줄 아이콘에 표시 (창 최소화 중에도       ║
 ║         완료율 확인 — ITaskbarList3)                                       ║
@@ -757,7 +761,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.24"
+APP_VERSION = "v13.05.26"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1209,6 +1213,10 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF, QEv
 
 import matplotlib
 matplotlib.use('QtAgg')
+# 일부 복합 레이아웃(극좌표·축 off 혼용) 차트의 무해한 tight_layout 경고 억제
+import warnings as _warnings
+_warnings.filterwarnings('ignore', message='.*not compatible with tight_layout.*')
+_warnings.filterwarnings('ignore', message='.*Tight layout not applied.*')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -1568,6 +1576,68 @@ QToolTip {{
 """
 
 
+class ConvergenceWidget(QWidget):
+    """MC 누적 평균 요격률의 수렴 추이를 라인 그래프로 표시 (경량 QPainter).
+    배치마다 set_data로 갱신 — y축 자동 스케일로 수렴 흐름을 한눈에."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data: list = []
+        self.setMinimumHeight(58)
+
+    def set_data(self, data):
+        self._data = list(data)
+        self.update()
+
+    def clear(self):
+        self._data = []
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor('#0a0e1a'))
+        w, h = self.width(), self.height()
+        d = self._data
+        if len(d) < 2:
+            p.setPen(QColor('#7d8590'))
+            p.setFont(QFont('Malgun Gothic', 9))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "수렴 그래프 (데이터 수집 중…)")
+            p.end()
+            return
+        m = 6
+        x0, y0 = m + 26, m
+        pw, ph = w - 2 * m - 30, h - 2 * m - 12
+        lo, hi = min(d), max(d)
+        if hi - lo < 1e-6:
+            lo -= 0.01; hi += 0.01
+        pad = (hi - lo) * 0.15
+        lo -= pad; hi += pad
+        def X(i): return x0 + pw * i / (len(d) - 1)
+        def Y(v): return y0 + ph * (1 - (v - lo) / (hi - lo))
+        # 축
+        p.setPen(QPen(QColor('#1e2a3a'), 1))
+        p.drawLine(int(x0), int(y0), int(x0), int(y0 + ph))
+        p.drawLine(int(x0), int(y0 + ph), int(x0 + pw), int(y0 + ph))
+        # 현재값 기준선
+        cur = d[-1]
+        yc = Y(cur)
+        p.setPen(QPen(QColor('#2ecc71'), 1, Qt.PenStyle.DashLine))
+        p.drawLine(int(x0), int(yc), int(x0 + pw), int(yc))
+        # 수렴 라인
+        path = QPainterPath()
+        path.moveTo(X(0), Y(d[0]))
+        for i in range(1, len(d)):
+            path.lineTo(X(i), Y(d[i]))
+        p.setPen(QPen(QColor(C_ACCENT), 1.6))
+        p.drawPath(path)
+        # 라벨
+        p.setPen(QColor('#aab'))
+        p.setFont(QFont('Malgun Gothic', 8))
+        p.drawText(1, int(yc) + 4, f"{cur:.0%}")
+        p.drawText(int(x0), h - 1, "반복→")
+        p.end()
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  플로팅 모니터 창 (시뮬 중 팝업)
 # ════════════════════════════════════════════════════════════════════════════
@@ -1771,6 +1841,10 @@ class FloatingMonitor(QWidget):
         conv_row.addWidget(self._lbl_delta)
         mv.addLayout(conv_row)
 
+        # ③ 실시간 수렴 라인 그래프 (누적 평균 요격률 추이)
+        self._conv_graph = ConvergenceWidget()
+        mv.addWidget(self._conv_graph)
+
         self._stack_mode.addWidget(mc_w)   # index 1
 
         inner.addWidget(self._stack_mode)
@@ -1936,6 +2010,7 @@ class FloatingMonitor(QWidget):
                 sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
         # 수렴 감지 (최근 100개 vs 이전 100개 표준편차)
         self._rates_history.append(mean_rate)
+        self._conv_graph.set_data(self._rates_history)   # ③ 수렴 라인 갱신
         h = self._rates_history
         if len(h) >= 20:
             import numpy as _np
@@ -1977,6 +2052,7 @@ class FloatingMonitor(QWidget):
         self._show_time = time.time()
         self._batch_rates.clear()
         self._rates_history.clear()
+        self._conv_graph.clear()
         self._log_buf.clear()
         self._mc_done = 0
         self._mc_t0   = 0.0
@@ -9631,75 +9707,11 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            ("v13.1", "중간", "결과 탭 시각화 추가 개선",
-             "① 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
-             "② 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
-             "필요 시 백그라운드 렌더링·캐싱 적용. "
-             "③ 결과 탭 전체 검토 — 불필요하거나 중복된 항목 제거, 표시 정보 최신화 (엔진 신기능 반영 누락 지표 추가), "
-             "수정이 필요한 표현·수치·레이블 정리. 구현 전 사용자와 항목별 확인 후 진행."),
-            ("v13.1", "중간", "결과 탭 종합 점검 — 데이터·보고서·안정성",
-             "【데이터 정확성】"
-             "엔진 신기능(침수·IFF·소나) 수치가 결과 탭에 실제 반영되는지 확인. "
-             "REQ 판정 기준값이 현재 엔진 수치와 일치하는지 검토. "
-             "【보고서 연동】"
-             "Excel/PDF 보고서 출력 항목이 결과 탭 표시 항목과 일치하는지 대조. "
-             "Excel 한글 폰트 깨짐·셀 너비 불일치 확인 및 수정. "
-             "【기능 동작 확인】"
-             "A/B 비교 탭 정상 동작 여부 확인 (방치로 인한 오작동 점검). "
-             "MC 중단 후 결과 탭에 부분 데이터 표시 여부 확인 (빈 화면이어야 함). "
-             "시뮬 결과 없이 결과 탭 접근 시 오류 처리 확인. "
-             "결과 탭 → 설정 화면 복귀 시 기존 설정값 보존 여부 확인. "
-             "탭 전환 시 스크롤 위치 초기화(맨 위로 튀는 현상) 확인. "
-             "【안정성·호환성】"
-             "이전 버전 시나리오 파일 로드 호환성 확인. "
-             "시뮬 반복 실행 시 메모리 누수 여부 확인. "
-             "장시간 실행 시 CPU·메모리 비정상 증가 여부 확인. "
-             "【화면 대응】"
-             "창 크기 축소 시 결과 탭 레이아웃 깨짐 여부 확인. "
-             "고DPI(150%·200% 배율) 환경에서 텍스트·차트 흐림·잘림 확인. "
-             "【UX 흐름】"
-             "시뮬 완료 후 결과 탭 자동 전환 여부 확인 (수동으로 가야 하면 자동 전환 추가). "
-             "결과 탭 상단에 실행 설정 요약 표시 — 어떤 시나리오·날씨·MC 횟수로 돌렸는지 한눈에 확인 가능하게."),
-            ("v13.1", "중간", "전체 감사 — 설정·엔진·코드·성능·보고서·계획",
-             "【설정 패널】"
-             "UI 설정값이 실제 엔진 cfg에 전달되는지 전수 확인 — 체크박스는 있는데 엔진에서 안 읽는 키 점검. "
-             "엔진 변경으로 의미 없어진 설정 항목 정리. "
-             "설정 저장/불러오기 완전성 — 신규 항목이 저장에서 누락되는 경우 수정. "
-             "【엔진·DB 수치 현실성】"
-             "SM-3·해성·CIWS 등 주요 무기 제원이 공개 자료와 일치하는지 검토. "
-             "마지막 수치 감사 이후 추가된 파라미터 누락 여부 확인. "
-             "【코드 품질】"
-             "v13.02 시리즈 변경 누적 후 /code-review medium 1회 수행. "
-             "【성능】"
-             "시나리오별 단일 시뮬 실행 시간 측정 — 특정 시나리오에서 비정상적으로 느린 경우 확인. "
-             "MC 처리량(회/초) 현황 측정 및 병목 구간 파악. "
-             "【보고서】"
-             "Excel·PDF 실제 출력 후 내용·포맷·한글 폰트 확인. "
-             "【changelog·_PLANS】"
-             "이미 구현 완료된 항목이 _PLANS에 잔류하지 않는지 전수 점검."),
-            ("v13.1", "중간", "결과 탭 표시·차트·분석 품질 개선",
-             "【표시·레이아웃】"
-             "숫자 포맷 통일 — 소수점 자릿수·단위(km·m) 불일치 구간 전수 정리. "
-             "서브탭 아이콘 추가. "
-             "결과 탭 진입 시 첫 번째 서브탭으로 초기화 확인. "
-             "【차트】"
-             "차트 색상 테마를 앱 다크 테마와 통일. "
-             "데이터 없을 때 '결과 없음' 플레이스홀더 표시. "
-             "차트 범례 위치 최적화 (데이터 가리는 경우 수정). "
-             "【비교·분석】"
-             "현재 결과와 직전 실행 결과 나란히 비교하는 뷰 추가. "
-             "최악/최선 케이스 자동 하이라이트. "
-             "【데이터 무결성】"
-             "REQ 판정 통과/실패 항목 색상 강조 확인 및 개선. "
-             "【기타 UX】"
-             "차트 렌더링 중 빈 화면 대신 로딩 스피너·플레이스홀더 표시 (차트 속도 개선과 병행)."),
-            ("v13.1", "낮음", "MC 분석 진행 상황 표시 강화",
-             "① 하단 상태바에 실시간 요격률·처리속도(회/s) 병기 (완료율 %·잔여시간은 구현됨). "
-             "② MC 진행 팝업 상단에 QProgressBar 삽입해 완료율 시각화. "
-             "③ 팝업 내 수렴 그래프: x축 반복 횟수·y축 누적 평균 요격률 실시간 표시 — '수렴 분석 중...' 자리 대체. "
-             "④ ETA 표시: 현재 처리 속도 기반 '약 X분 Y초 후 완료' 팝업·상태바 병기. "
-             "⑤ Windows 태스크바 진행 바: ctypes ITaskbarList3로 창 최소화 중에도 아이콘에 진행률 표시. "
-             "모두 기존 step_update 시그널에 연결."),
+            ("v13.1", "낮음", "결과 탭 GUI 실사용 점검 (잔여)",
+             "v13.1 결과 탭·진행 표시 개선의 코드 작업은 완료(요격률 게이지·실행 요약·침수/IFF 표시·REQ 실패 강조·"
+             "수렴 라인 그래프·작업표시줄 진행바·무기 제원 현실화·대잠 성능). 남은 것은 코드로 자동 검증이 어려운 "
+             "실사용 점검뿐: Excel/PDF 한글 폰트·출력 일치, A/B 비교 실제 동작, MC 중단 후 빈 화면, 반복 실행 메모리 누수, "
+             "고DPI(150/200%)·창 축소 레이아웃. 실사용 중 이상 발견 시 그때 대응."),
             ("v13.2", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
              "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
