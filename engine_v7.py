@@ -4567,42 +4567,51 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     }
 
 
+def _sim_rate_worker(cfg: dict) -> float:
+    """단일 시뮬을 돌려 요격률만 반환 — 프로세스 풀 병렬화용 top-level 워커(피클 가능)."""
+    return run_v7_simulation(cfg)['intercept_rate']
+
+
 def stress_test_grid(cfg: dict, n_per_cell: int = 500,
-                     progress_cb=None) -> dict:
+                     progress_cb=None, map_fn=map) -> dict:
     """
     2D 스트레스 테스트: 채널 감소(%) × 레이더 성능 감소(%) 그리드 요격률 매트릭스.
 
     n_per_cell: 셀당 시뮬 횟수 (빠름=300, 표준=500, 정밀=3000)
+    map_fn: (fn, iterable) → results. 기본 직렬(map). launcher가 풀 기반 병렬 map 주입 시
+            8코어 병렬 실행. 각 시뮬은 seed가 고정된 독립 작업이라 결과는 직렬과 동일.
     """
     ch_vals  = STRESS_DIMS['channel_degrade']['values']   # [0, 25, 50, 75]
     rad_vals = STRESS_DIMS['radar_degrade']['values']     # [0, 25, 50]
     grid       = np.zeros((len(ch_vals), len(rad_vals)))
     cvar_grid  = np.zeros_like(grid)
     total_cells = len(ch_vals) * len(rad_vals)
-    done = 0
+    base_seed   = cfg.get('sim_seed', None)
 
-    for i, ch in enumerate(ch_vals):
-        for j, rad in enumerate(rad_vals):
-            cell_cfg = dict(cfg)
-            # 레이더 성능 감소 → detect_scale 감소
-            cell_cfg['detect_scale'] = 1.0 - rad / 100.0
-            # 채널 감소 → Pk 비례 감소로 근사 (75% 채널 감소 → Pk 약 37.5% 감소)
-            cell_cfg['pk_scale'] = max(0.1, 1.0 - ch / 200.0)
+    # 전 셀 × 전 반복의 cfg를 평탄 리스트로 생성 (seed = base + 전역 인덱스, 직렬과 동일)
+    cells: list = [(i, j) for i in range(len(ch_vals)) for j in range(len(rad_vals))]
+    flat_cfgs: list = []
+    for done, (i, j) in enumerate(cells):
+        cell_cfg = dict(cfg)
+        cell_cfg['detect_scale'] = 1.0 - rad_vals[j] / 100.0
+        cell_cfg['pk_scale']     = max(0.1, 1.0 - ch_vals[i] / 200.0)
+        for k in range(n_per_cell):
+            run_cfg = dict(cell_cfg)
+            if base_seed:
+                run_cfg['sim_seed'] = int(base_seed) + done * n_per_cell + k
+            flat_cfgs.append(run_cfg)
 
-            cell_rates = []
-            for k in range(n_per_cell):
-                run_cfg = dict(cell_cfg)
-                base_seed = cfg.get('sim_seed', None)
-                if base_seed:
-                    run_cfg['sim_seed'] = int(base_seed) + done * n_per_cell + k
-                r = run_v7_simulation(run_cfg)
-                cell_rates.append(r['intercept_rate'])
+    # 병렬(또는 직렬) 실행 — map_fn은 순서를 보존하므로 셀별 슬라이스 재조립이 안전
+    all_rates: list = []
+    for idx, rate in enumerate(map_fn(_sim_rate_worker, flat_cfgs)):
+        all_rates.append(rate)
+        if progress_cb and (idx + 1) % n_per_cell == 0:
+            progress_cb((idx + 1) // n_per_cell, total_cells)
 
-            grid[i, j]      = float(np.mean(cell_rates))
-            cvar_grid[i, j] = compute_cvar(cell_rates)
-            done += 1
-            if progress_cb:
-                progress_cb(done, total_cells)
+    for done, (i, j) in enumerate(cells):
+        cell_rates = all_rates[done * n_per_cell:(done + 1) * n_per_cell]
+        grid[i, j]      = float(np.mean(cell_rates))
+        cvar_grid[i, j] = compute_cvar(cell_rates)
 
     return {
         'grid':      grid.tolist(),
@@ -4616,7 +4625,7 @@ def stress_test_grid(cfg: dict, n_per_cell: int = 500,
 
 
 def sobol_analysis(cfg: dict, n_sobol: int = 4096, n_per_point: int = 1,
-                   progress_cb=None) -> dict:
+                   progress_cb=None, map_fn=map) -> dict:
     """
     Sobol 1차/전체 민감도 지수 — 정밀 모드 전용.
 
@@ -4643,25 +4652,28 @@ def sobol_analysis(cfg: dict, n_sobol: int = 4096, n_per_point: int = 1,
     n_sobol_pts   = len(param_values)
     total_runs    = n_sobol_pts * n_per_point
     Y = np.zeros(n_sobol_pts)
+    base_seed = cfg.get('sim_seed', None)
 
+    # 전 포인트 × n_per_point의 cfg를 평탄 리스트로 생성 (seed = base + i*npp + k, 직렬과 동일)
+    flat_cfgs: list = []
     for i, pv in enumerate(param_values):
         run_cfg = dict(cfg)
         for j, key in enumerate(param_names):
             run_cfg[key] = float(pv[j])
-        if n_per_point > 1:
-            # K회 평균으로 확률 노이즈 √K배 감소
-            point_rates = []
-            for k in range(n_per_point):
-                rc = dict(run_cfg)
-                base_seed = cfg.get('sim_seed', None)
-                if base_seed:
-                    rc['sim_seed'] = int(base_seed) + i * n_per_point + k
-                point_rates.append(run_v7_simulation(rc)['intercept_rate'])
-            Y[i] = float(np.mean(point_rates))
-        else:
-            Y[i] = run_v7_simulation(run_cfg)['intercept_rate']
-        if progress_cb:
-            progress_cb(i + 1, n_sobol_pts)
+        for k in range(n_per_point):
+            rc = dict(run_cfg)
+            if n_per_point > 1 and base_seed:
+                rc['sim_seed'] = int(base_seed) + i * n_per_point + k
+            flat_cfgs.append(rc)
+
+    # 병렬(또는 직렬) 실행 — 순서 보존이라 포인트별 평균 재조립이 안전
+    all_rates: list = []
+    for idx, rate in enumerate(map_fn(_sim_rate_worker, flat_cfgs)):
+        all_rates.append(rate)
+        if progress_cb and (idx + 1) % n_per_point == 0:
+            progress_cb((idx + 1) // n_per_point, n_sobol_pts)
+    for i in range(n_sobol_pts):
+        Y[i] = float(np.mean(all_rates[i * n_per_point:(i + 1) * n_per_point]))
 
     Si = sobol_analyze.analyze(
         problem, Y, calc_second_order=False, print_to_console=False)
@@ -4680,6 +4692,47 @@ def sobol_analysis(cfg: dict, n_sobol: int = 4096, n_per_point: int = 1,
 #  최적 무기 조합 추천 — 그리드 서치 + 정밀 검증
 # ════════════════════════════════════════════════════════════════════════════
 
+_OPTIMIZE_WEAPONS = [
+    ('SM-3 Block IIA',  'sm3_stock'),
+    ('SM-6',            'sm6_stock'),
+    ('SM-2 Block IIIB', 'sm2_stock'),
+    ('RIM-116 RAM',     'ram_stock'),
+]
+
+
+def _optimize_coarse_worker(args):
+    """조합 1개의 조악한 MC 평가 — 풀 병렬화용 top-level 워커. (요격률, 조합) 반환."""
+    cfg, combo, n = args
+    run_cfg = {**cfg}
+    for (_, key), val in zip(_OPTIMIZE_WEAPONS, combo):
+        run_cfg[key] = val
+    return (monte_carlo_v7(run_cfg, n=n)['mean_intercept'], combo)
+
+
+def _optimize_fine_worker(args):
+    """조합 1개의 정밀 MC 검증 — 풀 병렬화용 top-level 워커. 결과 dict 반환."""
+    cfg, combo, n = args
+    run_cfg = {**cfg}
+    for (_, key), val in zip(_OPTIMIZE_WEAPONS, combo):
+        run_cfg[key] = val
+    mc = monte_carlo_v7(run_cfg, n=n)
+    combo_dict = {wpn: val for (wpn, _), val in zip(_OPTIMIZE_WEAPONS, combo)}
+    combo_cost = sum(cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
+                     for wpn, cnt in combo_dict.items())
+    mean_e_dest = float(sum(mc.get('enemy_destroyed', [0])) /
+                        max(len(mc.get('enemy_destroyed', [1])), 1))
+    return {
+        'combo':      combo_dict,
+        'rate':       mc['mean_intercept'],
+        'std':        mc['std_intercept'],
+        'total':      sum(combo),
+        'combo_cost': combo_cost,
+        'mean_cost':  mc.get('mean_cost', 0),
+        'cost_per_kill': (mc.get('mean_cost', 0) / mean_e_dest
+                          if mean_e_dest > 0 else float('inf')),
+    }
+
+
 def optimize_weapon_loadout_v7(cfg: dict,
                                 budget:     int = 64,
                                 step:       int = 8,
@@ -4687,67 +4740,44 @@ def optimize_weapon_loadout_v7(cfg: dict,
                                 coarse_n:   int = 20,
                                 fine_n:     int = 200,
                                 top_k:      int = 5,
-                                progress_cb = None) -> list:
+                                progress_cb = None,
+                                map_fn = map) -> list:
     """
     VLS 예산 안에서 최적 무기 조합 탐색 (그리드 서치 + 정밀 검증).
 
     1단계: 모든 조합을 coarse_n 회 MC로 빠르게 평가
     2단계: 상위 top_k 조합을 fine_n 회 MC로 정밀 검증
+    map_fn: 조합 평가를 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시 8코어 병렬.
+            각 조합은 독립 평가라 결과는 직렬과 동일.
     반환: [{'combo': dict, 'rate': float, 'std': float, 'total': int}, ...]
     """
     import itertools as _it
 
-    WEAPONS = [
-        ('SM-3 Block IIA',  'sm3_stock'),
-        ('SM-6',            'sm6_stock'),
-        ('SM-2 Block IIIB', 'sm2_stock'),
-        ('RIM-116 RAM',     'ram_stock'),
-    ]
-
     vals   = list(range(0, max_per + 1, step))          # [0, 8, 16, 24, 32]
     combos = [
-        c for c in _it.product(vals, repeat=len(WEAPONS))
+        c for c in _it.product(vals, repeat=len(_OPTIMIZE_WEAPONS))
         if sum(c) <= budget and sum(c) > 0              # 0발 조합 제외
     ]
 
-    # 1단계: 조악한 MC로 빠른 탐색
-    coarse_results: list = []
+    # 1단계: 조악한 MC로 빠른 탐색 (조합 단위 병렬)
     total = len(combos)
-    for i, combo in enumerate(combos):
+    coarse_args = [(cfg, combo, coarse_n) for combo in combos]
+    coarse_results: list = []
+    for idx, res in enumerate(map_fn(_optimize_coarse_worker, coarse_args)):
+        coarse_results.append(res)
         if progress_cb:
-            progress_cb(i, total, 'coarse')
-        run_cfg = {**cfg}
-        for (_, key), val in zip(WEAPONS, combo):
-            run_cfg[key] = val
-        mc = monte_carlo_v7(run_cfg, n=coarse_n)
-        coarse_results.append((mc['mean_intercept'], combo))
+            progress_cb(idx + 1, total, 'coarse')
 
     coarse_results.sort(reverse=True)
 
-    # 2단계: 상위 top_k 정밀 검증
+    # 2단계: 상위 top_k 정밀 검증 (조합 단위 병렬)
+    top_combos = [combo for _, combo in coarse_results[:top_k]]
+    fine_args  = [(cfg, combo, fine_n) for combo in top_combos]
     final: list = []
-    for rank, (_, combo) in enumerate(coarse_results[:top_k]):
+    for idx, res in enumerate(map_fn(_optimize_fine_worker, fine_args)):
+        final.append(res)
         if progress_cb:
-            progress_cb(total + rank, total + top_k, 'fine')
-        run_cfg = {**cfg}
-        for (_, key), val in zip(WEAPONS, combo):
-            run_cfg[key] = val
-        mc = monte_carlo_v7(run_cfg, n=fine_n)
-        combo_dict = {wpn: val for (wpn, _), val in zip(WEAPONS, combo)}
-        combo_cost = sum(cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
-                         for wpn, cnt in combo_dict.items())
-        mean_e_dest = float(sum(mc.get('enemy_destroyed', [0])) /
-                            max(len(mc.get('enemy_destroyed', [1])), 1))
-        final.append({
-            'combo':      combo_dict,
-            'rate':       mc['mean_intercept'],
-            'std':        mc['std_intercept'],
-            'total':      sum(combo),
-            'combo_cost': combo_cost,
-            'mean_cost':  mc.get('mean_cost', 0),
-            'cost_per_kill': (mc.get('mean_cost', 0) / mean_e_dest
-                              if mean_e_dest > 0 else float('inf')),
-        })
+            progress_cb(total + idx + 1, total + top_k, 'fine')
 
     return sorted(final, key=lambda x: -x['rate'])
 
@@ -4870,31 +4900,40 @@ def find_min_stock_v7(
     return lo
 
 
+def _min_stock_worker(args):
+    """무기 1종의 최소 재고 이진 탐색 — 풀 병렬화용 top-level 워커.
+    (무기명, {min_stock, current_stock, achievable}) 반환."""
+    cfg, wpn, target_rate, mc_n = args
+    key     = _STOCK_CFG_KEY[wpn]
+    current = cfg.get(key, FRIENDLY_DB.get(wpn, {}).get('stock', 0))
+    min_s   = find_min_stock_v7(cfg, wpn, target_rate, mc_n)
+    return (wpn, {
+        'min_stock':     min_s,
+        'current_stock': current,
+        'achievable':    min_s >= 0,
+    })
+
+
 def find_all_min_stocks_v7(
     cfg: dict,
     target_rate: float = 0.90,
     mc_n: int = 40,
     progress_cb=None,
+    map_fn=map,
 ) -> dict:
     """
-    주요 무기 6종의 최소 함정당 재고를 순서대로 탐색.
+    주요 무기 6종의 최소 함정당 재고를 탐색 (무기 단위 병렬).
+    map_fn: 무기별 탐색을 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시
+            무기 6종을 동시 탐색. 무기끼리 독립이라 결과는 직렬과 동일.
     반환: {weapon_name: {'min_stock': int, 'current_stock': int, 'achievable': bool}}
     """
     weapons = list(_STOCK_CFG_KEY.keys())
+    args = [(cfg, wpn, target_rate, mc_n) for wpn in weapons]
     results = {}
-    for i, wpn in enumerate(weapons):
+    for idx, (wpn, rec) in enumerate(map_fn(_min_stock_worker, args)):
+        results[wpn] = rec
         if progress_cb:
-            progress_cb(i, len(weapons), wpn)
-        key     = _STOCK_CFG_KEY[wpn]
-        current = cfg.get(key, FRIENDLY_DB.get(wpn, {}).get('stock', 0))
-        min_s   = find_min_stock_v7(cfg, wpn, target_rate, mc_n)
-        results[wpn] = {
-            'min_stock':     min_s,
-            'current_stock': current,
-            'achievable':    min_s >= 0,
-        }
-    if progress_cb:
-        progress_cb(len(weapons), len(weapons), '완료')
+            progress_cb(idx + 1, len(weapons), wpn)
     return results
 
 
@@ -5191,13 +5230,25 @@ def cec_comparison_v7(cfg: dict, n: int = 200) -> dict:
 #  포팅 D: A vs B 시나리오 비교
 # ════════════════════════════════════════════════════════════════════════════
 
-def compare_ab_v7(cfg_a: dict, cfg_b: dict, n: int = 200) -> dict:
+def _ab_mc_worker(args):
+    """A/B 비교용 단일 MC 실행 워커 — 풀 병렬화용 top-level(피클 가능). mc dict 반환."""
+    cfg, n = args
+    return monte_carlo_v7(cfg, n=n)
+
+
+def _heatmap_cell_worker(args):
+    """히트맵 셀 1개 MC 실행 워커 — 풀 병렬화용 top-level. (r, c, 평균요격률) 반환."""
+    cfg, r, c, n = args
+    return (r, c, float(monte_carlo_lhs(cfg, n=n).get('mean_intercept', 0.0)))
+
+
+def compare_ab_v7(cfg_a: dict, cfg_b: dict, n: int = 200, map_fn=map) -> dict:
     """
     두 cfg로 MC를 각각 실행해 비교 dict를 반환.
+    map_fn: 두 MC를 분산 (기본 직렬). launcher가 풀 병렬 map 주입 시 A·B 동시 실행.
     반환: {'a': mc_dict, 'b': mc_dict, 'delta_intercept': float, 'delta_cost': float}
     """
-    mc_a = monte_carlo_v7(cfg_a, n=n, desc='A 시나리오')
-    mc_b = monte_carlo_v7(cfg_b, n=n, desc='B 시나리오')
+    mc_a, mc_b = list(map_fn(_ab_mc_worker, [(cfg_a, n), (cfg_b, n)]))
     return {
         'a':               mc_a,
         'b':               mc_b,

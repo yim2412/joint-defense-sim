@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.04.04 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.07 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.07 — 시뮬 실행 후 종료 시 잔여 워커 프로세스 완전 제거]           ║
+║  BUG-1  병렬 분석 도중·이후 창을 닫으면 워커 프로세스가 남던 문제를         ║
+║         Windows Job Object로 근본 해결 (메인 종료 시 OS가 자식 자동 정리)  ║
+║  [v13.05.01~06 — 무거운 분석 멀티코어 병렬화]                              ║
+║  NEW-A  스트레스 테스트·Sobol·최적 조합·최소 재고·A/B 비교·생존성 히트맵을 ║
+║         글로벌 풀 8코어 병렬 실행 (직렬 대비 결과 동일, 결정론 보존)       ║
+║  NEW-B  Sobol 정밀 분석 복구 (SALib 의존성 재설치) + 병렬화               ║
+║  NEW-C  최적 조합 추천 정확도(coarse 20·fine 200) 복원 — 병렬로 속도 확보  ║
 ║  [v13.04.04 — 창 종료 시 워커 프로세스 잔존 수정]                          ║
 ║  BUG-1  홈/런처 창을 X로 닫아도 백그라운드 워커 프로세스가 남던 문제 해결  ║
 ║         (종료 시 모든 자식 프로세스 일괄 정리)                             ║
@@ -707,7 +715,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.04.04"
+APP_VERSION = "v13.05.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -793,9 +801,97 @@ def _shutdown_global_pool():
     except Exception:
         pass
 
+def _pool_map(fn, iterable):
+    """글로벌 풀로 fn을 iterable에 병렬 적용 (순서 보존, 결과는 지연 yield).
+    풀 없으면 직렬 map 폴백. 무거운 분석(스트레스·Sobol·최적조합·최소재고)의
+    독립 시뮬을 8코어로 분산. 지연 반환이라 소비측에서 진행률을 점진 갱신 가능."""
+    items = list(iterable)
+    pool = _GLOBAL_POOL
+    if pool is None or len(items) <= 1:
+        return map(fn, items)
+    try:
+        n_workers = getattr(pool, '_max_workers', 4) or 4
+        chunksize = max(1, len(items) // (n_workers * 4))
+        return pool.map(fn, items, chunksize=chunksize)
+    except Exception:
+        return map(fn, items)
+
+_JOB_HANDLE = None   # Windows Job Object 핸들 — 프로세스 수명 동안 열어둠
+
+
+def _setup_job_object():
+    """Windows Job Object에 현재 프로세스를 묶어, 메인이 어떤 식으로 종료되든
+    (정상·크래시·강제종료) 자식 워커 프로세스를 OS가 자동으로 함께 종료시킨다.
+    closeEvent/aboutToQuit 정리가 안 돌아도 고아 워커가 남지 않도록 OS 수준에서 보장."""
+    global _JOB_HANDLE
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        # 64비트 HANDLE이 기본 int(32비트)로 잘리지 않도록 모든 시그니처를 명시한다.
+        k32.CreateJobObjectW.restype           = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes          = [wintypes.LPVOID, wintypes.LPCWSTR]
+        k32.GetCurrentProcess.restype          = wintypes.HANDLE
+        k32.GetCurrentProcess.argtypes         = []
+        k32.SetInformationJobObject.restype    = wintypes.BOOL
+        k32.SetInformationJobObject.argtypes   = [wintypes.HANDLE, ctypes.c_int,
+                                                  wintypes.LPVOID, wintypes.DWORD]
+        k32.AssignProcessToJobObject.restype   = wintypes.BOOL
+        k32.AssignProcessToJobObject.argtypes  = [wintypes.HANDLE, wintypes.HANDLE]
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return
+
+        JobObjectExtendedLimitInformation = 9
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+        class _BASIC(ctypes.Structure):
+            _fields_ = [('PerProcessUserTimeLimit', wintypes.LARGE_INTEGER),
+                        ('PerJobUserTimeLimit',     wintypes.LARGE_INTEGER),
+                        ('LimitFlags',              wintypes.DWORD),
+                        ('MinimumWorkingSetSize',   ctypes.c_size_t),
+                        ('MaximumWorkingSetSize',   ctypes.c_size_t),
+                        ('ActiveProcessLimit',      wintypes.DWORD),
+                        ('Affinity',                ctypes.POINTER(wintypes.ULONG)),
+                        ('PriorityClass',           wintypes.DWORD),
+                        ('SchedulingClass',         wintypes.DWORD)]
+
+        class _IO(ctypes.Structure):
+            _fields_ = [('ReadOperationCount',  ctypes.c_ulonglong),
+                        ('WriteOperationCount', ctypes.c_ulonglong),
+                        ('OtherOperationCount', ctypes.c_ulonglong),
+                        ('ReadTransferCount',   ctypes.c_ulonglong),
+                        ('WriteTransferCount',  ctypes.c_ulonglong),
+                        ('OtherTransferCount',  ctypes.c_ulonglong)]
+
+        class _EXT(ctypes.Structure):
+            _fields_ = [('BasicLimitInformation', _BASIC),
+                        ('IoInfo',                _IO),
+                        ('ProcessMemoryLimit',    ctypes.c_size_t),
+                        ('JobMemoryLimit',        ctypes.c_size_t),
+                        ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                        ('PeakJobMemoryUsed',     ctypes.c_size_t)]
+
+        info = _EXT()
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k32.SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                                           ctypes.byref(info), ctypes.sizeof(info)):
+            return
+        if not k32.AssignProcessToJobObject(job, k32.GetCurrentProcess()):
+            return
+        # 핸들을 전역으로 보관해 프로세스 종료 전까지 열어둔다.
+        # (핸들이 닫히면 KILL_ON_JOB_CLOSE가 발동되므로 GC로 닫히지 않게 유지)
+        _JOB_HANDLE = job
+    except Exception:
+        pass
+
+
 def _kill_child_processes():
     """현재 프로세스의 모든 자식(워커 풀·subprocess 등) 강제 종료 — 좀비 방지.
-    어떤 창을 X로 닫든·앱이 어떻게 종료되든 자식이 안 남도록 모든 종료 경로에서 호출."""
+    어떤 창을 X로 닫든·앱이 어떻게 종료되든 자식이 안 남도록 모든 종료 경로에서 호출.
+    (Job Object가 1차 보장, 이 함수는 종료 전 즉시 정리용 2차 안전망.)"""
     try:
         me = psutil.Process()
         children = me.children(recursive=True)
@@ -1093,7 +1189,7 @@ try:
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
         save_json_report_v7,
-        _mc_batch_worker, _mc_lhs_batch_worker,
+        _mc_batch_worker, _mc_lhs_batch_worker, _heatmap_cell_worker,
         FRIENDLY_DB as V7_FRIENDLY_DB,
         SHIP_DB as V7_SHIP_DB,
         FRIENDLY_AIRCRAFT_DB as V7_AIRCRAFT_DB,
@@ -2175,7 +2271,7 @@ class MinStockWorker(QThread):
             def _cb(i, total, name):
                 self.progress.emit(i, total, name)
             results = find_all_min_stocks_v7(
-                self.cfg, self.target_rate, self.mc_n, _cb)
+                self.cfg, self.target_rate, self.mc_n, _cb, map_fn=_pool_map)  # 무기 6종 병렬
             self.finished.emit(results, self.target_rate)
         except Exception as e:
             self.error.emit(str(e))
@@ -2199,11 +2295,11 @@ class OptimizeWorker(QThread):
         try:
             def _cb(i, total, phase):
                 self.progress.emit(i, total, phase)
-            # coarse_n·fine_n 하향(20→10·200→120): 탐색 시뮬 횟수 ~45% 감축으로
-            # 체감 속도 개선. 1차는 순위 필터용이라 적은 n으로도 상위 조합 선별 충분.
+            # 조합 단위 글로벌 풀 병렬(map_fn)로 속도 해결 → coarse_n·fine_n 정확도 복원(20·200).
+            # 각 조합은 독립 평가라 병렬 결과는 직렬과 동일.
             results = optimize_weapon_loadout_v7(
                 self.cfg, budget=self.budget, step=self.step,
-                coarse_n=10, fine_n=120, progress_cb=_cb)
+                coarse_n=20, fine_n=200, progress_cb=_cb, map_fn=_pool_map)
             self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
@@ -2224,7 +2320,7 @@ class ABCompareWorker(QThread):
         if not _V7_OK:
             return
         try:
-            result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n)
+            result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n, map_fn=_pool_map)  # A·B 동시
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -2250,18 +2346,39 @@ class HeatmapWorker(QThread):
         try:
             rows, cols = len(self.fleet_presets), len(self.enemy_presets)
             grid = [[0.0] * cols for _ in range(rows)]
+            # 셀(편대×위협)은 독립 → 글로벌 풀에 병렬 제출, 완료되는 대로 셀 갱신
+            cell_args = []
             for r, fp in enumerate(self.fleet_presets):
                 for c, ep in enumerate(self.enemy_presets):
-                    if self.isInterruptionRequested():
-                        return
                     cfg = dict(self.base_cfg)
                     cfg['fleet_preset']       = fp
                     cfg['enemy_fleet_mode']   = 'preset'
                     cfg['enemy_fleet_preset'] = ep
-                    mc = monte_carlo_lhs(cfg, n=self.n)
-                    val = float(mc.get('mean_intercept', 0.0))
+                    cell_args.append((cfg, r, c, self.n))
+
+            pool = _GLOBAL_POOL
+            if pool is None:
+                # 풀 없으면 직렬 폴백
+                for cfg, r, c, n in cell_args:
+                    if self.isInterruptionRequested():
+                        return
+                    _, _, val = _heatmap_cell_worker((cfg, r, c, n))
                     grid[r][c] = val
                     self.cell_done.emit(r, c, val)
+            else:
+                futs = {pool.submit(_heatmap_cell_worker, a): a for a in cell_args}
+                remaining = set(futs)
+                while remaining:
+                    if self.isInterruptionRequested():
+                        for f in remaining:
+                            f.cancel()
+                        return
+                    done, remaining = cf_wait(remaining, timeout=0.5,
+                                              return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        r, c, val = fut.result()
+                        grid[r][c] = val
+                        self.cell_done.emit(r, c, val)
             self.finished.emit(grid)
         except Exception as e:
             self.error.emit(str(e))
@@ -2483,7 +2600,8 @@ class SimWorker(QThread):
 
                 try:
                     stress_result = stress_test_grid(
-                        self.cfg, n_per_cell=n_per_cell, progress_cb=_stress_cb)
+                        self.cfg, n_per_cell=n_per_cell, progress_cb=_stress_cb,
+                        map_fn=_pool_map)   # 글로벌 풀 8코어 병렬
                 except _SimCancelled:
                     raise
                 except Exception as ex:
@@ -2508,7 +2626,7 @@ class SimWorker(QThread):
                 try:
                     sobol_result = sobol_analysis(
                         self.cfg, n_sobol=4096, n_per_point=npp,
-                        progress_cb=_sobol_cb)
+                        progress_cb=_sobol_cb, map_fn=_pool_map)   # 글로벌 풀 8코어 병렬
                 except Exception as ex:
                     sobol_result = {'error': str(ex)}
 
@@ -9773,6 +9891,8 @@ def main():
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()   # PyInstaller exe 멀티프로세싱 필수
+    # Job Object로 자식 워커를 묶어 메인 종료 시 OS가 자동 정리 (풀 생성 전에 설정)
+    _setup_job_object()
     # 글로벌 풀 백그라운드 예열 (스플래시 표시 중에 완료됨)
     threading.Thread(target=_init_global_pool, daemon=True).start()
     main()
