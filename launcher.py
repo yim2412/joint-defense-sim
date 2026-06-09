@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.09 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.11 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.11 — 창 위치 기억]                                                  ║
+║  NEW-A  창을 닫은 위치·크기를 기억해 다음 실행 시 복원 (없으면 화면 중앙)  ║
+║  [v13.03.10 — 창 자유 리사이즈]                                             ║
+║  BUG-1  진입 창 고정 크기 해제 + 시뮬레이터·결과 창 세로 리사이즈 불가     ║
+║         해결 (최소 크기만 지정, 화면보다 크면 92%로 클램프)                ║
 ║  [v13.03.09 — 결과 탭 창 무한 증가 버그 수정]                               ║
 ║  BUG-1  큰 화면에서 차트 본 뒤 창이 안 줄어들던 문제 — 차트 이미지가       ║
 ║         레이아웃 최소 크기를 키우던 것을 차단 (Ignored 정책)               ║
@@ -680,7 +685,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.09"
+APP_VERSION = "v13.03.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4681,10 +4686,36 @@ SCENARIO_LIBRARY = {
 }
 
 
+def _center_window(win, scr):
+    """창을 가용 화면 중앙에 배치."""
+    win.move(scr.center().x() - win.width() // 2,
+             scr.center().y() - win.height() // 2)
+
+
+def _apply_window_geometry(win, settings_key: str, default_w: int, default_h: int):
+    """저장된 창 위치·크기를 복원. 없으면 화면 중앙에 기본 크기로 배치.
+    기본 크기가 화면보다 크면 가용 화면의 92%로 클램프(화면 밖으로 안 넘침)."""
+    settings = QSettings("AegisSim", settings_key)
+    scr = QApplication.primaryScreen().availableGeometry()
+    geo = settings.value("geometry")
+    if geo is not None:
+        win.restoreGeometry(geo)
+        # 복원된 창이 현재 화면과 겹치지 않으면(모니터 변경 등) 중앙으로 보정
+        if not scr.intersects(win.frameGeometry()):
+            _center_window(win, scr)
+        return
+    w = min(default_w, int(scr.width()  * 0.92))
+    h = min(default_h, int(scr.height() * 0.92))
+    win.resize(w, h)
+    _center_window(win, scr)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"이지스 기동전단 통합 방어 시뮬레이터  {APP_VERSION}")
+        # 자유 리사이즈 가능하도록 합리적 최소 크기만 지정 (세로 고정 버그 방지)
+        self.setMinimumSize(1000, 680)
         self.resize(1800, 1060)
         self._worker         = None
         self._weather_worker = None
@@ -4705,6 +4736,8 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._apply_style()
+        # 저장된 창 위치·크기 복원 (없으면 화면 중앙, 화면보다 크면 클램프)
+        _apply_window_geometry(self, "MainWin", 1800, 1060)
 
     # ── UI 구성 ──────────────────────────────────────────────────────────────
 
@@ -8025,6 +8058,11 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "시뮬레이션 오류", msg)
 
     def closeEvent(self, event):
+        # 창 위치·크기 저장 (다음 실행 시 같은 자리에서 복원)
+        try:
+            QSettings("AegisSim", "MainWin").setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
         # SimWorker 중단 (MC 분석 실행 중이면 배치 루프에서 중단 신호 감지)
         if self._worker and self._worker.isRunning():
             self._worker.requestInterruption()
@@ -9110,7 +9148,8 @@ class SplashWindow(QWidget):
         from datetime import datetime
         _write_log(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]  앱 시작')
         self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터")
-        self.setFixedSize(1400, 960)
+        # 고정 크기 → 자유 리사이즈 (최소 크기만 지정)
+        self.setMinimumSize(1000, 680)
         self.setStyleSheet(f"""
             QWidget {{ background: {C_BG}; color: {C_TEXT};
                        font-family: 'Malgun Gothic', 'Segoe UI'; font-size: 17px; }}
@@ -9129,6 +9168,16 @@ class SplashWindow(QWidget):
                                     border: none; padding: 8px; font-size: 16px; }}
         """)
         self._build_ui()
+        # 저장된 창 위치·크기 복원 (없으면 화면 중앙, 화면보다 크면 클램프)
+        _apply_window_geometry(self, "SplashWin", 1400, 960)
+
+    def closeEvent(self, event):
+        # 창 위치·크기 저장 (다음 실행 시 같은 자리에서 복원)
+        try:
+            QSettings("AegisSim", "SplashWin").setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def _build_ui(self):
         h = QHBoxLayout(self)
