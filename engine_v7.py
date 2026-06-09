@@ -1230,6 +1230,7 @@ class TimeStepEngine:
         _set_region_ref(cfg.get('fleet_region', '동해 북부'))
         self._log_entries: list = []
         self._tick_events:  list = []
+        self._detected_log_set: set = set()   # 첫 탐지 로깅 완료한 위협 uid
 
         self._mc_mode: bool = bool(cfg.get('mc_mode', False))
 
@@ -1768,6 +1769,30 @@ class TimeStepEngine:
             return
         self._log_entries.append((self.t, msg))
         self._tick_events.append(msg)
+
+    def _log_detections(self):
+        """위협이 처음 레이더/소나 탐지 범위에 들어온 시점을 1회 로깅 (스탠드오프 가시화).
+        순수 거리 판정만 사용 — RNG 미소비라 결정론 보존. MC 모드는 _log가 자동으로 무시."""
+        if self._mc_mode:
+            return
+        ships = [s for s in self.friendly_ships if s.alive]
+        if not ships:
+            return
+        for et in self.enemy_threats:
+            if not et.alive or et.uid in self._detected_log_set:
+                continue
+            if et.is_sub:
+                cat, sensor = '대잠', '소나'
+            elif et.is_aircraft:
+                cat, sensor = '대공', '레이더'
+            else:
+                cat, sensor = '대함', '레이더'
+            best = min(ships, key=lambda s: s.pos.dist_to(et.pos))
+            dist = best.pos.dist_to(et.pos)
+            if dist <= self._detect_range_m(best, cat, et.altitude_m):
+                self._detected_log_set.add(et.uid)
+                self._log(f"[탐지] {best.name} {sensor} → {et.preset_name} 포착 "
+                          f"(거리 {dist/1000:.0f}km)")
 
     def _detect_range_m(self, ship: FriendlyShipObj, category: str,
                         alt_m: Optional[float] = None) -> float:
@@ -4020,6 +4045,7 @@ class TimeStepEngine:
             # v12.6: IFF p_fail 계산용 생존 위협 수 캐싱 (틱당 1회)
             self._n_alive_threats: int = sum(1 for et in self.enemy_threats if et.alive)
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
+            self._log_detections()   # 첫 탐지 시점 로깅 (위치 갱신 후, 적 발사 전)
             _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
             self._arm_radar_off_check()
             _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0
