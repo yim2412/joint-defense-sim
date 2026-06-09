@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.10 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.12 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.11~12 — 결과 탭 시각화 개선]                                       ║
+║  NEW-A  교전 로그를 시간축 타임라인(유형별 색상 레인)으로 재구성 +          ║
+║         기존 상세 표 병행 — 교전 흐름을 한눈에 + 정밀 상세 동시 제공        ║
+║  NEW-B  MC 신뢰구간을 2×2로 확장 — 분포 + 수렴 추이 + 지표별 95% CI +       ║
+║         함정별 피격                                                         ║
 ║  [v13.05.09~10 — 최적 조합 2차 검증 가속 + 비용 표시 정상화]               ║
 ║  NEW-A  정밀 검증(2차)을 시뮬 단위로 병렬화 (5개→전 시뮬 분산, 4.3x 단축,   ║
 ║         요격률·순위는 직렬과 동일)                                          ║
@@ -722,7 +727,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.10"
+APP_VERSION = "v13.05.12"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4168,8 +4173,81 @@ def _render_ammo_curve(mc: dict) -> Figure:
     return fig
 
 
+# 교전 로그 이벤트 분류 — (카테고리, 색상). 우선순위 순서로 검사한다.
+_LOG_CATEGORIES = [
+    ('미사일 발사',     '#5dade2'),
+    ('요격 성공',       '#3498db'),
+    ('실패·회피·통과',  '#e67e22'),
+    ('아군 피격',       '#e74c3c'),
+    ('적함 피격·격침',  '#2ecc71'),
+    ('침수·침몰',       '#9b59b6'),
+    ('기타',            '#7f8c8d'),
+]
+_LOG_CAT_COLOR = dict(_LOG_CATEGORIES)
+
+
+def _classify_log_event(msg: str) -> str:
+    """로그 메시지를 _LOG_CATEGORIES 중 하나로 분류 (대괄호 접두사·키워드 기반)."""
+    m = msg
+    if '침몰' in m or '침수' in m:
+        return '침수·침몰'
+    if '오사' in m:
+        return '아군 피격'
+    # 실패·회피·통과·불발은 '명중' 판정보다 먼저 (예: [피격 실패]는 명중 아님)
+    if ('실패' in m or '통과' in m or '회피' in m or '불발' in m or '빗나감' in m):
+        return '실패·회피·통과'
+    if '[적 피격' in m or '[적 CIWS]' in m:
+        return '적함 피격·격침'
+    if '[피격' in m:
+        return '아군 피격'
+    if '요격 성공' in m:
+        return '요격 성공'
+    if '발사' in m or 'BMD' in m or '[공격]' in m:   # [공격] = 아군 대함 미사일 발사
+        return '미사일 발사'
+    return '기타'
+
+
+def _plot_log_timeline(fig: Figure, log: list):
+    """주어진 Figure에 교전 이벤트 시간축 타임라인을 그린다 (카테고리별 색상 레인)."""
+    fig.clear()
+    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    fig.patch.set_facecolor(C_BG)
+    if not log:
+        ax.axis('off')
+        ax.text(0.5, 0.5, '교전 로그 없음', ha='center', va='center',
+                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
+        return
+    cats = [c for c, _ in _LOG_CATEGORIES]
+    xs_by_cat = {c: [] for c in cats}
+    for t, msg in log:
+        xs_by_cat[_classify_log_event(msg)].append(t)
+    # 이벤트가 있는 카테고리만 레인으로 표시 (아래→위)
+    used = [c for c in cats if xs_by_cat[c]]
+    if not used:
+        used = cats
+    ypos = {c: i for i, c in enumerate(used)}
+    for c in used:
+        xs = xs_by_cat[c]
+        if xs:
+            ax.scatter(xs, [ypos[c]] * len(xs), s=26, c=_LOG_CAT_COLOR[c],
+                       alpha=0.75, edgecolors='none', zorder=3)
+    ax.set_yticks(range(len(used)))
+    ax.set_yticklabels([f'{c}  ({len(xs_by_cat[c])})' for c in used], fontsize=10)
+    for lbl, c in zip(ax.get_yticklabels(), used):
+        lbl.set_color(_LOG_CAT_COLOR[c])
+    ax.set_ylim(-0.6, len(used) - 0.4)
+    ax.set_xlabel('교전 시각 (s)', color=C_SUBTEXT, fontsize=11)
+    ax.set_title('교전 이벤트 타임라인 (유형별 발생 시점)', color=C_TEXT, fontsize=13)
+    ax.tick_params(colors=C_SUBTEXT, labelsize=10)
+    ax.grid(axis='x', color='#1e2a3a', linewidth=0.6, zorder=0)
+    for sp in ax.spines.values():
+        sp.set_color('#1e2a3a')
+    fig.tight_layout()
+
+
 def _render_ci_chart(mc: dict) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
+    fig = Figure(figsize=(12, 7.5), facecolor=C_BG)
+    fig.patch.set_facecolor(C_BG)
     rates = mc.get('intercept_rates', [])
     if not rates:
         ax = fig.add_subplot(111, facecolor='#0a0e1a')
@@ -4177,47 +4255,107 @@ def _render_ci_chart(mc: dict) -> Figure:
                 color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
         fig.tight_layout()
         return fig
-    arr   = np.array(rates)
+    arr   = np.array(rates, dtype=float)
+    n     = len(arr)
     mean  = float(arr.mean())
     std   = float(arr.std())
-    ci_lo = max(0.0, mean - 1.96 * std / np.sqrt(len(arr)))
-    ci_hi = min(1.0, mean + 1.96 * std / np.sqrt(len(arr)))
+    ci    = 1.96 * std / np.sqrt(n)
+    ci_lo = max(0.0, mean - ci)
+    ci_hi = min(1.0, mean + ci)
     p10, p50, p90 = (float(np.percentile(arr, q)) for q in (10, 50, 90))
-    gs = fig.add_gridspec(1, 2, wspace=0.35)
-    ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-    ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
+
+    gs  = fig.add_gridspec(2, 2, wspace=0.28, hspace=0.42)
+    ax1 = fig.add_subplot(gs[0, 0], facecolor='#0a0e1a')   # 요격률 분포
+    ax2 = fig.add_subplot(gs[0, 1], facecolor='#0a0e1a')   # 수렴 추이
+    ax3 = fig.add_subplot(gs[1, 0], facecolor='#0a0e1a')   # 지표별 95% CI
+    ax4 = fig.add_subplot(gs[1, 1], facecolor='#0a0e1a')   # 함정별 평균 피격
+
+    # ── ① 요격률 분포 + 평균/CI/백분위 ──────────────────────────────────────
     ax1.hist(arr, bins=20, color=C_ACCENT, alpha=0.75, edgecolor='#1e2a3a')
-    ax1.axvline(mean,  color=C_GREEN,  lw=2, label=f'평균 {mean:.1%}  (95% CI {ci_lo:.1%}~{ci_hi:.1%})')
+    ax1.axvline(mean, color=C_GREEN, lw=2, label=f'평균 {mean:.1%} (95%CI {ci_lo:.1%}~{ci_hi:.1%})')
     ax1.axvspan(ci_lo, ci_hi, color=C_GREEN, alpha=0.10)
-    # 백분위수 P10/P50(중앙값)/P90
-    ax1.axvline(p50, color='#f1c40f', lw=1.5, ls='-',  label=f'중앙값 P50 {p50:.1%}')
-    ax1.axvline(p10, color=C_ORANGE, lw=1.2, ls=':',  label=f'P10 {p10:.1%}')
-    ax1.axvline(p90, color=C_ORANGE, lw=1.2, ls=':',  label=f'P90 {p90:.1%}')
-    ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=12)
-    ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=12)
-    ax1.set_title(f'요격률 분포 (n={len(arr)})', color=C_TEXT, fontsize=13)
-    ax1.legend(fontsize=10, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-    ax1.tick_params(colors=C_SUBTEXT, labelsize=11)
+    ax1.axvline(p50, color='#f1c40f', lw=1.5, ls='-', label=f'P50 {p50:.1%}')
+    ax1.axvline(p10, color=C_ORANGE, lw=1.2, ls=':', label=f'P10 {p10:.1%}')
+    ax1.axvline(p90, color=C_ORANGE, lw=1.2, ls=':', label=f'P90 {p90:.1%}')
+    ax1.set_xlabel('요격률', color=C_SUBTEXT, fontsize=11)
+    ax1.set_ylabel('빈도', color=C_SUBTEXT, fontsize=11)
+    ax1.set_title(f'요격률 분포 (n={n})', color=C_TEXT, fontsize=12)
+    ax1.legend(fontsize=8.5, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
+    ax1.tick_params(colors=C_SUBTEXT, labelsize=10)
     for sp in ax1.spines.values():
         sp.set_color('#1e2a3a')
+
+    # ── ② 수렴 추이: 누적 평균 + 95% CI 밴드가 좁아지는 모습 ─────────────────
+    k       = np.arange(1, n + 1)
+    cum_mean = np.cumsum(arr) / k
+    cum_sq   = np.cumsum(arr ** 2) / k
+    cum_std  = np.sqrt(np.maximum(cum_sq - cum_mean ** 2, 0.0))
+    cum_ci   = 1.96 * cum_std / np.sqrt(k)
+    ax2.plot(k, cum_mean, color=C_ACCENT, lw=1.6)
+    ax2.fill_between(k, np.maximum(cum_mean - cum_ci, 0), np.minimum(cum_mean + cum_ci, 1),
+                     color=C_ACCENT, alpha=0.18)
+    ax2.axhline(mean, color=C_GREEN, lw=1.0, ls='--', alpha=0.7)
+    ax2.set_xlabel('반복 횟수', color=C_SUBTEXT, fontsize=11)
+    ax2.set_ylabel('누적 평균 요격률', color=C_SUBTEXT, fontsize=11)
+    ax2.set_title('수렴 추이 (누적 평균 ± 95% CI)', color=C_TEXT, fontsize=12)
+    ax2.tick_params(colors=C_SUBTEXT, labelsize=10)
+    from matplotlib.ticker import FuncFormatter as _FF
+    ax2.yaxis.set_major_formatter(_FF(lambda v, _: f'{v:.0%}'))
+    ax2.grid(color='#1e2a3a', linewidth=0.5)
+    for sp in ax2.spines.values():
+        sp.set_color('#1e2a3a')
+
+    # ── ③ 지표별 95% 신뢰구간 (평균 대비 상대 폭으로 비교) ────────────────────
+    costs = np.array(mc.get('total_costs', []), dtype=float)
+    edest = np.array(mc.get('enemy_destroyed', []), dtype=float)
+    metrics = [('요격률', arr, lambda v: f'{v:.1%}')]
+    if costs.size:
+        metrics.append(('평균 비용', costs, lambda v: f'${v/1e6:.1f}M'))
+    if edest.size:
+        metrics.append(('적 격침', edest, lambda v: f'{v:.2f}척'))
+    ax3.axvline(1.0, color='#1e2a3a', lw=1.0)
+    for i, (name, data, fmt) in enumerate(metrics):
+        mm = float(data.mean())
+        ss = float(data.std())
+        cci = 1.96 * ss / np.sqrt(len(data))
+        if mm > 0:
+            rel_lo, rel_hi = (mm - cci) / mm, (mm + cci) / mm
+        else:
+            rel_lo, rel_hi = 1.0, 1.0
+        ax3.errorbar([1.0], [i], xerr=[[1.0 - rel_lo], [rel_hi - 1.0]], fmt='o',
+                     color=C_ACCENT, ecolor=C_GREEN, elinewidth=2.5, capsize=5, ms=7)
+        ax3.text(1.0, i + 0.28,
+                 f'{name}: {fmt(mm)}  [{fmt(mm-cci)} ~ {fmt(mm+cci)}]',
+                 ha='center', va='bottom', color=C_TEXT, fontsize=9.5)
+    ax3.set_yticks(range(len(metrics)))
+    ax3.set_yticklabels([m[0] for m in metrics], color=C_TEXT, fontsize=10)
+    ax3.set_ylim(-0.6, len(metrics) - 0.2)
+    ax3.set_xlabel('평균 대비 비율 (95% CI 폭)', color=C_SUBTEXT, fontsize=11)
+    ax3.set_title('지표별 95% 신뢰구간', color=C_TEXT, fontsize=12)
+    ax3.tick_params(colors=C_SUBTEXT, labelsize=10)
+    for sp in ax3.spines.values():
+        sp.set_color('#1e2a3a')
+
+    # ── ④ 함정별 평균 피격 ───────────────────────────────────────────────────
     ship_hits = mc.get('ship_avg_hits', {})
     if ship_hits:
         snames = list(ship_hits.keys())
         shvals = [ship_hits[s] for s in snames]
         y      = np.arange(len(snames))
         clrs   = [C_RED if v > 1 else C_ORANGE if v > 0 else C_GREEN for v in shvals]
-        ax2.barh(y, shvals, color=clrs, height=0.55)
-        ax2.set_yticks(y)
-        ax2.set_yticklabels(snames, color=C_TEXT, fontsize=11)
-        ax2.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=12)
-        ax2.set_title('함정별 평균 피격', color=C_TEXT, fontsize=13)
-        ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
-        for sp in ax2.spines.values():
+        ax4.barh(y, shvals, color=clrs, height=0.55)
+        ax4.set_yticks(y)
+        ax4.set_yticklabels(snames, color=C_TEXT, fontsize=10)
+        ax4.set_xlabel('평균 피격 횟수', color=C_SUBTEXT, fontsize=11)
+        ax4.set_title('함정별 평균 피격', color=C_TEXT, fontsize=12)
+        ax4.tick_params(colors=C_SUBTEXT, labelsize=10)
+        for sp in ax4.spines.values():
             sp.set_color('#1e2a3a')
     else:
-        ax2.axis('off')
-        ax2.text(0.5, 0.5, '피격 데이터 없음', ha='center', va='center',
-                 color=C_SUBTEXT, fontsize=10, transform=ax2.transAxes)
+        ax4.axis('off')
+        ax4.text(0.5, 0.5, '피격 데이터 없음', ha='center', va='center',
+                 color=C_SUBTEXT, fontsize=10, transform=ax4.transAxes)
+
     fig.tight_layout()
     return fig
 
@@ -6676,6 +6814,15 @@ class MainWindow(QMainWindow):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        # 위: 시간축 이벤트 타임라인 (유형별 색상 레인)
+        self._log_fig    = Figure(figsize=(12, 4), facecolor=C_BG)
+        self._log_canvas = FigureCanvas(self._log_fig)
+        self._log_canvas.setMinimumHeight(200)
+        _plot_log_timeline(self._log_fig, [])
+
+        # 아래: 정밀 상세용 텍스트 표 (검색·정확한 무기/함정/거리)
         self.log_table = QTableWidget(0, 2)
         self.log_table.setHorizontalHeaderLabels(["시각 (s)", "이벤트"])
         self.log_table.horizontalHeader().setSectionResizeMode(
@@ -6687,7 +6834,13 @@ class MainWindow(QMainWindow):
         self.log_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL};"
             f"background-color: {C_BG};")
-        layout.addWidget(self.log_table)
+
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self._log_canvas)
+        split.addWidget(self.log_table)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        layout.addWidget(split)
         return w
 
     def _build_subsystem_tab(self) -> QWidget:
@@ -7869,6 +8022,12 @@ class MainWindow(QMainWindow):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
 
     def _fill_log(self, log: list):
+        # 시간축 타임라인 갱신 (전체 로그 기준 — 유형별 발생 시점 시각화)
+        try:
+            _plot_log_timeline(self._log_fig, log)
+            self._log_canvas.draw_idle()
+        except Exception:
+            pass
         # BUG-1: 최대 300행 제한 + 배치 삽입 (UI 블로킹 방지)
         entries = log[-300:] if len(log) > 300 else log
         self.log_table.setUpdatesEnabled(False)
@@ -9221,15 +9380,9 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            ("v13.1", "중간", "결과 화면 간소화 & 분석 탭 정리 (우선)",
-             "결과 화면이 항목이 너무 많아 불러오는 시간이 길고 복잡 — 활용도 낮은 분석을 정리해 가볍고 명확하게 만든다. "
-             "【삭제】 감도 분석 · 방위각 취약점 · 위협 유형별 · 취약 시간대 · 날씨 비교 · 이전 비교 · CEC 효과 비교 · 교전 타임라인 "
-             "항목 제거 (탭 과다·로딩 지연·복잡도 해소). 관련 백그라운드 계산도 함께 제거해 자원 절약. "
-             "【통합】 REQ 판정과 REQ 충족률을 한 항목으로 합침 (단일 결과 + MC 충족 비율을 모드별로 분기 표시). 25→16개. "
-             "【개선】 교전 로그를 단순 표에서 시간축 기반 시각화로 재구성해 교전 흐름을 한눈에 파악. "
-             "【개선】 MC 신뢰구간을 주요 지표별 구간·수렴 추이까지 구체화. "
-             "【구조】 남은 항목 재분류·통합 + 진입 시 핵심 지표 우선 표시, 무거운 분석은 열람할 때만 계산하는 지연 로드를 철저화해 로딩 체감 단축. "
-             "구현 전 삭제·통합 대상을 사용자와 최종 확인 후 진행."),
+            ("v13.1", "중간", "REQ 판정·충족률 통합 (결과 탭 간소화 잔여)",
+             "REQ 판정과 REQ 충족률을 한 항목으로 합친다 — 단일 결과 판정과 MC 충족 비율을 한 화면에서 모드별로 분기 표시. "
+             "(결과 탭 간소화의 분석 8종 삭제·교전 로그 시간축 시각화·MC 신뢰구간 확장은 완료. 이 통합만 남음.)"),
             ("v13.1", "중간", "결과 탭 시각화 추가 개선",
              "① 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
              "② 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
