@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.16 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.17 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.17 — 결과 상단 실행 설정 요약 표시]                              ║
+║  NEW-A  결과 핵심 지표 아래에 실행 요약 한 줄 — 아군·적 편대 / 날씨·해역 / ║
+║         MC 모드·횟수 / 시드 (어떤 조건으로 돌렸는지 한눈에)                ║
 ║  [v13.05.16 — 결과 요약에 요격률 게이지 추가]                             ║
 ║  NEW-A  핵심 지표 카드 좌측에 반원 아크 게이지 — 요격률을 임계값 색상      ║
 ║         (녹90%·주황60%·적)으로 한눈에 (QPainter 경량 렌더)                 ║
@@ -738,7 +741,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.16"
+APP_VERSION = "v13.05.17"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6220,6 +6223,14 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.card_row)
 
+        # 실행 설정 요약 — 어떤 시나리오·날씨·MC로 돌렸는지 한눈에
+        self._lbl_run_summary = QLabel("")
+        self._lbl_run_summary.setStyleSheet(
+            f"color:{C_SUBTEXT}; font-size:11px; padding:1px 14px;")
+        self._lbl_run_summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self._lbl_run_summary)
+
         # Pk 경고 + VLS 경고 + Export 버튼 + 시드 레이블 (한 행)
         notice_row = QWidget()
         notice_rl  = QHBoxLayout(notice_row)
@@ -8046,10 +8057,34 @@ class MainWindow(QMainWindow):
 
     # ── 결과 렌더링 ──────────────────────────────────────────────────────────
 
+    def _update_run_summary(self, cfg):
+        """결과 상단에 실행 설정 요약(아군·적 편대 / 날씨·해역 / MC 모드·횟수 / 시드) 표시."""
+        if not cfg:
+            self._lbl_run_summary.setText("")
+            return
+        fleet = cfg.get('fleet_preset', '—')
+        if cfg.get('enemy_fleet_mode') == 'random':
+            enemy = '랜덤 적편대'
+        else:
+            enemy = cfg.get('enemy_fleet_preset') or cfg.get('enemy_mode') or '—'
+        wx     = cfg.get('weather', '—')
+        region = cfg.get('fleet_region', '')
+        mode_idx = getattr(self._worker, 'sim_mode_idx', cfg.get('sim_mode_idx', 1))
+        mode   = _SIM_MODE_NAMES.get(mode_idx, '표준')
+        mc_n   = getattr(self._worker, 'mc_n', None)
+        seed   = cfg.get('sim_seed')
+        parts = [f"🎯 {fleet}  vs  {enemy}",
+                 f"🌤 {wx}" + (f" · {region}" if region else ""),
+                 f"📊 {mode} MC {mc_n:,}회" if mc_n else f"📊 {mode}"]
+        if seed is not None:
+            parts.append(f"🎲 시드 {seed}")
+        self._lbl_run_summary.setText("      |      ".join(parts))
+
     def _update_cards(self, result: dict, mc: dict):
         self._result_outer_stack.setCurrentIndex(1)
         if not self._in_results_mode:
             self._enter_results_mode()
+        self._update_run_summary(self._worker.cfg if self._worker else None)
         # 비정상값 방어: 요격률·완전요격은 0~100% 범위를 벗어나면 경고색(주황)으로 표시
         m_int = mc['mean_intercept']
         _abn  = (m_int < 0.0 or m_int > 1.0)
