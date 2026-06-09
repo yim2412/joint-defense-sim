@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.17 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.18 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.18 — 침수·IFF 통계 결과 표시]                                     ║
+║  NEW-A  계산만 되고 안 보이던 침수 침몰·IFF 오인발사/식별실패 통계를        ║
+║         결과 요약에 조건부 표시 (관련 수치 있을 때만)                      ║
 ║  [v13.05.17 — 결과 상단 실행 설정 요약 표시]                              ║
 ║  NEW-A  결과 핵심 지표 아래에 실행 요약 한 줄 — 아군·적 편대 / 날씨·해역 / ║
 ║         MC 모드·횟수 / 시드 (어떤 조건으로 돌렸는지 한눈에)                ║
@@ -741,7 +744,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.17"
+APP_VERSION = "v13.05.18"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6231,6 +6234,13 @@ class MainWindow(QMainWindow):
             Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._lbl_run_summary)
 
+        # 침수·IFF 사고 요약 (관련 수치 있을 때만 표시)
+        self._lbl_flood_iff = QLabel("")
+        self._lbl_flood_iff.setStyleSheet(
+            f"color:#d98880; font-size:11px; padding:0 14px 2px;")
+        self._lbl_flood_iff.setVisible(False)
+        layout.addWidget(self._lbl_flood_iff)
+
         # Pk 경고 + VLS 경고 + Export 버튼 + 시드 레이블 (한 행)
         notice_row = QWidget()
         notice_rl  = QHBoxLayout(notice_row)
@@ -8080,11 +8090,37 @@ class MainWindow(QMainWindow):
             parts.append(f"🎲 시드 {seed}")
         self._lbl_run_summary.setText("      |      ".join(parts))
 
+    def _update_flood_iff_summary(self, mc: dict):
+        """침수·IFF 통계를 관련 수치가 있을 때만 한 줄 표시 (없으면 숨김)."""
+        parts = []
+        f_sunk = mc.get('mean_ships_sunk_by_flood', 0.0)
+        f_on   = mc.get('mean_ships_flooding', 0.0)
+        if f_sunk > 0.005 or f_on > 0.005:
+            seg = f"🌊 침수 침몰 평균 {f_sunk:.2f}척"
+            if f_on > 0.005:
+                seg += f" · 침수 발생 {f_on:.2f}척"
+            parts.append(seg)
+        i_fail = mc.get('mean_iff_failures', 0.0)
+        i_frat = mc.get('mean_iff_fratricide', 0.0)
+        if i_fail > 0.005 or i_frat > 0.005:
+            seg = "🪪 IFF"
+            if i_frat > 0.005:
+                seg += f" 오인 발사 {i_frat:.2f}건"
+            if i_fail > 0.005:
+                seg += f"{' ·' if i_frat > 0.005 else ''} 식별 실패 {i_fail:.2f}건"
+            parts.append(seg)
+        if parts:
+            self._lbl_flood_iff.setText("      |      ".join(parts))
+            self._lbl_flood_iff.setVisible(True)
+        else:
+            self._lbl_flood_iff.setVisible(False)
+
     def _update_cards(self, result: dict, mc: dict):
         self._result_outer_stack.setCurrentIndex(1)
         if not self._in_results_mode:
             self._enter_results_mode()
         self._update_run_summary(self._worker.cfg if self._worker else None)
+        self._update_flood_iff_summary(mc)
         # 비정상값 방어: 요격률·완전요격은 0~100% 범위를 벗어나면 경고색(주황)으로 표시
         m_int = mc['mean_intercept']
         _abn  = (m_int < 0.0 or m_int > 1.0)
