@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.14 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.15 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.15 — 결과 화면 설정 패널 스크롤 수정]                             ║
+║  BUG-1  작은 창에서 적군 편대·시나리오 등이 눌려 안 보이던 문제 해결       ║
+║         — 설정 위젯을 스크롤 영역 안으로 이동(실행 버튼만 하단 고정)       ║
 ║  [v13.03.14 — 결과 요약 패널 비용 단위 통일]                               ║
 ║  NEW-A  핵심 수치 요약 '총 비용'을 카드와 동일한 $M 단위로 표기           ║
 ║  [v13.03.13 — 결과 탭 시스템 모니터 제거]                                   ║
@@ -693,7 +696,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.14"
+APP_VERSION = "v13.03.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5016,16 +5019,17 @@ class MainWindow(QMainWindow):
                 cl.insertWidget(j, grp)
                 grp.show()
 
-        # 분리된 설정 위젯 → container 앞에 순서대로 복귀
-        cl = self._cfg_container_layout
+        # 분리된 설정 위젯 → 스크롤 내부 최상단에 순서대로 복귀
+        # (스크롤 영역 안에 둬야 작은 창에서도 압축되지 않고 아코디언과 함께 스크롤됨)
+        inner_cl = self._cfg_inner_layout
         for idx, w in enumerate([self._cfg_fleet, self._cfg_enemy,
                                   self._cfg_scenario,
                                   self._cfg_weather, self._cfg_region]):
-            cl.insertWidget(idx, w)
+            inner_cl.insertWidget(idx, w)
             w.show()
 
-        # 하단 → container 맨 뒤
-        cl.addWidget(self._cfg_bottom)
+        # 실행 버튼은 스크롤 밖 하단에 고정 (항상 접근 가능)
+        self._cfg_container_layout.addWidget(self._cfg_bottom)
         self._cfg_bottom.show()
 
         # container → results 홀더 (최초 1회만 reparent)
@@ -6161,6 +6165,7 @@ class MainWindow(QMainWindow):
 
         self._cfg_bottom           = bottom
         self._cfg_container_layout = container_layout
+        self._cfg_inner_layout     = layout   # 스크롤 내부 레이아웃 (설정 위젯이 여기 들어가야 함께 스크롤됨)
         container_layout.addWidget(scroll, stretch=1)
         container_layout.addWidget(bottom)
         return container
@@ -9668,13 +9673,11 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
-            ("v13.1", "중간", "설정·결과 탭 UI 전면 폴리싱 + 버그 수정",
-             "① 설정 탭 좌측 패널 잘림 — 콘텐츠가 잘리는 구간 확인 후 최소 너비·스크롤 정책 교정. "
-             "② 결과 탭 전체 — 카드 radius·색상·여백 통일, 차트 폰트·격자·색상 개선으로 가독성 향상. "
-             "③ 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
-             "④ 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
+            ("v13.1", "중간", "결과 탭 시각화 추가 개선",
+             "① 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
+             "② 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
              "필요 시 백그라운드 렌더링·캐싱 적용. "
-             "⑤ 결과 탭 전체 검토 — 불필요하거나 중복된 항목 제거, 표시 정보 최신화 (엔진 신기능 반영 누락 지표 추가), "
+             "③ 결과 탭 전체 검토 — 불필요하거나 중복된 항목 제거, 표시 정보 최신화 (엔진 신기능 반영 누락 지표 추가), "
              "수정이 필요한 표현·수치·레이블 정리. 구현 전 사용자와 항목별 확인 후 진행."),
             ("v13.1", "중간", "결과 탭 종합 점검 — 데이터·보고서·안정성",
              "【데이터 정확성】"
