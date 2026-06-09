@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.12 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.13 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.13 — 결과 탭 시스템 모니터 제거]                                   ║
+║  DEL-A  결과 탭 '시스템 모니터' 서브탭 제거 (시뮬 끝난 뒤라 무의미)        ║
+║         — 실시간 CPU/RAM/GPU는 시뮬 진행 팝업이 그대로 담당                ║
 ║  [v13.03.12 — 시뮬 시간 라벨 명확화]                                        ║
 ║  NEW-A  '시뮬 시간/종료 시각' → '모사 시간/교전 지속(모사)'로 변경 +       ║
 ║         툴팁 추가 (실제 계산 시간으로 오해 방지)                           ║
@@ -688,7 +691,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.12"
+APP_VERSION = "v13.03.13"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3078,7 +3081,6 @@ class AccordionSidebar(QWidget):
             (22, "⚖  A/B 편대 비교"),
         ]),
         ("🖥", "시스템", [
-            (6,  "🖥  시스템 모니터"),
             (20, "🛡  서브시스템 피해"),
             (5,  "📡  채널 포화도"),
             (8,  "🔫  탄약 소모"),
@@ -6279,7 +6281,9 @@ class MainWindow(QMainWindow):
         self.tab_weather     = self._build_weather_tab()
         self.tab_log         = self._build_log_tab()
         self.tab_channel     = ChartPageWidget()
-        self.tab_sysmon      = SysMonitorTab()
+        # 시스템 모니터는 결과 탭에서 제거 — 실시간 자원 표시는 시뮬 진행 팝업이 담당.
+        # 스택 인덱스 매핑(0~25) 유지를 위해 빈 플레이스홀더만 둠.
+        self.tab_sysmon      = QWidget()
         self.tab_cost_eff    = ChartPageWidget()
         self.tab_ammo_curve  = ChartPageWidget()
         self.tab_ci          = ChartPageWidget()
@@ -7489,10 +7493,6 @@ class MainWindow(QMainWindow):
         self._worker.progress_detail.connect(self._on_progress_detail)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
-        self._worker.sim_started.connect(self.tab_sysmon.mark_sim_start)
-        self._worker.sim_ended.connect(self.tab_sysmon.mark_sim_end)
-        self._worker.batch_done.connect(self.tab_sysmon.on_batch_done)
-        self._worker.progress_detail.connect(self.tab_sysmon.on_progress_detail)
         # 플로팅 모니터 연결 (v8.26: step_update / phase_update 추가)
         self._worker.sim_started.connect(self._show_float_mon)
         self._worker.sim_ended.connect(self._float_mon.close)
@@ -7531,14 +7531,13 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def _show_float_mon(self):
-        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시. sysmon 탭 자동 전환."""
+        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시."""
         geo = self.geometry()
         mon = self._float_mon
         x = geo.right()  - mon.width()  - 20
         y = geo.bottom() - mon.height() - 60
         mon.move(x, y)
         mon.show()
-        self._sidebar.set_current_index(6)  # 시스템 모니터 탭으로 자동 전환
 
     def _stop_worker(self):
         """플로팅 모니터 중단 버튼 → 워커 인터럽트."""
@@ -8654,11 +8653,8 @@ _FEATURES = [
     ("📄  보고서 내보내기",
      "시뮬레이션 결과 전체를 Excel 파일과 PDF(4페이지)로 저장. "
      "요격률·비용·교전 통계·그래프가 모두 포함된 공식 분석 보고서 형태."),
-    ("🖥️  시스템 모니터",
-     "시뮬레이션 실행 중 CPU·RAM·GPU·코어별 사용률을 실시간으로 표시. "
-     "백그라운드에서 동작해 시뮬레이션 속도에 영향을 주지 않음."),
     ("📺  실시간 진행 팝업",
-     "반복 시뮬레이션 실행 중 별도 팝업 창으로 진행률·완료 횟수·예상 남은 시간·"
+     "시뮬레이션 실행 중 별도 팝업 창으로 진행률·완료 횟수·예상 남은 시간과 "
      "CPU/RAM/GPU 사용률·처리 속도를 실시간 표시. 창을 마우스로 자유롭게 이동 가능."),
     ("⚡  멀티코어 병렬 처리",
      "프로그램 시작 시 미리 워커 프로세스를 준비해두고, 반복 시뮬레이션 시 "
