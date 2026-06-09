@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.11 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.12 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.12 — 시뮬 시간 라벨 명확화]                                        ║
+║  NEW-A  '시뮬 시간/종료 시각' → '모사 시간/교전 지속(모사)'로 변경 +       ║
+║         툴팁 추가 (실제 계산 시간으로 오해 방지)                           ║
 ║  [v13.03.11 — 창 위치 기억]                                                  ║
 ║  NEW-A  창을 닫은 위치·크기를 기억해 다음 실행 시 복원 (없으면 화면 중앙)  ║
 ║  [v13.03.10 — 창 자유 리사이즈]                                             ║
@@ -685,7 +688,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.11"
+APP_VERSION = "v13.03.12"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1341,8 +1344,11 @@ class FloatingMonitor(QWidget):
 
         # 시뮬 진행 바 (시간)
         sp_row = QHBoxLayout()
-        self._lbl_sim_t = QLabel("시뮬 시간  0s / —s")
+        self._lbl_sim_t = QLabel("모사 시간  0s / —s")
         self._lbl_sim_t.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+        self._lbl_sim_t.setToolTip(
+            "모사된 교전 내 시간(시뮬 시각)입니다. 실제 계산에 걸리는 시간이 아닙니다.\n"
+            "예: 40분(2400초)짜리 교전을 컴퓨터가 수 초 만에 계산합니다.")
         sp_row.addWidget(self._lbl_sim_t); sp_row.addStretch()
         sv.addLayout(sp_row)
         self._prog_sim = QProgressBar()
@@ -1579,7 +1585,7 @@ class FloatingMonitor(QWidget):
         """단일 시뮬 타임스텝 콜백."""
         pct = int(t / t_max * 1000) if t_max > 0 else 0
         self._prog_sim.setValue(pct)
-        self._lbl_sim_t.setText(f"시뮬 시간  {int(t)}s / {int(t_max)}s")
+        self._lbl_sim_t.setText(f"모사 시간  {int(t)}s / {int(t_max)}s")
         self._find_tag('위협').setText(f"{alive} 개")
         self._find_tag('VLS 잔여').setText(f"{vls} 발")
         if last_log:

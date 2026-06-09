@@ -5340,7 +5340,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     enemy_count = sum(s.get('count', 1) for s in cfg.get('enemy_fleet', []))
     summary_lines = [
         ('적 편대 규모',     f"{enemy_count}기/척"),
-        ('시뮬 종료 시각',   f"{result['sim_time']:.0f}s"),
+        ('교전 지속(모사)',  f"{result['sim_time']:.0f}s"),
         ('총 위협 수',       f"{result['total_threats']}발/기"),
         ('요격 성공 (단일)', f"{result['intercepted_threats']}발/기"),
         ('', ''),
