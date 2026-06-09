@@ -1,7 +1,18 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.15 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.04.04 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.04.04 — 창 종료 시 워커 프로세스 잔존 수정]                          ║
+║  BUG-1  홈/런처 창을 X로 닫아도 백그라운드 워커 프로세스가 남던 문제 해결  ║
+║         (종료 시 모든 자식 프로세스 일괄 정리)                             ║
+║  [v13.04.03 — 최적 조합 추천 탐색 시간 단축]                               ║
+║  NEW-A  탐색 반복 횟수를 줄여 결과를 더 빨리 산출 (정확도 영향 최소)        ║
+║  [v13.04.02 — 비용 효과 차트 렌더링 실패 수정]                             ║
+║  BUG-1  비용 효과 탭이 '렌더링 실패'로 뜨던 문제 해결 (구분선 그리기 방식) ║
+║  [v13.04.01 — 결과 탭 간소화: 활용도 낮은 분석 8종 제거]                   ║
+║  DEL-A  감도 분석·방위각 취약점·위협 유형별·취약 시간대·날씨 비교·         ║
+║         이전 비교·CEC 효과 비교·교전 타임라인 항목 제거 (25→17개)          ║
+║  DEL-B  관련 백그라운드 워커·렌더 함수 완전 제거 (자원 절약·약 350줄 감소) ║
 ║  [v13.03.15 — 결과 화면 설정 패널 스크롤 수정]                             ║
 ║  BUG-1  작은 창에서 적군 편대·시나리오 등이 눌려 안 보이던 문제 해결       ║
 ║         — 설정 위젯을 스크롤 영역 안으로 이동(실행 버튼만 하단 고정)       ║
@@ -696,7 +707,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.03.15"
+APP_VERSION = "v13.04.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -779,6 +790,22 @@ def _shutdown_global_pool():
                 psutil.Process(pid).kill()
             except Exception:
                 pass
+    except Exception:
+        pass
+
+def _kill_child_processes():
+    """현재 프로세스의 모든 자식(워커 풀·subprocess 등) 강제 종료 — 좀비 방지.
+    어떤 창을 X로 닫든·앱이 어떻게 종료되든 자식이 안 남도록 모든 종료 경로에서 호출."""
+    try:
+        me = psutil.Process()
+        children = me.children(recursive=True)
+        for child in children:
+            try:
+                child.kill()
+            except Exception:
+                pass
+        # kill 신호 후 잠깐 회수 (좀비 남지 않도록)
+        psutil.wait_procs(children, timeout=1.5)
     except Exception:
         pass
 
@@ -2129,39 +2156,6 @@ class SimLogDialog(QDialog):
 # ════════════════════════════════════════════════════════════════════════════
 #  백그라운드 시뮬레이션 워커
 # ════════════════════════════════════════════════════════════════════════════
-class SensitivityWorker(QThread):
-    """감도 분석 MC를 백그라운드에서 실행 후 결과 전달."""
-    finished = pyqtSignal(list, list, list, float)  # (labels, lows, highs, base_rate)
-    error    = pyqtSignal(str)
-
-    def __init__(self, cfg: dict, mc_n: int):
-        super().__init__()
-        self.cfg  = cfg
-        self.mc_n = max(50, mc_n // 5)
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            params = [
-                ('C&D 시간',  'cd_time_s',      5, 20),
-                ('확인 시간', 'confirm_time_s',  1, 10),
-                ('시뮬 시드', 'sim_seed',         1, 42),
-            ]
-            base_mc   = monte_carlo_v7(self.cfg, self.mc_n)
-            base_rate = base_mc['mean_intercept']
-            labels, lows, highs = [], [], []
-            for name, key, lo_val, hi_val in params:
-                r_lo = monte_carlo_v7({**self.cfg, key: lo_val}, self.mc_n)['mean_intercept']
-                r_hi = monte_carlo_v7({**self.cfg, key: hi_val}, self.mc_n)['mean_intercept']
-                labels.append(f"{name}\n({lo_val}→{hi_val})")
-                lows.append(r_lo - base_rate)
-                highs.append(r_hi - base_rate)
-            self.finished.emit(labels, lows, highs, base_rate)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
 class MinStockWorker(QThread):
     """REQ 달성 최소 재고 역산을 백그라운드에서 실행."""
     progress = pyqtSignal(int, int, str)    # (i, total, weapon_name)
@@ -2205,30 +2199,12 @@ class OptimizeWorker(QThread):
         try:
             def _cb(i, total, phase):
                 self.progress.emit(i, total, phase)
+            # coarse_n·fine_n 하향(20→10·200→120): 탐색 시뮬 횟수 ~45% 감축으로
+            # 체감 속도 개선. 1차는 순위 필터용이라 적은 n으로도 상위 조합 선별 충분.
             results = optimize_weapon_loadout_v7(
                 self.cfg, budget=self.budget, step=self.step,
-                coarse_n=20, fine_n=200, progress_cb=_cb)
+                coarse_n=10, fine_n=120, progress_cb=_cb)
             self.finished.emit(results)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class WeatherWorker(QThread):
-    """날씨별 비교 MC를 백그라운드에서 실행."""
-    finished = pyqtSignal(dict)
-    error    = pyqtSignal(str)
-
-    def __init__(self, cfg: dict, n: int = 1000):
-        super().__init__()
-        self.cfg = cfg
-        self.n   = n
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            sc = scenario_comparison_v7(self.cfg, n=self.n)
-            self.finished.emit(sc)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -2249,26 +2225,6 @@ class ABCompareWorker(QThread):
             return
         try:
             result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n)
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class CECCompareWorker(QThread):
-    """CEC ON/OFF/두절 3종 비교 MC를 백그라운드에서 실행."""
-    finished = pyqtSignal(dict)
-    error    = pyqtSignal(str)
-
-    def __init__(self, cfg: dict, n: int = 500):
-        super().__init__()
-        self.cfg = cfg
-        self.n   = n
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            result = cec_comparison_v7(self.cfg, n=self.n)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -3066,15 +3022,10 @@ class AccordionSidebar(QWidget):
         ("⚔", "교전 분석", [
             (0,  "📊  교전 분석"),
             (4,  "📜  교전 로그"),
-            (10, "⏱  교전 타임라인"),
-            (15, "📊  위협 유형별"),
-            (16, "⏰  취약 시간대"),
-            (13, "🧭  방위각 취약점"),
         ]),
         ("📊", "통계 / MC", [
             (1,  "📊  MC 통계"),
             (9,  "📈  MC 신뢰구간"),
-            (11, "🌪  감도 분석"),
             (19, "🎛  Sobol 민감도"),
             (18, "🔥  스트레스 테스트"),
         ]),
@@ -3094,9 +3045,6 @@ class AccordionSidebar(QWidget):
         ("🎯", "작전 결과", [
             (24, "⚔  공격 결과"),
             (25, "🗺  생존성 히트맵"),
-            (3,  "🌤  날씨 비교"),
-            (23, "🔗  CEC 효과 비교"),
-            (17, "🔄  이전 비교"),
         ]),
     ]
 
@@ -3765,29 +3713,6 @@ class SysMonitorTab(QWidget):
 #  차트 순수 렌더 함수 (백그라운드 스레드에서 호출, Figure 반환)
 # ════════════════════════════════════════════════════════════════════════════
 
-def _render_sensitivity_chart(labels: list, lows: list, highs: list, base_rate: float) -> Figure:
-    """감도 분석 Tornado chart — 백그라운드 스레드에서 호출."""
-    fig = Figure(figsize=(12, 6), facecolor=C_BG)
-    fig.patch.set_facecolor('#0a0e1a')
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    y = list(range(len(labels)))
-    ax.barh(y, lows,  color='#e74c3c', alpha=0.8, label='낮은값')
-    ax.barh(y, highs, color='#2ecc71', alpha=0.8, label='높은값')
-    ax.axvline(0, color=C_TEXT, lw=1)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=C_TEXT, fontsize=12)
-    ax.set_xlabel('요격률 변화 (기준 대비)', color=C_SUBTEXT, fontsize=12)
-    ax.set_title(f'감도 분석 — Tornado chart  (기준 요격률 {base_rate:.1%})',
-                 color=C_TEXT, fontsize=14)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    from matplotlib.ticker import FuncFormatter
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:+.1%}"))
-    for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-    fig.tight_layout()
-    return fig
-
-
 def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
     """최소 재고 역산 수평 막대 차트 — 백그라운드 스레드에서 호출."""
     fig = Figure(figsize=(13, 6), facecolor=C_BG)
@@ -3841,74 +3766,6 @@ def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
     ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT,
               edgecolor='#1e2a3a', loc='lower right')
     fig.tight_layout()
-    return fig
-
-
-def _render_cec_compare(cec_results: dict) -> Figure:
-    """CEC ON/OFF/두절 3종 비교 차트."""
-    fig = Figure(figsize=(13, 6), facecolor=C_BG)
-    fig.patch.set_facecolor(C_BG)
-
-    if not cec_results:
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=14, transform=ax.transAxes)
-        return fig
-
-    labels   = list(cec_results.keys())
-    rates    = [cec_results[l].get('mean_intercept', 0) * 100 for l in labels]
-    stds     = [cec_results[l].get('std_intercept',  0) * 100 for l in labels]
-    costs    = [cec_results[l].get('mean_cost',       0)       for l in labels]
-    clrs     = ['#2ecc71', '#3498db', '#e74c3c']
-
-    gs  = fig.add_gridspec(1, 2, wspace=0.38)
-    ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-    ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
-
-    # 왼쪽: 요격률 막대
-    x = list(range(len(labels)))
-    bars = ax1.bar(x, rates, color=clrs[:len(labels)], width=0.5,
-                   yerr=stds, capsize=5,
-                   error_kw={'elinewidth': 1.5, 'ecolor': '#ffffff60'})
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(labels, color=C_TEXT, fontsize=11)
-    ax1.set_ylabel('요격률 (%)', color=C_SUBTEXT, fontsize=12)
-    ax1.set_ylim(0, 110)
-    ax1.set_title('CEC 설정별 요격률 비교  (±1σ)', color=C_TEXT, fontsize=13)
-    ax1.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax1.spines.values():
-        sp.set_color('#1e2a3a')
-    for bar, rate, std in zip(bars, rates, stds):
-        ax1.text(bar.get_x() + bar.get_width() / 2,
-                 rate + std + 1.5,
-                 f'{rate:.1f}%', ha='center', color=C_TEXT, fontsize=11)
-
-    # 오른쪽: 비용 막대
-    _KRW = 1_350
-    cost_krw = [c * _KRW / 1e8 for c in costs]
-    bars2 = ax2.bar(x, cost_krw, color=clrs[:len(labels)], width=0.5, alpha=0.8)
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(labels, color=C_TEXT, fontsize=11)
-    ax2.set_ylabel('평균 교전 비용 (억 원)', color=C_SUBTEXT, fontsize=12)
-    ax2.set_title('CEC 설정별 교전 비용 비교', color=C_TEXT, fontsize=13)
-    ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax2.spines.values():
-        sp.set_color('#1e2a3a')
-    for bar, krw in zip(bars2, cost_krw):
-        ax2.text(bar.get_x() + bar.get_width() / 2,
-                 bar.get_height() + 0.2,
-                 f'{krw:.1f}억', ha='center', color=C_TEXT, fontsize=11)
-
-    # CEC 효과 요약 텍스트
-    if len(rates) >= 2:
-        delta = rates[0] - rates[1]
-        sign  = '+' if delta >= 0 else ''
-        fig.text(0.5, 0.02,
-                 f"CEC ON vs OFF: 요격률 {sign}{delta:.1f}%p 차이  ·  "
-                 "⚠  단가 개략 추정 ±30%",
-                 ha='center', color='#e67e22', fontsize=10)
-
-    fig.tight_layout(rect=[0, 0.05, 1, 1])
     return fig
 
 
@@ -4075,8 +3932,9 @@ def _render_cost_effect(result: dict, mc: dict) -> Figure:
                  ha='center', va='center', color=C_SUBTEXT, fontsize=10.5,
                  transform=ax1.transAxes)
 
-    ax1.axhline(y=0.46, xmin=0.08, xmax=0.92, color='#2a3a4a', linewidth=0.8,
-                transform=ax1.transAxes)
+    # 축 좌표(transAxes) 기준 구분선 — axhline은 transform 인자를 거부하므로 Line2D 사용
+    ax1.add_line(Line2D([0.08, 0.92], [0.46, 0.46], color='#2a3a4a',
+                        linewidth=0.8, transform=ax1.transAxes))
 
     krw_lo  = cost_lo  * _KRW_PER_USD / 1e8
     krw_hi  = cost_hi  * _KRW_PER_USD / 1e8
@@ -4225,107 +4083,6 @@ def _render_ci_chart(mc: dict) -> Figure:
     return fig
 
 
-def _render_timeline(result: dict) -> Figure:
-    fig = Figure(figsize=(14, 5), facecolor=C_BG)
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    log = result.get('log', [])
-    if not log:
-        ax.text(0.5, 0.5, '로그 데이터 없음', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        fig.tight_layout()
-        return fig
-    _CAT = [
-        ('[방어]',     C_GREEN,  '방어 발사',  0),
-        ('[대공 방어]', C_ACCENT, '대공 발사',  1),
-        ('[공격]',     '#e67e22','대함 공격',  2),
-        ('[대잠 공격]', '#9b59b6','대잠 공격',  3),
-        ('[피격]',     C_RED,    '피격',       4),
-        ('[경고]',     C_ORANGE, '경고',       5),
-        ('[적 발사]',  '#c0392b','적 발사',    6),
-    ]
-    events = []
-    for t, msg in log:
-        for tag, color, label, yi in _CAT:
-            if tag in msg:
-                events.append((t, yi, color, label, msg[:60]))
-                break
-    if not events:
-        ax.text(0.5, 0.5, '분류 가능한 이벤트 없음', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        fig.tight_layout()
-        return fig
-    y_labels = ['방어 발사', '대공 발사', '대함 공격', '대잠 공격', '피격', '경고', '적 발사']
-    for t, yi, color, label, msg in events:
-        ax.scatter(t, yi, c=color, s=30, zorder=3, alpha=0.8)
-    ax.set_yticks(range(len(y_labels)))
-    ax.set_yticklabels(y_labels, color=C_TEXT, fontsize=12)
-    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=12)
-    ax.set_title('교전 이벤트 타임라인', color=C_TEXT, fontsize=14)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    ax.set_ylim(-0.8, len(y_labels) - 0.2)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    ax.grid(axis='x', color='#1e2a3a', lw=0.5)
-    handles = [plt.Line2D([0], [0], marker='o', color='w',
-                           markerfacecolor=c, markersize=9, label=l)
-               for _, c, l, _ in _CAT]
-    ax.legend(handles=handles, fontsize=10, facecolor='#0a0e1a',
-              labelcolor=C_TEXT, edgecolor='#1e2a3a',
-              loc='upper right', ncol=4)
-    fig.tight_layout()
-    return fig
-
-
-def _render_bearing_vulnerability(result: dict) -> Figure:
-    fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
-    ax = fig.add_subplot(111, polar=True)
-    ax.set_facecolor('#0a0e1a')
-    log = result.get('log', [])
-    N = 8
-    hit_counts  = [0] * N
-    kill_counts = [0] * N
-    for _, msg in log:
-        bearing_deg = None
-        if '방위' in msg:
-            try:
-                bearing_deg = float(msg.split('방위')[1].split('°')[0])
-            except Exception:
-                pass
-        if bearing_deg is None:
-            bearing_deg = hash(msg) % 360
-        sector = int((bearing_deg % 360) / (360 / N))
-        if '[피격]' in msg:
-            hit_counts[sector]  += 1
-        elif '[격추]' in msg or '[요격]' in msg:
-            kill_counts[sector] += 1
-    angles   = np.linspace(0, 2 * np.pi, N, endpoint=False)
-    hit_arr  = np.array(hit_counts,  dtype=float)
-    kill_arr = np.array(kill_counts, dtype=float)
-    max_val  = max(hit_arr.max(), kill_arr.max(), 1)
-    hit_arr  /= max_val
-    kill_arr /= max_val
-    angles_c = np.concatenate([angles, [angles[0]]])
-    hit_c    = np.concatenate([hit_arr,  [hit_arr[0]]])
-    kill_c   = np.concatenate([kill_arr, [kill_arr[0]]])
-    sector_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-    ax.plot(angles_c, kill_c, 'o-', color='#2ecc71', lw=1.5, label='요격')
-    ax.fill(angles_c, kill_c, alpha=0.2, color='#2ecc71')
-    ax.plot(angles_c, hit_c,  'o-', color='#e74c3c', lw=1.5, label='피격')
-    ax.fill(angles_c, hit_c,  alpha=0.2, color='#e74c3c')
-    ax.set_xticks(angles)
-    ax.set_xticklabels(sector_labels, color=C_TEXT, fontsize=12)
-    ax.set_yticklabels([])
-    ax.set_title('방위각 취약점 분석', color=C_TEXT, fontsize=14, pad=15)
-    ax.tick_params(colors=C_SUBTEXT)
-    ax.spines['polar'].set_color('#1e2a3a')
-    ax.grid(color='#1e2a3a')
-    ax.legend(loc='upper right', fontsize=11, facecolor='#0a0e1a',
-              labelcolor=C_TEXT, edgecolor='#1e2a3a',
-              bbox_to_anchor=(1.25, 1.1))
-    fig.tight_layout()
-    return fig
-
-
 def _render_req_radar(result: dict, mc: dict, cfg: dict = None) -> Figure:
     fig = Figure(figsize=(8, 8), facecolor='#0a0e1a')
     if not _V7_OK:
@@ -4360,146 +4117,6 @@ def _render_req_radar(result: dict, mc: dict, cfg: dict = None) -> Figure:
     ax.spines['polar'].set_color('#1e2a3a')
     ax.grid(color='#1e2a3a')
     fig.tight_layout()
-    return fig
-
-
-def _render_threat_type(result: dict, mc: dict) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    if not _V7_OK:
-        ax.text(0.5, 0.5, 'v7 엔진 미로드', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        return fig
-    log = result.get('log', [])
-    categories = {
-        '항공기':     {'intercept': 0, 'total': 0},
-        '탄도탄':     {'intercept': 0, 'total': 0},
-        '순항미사일': {'intercept': 0, 'total': 0},
-        '잠수함':     {'intercept': 0, 'total': 0},
-        '기타':       {'intercept': 0, 'total': 0},
-    }
-    def _classify(msg: str) -> str:
-        for kw, cat in [
-            ('항공', '항공기'), ('KH-', '항공기'), ('Su-', '항공기'),
-            ('화성', '탄도탄'), ('SM-3', '탄도탄'), ('탄도', '탄도탄'),
-            ('순항', '순항미사일'), ('Kh-', '순항미사일'), ('화살', '순항미사일'),
-            ('지르콘', '순항미사일'), ('킨잘', '순항미사일'),
-            ('잠수함', '잠수함'), ('어뢰', '잠수함'), ('수중', '잠수함'),
-        ]:
-            if kw in msg:
-                return cat
-        return '기타'
-    for _, msg in log:
-        if '[요격]' in msg or '[격추]' in msg:
-            cat = _classify(msg)
-            categories[cat]['total']     += 1
-            categories[cat]['intercept'] += 1
-        elif '[피격]' in msg or '[통과]' in msg:
-            cat = _classify(msg)
-            categories[cat]['total'] += 1
-    labels = [k for k, v in categories.items() if v['total'] > 0]
-    if not labels:
-        ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        return fig
-    rates  = [categories[l]['intercept'] / max(categories[l]['total'], 1)
-              for l in labels]
-    totals = [categories[l]['total'] for l in labels]
-    colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6']
-    bars = ax.bar(labels, rates,
-                  color=colors[:len(labels)], alpha=0.85, edgecolor='#1e2a3a')
-    for bar, t, r in zip(bars, totals, rates):
-        ax.text(bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.02,
-                f'{r:.0%}\n(n={t})',
-                ha='center', va='bottom', color=C_TEXT, fontsize=12)
-    ax.set_ylim(0, 1.2)
-    ax.set_ylabel('요격률', color=C_SUBTEXT, fontsize=12)
-    ax.set_title('위협 유형별 요격률', color=C_TEXT, fontsize=14)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=12)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    ax.axhline(0.9, color='#2ecc71', lw=1, ls='--', alpha=0.5, label='목표 90%')
-    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-    fig.tight_layout()
-    return fig
-
-
-def _render_vuln_time(result: dict) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    log = result.get('log', [])
-    hit_times  = [t for t, msg in log if '[피격]' in msg]
-    kill_times = [t for t, msg in log if '[요격]' in msg or '[격추]' in msg]
-    max_t = max((result.get('sim_time', 300),
-                 max(hit_times or [0]),
-                 max(kill_times or [0]))) + 10
-    bins = np.arange(0, max_t + 10, 10)
-    if kill_times:
-        ax.hist(kill_times, bins=bins, color='#2ecc71', alpha=0.7,
-                label='요격/격추', edgecolor='#0a0e1a')
-    if hit_times:
-        ax.hist(hit_times, bins=bins, color='#e74c3c', alpha=0.7,
-                label='피격', edgecolor='#0a0e1a')
-    if hit_times:
-        h, b = np.histogram(hit_times, bins=bins)
-        peak_start = b[np.argmax(h)]
-        ax.axvspan(peak_start, peak_start + 10, alpha=0.25, color='#e74c3c',
-                   label=f'최다 피격 구간 ({peak_start:.0f}~{peak_start+10:.0f}s)')
-    ax.set_xlabel('시뮬 시각 (초)', color=C_SUBTEXT, fontsize=12)
-    ax.set_ylabel('이벤트 수', color=C_SUBTEXT, fontsize=12)
-    ax.set_title('취약 시간대 분석 (10초 구간)', color=C_TEXT, fontsize=14)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT, edgecolor='#1e2a3a')
-    ax.grid(axis='y', color='#1e2a3a', lw=0.5)
-    fig.tight_layout()
-    return fig
-
-
-def _render_history_compare(history: list) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor='#0a0e1a')
-    if not history:
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.text(0.5, 0.5, '이전 실행 결과 없음\n(2회 이상 실행 후 비교 표시)',
-                ha='center', va='center', color=C_SUBTEXT, fontsize=11,
-                transform=ax.transAxes)
-        return fig
-    axes = fig.subplots(1, 3, facecolor='#0a0e1a')
-    metrics = [
-        ('요격률',         'mean_intercept', True,  '%'),
-        ('완전 요격 비율', 'full_pass_rate',  True,  '%'),
-        ('평균 비용',      'mean_cost',       False, '$'),
-    ]
-    cmap = ['#3498db', '#2ecc71', '#f39c12', '#e74c3c', '#9b59b6']
-    for ax, (title, key, higher_better, unit) in zip(axes, metrics):
-        ax.set_facecolor('#0a0e1a')
-        vals = [h.get(key, 0) for h in history]
-        cols = [cmap[i % len(cmap)] for i in range(len(history))]
-        bars = ax.bar(range(len(history)), vals, color=cols, alpha=0.85,
-                      edgecolor='#1e2a3a')
-        for bar, v in zip(bars, vals):
-            label = f"{v:.1%}" if unit == '%' else f"${v:,.0f}"
-            ax.text(bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + max(vals) * 0.02,
-                    label, ha='center', va='bottom',
-                    color=C_TEXT, fontsize=11)
-        ax.set_title(title, color=C_TEXT, fontsize=13)
-        ax.set_xticks(range(len(history)))
-        ax.set_xticklabels([f'#{i+1}' for i in range(len(history))],
-                           color=C_SUBTEXT, fontsize=11)
-        ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-        for sp in ax.spines.values():
-            sp.set_color('#1e2a3a')
-        ax.yaxis.set_major_formatter(
-            plt.FuncFormatter(lambda v, _: f"{v:.0%}" if unit == '%'
-                              else f"${v/1e6:.1f}M"))
-    fig.text(0.5, 0.01,
-             '  |  '.join(f'#{i+1}: {h["label"]}' for i, h in enumerate(history)),
-             ha='center', va='bottom', color=C_SUBTEXT, fontsize=10)
-    fig.suptitle('이전 실행 결과 비교', color=C_TEXT, fontsize=14)
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
     return fig
 
 
@@ -4731,7 +4348,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 680)
         self.resize(1800, 1060)
         self._worker         = None
-        self._weather_worker = None
         self._result = None
         self._mc     = None
         self._t0     = 0.0
@@ -6285,29 +5901,30 @@ class MainWindow(QMainWindow):
         self.tab_engagement  = EngagementAnalysisTab()
         self.tab_mc_canvas   = ChartPageWidget()
         self.tab_req         = self._build_req_tab()
-        self.tab_weather     = self._build_weather_tab()
         self.tab_log         = self._build_log_tab()
         self.tab_channel     = ChartPageWidget()
-        # 시스템 모니터는 결과 탭에서 제거 — 실시간 자원 표시는 시뮬 진행 팝업이 담당.
-        # 스택 인덱스 매핑(0~25) 유지를 위해 빈 플레이스홀더만 둠.
+        # 결과 탭 간소화(v13.04.01)로 제거된 항목들 — 스택 인덱스 매핑(0~25)
+        # 유지를 위해 빈 플레이스홀더만 둠. (시스템 모니터6·교전 타임라인10·감도 분석11·
+        # 방위각13·위협 유형별15·취약 시간대16·이전 비교17·CEC 비교23·날씨 비교3)
         self.tab_sysmon      = QWidget()
         self.tab_cost_eff    = ChartPageWidget()
         self.tab_ammo_curve  = ChartPageWidget()
         self.tab_ci          = ChartPageWidget()
-        self.tab_timeline    = ChartPageWidget()
-        self.tab_sensitivity = ChartPageWidget()   # 백그라운드 렌더 (MplCanvas→ChartPageWidget)
+        self.tab_timeline    = QWidget()
+        self.tab_sensitivity = QWidget()
         self.tab_min_stock   = ChartPageWidget()   # 백그라운드 렌더
-        self.tab_bearing     = ChartPageWidget()
+        self.tab_bearing     = QWidget()
         self.tab_req_radar   = ChartPageWidget()
-        self.tab_threat_type = ChartPageWidget()
-        self.tab_vuln_time   = ChartPageWidget()
-        self.tab_history     = ChartPageWidget()
+        self.tab_threat_type = QWidget()
+        self.tab_vuln_time   = QWidget()
+        self.tab_history     = QWidget()
+        self.tab_weather     = QWidget()
         self.tab_stress      = ChartPageWidget()   # 스트레스 테스트 히트맵
         self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
         self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
         self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
-        self.tab_cec_compare = ChartPageWidget()   # CEC 효과 비교
+        self.tab_cec_compare = QWidget()
         self.tab_strike      = self._build_strike_tab()  # v9.3 공격 결과
         self.tab_heatmap     = self._build_heatmap_tab()  # v9.5 생존성 히트맵
 
@@ -6392,19 +6009,12 @@ class MainWindow(QMainWindow):
             7:  lambda: self._draw_cost_effect(self._result, self._mc),
             8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
-            10: lambda: self._draw_timeline(self._result),
-            11: lambda: self._lazy_start_sensitivity(),
             12: lambda: self._lazy_start_min_stock(),
-            13: lambda: self._draw_bearing_vulnerability(self._result),
             14: lambda: self._draw_req_radar(self._result, self._mc),
-            15: lambda: self._draw_threat_type(self._result, self._mc),
-            16: lambda: self._draw_vuln_time(self._result),
-            17: lambda: self._draw_history_compare(self._result, self._mc),
             18: lambda: self._draw_stress_test(self._mc),
             19: lambda: self._draw_sobol_chart(self._mc),
             20: lambda: self._draw_subsystem_damage(self._result),
             21: lambda: self._lazy_start_optimize(),
-            23: lambda: self._lazy_start_cec_compare(),
             24: lambda: self._draw_strike_result(self._result, self._mc),
         }
         if idx in render_map:
@@ -6683,39 +6293,6 @@ class MainWindow(QMainWindow):
             self._brief_toggle.setText(f"{arrow}  📋 교전 후 브리핑{suffix}")
 
         self._brief_toggle.clicked.connect(_toggle_brief)
-        return w
-
-    def _build_weather_tab(self) -> QWidget:
-        """포팅 D: 날씨별 3종 비교 탭."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        btn_row = QWidget()
-        btn_layout = QHBoxLayout(btn_row)
-        btn_layout.setContentsMargins(0, 0, 0, 0)
-        self.btn_weather_run = QPushButton("🌤️  날씨별 비교 실행 (각 1000회 MC)")
-        self.btn_weather_run.setFixedHeight(36)
-        self.btn_weather_run.clicked.connect(self._run_weather_compare)
-        btn_layout.addWidget(self.btn_weather_run)
-        btn_layout.addStretch()
-        layout.addWidget(btn_row)
-
-        self.weather_table = QTableWidget(0, 6)
-        self.weather_table.setHorizontalHeaderLabels(
-            ["날씨 시나리오", "평균 요격률", "완전 성공률", "평균 비용 ($)",
-             "최다 소모 무기", "가장 많이 피격된 함정"])
-        hh = self.weather_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        for col in [1, 2, 3]:
-            self.weather_table.setColumnWidth(col, 110)
-        self.weather_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.weather_table.setAlternatingRowColors(True)
-        self.weather_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self.weather_table)
         return w
 
     def _build_ab_compare_tab(self) -> QWidget:
@@ -7725,60 +7302,6 @@ class MainWindow(QMainWindow):
             f.write(text)
         QMessageBox.information(self, "저장 완료", f"브리핑 저장:\n{path}")
 
-    def _run_weather_compare(self):
-        """포팅 D: 날씨별 3종 비교 실행 (WeatherWorker 비차단)."""
-        if not _V7_OK or not hasattr(self, '_result'):
-            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
-            return
-        cfg = self._worker.cfg if self._worker else {}
-        if not cfg:
-            return
-        self.btn_weather_run.setEnabled(False)
-        self.btn_weather_run.setText("실행 중... (약 30~60초)")
-        self._weather_worker = WeatherWorker(cfg, n=1000)
-        self._weather_worker.finished.connect(self._on_weather_done)
-        self._weather_worker.error.connect(self._on_weather_error)
-        self._weather_worker.start()
-
-    def _on_weather_done(self, sc: dict):
-        self.weather_table.setRowCount(0)
-        for label, res in sc.items():
-            row = self.weather_table.rowCount()
-            self.weather_table.insertRow(row)
-
-            # 최다 소모 무기 (잔여 재고 가장 적은 것)
-            wpn_rem = res.get('weapon_avg_remaining', {})
-            if wpn_rem:
-                top_wpn = min(wpn_rem, key=lambda k: wpn_rem[k])
-                top_wpn_str = f"{top_wpn} ({wpn_rem[top_wpn]:.1f}발 잔여)"
-            else:
-                top_wpn_str = "—"
-
-            # 가장 많이 피격된 함정
-            ship_h = res.get('ship_avg_hits', {})
-            if ship_h and max(ship_h.values()) > 0:
-                top_ship = max(ship_h, key=lambda k: ship_h[k])
-                top_ship_str = f"{top_ship} ({ship_h[top_ship]:.2f}회)"
-            else:
-                top_ship_str = "없음"
-
-            values = [label,
-                      f"{res['mean_intercept']:.1%}",
-                      f"{res['full_pass_rate']:.1%}",
-                      f"${res['mean_cost']:,.0f}",
-                      top_wpn_str,
-                      top_ship_str]
-            for col, text in enumerate(values):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if col == 1:
-                    item.setForeground(
-                        QColor('#2ecc71' if res['mean_intercept'] >= 0.9 else '#e74c3c'))
-                self.weather_table.setItem(row, col, item)
-        self.btn_weather_run.setEnabled(True)
-        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
-        self._sidebar.setCurrentRow(3)
-
     def _update_vls_warning(self, mc: dict):
         """MC 결과에서 VLS 주요 무기 소진률 + 고갈 확률·시각 확인 후 경고 레이블 갱신."""
         key_wpns = ['SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB']
@@ -7816,11 +7339,6 @@ class MainWindow(QMainWindow):
                 f"color:{C_ORANGE}; font-size:11px;")
         else:
             self._lbl_vls_warn.setText("")
-
-    def _on_weather_error(self, msg: str):
-        QMessageBox.critical(self, "날씨 비교 오류", msg)
-        self.btn_weather_run.setEnabled(True)
-        self.btn_weather_run.setText("🌤️  날씨별 비교 실행 (각 1000회 MC)")
 
     def _run_ab_compare(self):
         """A/B 편대 비교 실행 (ABCompareWorker 비차단)."""
@@ -8082,14 +7600,6 @@ class MainWindow(QMainWindow):
             if not self._worker.wait(2000):
                 self._worker.terminate()
                 self._worker.wait(500)
-        # SensitivityWorker 중단
-        sens = getattr(self, '_sens_worker', None)
-        if sens and sens.isRunning():
-            sens.requestInterruption()
-            sens.quit()
-            if not sens.wait(1000):
-                sens.terminate()
-                sens.wait(500)
         # MinStockWorker 중단
         ms = getattr(self, '_ms_worker', None)
         if ms and ms.isRunning():
@@ -8106,14 +7616,6 @@ class MainWindow(QMainWindow):
             if not opt.wait(1000):
                 opt.terminate()
                 opt.wait(500)
-        # WeatherWorker 중단
-        ww = getattr(self, '_weather_worker', None)
-        if ww and ww.isRunning():
-            ww.requestInterruption()
-            ww.quit()
-            if not ww.wait(800):
-                ww.terminate()
-                ww.wait(300)
         # ABCompareWorker 중단
         ab = getattr(self, '_ab_worker', None)
         if ab and ab.isRunning():
@@ -8148,15 +7650,7 @@ class MainWindow(QMainWindow):
         # 시스템 모니터 워커 중단 (nvidia-smi subprocess 포함)
         _stop_sys_data_worker()
         # 남은 자식 프로세스 강제 종료 (좀비 프로세스 완전 제거)
-        try:
-            me = psutil.Process()
-            for child in me.children(recursive=True):
-                try:
-                    child.kill()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        _kill_child_processes()
         event.accept()
 
     # ── 결과 렌더링 ──────────────────────────────────────────────────────────
@@ -8261,22 +7755,6 @@ class MainWindow(QMainWindow):
     def _draw_ci_chart(self, mc: dict):
         self.tab_ci.start_render(_render_ci_chart, mc)
 
-    def _draw_timeline(self, result: dict):
-        self.tab_timeline.start_render(_render_timeline, result)
-
-    def _lazy_start_sensitivity(self):
-        """감도 분석 탭 첫 방문 시 SensitivityWorker 기동 (lazy-start)."""
-        if not hasattr(self, '_pending_cfg'):
-            return
-        sens = getattr(self, '_sens_worker', None)
-        if sens and sens.isRunning():
-            return
-        self._sensitivity_placeholder()
-        self._sens_worker = SensitivityWorker(self._pending_cfg, self._pending_mc_n)
-        self._sens_worker.finished.connect(self._on_sensitivity_done)
-        self._sens_worker.error.connect(lambda e: self._sensitivity_error(e))
-        self._sens_worker.start(QThread.Priority.LowPriority)
-
     def _lazy_start_min_stock(self):
         """최소 재고 탭 첫 방문 시 MinStockWorker 기동 (lazy-start)."""
         if not hasattr(self, '_pending_cfg'):
@@ -8291,13 +7769,6 @@ class MainWindow(QMainWindow):
         self._ms_worker.error.connect(lambda e: self._min_stock_error(e))
         self._ms_worker.start(QThread.Priority.LowPriority)
 
-    def _sensitivity_placeholder(self):
-        self.tab_sensitivity._loading_lbl.setText("  감도 분석 계산 중… ⏳")
-        self.tab_sensitivity._pane.setCurrentIndex(0)
-
-    def _sensitivity_error(self, msg: str):
-        self.tab_sensitivity._loading_lbl.setText(f"  감도 분석 오류: {msg}")
-
     def _min_stock_placeholder(self):
         self.tab_min_stock._loading_lbl.setText("  최소 재고 역산 계산 중… ⏳")
         self.tab_min_stock._pane.setCurrentIndex(0)
@@ -8311,9 +7782,6 @@ class MainWindow(QMainWindow):
 
     def _on_min_stock_done(self, results: dict, target_rate: float):
         self.tab_min_stock.start_render(_render_min_stock_chart, results, target_rate)
-
-    def _on_sensitivity_done(self, labels: list, lows: list, highs: list, base_rate: float):
-        self.tab_sensitivity.start_render(_render_sensitivity_chart, labels, lows, highs, base_rate)
 
     def _lazy_start_optimize(self):
         """최적 조합 탭 첫 방문 시 OptimizeWorker 기동 (lazy-start)."""
@@ -8350,47 +7818,9 @@ class MainWindow(QMainWindow):
                 + '  '.join(f"{k.split()[0]}×{v}"
                             for k, v in best['combo'].items() if v > 0))
 
-    def _lazy_start_cec_compare(self):
-        """CEC 비교 탭 첫 방문 시 CECCompareWorker 기동 (lazy-start)."""
-        if not _V7_OK or not self._pending_cfg:
-            return
-        if getattr(self, '_cec_worker', None) and self._cec_worker.isRunning():
-            return
-        self.tab_cec_compare._loading_lbl.setText(
-            "  CEC ON/OFF/두절 3종 MC 비교 중… ⏳")
-        self.tab_cec_compare._pane.setCurrentIndex(0)
-        self._cec_worker = CECCompareWorker(self._pending_cfg, n=500)
-        self._cec_worker.finished.connect(self._on_cec_compare_done)
-        self._cec_worker.error.connect(
-            lambda e: self.tab_cec_compare._loading_lbl.setText(f"  CEC 비교 오류: {e}"))
-        self._cec_worker.start(QThread.Priority.LowPriority)
-
-    def _on_cec_compare_done(self, cec_results: dict):
-        self.tab_cec_compare.start_render(_render_cec_compare, cec_results)
-        if cec_results:
-            labels = list(cec_results.keys())
-            rates  = [cec_results[l].get('mean_intercept', 0) for l in labels]
-            if len(rates) >= 2:
-                delta = (rates[0] - rates[1]) * 100
-                sign  = '+' if delta >= 0 else ''
-                self._lbl_status.setText(
-                    f"CEC 비교 완료: CEC ON vs OFF {sign}{delta:.1f}%p")
-
-    def _draw_bearing_vulnerability(self, result: dict):
-        self.tab_bearing.start_render(_render_bearing_vulnerability, result)
-
     def _draw_req_radar(self, result: dict, mc: dict):
         cfg = self._worker.cfg if self._worker else None
         self.tab_req_radar.start_render(_render_req_radar, result, mc, cfg)
-
-    def _draw_threat_type(self, result: dict, mc: dict):
-        self.tab_threat_type.start_render(_render_threat_type, result, mc)
-
-    def _draw_vuln_time(self, result: dict):
-        self.tab_vuln_time.start_render(_render_vuln_time, result)
-
-    def _draw_history_compare(self, result: dict, mc: dict):
-        self.tab_history.start_render(_render_history_compare, list(self._history))
 
     def _draw_stress_test(self, mc: dict):
         self.tab_stress.start_render(_render_stress_test, mc.get('stress', {}))
@@ -8615,9 +8045,6 @@ _FEATURES = [
     ("✅  전술 요구조건 자동 판정",
      "한국 해군 전술 요구조건 8가지(응답 시간·요격률·함정 생존율 등)를 "
      "시뮬레이션 결과로 자동 통과/실패 판정. 어떤 조건이 미달인지 한눈에 확인."),
-    ("🌤️  날씨 조건 비교",
-     "맑음·흐림·황사·풍랑·폭풍 등 날씨 조건별로 각각 반복 시뮬레이션해 "
-     "날씨가 요격률·무기 소모·피격 횟수에 얼마나 영향을 주는지 나란히 비교."),
     ("📜  교전 기록 로그",
      "미사일 발사, 요격 성공/실패, 함정 피격 등 매 초 단위로 발생한 "
      "모든 교전 사건을 시간 순서대로 전부 기록. 무엇이 언제 일어났는지 추적 가능."),
@@ -8633,27 +8060,9 @@ _FEATURES = [
     ("📈  요격률 신뢰 구간",
      "요격률이 몇 %~몇 % 범위 안에 들어오는지 95% 신뢰구간으로 표시. "
      "함정별 평균 피격 횟수 히스토그램도 함께 표시."),
-    ("⏱️  교전 타임라인",
-     "어느 시점에 어떤 교전이 발생했는지 시간축 위에 점으로 표시. "
-     "언제 가장 많은 위협이 몰렸는지, 요격이 집중된 구간이 어딘지 한눈에 파악."),
-    ("🌪️  설정 감도 분석",
-     "재고 수량·탐지거리·날씨 등 설정값을 하나씩 바꿔가며 "
-     "요격률이 얼마나 민감하게 반응하는지 분석. 백그라운드 실행이라 다른 작업에 영향 없음."),
-    ("🧭  방향별 취약점",
-     "북·남·동·서 각 방향에서 공격이 들어올 때 피격률과 요격률이 "
-     "어떻게 달라지는지 방사형 그래프로 표시 — 어느 방향이 가장 취약한지 확인."),
     ("🎯  요구조건 충족률",
      "8가지 전술 요구조건 각각을 얼마나 충족했는지 방사형 그래프로 한눈에 비교. "
      "전체적인 방어 역량의 균형이 잡혀 있는지 시각적으로 파악."),
-    ("📊  위협 유형별 요격률",
-     "항공기·탄도미사일·순항미사일·잠수함 유형별로 각각 몇 %를 막아냈는지 분류해서 표시. "
-     "어떤 유형의 위협에 취약한지 파악 가능."),
-    ("⏰  취약 시간대 분석",
-     "교전 시작 후 몇 초 구간에 피격이 집중됐는지 히스토그램으로 표시. "
-     "가장 위험한 시간대를 빨간색으로 강조해 방어 집중 구간을 식별."),
-    ("🔄  이전 결과 비교",
-     "최대 5회 실행한 결과의 요격률과 비용을 자동으로 누적 비교. "
-     "설정을 바꿔가며 어떤 조합이 더 효과적인지 히스토리로 추적."),
     ("📋  시나리오 프로필 저장",
      "적 종류·날씨·재고·편대 구성 등 시뮬레이션 설정 전체를 이름 붙여 저장하고 "
      "언제든 불러올 수 있음. 자주 쓰는 시나리오를 매번 다시 설정할 필요 없음."),
@@ -9673,6 +9082,15 @@ class SplashWindow(QWidget):
              "오히려 3배 느림(N>~1000에서만 이득). 대량 시뮬 처리량은 기존 ProcessPool로 충분. "
              "향후 PNG 속도 개선은 Numba JIT 의존성 확보 후 재검토."),
             # ── v13.x — 시각화 & 인터페이스 ──────────────────────────────────
+            ("v13.1", "중간", "결과 화면 간소화 & 분석 탭 정리 (우선)",
+             "결과 화면이 항목이 너무 많아 불러오는 시간이 길고 복잡 — 활용도 낮은 분석을 정리해 가볍고 명확하게 만든다. "
+             "【삭제】 감도 분석 · 방위각 취약점 · 위협 유형별 · 취약 시간대 · 날씨 비교 · 이전 비교 · CEC 효과 비교 · 교전 타임라인 "
+             "항목 제거 (탭 과다·로딩 지연·복잡도 해소). 관련 백그라운드 계산도 함께 제거해 자원 절약. "
+             "【통합】 REQ 판정과 REQ 충족률을 한 항목으로 합침 (단일 결과 + MC 충족 비율을 모드별로 분기 표시). 25→16개. "
+             "【개선】 교전 로그를 단순 표에서 시간축 기반 시각화로 재구성해 교전 흐름을 한눈에 파악. "
+             "【개선】 MC 신뢰구간을 주요 지표별 구간·수렴 추이까지 구체화. "
+             "【구조】 남은 항목 재분류·통합 + 진입 시 핵심 지표 우선 표시, 무거운 분석은 열람할 때만 계산하는 지연 로드를 철저화해 로딩 체감 단축. "
+             "구현 전 삭제·통합 대상을 사용자와 최종 확인 후 진행."),
             ("v13.1", "중간", "결과 탭 시각화 추가 개선",
              "① 시각화 개선 — 요격률 게이지, 비용 비교 바 차트 등 주요 결과 지표를 한눈에 파악하기 쉽게 재설계. "
              "② 차트 렌더링 속도 개선 — 결과 탭 진입 시 차트 생성이 느린 원인 분석 (matplotlib 블로킹 여부 확인), "
@@ -10342,6 +9760,8 @@ def main():
 
     app.aboutToQuit.connect(_shutdown_global_pool)
     app.aboutToQuit.connect(_stop_sys_data_worker)
+    # 어떤 창을 X로 닫든 마지막 창 종료 → aboutToQuit에서 자식 프로세스 일괄 정리
+    app.aboutToQuit.connect(_kill_child_processes)
 
     _start_sys_data_worker()   # 블로킹 I/O 백그라운드 수집 시작
 
