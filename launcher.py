@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.07 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.08 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.05.08 — 진행 팝업 잔여 시간 부드럽게 표시]                           ║
+║  NEW-A  병렬 배치 완료 시점에만 갱신돼 끊기던 잔여 시간을 0.8초 틱마다       ║
+║         부드럽게 카운트다운 (배치 갱신 때 재동기화)                        ║
 ║  [v13.05.07 — 시뮬 실행 후 종료 시 잔여 워커 프로세스 완전 제거]           ║
 ║  BUG-1  병렬 분석 도중·이후 창을 닫으면 워커 프로세스가 남던 문제를         ║
 ║         Windows Job Object로 근본 해결 (메인 종료 시 OS가 자식 자동 정리)  ║
@@ -715,7 +718,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.07"
+APP_VERSION = "v13.05.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1425,6 +1428,8 @@ class FloatingMonitor(QWidget):
         self._show_time: float  = 0.0
         self._mc_t0: float      = 0.0
         self._mc_done: int      = 0
+        self._eta_target: float = 0.0   # 마지막 배치 갱신 시 ETA(초)
+        self._eta_set_t: float  = 0.0   # 그 ETA를 받은 시각 — 틱마다 부드럽게 카운트다운
         self._batch_rates: list = []
         self._phase_acc: dict   = {}   # 누적 단계 타이밍
         self._rates_history: list = [] # 수렴 감지용
@@ -1692,6 +1697,10 @@ class FloatingMonitor(QWidget):
             elapsed = time.time() - self._mc_t0
             spd = self._mc_done / elapsed if elapsed > 0 else 0.0
             self._lbl_spd.setText(f"{spd:.0f} 회/s")
+        # 잔여 시간 부드러운 카운트다운 (배치 갱신 사이에도 매끄럽게) — _eta_target 기준 보간
+        if self._eta_target > 0:
+            rem = self._eta_target - (time.time() - self._eta_set_t)
+            self._set_eta_label(max(0.0, rem))
         # 시스템
         c   = _SYS_CACHE
         gpu = c['gpu']
@@ -1725,6 +1734,13 @@ class FloatingMonitor(QWidget):
             for i, lbl in enumerate(self._log_labels):
                 lbl.setText(recent[i] if i < len(recent) else "")
 
+    def _set_eta_label(self, eta: float):
+        if eta > 0:
+            m, s = divmod(int(eta), 60)
+            self._lbl_eta.setText(f"잔여 {m}:{s:02d}" if m else f"잔여 {s}초")
+        else:
+            self._lbl_eta.setText("잔여 계산 중…")
+
     def update_mc(self, done: int, total: int, eta: float):
         if done == 1:
             per = eta / max(total - done, 1)
@@ -1733,11 +1749,10 @@ class FloatingMonitor(QWidget):
         self._lbl_mc.setText(f"MC  {done:,} / {total:,}")
         pct = int(done * 100 / total) if total > 0 else 0
         self._prog_mc.setValue(pct)
-        if eta > 0:
-            m, s = divmod(int(eta), 60)
-            self._lbl_eta.setText(f"잔여 {m}:{s:02d}" if m else f"잔여 {s}초")
-        else:
-            self._lbl_eta.setText("잔여 계산 중…")
+        # 배치 완료 시 ETA 재동기화 — 틱마다 _refresh_tick이 이 값을 부드럽게 깎아 표시
+        self._eta_target = eta
+        self._eta_set_t  = time.time()
+        self._set_eta_label(eta)
 
     def update_rate(self, mean_rate: float, avg_ed: float, avg_fh: float):
         pct = int(mean_rate * 100)
@@ -1802,6 +1817,8 @@ class FloatingMonitor(QWidget):
         self._log_buf.clear()
         self._mc_done = 0
         self._mc_t0   = 0.0
+        self._eta_target = 0.0
+        self._eta_set_t  = 0.0
         self._stack_mode.setCurrentIndex(0)
         for sq in self._spark_boxes:
             sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
