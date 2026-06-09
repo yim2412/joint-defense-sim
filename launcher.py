@@ -1,7 +1,20 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.02.07 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.03.05 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.03.05 — 항상 ON 전술 토글 제거]                                       ║
+║  DEL-A  ECM·회피·기만기·자체방어·다층방어 체크박스 제거 (항상 ON 고정)     ║
+║         — 현실 교전 상시 작동 능력, 토글해도 무시되던 UI 정리             ║
+║  [v13.03.04 — MC 진행 상태바 진행률(%) 표시]                                ║
+║  NEW-A  상태바 'MC 1234/5000 (24%) | 잔여 8s' 형태로 완료율 표시           ║
+║  [v13.03.03 — 창 최소화 시 진행 팝업 연동]                                  ║
+║  NEW-A  메인 창 최소화 시 MC 진행 팝업 함께 숨김·복원 시 재표시            ║
+║  [v13.03.02 — 결과 화면 키보드 단축키]                                      ║
+║  NEW-A  F5 시뮬 재실행 · Ctrl+Tab 결과 서브탭 순환 단축키 추가              ║
+║  [v13.03.01 — 결과 카드 개선]                                               ║
+║  NEW-A  결과 수치 마우스 선택·복사 가능 (SelectableByMouse)                 ║
+║  NEW-B  총 비용 카드 백만 달러($M) 단위 표기로 가독성 개선                  ║
+║  NEW-C  요격률·완전요격 0~100% 밖 비정상값 경고색(주황) 표시               ║
 ║  [v13.02.07 — 테스트 모드 추가]                                              ║
 ║  NEW-A  테스트 모드 체크박스 — MC 10회·LHS 10회·스트레스 셀당 3회 단축 실행  ║
 ║  [v13.02.06 — LHS·스트레스 테스트 중단 + CPU 급감]                          ║
@@ -658,7 +671,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.02.07"
+APP_VERSION = "v13.03.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3195,6 +3208,14 @@ class AccordionSidebar(QWidget):
                 if b:
                     b.setVisible(True)
 
+    def ordered_indices(self) -> list:
+        """사이드바에 표시되는 순서대로 스택 인덱스 목록 반환 (Ctrl+Tab 순환용)."""
+        out: list = []
+        for _, _cat, items in self._CATEGORIES:
+            for idx, _lbl in items:
+                out.append(idx)
+        return out
+
     def set_current_index(self, stack_idx: int):
         """외부에서 직접 인덱스 지정 (시스템 모니터 자동 전환 등)."""
         if stack_idx in self._item_btns:
@@ -4711,6 +4732,34 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
+        # ── 키보드 단축키 ─────────────────────────────────────────────
+        # F5: 현재 설정으로 시뮬 재실행 (실행 가능 상태일 때만)
+        sc_run = QShortcut(QKeySequence("F5"), self)
+        sc_run.activated.connect(self._shortcut_run)
+        # Ctrl+Tab / Ctrl+Shift+Tab: 결과 서브탭 순환 (결과 화면일 때만)
+        sc_next = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        sc_next.activated.connect(lambda: self._cycle_subtab(+1))
+        sc_prev = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
+        sc_prev.activated.connect(lambda: self._cycle_subtab(-1))
+
+
+    def _shortcut_run(self):
+        """F5 — 실행 버튼이 활성 상태일 때만 재실행 (중복 실행 방지)."""
+        if hasattr(self, 'btn_run') and self.btn_run.isEnabled():
+            self._run_sim()
+
+    def _cycle_subtab(self, delta: int):
+        """Ctrl+Tab — 결과 서브탭을 사이드바 표시 순서대로 순환."""
+        if not getattr(self, '_in_results_mode', False):
+            return
+        order = self._sidebar.ordered_indices()
+        if not order:
+            return
+        cur = self._stack.currentIndex()
+        pos = order.index(cur) if cur in order else 0
+        nxt = order[(pos + delta) % len(order)]
+        self._sidebar.set_current_index(nxt)
+
 
     # ── 설정/결과 화면 전환 ───────────────────────────────────────────────────
 
@@ -5704,23 +5753,8 @@ class MainWindow(QMainWindow):
         self._cfg_scenario = _sw
         container_layout.addWidget(self._cfg_scenario)
 
-        # ── 전술 옵션 (포팅 B) ────────────────────────────────────────────
-        grp_t = QGroupBox("⚙️ 전술 옵션")
-        tl = QGridLayout(grp_t)
-        tl.setSpacing(3)
-
-        self.chk_ecm   = QCheckBox("ECM 재밍");        self.chk_ecm.setChecked(True)
-        self.chk_eva   = QCheckBox("회피 기동");        self.chk_eva.setChecked(True)
-        self.chk_dcoy  = QCheckBox("음향 기만기");      self.chk_dcoy.setChecked(True)
-        self.chk_sd    = QCheckBox("적 자체방어");      self.chk_sd.setChecked(True)
-        self.chk_ecm.setToolTip("ECM 재밍 (거리 반비례 Pk 감소)")
-        self.chk_eva.setToolTip("회피 기동 (종말·함정 어뢰)")
-        self.chk_dcoy.setToolTip("음향 기만기 AN/SLQ-25 (어뢰)")
-        self.chk_sd.setToolTip("적 자체방어 (CIWS + 채프/플레어)")
-
-        for _i, chk in enumerate([self.chk_ecm, self.chk_eva, self.chk_dcoy, self.chk_sd]):
-            _wire_chk_color(chk, 13)
-            tl.addWidget(chk, _i // 2, _i % 2)
+        # 전술 옵션(ECM 재밍·회피 기동·음향 기만기·적 자체방어)은 현실 교전에서
+        # 항상 작동하는 능력이므로 토글 UI 없이 항상 ON으로 고정 (cfg에서 True 하드코딩)
 
         # ── 항공 자산 (포팅 C + v10.5 CAP) ──────────────────────────────────
         grp_ac = QGroupBox("✈️ 항공 자산")
@@ -5748,12 +5782,7 @@ class MainWindow(QMainWindow):
         defl = QVBoxLayout(grp_def)
         defl.setSpacing(4)
 
-        self.chk_layered = QCheckBox("다층 방어")
-        self.chk_layered.setChecked(True)
-        self.chk_layered.setToolTip(
-            "1차 교전 함정(KDX-III Batch II)이 요격 실패 시 다음 레이어(Batch I → KDX-II → FFX)가 자동 인계.\n"
-            "우선순위 정렬로 최고 성능 함정이 항상 먼저 교전합니다."
-        )
+        # 다층 방어는 전단 교전 표준 교리 — 항상 ON 고정 (cfg에서 True 하드코딩)
 
         self.chk_cec = QCheckBox("CEC 협동 교전")
         self.chk_cec.setChecked(True)   # 기본 ON — 이지스 전단 실전 운용 표준
@@ -5839,7 +5868,7 @@ class MainWindow(QMainWindow):
         ai_tactic_row.addWidget(lbl_ai_tactic)
         ai_tactic_row.addWidget(self.cmb_ai_tactic, stretch=1)
 
-        for chk in [self.chk_layered, self.chk_cec, self.chk_multibearing,
+        for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_tactical]:
             _wire_chk_color(chk, 13)
@@ -6029,7 +6058,7 @@ class MainWindow(QMainWindow):
 
         # ── 하단 섹션 hover 팝업 일괄 설치 ──────────────────────────────
         _bot_popup = _HoverPopup(self)
-        for _g in [grp_env, grp_def, grp_strike, grp_bmd, grp_cd, grp_t, grp_ac, grp_mc]:
+        for _g in [grp_env, grp_def, grp_strike, grp_bmd, grp_cd, grp_ac, grp_mc]:
             _install_section_popups(_g, _bot_popup)
 
         # ── 섹션 조립 ────────────────────────────────────────────────────
@@ -6037,7 +6066,7 @@ class MainWindow(QMainWindow):
             ("환경",     [grp_env],                        False),
             ("방어전술", [grp_def, grp_strike],             False),
             ("항공자산", [grp_ac],                          False),
-            ("고급",     [grp_t, grp_bmd, grp_cd, grp_mc], False),
+            ("고급",     [grp_bmd, grp_cd, grp_mc], False),
         ]
         self._sec_contents:   list = []
         self._sec_groups_ref: list = []
@@ -6127,6 +6156,8 @@ class MainWindow(QMainWindow):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setFont(QFont('Malgun Gothic', 18, QFont.Weight.Bold))
             lbl.setStyleSheet(f"color:{C_ACCENT};")
+            # 결과 수치 마우스로 선택·복사 가능
+            lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             cl.addWidget(lbl)
             card_layout.addWidget(card)
             self._cards[key] = lbl
@@ -7410,6 +7441,21 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.resume_tactical(choice)
 
+    def changeEvent(self, event):
+        """메인 창 최소화 시 MC 진행 팝업도 함께 숨기고, 복원 시 재표시."""
+        if event.type() == QEvent.Type.WindowStateChange:
+            mon = getattr(self, '_float_mon', None)
+            if mon is not None:
+                if self.windowState() & Qt.WindowState.WindowMinimized:
+                    # 현재 떠 있을 때만 복원 대상으로 기억
+                    if mon.isVisible():
+                        self._float_mon_was_visible = True
+                        mon.hide()
+                elif getattr(self, '_float_mon_was_visible', False):
+                    mon.show()
+                    self._float_mon_was_visible = False
+        super().changeEvent(event)
+
     def _show_float_mon(self):
         """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시. sysmon 탭 자동 전환."""
         geo = self.geometry()
@@ -7436,8 +7482,9 @@ class MainWindow(QMainWindow):
         self._lbl_status.setText(msg)
 
     def _on_progress_detail(self, done: int, total: int, eta: float):
+        pct = f" ({done / total:.0%})" if total else ""
         eta_str = f" | 잔여 {eta:.0f}s" if eta > 0 else ""
-        self._lbl_status.setText(f"MC {done}/{total}{eta_str}")
+        self._lbl_status.setText(f"MC {done}/{total}{pct}{eta_str}")
 
     def _on_finished(self, result: dict, mc: dict):
         elapsed = time.time() - self._t0
@@ -8032,10 +8079,17 @@ class MainWindow(QMainWindow):
         self._result_outer_stack.setCurrentIndex(1)
         if not self._in_results_mode:
             self._enter_results_mode()
-        self._cards['intercept'].setText(f"{mc['mean_intercept']:.1%}")
+        # 비정상값 방어: 요격률·완전요격은 0~100% 범위를 벗어나면 경고색(주황)으로 표시
+        m_int = mc['mean_intercept']
+        _abn  = (m_int < 0.0 or m_int > 1.0)
+        self._cards['intercept'].setText(f"{m_int:.1%}" + (" ⚠" if _abn else ""))
         self._cards['intercept'].setStyleSheet(
-            f"color:{'#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'};")
-        self._cards['full_pass'].setText(f"{mc['full_pass_rate']:.1%}")
+            f"color:{'#f39c12' if _abn else ('#2ecc71' if m_int >= 0.9 else '#e74c3c')};")
+        f_pass = mc['full_pass_rate']
+        _abn_fp = (f_pass < 0.0 or f_pass > 1.0)
+        self._cards['full_pass'].setText(f"{f_pass:.1%}" + (" ⚠" if _abn_fp else ""))
+        if _abn_fp:
+            self._cards['full_pass'].setStyleSheet("color:#f39c12;")
         cvar_val = mc.get('cvar')
         if cvar_val is not None:
             self._cards['cvar'].setText(f"{cvar_val:.1%}")
@@ -8047,7 +8101,8 @@ class MainWindow(QMainWindow):
         self._cards['friendly_hit'].setStyleSheet(
             f"color:{'#2ecc71' if result['friendly_hits'] == 0 else '#e74c3c'};")
         self._cards['enemy_dest'].setText(str(result['enemy_ships_destroyed']))
-        self._cards['cost'].setText(f"${result['total_cost']:,.0f}")
+        # 비용은 백만 달러($M) 단위로 표기 — 자릿수 긴 원달러 대신 보고서 관례에 맞춤
+        self._cards['cost'].setText(f"${result['total_cost'] / 1_000_000:.1f}M")
         sorties = result.get('aircraft_sorties', 0)
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
         # 사용된 시드 표시 (재현용)
@@ -9538,14 +9593,13 @@ class SplashWindow(QWidget):
              "이미 구현 완료된 항목이 _PLANS에 잔류하지 않는지 전수 점검."),
             ("v13.1", "중간", "결과 탭 표시·차트·분석 품질 개선",
              "【표시·레이아웃】"
-             "숫자 포맷 통일 — 소수점 자릿수·단위(km·m·$M) 불일치 구간 전수 정리. "
+             "숫자 포맷 통일 — 소수점 자릿수·단위(km·m) 불일치 구간 전수 정리. "
              "결과 카드에 이전 실행 대비 delta 표시 — '▲ +2.3%' 형태로 변화량 한눈에 파악. "
              "신뢰구간(95% CI) 및 백분위수(P10/P50/P90) 명시적 표시. "
              "서브탭 아이콘 추가. "
              "결과 탭 진입 시 첫 번째 서브탭으로 초기화 확인. "
              "각 지표 툴팁 설명 추가 — 요격률·CVaR 등 의미를 hover 시 표시. "
              "【차트】"
-             "차트 제목·축 레이블·범례 한글화 통일 (영문 혼용 구간 정리). "
              "차트 색상 테마를 앱 다크 테마와 통일. "
              "데이터 없을 때 '결과 없음' 플레이스홀더 표시. "
              "차트 범례 위치 최적화 (데이터 가리는 경우 수정). "
@@ -9553,17 +9607,11 @@ class SplashWindow(QWidget):
              "현재 결과와 직전 실행 결과 나란히 비교하는 뷰 추가. "
              "최악/최선 케이스 자동 하이라이트. "
              "【데이터 무결성】"
-             "물리적으로 말이 안 되는 결과값(요격률 > 100% 등) 경고 표시. "
              "REQ 판정 통과/실패 항목 색상 강조 확인 및 개선. "
              "【기타 UX】"
-             "차트 렌더링 중 빈 화면 대신 로딩 스피너·플레이스홀더 표시 (차트 속도 개선과 병행). "
-             "키보드 단축키 — F5 재실행, Ctrl+Tab 서브탭 전환 등. "
-             "결과 수치 텍스트 선택 가능 여부 확인 — QLabel이면 SelectableByMouse 플래그 추가."),
-            ("v13.1", "낮음", "시뮬 실행 중 창 최소화 연동",
-             "메인 창을 최소화하면 MC 진행 팝업도 함께 숨김(hide). "
-             "복원 시 팝업 자동 재표시. changeEvent 오버라이드로 구현."),
+             "차트 렌더링 중 빈 화면 대신 로딩 스피너·플레이스홀더 표시 (차트 속도 개선과 병행)."),
             ("v13.1", "낮음", "MC 분석 진행 상황 표시 강화",
-             "① 하단 상태바: 'MC 5000회 분석 중...' → 'MC 1234/5000 (24%) | 요격률 12.3% | 8.5회/s' 형태로 실시간 갱신. "
+             "① 하단 상태바에 실시간 요격률·처리속도(회/s) 병기 (완료율 %·잔여시간은 구현됨). "
              "② MC 진행 팝업 상단에 QProgressBar 삽입해 완료율 시각화. "
              "③ 팝업 내 수렴 그래프: x축 반복 횟수·y축 누적 평균 요격률 실시간 표시 — '수렴 분석 중...' 자리 대체. "
              "④ ETA 표시: 현재 처리 속도 기반 '약 X분 Y초 후 완료' 팝업·상태바 병기. "

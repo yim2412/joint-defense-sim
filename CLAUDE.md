@@ -155,6 +155,8 @@ v12.06.01: [변경 내용 한 줄 요약]
 신기능이 없는 버그·수치·UI 변경은 용어 확인 생략. `추가` 항목이 하나라도 있을 때만 확인.
 
 > **스모크 실행** 정의: exe 실행 → 기본 시나리오 단일 시뮬 1회 → 결과 탭 정상 표시 확인. **exe는 `CloseMainWindow()`로 정상 종료** — `Stop-Process -Force` 금지(시작 시 워커 풀 예열 중 강제종료하면 멀티프로세싱 자식이 WinError 87 에러창을 띄움. 코드 버그 아닌 강제종료 아티팩트).
+>
+> **스모크 실행 대체 금지**: exe에서 시뮬레이션 버튼을 실제로 클릭하는 데 실패하면, 엔진 직접 호출(`run_v7_simulation()`)로 우회하지 않는다. 엔진 직접 호출은 GUI 워커 경로(step_cb, 시그널 emit 등)를 거치지 않아 exe 전용 버그를 놓친다. 자동화 실패 시 **BLOCKED로 보고하고 사용자에게 직접 시뮬 1회 실행을 요청**한다.
 
 > **회귀 검증(`verify_regression.py`) 정의**: 고정 8개 시나리오×고정 seed 결과를 `regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python verify_regression.py` / 의도된 변경 후 갱신 `python verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
 
