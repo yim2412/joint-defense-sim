@@ -5351,7 +5351,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
         ('아군 피격 (단일)', f"{result['friendly_hits']}회"),
         ('적 격침 (단일)',   f"{result['enemy_ships_destroyed']}기/척"),
         ('아군 손실 (단일)', f"{result['friendly_ships_lost']}척"),
-        ('총 비용 (단일)',   f"${result['total_cost']:,.0f}"),
+        ('총 비용 (단일)',   f"${result['total_cost']/1e6:.1f}M"),
     ]
     y = 0.97
     for label, val in summary_lines:
