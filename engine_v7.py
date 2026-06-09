@@ -1231,6 +1231,7 @@ class TimeStepEngine:
         self._log_entries: list = []
         self._tick_events:  list = []
         self._detected_log_set: set = set()   # 첫 탐지 로깅 완료한 위협 uid
+        self._thermo_cache: dict = {}          # 수심→수온약층 보정 메모(해역·계절 시뮬 내 불변)
 
         self._mc_mode: bool = bool(cfg.get('mc_mode', False))
 
@@ -1835,21 +1836,27 @@ class TimeStepEngine:
         if not et.is_sub:
             return 1.0
         depth = abs(et.altitude_m)
+        # 함정 무관(수심+해역·계절 상수)이라 함정마다 재계산은 낭비 → 수심별 메모
+        cached = self._thermo_cache.get(depth)
+        if cached is not None:
+            return cached
         if _OCEAN_ACOUSTIC_OK:
             region_key = REGION_TO_ACOUSTIC_KEY.get(
                 self.cfg.get('fleet_region', '동해 북부'), 'EAST_SEA'
             )
             season = self.cfg.get('season', 'summer')
-            return get_sonar_depth_factor(region_key, season, depth)
+            factor = get_sonar_depth_factor(region_key, season, depth)
         # fallback: 기존 하드코딩 (ocean_acoustic_db 없을 때)
-        if depth < 100:
-            return 1.0
+        elif depth < 100:
+            factor = 1.0
         elif depth < 300:
-            return 1.0 - 0.55 * (depth - 100) / 200
+            factor = 1.0 - 0.55 * (depth - 100) / 200
         elif depth < 500:
-            return 0.45 + 0.20 * (depth - 300) / 200
+            factor = 0.45 + 0.20 * (depth - 300) / 200
         else:
-            return 0.65
+            factor = 0.65
+        self._thermo_cache[depth] = factor
+        return factor
 
     # ── v12.3: dB 소나 방정식 (enable_sonar_equation ON 경로) ─────────────────
     def _sonar_env(self):
@@ -2918,15 +2925,17 @@ class TimeStepEngine:
         """
         if not self.cfg.get('enable_strike', True):
             return
+        # v10.6: 항모(high_value_target) 우선 정렬 — 화력 집중.
+        # 정렬 키가 함정과 무관하고 _friendly_strike 내에서 위협 hp가 불변이므로
+        # 함정 루프 밖에서 1회만 계산 (대잠 등 함정·위협 多 시나리오 성능 핫스팟 해소).
+        sorted_threats = sorted(
+            self.enemy_threats,
+            key=lambda e: (0 if e.high_value_target else 1, e.hp),
+        )
         for ship in self.friendly_ships:
             if not ship.alive:
                 continue
 
-            # v10.6: 항모(high_value_target) 우선 정렬 — 화력 집중
-            sorted_threats = sorted(
-                self.enemy_threats,
-                key=lambda e: (0 if e.high_value_target else 1, e.hp),
-            )
             for et in sorted_threats:
                 if not et.alive:
                     continue
