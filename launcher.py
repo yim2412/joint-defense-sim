@@ -1,10 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.14 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.15 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.15 — 체크박스 체크 여부 식별성 개선]                               ║
+║  BUG-1  체크 표시(indicator) 스타일이 QSS 작성 오류로 적용되지 않아 체크    ║
+║         여부 구별이 안 되던 문제 수정 → 체크=녹색/미체크=어두운 빈 칸       ║
 ║  [v13.06.14 — 로그·DB를 영구 보존 폴더로 이동]                              ║
 ║  BUG-1  로그·크래시·DB가 exe 폴더에 저장돼 재빌드·재설치 시 유실되던 문제 →  ║
-║         사용자 영구 폴더(%LOCALAPPDATA%\AegisSim)로 이동해 영구 보존        ║
+║         사용자 영구 폴더(%LOCALAPPDATA% 내 AegisSim)로 이동해 영구 보존     ║
 ║  [v13.06.13 — 중단 기록 + 크래시 로그 뷰어 + 로그 표 정리]                  ║
 ║  NEW-A  중단된 시뮬도 실행 로그에 '중단' 상태로 부분 통계 기록             ║
 ║  NEW-B  크래시 로그 버튼 — crash.log 내용을 창으로 바로 확인               ║
@@ -813,7 +816,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.14"
+APP_VERSION = "v13.06.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1350,16 +1353,20 @@ C_ORANGE  = '#f39c12'
 
 def _wire_chk_color(chk, font_size: int = 13) -> None:
     """체크 여부에 따라 라벨 색상 변경(체크=흰색/미체크=빨간색) + 인디케이터 스타일."""
+    # 체크 여부 구별: 미체크=어두운 빈 칸/회색 테두리, 체크=녹색 채움/흰 테두리(ON 신호)
     _IND = (
-        f"QCheckBox::indicator{{width:17px;height:17px;"
-        f"border:2px solid #7a9ab8;border-radius:3px;background:#1e3048;}}"
-        f"QCheckBox::indicator:checked{{background:{C_ACCENT};border-color:{C_ACCENT};}}"
-        f"QCheckBox::indicator:hover{{border-color:#a0c0d8;background:#263d56;}}"
-        f"QCheckBox::indicator:checked:hover{{background:#5dade2;border-color:#5dade2;}}"
+        f"QCheckBox::indicator{{width:18px;height:18px;"
+        f"border:2px solid #5a6b7a;border-radius:4px;background:#0d1117;}}"
+        f"QCheckBox::indicator:checked{{background:{C_GREEN};border:2px solid #ffffff;}}"
+        f"QCheckBox::indicator:hover{{border-color:#a0c0d8;background:#1c2733;}}"
+        f"QCheckBox::indicator:checked:hover{{background:#27ae60;border:2px solid #ffffff;}}"
     )
     def _upd(state: int):
         color = C_TEXT if state else C_RED
-        chk.setStyleSheet(f"color:{color};font-size:{font_size}px;" + _IND)
+        # QCheckBox{...} 블록으로 감싸야 함 — 인라인 속성 뒤에 selector 블록을 붙이면
+        # QSS 파서가 indicator 블록을 무시해 indicator 스타일이 적용되지 않았음(버그)
+        chk.setStyleSheet(
+            f"QCheckBox{{color:{color};font-size:{font_size}px;}}" + _IND)
     chk.stateChanged.connect(_upd)
     _upd(2 if chk.isChecked() else 0)
 
