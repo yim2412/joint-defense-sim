@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.04 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.06 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.06 — 진행 화면 정리: 단계별 소요시간 → 요격률 분포 히스토그램]     ║
+║  DEL-A  단계별 평균 소요시간 바 제거 (개발자용 성능 계측치)                ║
+║  NEW-A  요격률 분포 히스토그램 — 개별 시뮬 표본 분포·평균 실시간 표시       ║
+║  DEL-B  '드래그로 이동' 안내 제거 (임베드로 사라진 기능의 잔재)            ║
+║  NEW-B  진행 화면 그래프(분포·수렴) 갱신 주기 단축 — 약 4배 자주 동기화     ║
+║  [v13.06.05 — 결과 화면 '설정 화면으로' 버튼 글자 잘림 수정]                ║
+║  BUG-1  뒤로가기 버튼 높이가 작아 한글 받침이 잘리던 문제 → 높이·여백 확보  ║
 ║  [v13.06.04 — 중단 미반응 구간 수정 (순차 MC·Sobol)]                        ║
 ║  BUG-1  소규모/테스트 MC·Sobol 단계에서 중단 버튼이 먹지 않던 문제 수정     ║
 ║         (진행 콜백 중단 확인 추가 + Sobol 중단 예외 전파)                  ║
@@ -781,7 +788,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.04"
+APP_VERSION = "v13.06.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1658,6 +1665,74 @@ class ConvergenceWidget(QWidget):
         p.end()
 
 
+class RateHistogramWidget(QWidget):
+    """MC 배치별 평균 요격률의 분포를 히스토그램으로 표시 (경량 QPainter).
+    수렴 라인이 '평균이 어디로 가나'라면, 이쪽은 '결과가 얼마나 퍼져있나(리스크)'."""
+    _BINS = 20
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data: list = []
+        self.setMinimumHeight(90)
+
+    def set_data(self, data):
+        self._data = list(data)
+        self.update()
+
+    def clear(self):
+        self._data = []
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor('#0a0e1a'))
+        w, h = self.width(), self.height()
+        d = self._data
+        if len(d) < 3:
+            p.setPen(QColor('#7d8590'))
+            p.setFont(QFont('Malgun Gothic', 9))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "요격률 분포 (데이터 수집 중…)")
+            p.end()
+            return
+        m = 6
+        x0, y0 = m + 4, m + 2
+        pw, ph = w - 2 * m - 8, h - 2 * m - 14
+        # 0~100% 고정 구간 binning
+        bins = [0] * self._BINS
+        for v in d:
+            b = min(self._BINS - 1, max(0, int(v * self._BINS)))
+            bins[b] += 1
+        peak = max(bins) or 1
+        bw = pw / self._BINS
+        import numpy as _np
+        mean_v = float(_np.mean(d))
+        # 막대
+        for i, c in enumerate(bins):
+            if c == 0:
+                continue
+            bh = ph * c / peak
+            bx = x0 + i * bw
+            by = y0 + (ph - bh)
+            frac = (i + 0.5) / self._BINS
+            col = QColor('#2ecc71') if frac >= 0.9 else QColor('#3498db') if frac >= 0.6 else QColor('#e74c3c')
+            p.fillRect(int(bx) + 1, int(by), int(bw) - 1, int(bh), col)
+        # x축
+        p.setPen(QPen(QColor('#1e2a3a'), 1))
+        p.drawLine(int(x0), int(y0 + ph), int(x0 + pw), int(y0 + ph))
+        # 평균 기준선
+        mx = x0 + pw * mean_v
+        p.setPen(QPen(QColor('#f3f6fa'), 1, Qt.PenStyle.DashLine))
+        p.drawLine(int(mx), int(y0), int(mx), int(y0 + ph))
+        # 라벨
+        p.setPen(QColor('#aab'))
+        p.setFont(QFont('Malgun Gothic', 8))
+        p.drawText(int(x0), h - 1, "0%")
+        p.drawText(int(x0 + pw) - 26, h - 1, "100%")
+        p.drawText(int(min(mx + 2, x0 + pw - 60)), y0 + 9, f"평균 {mean_v:.0%}")
+        p.end()
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  플로팅 모니터 창 (시뮬 중 팝업)
 # ════════════════════════════════════════════════════════════════════════════
@@ -1817,32 +1892,15 @@ class FloatingMonitor(QWidget):
         kpi_row.addStretch(); kpi_row.addWidget(self._lbl_spd)
         mv.addLayout(kpi_row)
 
-        mv.addWidget(self._sep())
+        # v13.06.06: 단계별 평균 소요시간 바(개발자용 계측치) 제거 → 그 자리에
+        # 요격률 분포 히스토그램 배치. 빈 dict 유지로 update_phases는 안전한 no-op.
+        self._phase_bars: dict = {}
 
-        # 단계별 타이밍 바 (6개)
-        phase_hdr = QLabel("단계별 평균 소요시간")
-        phase_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        mv.addWidget(phase_hdr)
-
-        _PHASE_LABELS = ['대공방어', '아군공격', '대잠', '적방어', '위치갱신', '교전판정']
-        _PHASE_KEYS   = ['대공방어', '아군공격', '대잠', '적방어', '위치갱신', '교전판정']
-        self._phase_bars: dict = {}   # key → (bar, val_lbl)
-        for key, label in zip(_PHASE_KEYS, _PHASE_LABELS):
-            row = QHBoxLayout(); row.setSpacing(4)
-            name_lbl = QLabel(label)
-            name_lbl.setFixedWidth(58)
-            name_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
-            bar = QProgressBar()
-            bar.setRange(0, 1000); bar.setValue(0)
-            bar.setFixedHeight(6); bar.setTextVisible(False)
-            bar.setStyleSheet(self._bar_css('#3498db'))
-            val_lbl = QLabel("0ms")
-            val_lbl.setFixedWidth(44)
-            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            val_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
-            row.addWidget(name_lbl); row.addWidget(bar, 1); row.addWidget(val_lbl)
-            mv.addLayout(row)
-            self._phase_bars[key] = (bar, val_lbl)
+        hist_hdr = QLabel("요격률 분포 (MC 표본)")
+        hist_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        mv.addWidget(hist_hdr)
+        self._rate_hist = RateHistogramWidget()
+        mv.addWidget(self._rate_hist)
 
         mv.addWidget(self._sep())
 
@@ -1878,10 +1936,9 @@ class FloatingMonitor(QWidget):
             sys_row.addWidget(w, 1)
         inner.addLayout(sys_row)
 
-        # ── 하단: 중단 버튼 + 드래그 안내 ────────────────────────────────────
+        # ── 하단: 중단 버튼 ──────────────────────────────────────────────────
+        # v13.06.06: '드래그로 이동' 안내 제거 — 임베드로 드래그 기능 없어진 잔재
         bot_row = QHBoxLayout()
-        tip = QLabel("드래그로 이동")
-        tip.setStyleSheet(f"color:#444d56; font-size:10px;")
         btn_stop = QPushButton("■  중단")
         btn_stop.setFixedHeight(24)
         btn_stop.setStyleSheet(
@@ -1890,7 +1947,6 @@ class FloatingMonitor(QWidget):
             f"QPushButton:hover {{ background:#5a1a1a; }}"
         )
         btn_stop.clicked.connect(self.stop_requested)
-        bot_row.addWidget(tip)
         bot_row.addStretch()
         bot_row.addWidget(btn_stop)
         inner.addLayout(bot_row)
@@ -2048,6 +2104,10 @@ class FloatingMonitor(QWidget):
             self._lbl_delta.setText(f"이전 대비 {sign}{abs(diff):.1f}%p")
             self._lbl_delta.setStyleSheet(f"color:{col}; font-size:11px;")
 
+    def update_histogram(self, rates: list):
+        """개별 시뮬 요격률 누적 분포를 히스토그램에 반영."""
+        self._rate_hist.set_data(rates)
+
     def update_phases(self, phase_times: dict):
         """MC 배치 완료마다 단계별 타이밍 바 갱신."""
         if not phase_times:
@@ -2069,6 +2129,7 @@ class FloatingMonitor(QWidget):
         self._batch_rates.clear()
         self._rates_history.clear()
         self._conv_graph.clear()
+        self._rate_hist.clear()
         self._log_buf.clear()
         self._mc_done = 0
         self._mc_t0   = 0.0
@@ -2658,6 +2719,7 @@ class SimWorker(QThread):
     cancelled       = pyqtSignal()                  # 중단 버튼으로 인터럽트 시
     batch_done      = pyqtSignal(int, int)         # (완료배치, 전체배치)
     rate_update     = pyqtSignal(float, float, float)  # (mean_rate, avg_e_dest, avg_f_hits)
+    hist_update     = pyqtSignal(list)                 # 개별 시뮬 요격률 누적 — 분포 히스토그램용
     # v8.26: 진행 팝업 상세화
     step_update     = pyqtSignal(float, float, int, int, str)  # (t, t_max, alive, vls, last_log) — 단일 시뮬
     phase_update     = pyqtSignal(dict)                         # 단계별 평균 타이밍 — MC 배치 완료마다
@@ -2731,8 +2793,10 @@ class SimWorker(QThread):
                     mc = monte_carlo_v7(self.cfg, n=self.mc_n)
             else:
                 # 멀티프로세싱 병렬 MC
-                # 배치당 최대 50개 — 취소 시 실행 중 서브프로세스 수×크기 최소화
-                batch_size = max(10, min(50, self.mc_n // n_cores))
+                # 배치가 작을수록 (배치 완료마다 그래프 갱신되므로) 진행 화면 동기화가
+                # 잦아짐 + 취소 시 잔여 서브프로세스 최소화. 너무 작으면 디스패치
+                # 오버헤드↑ → 갱신 빈도와 처리량의 절충: 코어당 ~10여 회.
+                batch_size = max(8, min(12, self.mc_n // (n_cores * 8)))
                 batches, seed_offset = [], 0
                 while seed_offset < self.mc_n:
                     actual = min(batch_size, self.mc_n - seed_offset)
@@ -2785,6 +2849,8 @@ class SimWorker(QThread):
                                 float(np.mean(all_e_dest)) if all_e_dest else 0.0,
                                 float(np.mean(all_f_hits)) if all_f_hits else 0.0,
                             )
+                            # 개별 시뮬 요격률 분포 — 히스토그램용 (누적 평균과 별개)
+                            self.hist_update.emit(list(all_rates))
                         if _phase_acc:
                             _n_b = max(batch_done_n, 1)
                             self.phase_update.emit({k: v / _n_b for k, v in _phase_acc.items()})
@@ -5106,12 +5172,13 @@ class MainWindow(QMainWindow):
         rl.setSpacing(0)
 
         btn_back = QPushButton("← 설정 화면으로")
-        btn_back.setFixedHeight(28)
+        btn_back.setMinimumHeight(34)   # 고정 높이에 한글 받침이 잘리던 문제 → 여유 확보
         btn_back.setStyleSheet(f"""
             QPushButton {{
                 background:{C_PANEL}; color:{C_SUBTEXT};
                 border:none; border-bottom:1px solid {C_BORDER};
-                font-size:12px;
+                font-family:'Malgun Gothic'; font-size:12px;
+                text-align:left; padding:4px 12px;
             }}
             QPushButton:hover {{ color:{C_TEXT}; background:#1f2d40; }}
         """)
@@ -7806,6 +7873,7 @@ class MainWindow(QMainWindow):
         self._worker.progress_detail.connect(self._float_mon.update_mc)
         self._worker.progress.connect(self._float_mon.update_status)
         self._worker.rate_update.connect(self._float_mon.update_rate)
+        self._worker.hist_update.connect(self._float_mon.update_histogram)
         self._worker.step_update.connect(self._float_mon.update_step)
         self._worker.phase_update.connect(self._float_mon.update_phases)
         self._worker.cancelled.connect(self._on_cancelled)
