@@ -1,7 +1,19 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v13.08.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v13.08.08 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.08.08 — Sobol 반복 옵션 정밀 모드 전용 표시]                          ║
+║  수정  표준·빠름 모드에선 Sobol 반복 입력 행을 숨김 (정밀 모드에서만 표시)   ║
+║  [v13.08.07 — 사이드바 네비 버튼 강조 개선]                                 ║
+║  수정  사이드바 메뉴 버튼에 마우스 hover 시 좌측 강조선 추가·선택 강조 강화  ║
+║  [v13.08.06 — 숫자칸 증감 버튼 디자인 개선]                                 ║
+║  수정  ▲▼ 증감 버튼에 구분선·둥근 모서리·좌측 경계선 추가로 입체감 부여      ║
+║  [v13.08.05 — 드롭다운·숫자칸 스크롤 오변경 방지]                           ║
+║  수정  정밀도·Sobol 반복 등 일부 입력칸에서 마우스 휠로 값이 바뀌던 문제 해결║
+║  [v13.08.04 — 탭·스크롤바 다듬기]                                           ║
+║  수정  탭에 마우스 hover 강조 추가, 스크롤바 폭을 키워 잡기 쉽게 개선        ║
+║  [v13.08.03 — 입력창 다듬기]                                                ║
+║  수정  텍스트 입력창 통일·포커스 강조, 숫자 입력 증감 버튼 다크 테마 적용    ║
 ║  [v13.08.02 — 표(테이블) 가독성 개선]                                       ║
 ║  수정  표 행 교차색·선택/마우스 hover 강조·셀 여백·헤더 하단 강조선 추가     ║
 ║  [v13.08.01 — 버튼 디자인 개선]                                             ║
@@ -834,7 +846,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.08.02"
+APP_VERSION = "v13.08.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1527,6 +1539,8 @@ class GaugeWidget(QWidget):
         p.drawText(QRectF(0, h - 15, w, 14), Qt.AlignmentFlag.AlignCenter, self._title)
         p.end()
 
+_SPIN_UP   = _res('assets/images/spin_up.png').replace('\\', '/')
+_SPIN_DOWN = _res('assets/images/spin_down.png').replace('\\', '/')
 STYLE_MAIN = f"""
 QMainWindow, QWidget {{
     background-color: {C_BG};
@@ -1551,11 +1565,19 @@ QGroupBox::title {{
     border-radius: 4px;
     font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
 }}
-QComboBox, QSpinBox {{
+QComboBox {{
     background-color: {C_PANEL};
     border: 1px solid {C_BORDER};
     border-radius: 6px;
     padding: 6px 12px;
+    color: {C_TEXT};
+    font-size: 17px;
+}}
+QSpinBox {{
+    background-color: {C_PANEL};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    padding: 6px 20px 6px 10px;   /* 오른쪽 20px = 증감 버튼(16)+여유, 숫자가 버튼에 가리지 않게 */
     color: {C_TEXT};
     font-size: 17px;
 }}
@@ -1585,6 +1607,39 @@ QComboBox QAbstractItemView::item:selected {{
     background-color: {C_ACCENT};
     color: #ffffff;
 }}
+QComboBox::drop-down:hover {{ background: #1f2733; }}
+QSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    background: #1f2733;
+    border-left: 1px solid {C_BORDER};
+    border-bottom: 1px solid #11161d;
+    border-top-right-radius: 6px;
+}}
+QSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    background: #1f2733;
+    border-left: 1px solid {C_BORDER};
+    border-bottom-right-radius: 6px;
+}}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: #2a3645; }}
+QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {{ background: {C_ACCENT}; }}
+QSpinBox::up-arrow {{ image: url("{_SPIN_UP}"); width: 10px; height: 10px; }}
+QSpinBox::down-arrow {{ image: url("{_SPIN_DOWN}"); width: 10px; height: 10px; }}
+QLineEdit {{
+    background-color: {C_PANEL};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: {C_TEXT};
+    font-size: 17px;
+    selection-background-color: {C_ACCENT};
+}}
+QLineEdit:hover {{ border-color: #5a6b7a; }}
+QLineEdit:focus {{ border-color: {C_ACCENT}; }}
 QPushButton {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 #3ea0e0, stop:1 {C_ACCENT});
@@ -1631,6 +1686,10 @@ QTabBar::tab:selected {{
     color: {C_ACCENT};
     border-bottom: 2px solid {C_ACCENT};
 }}
+QTabBar::tab:hover:!selected {{
+    color: {C_TEXT};
+    background: #1c2430;
+}}
 QTableWidget {{
     background-color: {C_PANEL};
     alternate-background-color: #1b2230;
@@ -1665,7 +1724,7 @@ QHeaderView::section:last {{
 }}
 QScrollBar:vertical {{
     background: transparent;
-    width: 6px;
+    width: 9px;
     margin: 0;
 }}
 QScrollBar::handle:vertical {{
@@ -1677,7 +1736,7 @@ QScrollBar::handle:vertical:hover {{ background: {C_SUBTEXT}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar:horizontal {{
     background: transparent;
-    height: 6px;
+    height: 9px;
     margin: 0;
 }}
 QScrollBar::handle:horizontal {{
@@ -2370,7 +2429,7 @@ class TacticalDialog(QDialog):
             "자동으로 보장됩니다 (설정값이 최솟값보다 낮아도 무시)."
         )
         salvo_row.addWidget(_salvo_lbl)
-        self._spn_salvo = QSpinBox()
+        self._spn_salvo = NoScrollSpinBox()
         self._spn_salvo.setRange(1, 3)
         self._spn_salvo.setValue(1)
         self._spn_salvo.setFixedWidth(60)
@@ -6432,7 +6491,7 @@ class MainWindow(QMainWindow):
         mcl.setSpacing(6)
         lbl_mode = QLabel("정밀도:")
         lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
-        self.cmb_sim_mode = QComboBox()
+        self.cmb_sim_mode = NoScrollComboBox()
         self.cmb_sim_mode.addItems(["⚡ 빠름  (5,000회)", "📊 표준  (10,000회)", "🔬 정밀  (100,000회)"])
         self.cmb_sim_mode.setCurrentIndex(1)
         self.cmb_sim_mode.setFixedHeight(32)
@@ -6452,10 +6511,10 @@ class MainWindow(QMainWindow):
 
         lbl_npp = QLabel("Sobol 포인트당 반복:")
         lbl_npp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
-        self.spn_sobol_npp = QSpinBox()
+        self.spn_sobol_npp = NoScrollSpinBox()
         self.spn_sobol_npp.setRange(1, 10)
         self.spn_sobol_npp.setValue(3)
-        self.spn_sobol_npp.setFixedWidth(52)
+        self.spn_sobol_npp.setFixedWidth(72)
         self.spn_sobol_npp.setFixedHeight(28)
         self.spn_sobol_npp.setToolTip(
             "Sobol 분석 시 각 파라미터 조합을 몇 번 반복해 평균낼지.\n"
@@ -6463,7 +6522,8 @@ class MainWindow(QMainWindow):
             "확률적 시뮬레이션의 노이즈를 √K배 줄여 민감도 지수 신뢰도 향상.\n"
             "정밀 모드 선택 시에만 사용됩니다.")
         self.spn_sobol_npp.setStyleSheet(
-            f"background:#1c2128; color:#e6edf3; border:1px solid #444c56; font-size:13px;")
+            f"background:#1c2128; color:#e6edf3; border:1px solid #444c56;"
+            f" font-size:13px; padding:0 18px 0 8px;")
         self.spn_sobol_npp.setEnabled(False)
 
         lbl_mode_hint = QLabel()
@@ -6484,10 +6544,12 @@ class MainWindow(QMainWindow):
             ]
             lbl_mode_hint.setText(hints[idx])
             is_precision = (idx == 2)
+            # Sobol 반복은 정밀 모드 전용 — 표준·빠름에선 행 전체 숨김
             self.spn_sobol_npp.setEnabled(is_precision)
-            lbl_npp.setStyleSheet(
-                f"color:{C_TEXT if is_precision else C_SUBTEXT}; font-size:13px;")
+            lbl_npp.setVisible(is_precision)
+            self.spn_sobol_npp.setVisible(is_precision)
             self._lbl_sobol_total.setVisible(is_precision)
+            lbl_npp.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
 
         self.cmb_sim_mode.currentIndexChanged.connect(_update_mode_hint)
         self.spn_sobol_npp.valueChanged.connect(_update_sobol_total)
@@ -7300,7 +7362,7 @@ class MainWindow(QMainWindow):
         lbl_b.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
         sel_layout.addWidget(lbl_b)
 
-        self._cb_ab_fleet_b = QComboBox()
+        self._cb_ab_fleet_b = NoScrollComboBox()
         self._cb_ab_fleet_b.setMinimumWidth(220)
         self._cb_ab_fleet_b.setStyleSheet(
             f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
@@ -7310,7 +7372,7 @@ class MainWindow(QMainWindow):
         lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
         sel_layout.addWidget(lbl_n)
 
-        self._sb_ab_n = QSpinBox()
+        self._sb_ab_n = NoScrollSpinBox()
         self._sb_ab_n.setRange(100, 2000)
         self._sb_ab_n.setSingleStep(100)
         self._sb_ab_n.setValue(500)
@@ -7403,7 +7465,7 @@ class MainWindow(QMainWindow):
         lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
         ctrl_layout.addWidget(lbl_n)
 
-        self._hm_sb_n = QSpinBox()
+        self._hm_sb_n = NoScrollSpinBox()
         self._hm_sb_n.setRange(50, 1000)
         self._hm_sb_n.setSingleStep(50)
         self._hm_sb_n.setValue(200)
@@ -9685,9 +9747,9 @@ class SplashWindow(QWidget):
             QPushButton#nav {{ text-align: left; padding: 11px 17px;
                 border: none; border-left: 3px solid transparent;
                 background: transparent; color: #9fb0c3; font-size: 15px; }}
-            QPushButton#nav:hover {{ background: rgba(52,152,219,0.10);
-                color: #eaf2ff; }}
-            QPushButton#nav:checked {{ background: rgba(52,152,219,0.18);
+            QPushButton#nav:hover {{ background: rgba(52,152,219,0.13);
+                color: #eaf2ff; border-left: 3px solid rgba(52,152,219,0.55); }}
+            QPushButton#nav:checked {{ background: rgba(52,152,219,0.20);
                 color: {C_ACCENT}; border-left: 3px solid {C_ACCENT};
                 font-weight: bold; }}
         """)
@@ -10139,9 +10201,9 @@ class SplashWindow(QWidget):
              "실사용 점검뿐: Excel/PDF 한글 폰트·출력 일치, A/B 비교 실제 동작, MC 중단 후 빈 화면, 반복 실행 메모리 누수, "
              "고DPI(150/200%)·창 축소 레이아웃. 실사용 중 이상 발견 시 그때 대응."),
             ("v13.2", "낮음", "UI 디자인 전반 다듬기",
-             "체크박스·드롭다운·버튼·표(테이블) 정리 완료. ▶ 다음 우선 대상: 탭·스크롤바·입력창·카드 등 "
-             "나머지 위젯도 일관된 스타일로 통일. "
-             "기능 변경 없이 시각적 완성도만 높이는 작업 — 눈에 거슬리는 곳부터 순차 개선."),
+             "체크박스·드롭다운·버튼·표(테이블)·입력창·탭·스크롤바 정리 완료. 카드는 이미 양호. "
+             "주요 위젯 통일은 일단락 — 이후 실사용 중 눈에 거슬리는 곳을 발견하면 그때그때 다듬는다. "
+             "기능 변경 없이 시각적 완성도만 높이는 작업."),
             # ── v14.x — 3D 전장 & 실제 지도 ─────────────────────────────────
             ("v14.1", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
