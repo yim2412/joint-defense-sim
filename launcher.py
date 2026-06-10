@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.15 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.16 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.16 — 드롭다운(콤보박스) 디자인 개선]                               ║
+║  NEW-A  드롭다운 목록에 항목 여백·마우스 hover 강조·둥근 모서리·선택 표시   ║
+║         추가 — 밋밋하던 선택 목록을 보기 좋게 정리                          ║
 ║  [v13.06.15 — 체크박스 체크 여부 식별성 개선]                               ║
 ║  BUG-1  체크 표시(indicator) 스타일이 QSS 작성 오류로 적용되지 않아 체크    ║
 ║         여부 구별이 안 되던 문제 수정 → 체크=녹색/미체크=어두운 빈 칸       ║
@@ -816,7 +819,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.15"
+APP_VERSION = "v13.06.16"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1541,12 +1544,31 @@ QComboBox, QSpinBox {{
     color: {C_TEXT};
     font-size: 17px;
 }}
-QComboBox::drop-down {{ border: none; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox:hover {{ border-color: #5a6b7a; }}
+QComboBox:focus, QComboBox:on {{ border-color: {C_ACCENT}; }}
 QComboBox QAbstractItemView {{
     background-color: {C_PANEL};
     color: {C_TEXT};
-    selection-background-color: {C_ACCENT};
+    border: 1px solid {C_ACCENT};
+    border-radius: 8px;
+    padding: 5px;
+    outline: none;
     font-size: 17px;
+}}
+QComboBox QAbstractItemView::item {{
+    min-height: 32px;
+    padding: 4px 12px;
+    border-radius: 5px;
+    margin: 1px 2px;
+}}
+QComboBox QAbstractItemView::item:hover {{
+    background-color: #1f3a5f;
+    color: #ffffff;
+}}
+QComboBox QAbstractItemView::item:selected {{
+    background-color: {C_ACCENT};
+    color: #ffffff;
 }}
 QPushButton {{
     background-color: {C_ACCENT};
