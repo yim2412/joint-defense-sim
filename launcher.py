@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v13.07.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v13.08.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.08.02 — 표(테이블) 가독성 개선]                                       ║
+║  수정  표 행 교차색·선택/마우스 hover 강조·셀 여백·헤더 하단 강조선 추가     ║
+║  [v13.08.01 — 버튼 디자인 개선]                                             ║
+║  수정  버튼에 그라데이션·눌림 효과(1px 내려앉음)·비활성 표시 명확화          ║
 ║  [v13.07.03 — 홈 화면 제목 한 줄 정리 + 엠블럼 위치 조정]                   ║
 ║  수정  홈 타이틀을 '합동 통합방어 시뮬레이터' 한 줄로, 엠블럼을 위로 이동    ║
 ║  [v13.07.02 — 앱 아이콘·화면 엠블럼을 JDS 모노그램으로 교체]                ║
@@ -830,7 +834,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.07.03"
+APP_VERSION = "v13.08.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1582,17 +1586,31 @@ QComboBox QAbstractItemView::item:selected {{
     color: #ffffff;
 }}
 QPushButton {{
-    background-color: {C_ACCENT};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #3ea0e0, stop:1 {C_ACCENT});
     color: white;
-    border: none;
+    border: 1px solid rgba(255,255,255,0.10);
     border-radius: 6px;
     padding: 10px 20px;
     font-weight: bold;
     font-size: 17px;
 }}
-QPushButton:hover  {{ background-color: #2980b9; }}
-QPushButton:pressed {{ background-color: #1a6fa3; }}
-QPushButton:disabled {{ background-color: {C_BORDER}; color: {C_SUBTEXT}; }}
+QPushButton:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #54aee8, stop:1 #2e8bcf);
+    border: 1px solid rgba(255,255,255,0.22);
+}}
+QPushButton:pressed {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #2980b9, stop:1 #1a6fa3);
+    padding-top: 11px; padding-bottom: 9px;   /* 1px 내려앉는 눌림감 */
+    border: 1px solid rgba(0,0,0,0.25);
+}}
+QPushButton:disabled {{
+    background: #1c2128;
+    color: #545d68;
+    border: 1px solid {C_BORDER};
+}}
 QTabWidget::pane {{
     border: 1px solid {C_BORDER};
     background: {C_BG};
@@ -1615,18 +1633,35 @@ QTabBar::tab:selected {{
 }}
 QTableWidget {{
     background-color: {C_PANEL};
-    gridline-color: {C_BORDER};
+    alternate-background-color: #1b2230;
+    gridline-color: #232b35;
     color: {C_TEXT};
     border: none;
     font-size: 16px;
 }}
-QTableWidget QHeaderView::section {{
+QTableWidget::item {{
+    padding: 5px 10px;
+    border: none;
+}}
+QTableWidget::item:hover {{
+    background-color: #1f3048;
+}}
+QTableWidget::item:selected {{
+    background-color: #2563a8;
+    color: #ffffff;
+}}
+QHeaderView::section {{
     background-color: {C_BG};
     color: {C_ACCENT};
-    border: 1px solid {C_BORDER};
-    padding: 6px;
+    border: none;
+    border-right: 1px solid {C_BORDER};
+    border-bottom: 2px solid {C_ACCENT};
+    padding: 8px 10px;
     font-weight: bold;
     font-size: 16px;
+}}
+QHeaderView::section:last {{
+    border-right: none;
 }}
 QScrollBar:vertical {{
     background: transparent;
@@ -10104,9 +10139,8 @@ class SplashWindow(QWidget):
              "실사용 점검뿐: Excel/PDF 한글 폰트·출력 일치, A/B 비교 실제 동작, MC 중단 후 빈 화면, 반복 실행 메모리 누수, "
              "고DPI(150/200%)·창 축소 레이아웃. 실사용 중 이상 발견 시 그때 대응."),
             ("v13.2", "낮음", "UI 디자인 전반 다듬기",
-             "체크박스·드롭다운 정리 완료. ▶ 다음 우선 대상: 버튼·표(테이블) — 버튼은 색감·"
-             "눌림 효과·비활성 표시, 표는 헤더·행 구분·선택/hover 강조·여백을 다듬는다. "
-             "이어서 탭·스크롤바·입력창·카드 등 나머지 위젯도 일관된 스타일로 통일. "
+             "체크박스·드롭다운·버튼·표(테이블) 정리 완료. ▶ 다음 우선 대상: 탭·스크롤바·입력창·카드 등 "
+             "나머지 위젯도 일관된 스타일로 통일. "
              "기능 변경 없이 시각적 완성도만 높이는 작업 — 눈에 거슬리는 곳부터 순차 개선."),
             # ── v14.x — 3D 전장 & 실제 지도 ─────────────────────────────────
             ("v14.1", "매우 높음", "3D 전장 + 실제 지도",
