@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.05.29 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.02 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.01~02 — 전황 지표판 신설 + 공격 임무 설정 패널 숨김 (v13.3)]      ║
+║  NEW-A  전황 지표판 탭 — 탄약 소모 효율·요격당 비용·피아 교환비·방어        ║
+║         포화도 4개 파생 지표를 카드 그리드 + 자동 해석으로 한 화면 표시     ║
+║  DEL-A  공격 임무 설정 패널 숨김 — 대함 무장 재고는 기본값 고정 운용        ║
 ║  [v13.05.29 — 향후 계획에서 위성 정찰 재방문 주기 항목 폐기]               ║
 ║  DEL-A  위성 정찰 재방문 주기(구 v13.4) 계획 제거 — 로드맵 정리            ║
 ║  [v13.05.28 — 향후 계획 완료 항목 제거 + 패치 내역 코드명 정리]            ║
@@ -770,7 +774,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.05.29"
+APP_VERSION = "v13.06.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3414,6 +3418,7 @@ class AccordionSidebar(QWidget):
         ]),
         ("✅", "성능 평가", [
             (2,  "✅  REQ 판정 & 충족률"),
+            (23, "📋  전황 지표판"),
             (7,  "💰  비용 효과"),
             (21, "🔧  최적 조합 추천"),
             (22, "⚖  A/B 편대 비교"),
@@ -6084,7 +6089,10 @@ class MainWindow(QMainWindow):
         self.spn_sim_seed.hide()
 
         # ── 공격 임무 옵션 (v9.3) ─────────────────────────────────────────────
+        # v13.06.02: 패널 숨김 — 재고는 기본값 고정 운용. 위젯 객체는 cfg 읽기용으로
+        # 유지(self 참조로 GC 방지)하되 설정창에는 노출하지 않는다.
         grp_strike = QGroupBox("⚔️ 공격 임무 (아군 대함 공격)")
+        self._grp_strike = grp_strike   # GC 방지 — 화면엔 추가 안 함
         strl = QFormLayout(grp_strike)
         strl.setSpacing(6)
 
@@ -6116,6 +6124,7 @@ class MainWindow(QMainWindow):
             "60초 간격으로 1발씩 발사 (재보급 준비 시간)."
         )
         strl.addRow("현무-4 재고 (지상 발사)", self.spn_hyunmoo4)
+        grp_strike.hide()   # v13.06.02: 패널 숨김 (재고 기본값 8/4/0 고정 운용)
 
         # v9.11: 이지스 어쇼어 + THAAD 지상 BMD
         grp_bmd = QGroupBox("🛡 지상 BMD 자산")
@@ -6259,13 +6268,13 @@ class MainWindow(QMainWindow):
 
         # ── 하단 섹션 hover 팝업 일괄 설치 ──────────────────────────────
         _bot_popup = _HoverPopup(self)
-        for _g in [grp_env, grp_def, grp_strike, grp_bmd, grp_cd, grp_ac, grp_mc]:
+        for _g in [grp_env, grp_def, grp_bmd, grp_cd, grp_ac, grp_mc]:
             _install_section_popups(_g, _bot_popup)
 
         # ── 섹션 조립 ────────────────────────────────────────────────────
         _sections = [
             ("환경",     [grp_env],                        False),
-            ("방어전술", [grp_def, grp_strike],             False),
+            ("방어전술", [grp_def],                          False),
             ("항공자산", [grp_ac],                          False),
             ("고급",     [grp_bmd, grp_cd, grp_mc], False),
         ]
@@ -6466,7 +6475,7 @@ class MainWindow(QMainWindow):
         self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
         self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
-        self.tab_cec_compare = QWidget()
+        self.tab_status_board = self._build_status_board_tab()  # v13.3 전황 지표판
         self.tab_strike      = self._build_strike_tab()  # v9.3 공격 결과
         self.tab_heatmap     = self._build_heatmap_tab()  # v9.5 생존성 히트맵
 
@@ -6502,7 +6511,7 @@ class MainWindow(QMainWindow):
             self.tab_subsystem,   # 20
             self.tab_optimize,    # 21
             self.tab_ab_compare,  # 22
-            self.tab_cec_compare, # 23
+            self.tab_status_board, # 23
             self.tab_strike,      # 24
             self.tab_heatmap,     # 25
         ]:
@@ -6851,6 +6860,147 @@ class MainWindow(QMainWindow):
 
         self._brief_toggle.clicked.connect(_toggle_brief)
         return w
+
+    # ── v13.3: 전황 지표판 ──────────────────────────────────────────────────
+    _SB_CARD_DEFS = [
+        ('ammo_eff',      '🎯  탄약 소모 효율',
+         '요격 성공 ÷ 발사 미사일. 높을수록 한 발도 헛되이 쓰지 않은 정밀 교전.'),
+        ('cost_per_kill', '💵  요격당 비용',
+         '총 교전 비용 ÷ 요격 성공 수. 위협 1기를 막는 데 든 평균 비용(낮을수록 경제적).'),
+        ('exchange',      '⚔  피아 교환비',
+         '적 무력화(요격+격침) ÷ 아군 피격. 1 초과면 가한 피해가 입은 피해보다 큼.'),
+        ('saturation',    '📡  방어 포화도',
+         '동시 위협 ÷ 총 교전 채널. 1 이상이면 채널 한계 초과 — 누수 위험 급증.'),
+    ]
+
+    def _build_status_board_tab(self) -> QWidget:
+        """전황 지표판 — 핵심 파생 지표를 한 화면 카드 그리드로 (대표 단일 시뮬 기준)."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        hdr = QLabel("  📋  전황 지표판 — 전술 판단용 핵심 파생 지표")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+        note = QLabel("  대표 단일 시뮬 기준. 무기 교체·편대 보강 판단의 즉시 근거로 활용하세요.")
+        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        layout.addWidget(note)
+
+        grid_w = QWidget()
+        grid = QGridLayout(grid_w)
+        grid.setContentsMargins(0, 6, 0, 6)
+        grid.setSpacing(12)
+        self._sb_cards: dict = {}
+        self._sb_subs:  dict = {}
+        for i, (key, title, tip) in enumerate(self._SB_CARD_DEFS):
+            card = QGroupBox(title)
+            card.setMinimumHeight(120)
+            card.setToolTip(tip)
+            card.setStyleSheet(
+                f"QGroupBox {{ background:{C_PANEL}; border:1px solid {C_BORDER};"
+                f" border-radius:8px; margin-top:8px; padding:10px;"
+                f" color:{C_TEXT}; font-size:13px; font-weight:bold; }}"
+                f"QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 4px; }}")
+            cl = QVBoxLayout(card)
+            cl.setSpacing(2)
+            val = QLabel("—")
+            val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            val.setFont(QFont('Malgun Gothic', 26, QFont.Weight.Bold))
+            val.setStyleSheet(f"color:{C_ACCENT};")
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            cl.addWidget(val)
+            sub = QLabel("")
+            sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            sub.setWordWrap(True)
+            sub.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            cl.addWidget(sub)
+            grid.addWidget(card, i // 2, i % 2)
+            self._sb_cards[key] = val
+            self._sb_subs[key]  = sub
+        layout.addWidget(grid_w)
+
+        # 자동 해석 패널
+        interp_box = QGroupBox("  🧭  자동 해석")
+        interp_box.setStyleSheet(
+            f"QGroupBox {{ background:#11202e; border:1px solid #1e3a4a; border-radius:8px;"
+            f" margin-top:8px; padding:8px; color:{C_TEXT}; font-size:12px; font-weight:bold; }}"
+            f"QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 4px; }}")
+        ibl = QVBoxLayout(interp_box)
+        self._sb_interp = QLabel("시뮬레이션을 실행하면 전황 해석이 표시됩니다.")
+        self._sb_interp.setWordWrap(True)
+        self._sb_interp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-weight:normal;")
+        ibl.addWidget(self._sb_interp)
+        layout.addWidget(interp_box)
+        layout.addStretch()
+        return w
+
+    def _update_status_board(self, result: dict, mc: dict):
+        """전황 지표판 4개 카드 + 자동 해석 갱신 (대표 단일 시뮬 기준)."""
+        fired = result.get('total_missiles_fired', 0)
+        intc  = result.get('intercepted_threats', 0)
+        tot   = result.get('total_threats', 0)
+        edst  = result.get('enemy_ships_destroyed', 0)
+        fhit  = result.get('friendly_hits', 0)
+        chan  = result.get('total_channels', 0)
+        cost  = result.get('total_cost', 0.0)
+        GOOD, WARN, BAD = '#2ecc71', '#f39c12', '#e74c3c'
+
+        def _set(key, text, color, sub):
+            self._sb_cards[key].setText(text)
+            self._sb_cards[key].setStyleSheet(f"color:{color};")
+            self._sb_subs[key].setText(sub)
+
+        # 1) 탄약 소모 효율 = 요격 / 발사
+        if fired > 0:
+            eff = intc / fired
+            _set('ammo_eff', f"{eff:.0%}",
+                 GOOD if eff >= 0.5 else WARN if eff >= 0.3 else BAD,
+                 f"요격 {intc} / 발사 {fired}발")
+        else:
+            _set('ammo_eff', "—", C_SUBTEXT, "발사 없음")
+
+        # 2) 요격당 비용 ($M)
+        if intc > 0:
+            cpk = cost / intc / 1_000_000
+            _set('cost_per_kill', f"${cpk:.2f}M",
+                 GOOD if cpk <= 5 else WARN if cpk <= 15 else BAD,
+                 f"총 ${cost/1_000_000:.1f}M / 요격 {intc}")
+        else:
+            _set('cost_per_kill', "—", C_SUBTEXT, "요격 없음")
+
+        # 3) 피아 교환비 = (요격+격침) / 아군 피격
+        gained = intc + edst
+        if fhit == 0:
+            _set('exchange', "무손실", GOOD, f"아군 피격 0 · 적 무력화 {gained}")
+        else:
+            ex = gained / fhit
+            _set('exchange', f"{ex:.1f} : 1",
+                 GOOD if ex >= 5 else WARN if ex >= 1 else BAD,
+                 f"적 무력화 {gained} / 아군 피격 {fhit}")
+
+        # 4) 방어 포화도 = 동시 위협 / 총 채널
+        if chan > 0:
+            sat = tot / chan
+            _set('saturation', f"{sat:.2f}",
+                 GOOD if sat < 0.7 else WARN if sat < 1.0 else BAD,
+                 f"위협 {tot} / 채널 {chan}")
+        else:
+            _set('saturation', "—", C_SUBTEXT, "채널 정보 없음")
+
+        # 자동 해석
+        msgs = []
+        if chan > 0 and tot / chan >= 1.0:
+            msgs.append("⚠ 채널 포화 — 동시 위협이 교전 채널 한계를 넘어섰습니다. 추가 함정 편입 또는 CEC 활성화로 채널을 분산하세요.")
+        if fhit > 0 and gained / fhit < 1.0:
+            msgs.append("⚠ 교환비 열세 — 입은 피해가 가한 피해보다 큽니다. 외곽 요격(장사정 SAM) 비중을 높이세요.")
+        if fired > 0 and intc / fired < 0.3:
+            msgs.append("⚠ 탄약 효율 저조 — 요격당 소비 탄이 많습니다. 발사 교리(살보 수)·표적 배정을 점검하세요.")
+        if intc > 0 and (cost / intc / 1_000_000) > 15:
+            msgs.append("⚠ 고비용 교전 — 요격당 비용이 높습니다. 저가 무기(ESSM·CIWS) 계층 활용을 검토하세요.")
+        if not msgs:
+            msgs.append("✅ 주요 지표 양호 — 채널 여유·교환비 우세·탄약 효율 정상 범위입니다.")
+        self._sb_interp.setText("\n".join(msgs))
 
     def _build_ab_compare_tab(self) -> QWidget:
         """A/B 편대 구성 비교 탭 — 두 편대를 동일 위협 조건으로 MC 비교."""
@@ -7734,6 +7884,7 @@ class MainWindow(QMainWindow):
 
         self._update_cards(result, mc)
         self._update_vls_warning(mc)
+        self._update_status_board(result, mc)   # v13.3 전황 지표판
         self.tab_engagement.load_result(result)
         self._fill_req(result, mc)
         self._fill_log(result.get('log', []))
@@ -9718,10 +9869,6 @@ class SplashWindow(QWidget):
              "함정·항공·지상 데이터링크 연결 상태를 그래프로 표시. "
              "함정 격침 시 연결 자동 단절·협동 교전 변화 시각화. "
              "어느 함정 먼저 격침 시 방어망 붕괴하는지 취약점 분석."),
-            ("v13.3", "낮음", "실시간 전황 지표판",
-             "기본 통계(요격률·비용·손상)는 결과 탭에 구현됨. 추가 구간: "
-             "탄약 소모 효율·비용당 격침 비율·피아 교환비·방어 포화도 등 상세 지표 확장. "
-             "전술 의사결정 모드와 직결 — 무기 교체 판단 근거 즉시 제공."),
             # ── v14.x — 3D 전장 & 실제 지도 ─────────────────────────────────
             ("v14.1", "매우 높음", "3D 전장 + 실제 지도",
              "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
