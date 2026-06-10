@@ -1,7 +1,17 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v13.08.08 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v13.09.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.09.04 — 진행 화면 동기화 가속]                                        ║
+║  수정  진행 화면 갱신 주기 1초→0.3초 + MC 배치 축소로 진행 표시 반영을 빠르게║
+║  [v13.09.03 — 진행 화면 글자 크기 1.2배]                                    ║
+║  수정  진행 화면(MC 분석) 텍스트가 작아 잘 안 보이던 것을 전반적으로 1.2배 확대║
+║  [v13.09.02 — 테스트 모드 체크박스 스타일 통일]                             ║
+║  수정  흐리고 작던 테스트 모드 체크박스를 다른 체크박스와 같은 스타일로 통일 ║
+║  [v13.09.01 — 위협 추적 표·방어 Funnel·교전 타임라인 누락 버그 수정]        ║
+║  BUG-1  요격·명중된 적 미사일이 종료 시점에 누락돼 교전 분석이 비던 문제 해결║
+║  [v13.08.09 — 진행 상태 표시를 상단 진행 화면으로 일원화]                   ║
+║  수정  좌하단 상태바의 중복 진행 텍스트 제거, 진행 화면 잔여시간 강조        ║
 ║  [v13.08.08 — Sobol 반복 옵션 정밀 모드 전용 표시]                          ║
 ║  수정  표준·빠름 모드에선 Sobol 반복 입력 행을 숨김 (정밀 모드에서만 표시)   ║
 ║  [v13.08.07 — 사이드바 네비 버튼 강조 개선]                                 ║
@@ -846,7 +856,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.08.08"
+APP_VERSION = "v13.09.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1937,7 +1947,7 @@ class FloatingMonitor(QWidget):
         self._pending_hist: list  = [] # 히스토그램 최신 데이터 (1초 타이머가 그림)
         self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._timer = QTimer(self)
-        self._timer.setInterval(1000)   # 1초 — 진행 그래프 규칙적 갱신 주기
+        self._timer.setInterval(300)    # 0.3초 — 진행 그래프·ETA 갱신 주기 (동기화 가속)
         self._timer.timeout.connect(self._refresh_tick)
         self._build_ui()
 
@@ -1962,9 +1972,9 @@ class FloatingMonitor(QWidget):
         # ── 제목 행 ──────────────────────────────────────────────────────────
         title_row = QHBoxLayout()
         self._lbl_title = QLabel("⚙  1/2  단일 시뮬 실행 중…")
-        self._lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold;")
+        self._lbl_title.setStyleSheet(f"color:{C_ACCENT}; font-size:18px; font-weight:bold;")
         self._lbl_elapsed = QLabel("경과  0:00")
-        self._lbl_elapsed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        self._lbl_elapsed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px;")
         title_row.addWidget(self._lbl_title)
         title_row.addStretch()
         title_row.addWidget(self._lbl_elapsed)
@@ -1982,7 +1992,7 @@ class FloatingMonitor(QWidget):
         # 시뮬 진행 바 (시간)
         sp_row = QHBoxLayout()
         self._lbl_sim_t = QLabel("모사 시간  0s / —s")
-        self._lbl_sim_t.setStyleSheet(f"color:{C_TEXT}; font-size:13px;")
+        self._lbl_sim_t.setStyleSheet(f"color:{C_TEXT}; font-size:16px;")
         self._lbl_sim_t.setToolTip(
             "모사된 교전 내 시간(시뮬 시각)입니다. 실제 계산에 걸리는 시간이 아닙니다.\n"
             "예: 40분(2400초)짜리 교전을 컴퓨터가 수 초 만에 계산합니다.")
@@ -2006,12 +2016,12 @@ class FloatingMonitor(QWidget):
         # 교전 로그 스트림 (최근 5줄)
         sv.addWidget(self._sep())
         log_hdr = QLabel("교전 로그")
-        log_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        log_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         sv.addWidget(log_hdr)
         self._log_labels = []
         for _ in range(5):
             lbl = QLabel("")
-            lbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px; padding-left:4px;")
+            lbl.setStyleSheet(f"color:{C_TEXT}; font-size:14px; padding-left:4px;")
             lbl.setWordWrap(True)
             sv.addWidget(lbl)
             self._log_labels.append(lbl)
@@ -2027,9 +2037,9 @@ class FloatingMonitor(QWidget):
         # MC 진행 바
         mc_top = QHBoxLayout()
         self._lbl_mc  = QLabel("MC  0 / 0")
-        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
+        self._lbl_mc.setStyleSheet(f"color:{C_TEXT}; font-size:17px;")
         self._lbl_eta = QLabel("잔여 —")
-        self._lbl_eta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
+        self._lbl_eta.setStyleSheet(f"color:{C_TEXT}; font-size:16px; font-weight:bold;")
         mc_top.addWidget(self._lbl_mc); mc_top.addStretch(); mc_top.addWidget(self._lbl_eta)
         mv.addLayout(mc_top)
         self._prog_mc = QProgressBar()
@@ -2041,13 +2051,13 @@ class FloatingMonitor(QWidget):
         # 요격률 게이지 + 스파크라인
         rate_row = QHBoxLayout(); rate_row.setSpacing(6)
         lbl_rt = QLabel("요격률")
-        lbl_rt.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;"); lbl_rt.setFixedWidth(38)
+        lbl_rt.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;"); lbl_rt.setFixedWidth(38)
         self._prog_rate = QProgressBar()
         self._prog_rate.setRange(0, 100); self._prog_rate.setValue(0)
         self._prog_rate.setFixedHeight(9); self._prog_rate.setTextVisible(False)
         self._prog_rate.setStyleSheet(self._bar_css('#2ecc71'))
         self._lbl_rate_val = QLabel("—%")
-        self._lbl_rate_val.setStyleSheet(f"color:{C_TEXT}; font-size:14px; font-weight:bold;")
+        self._lbl_rate_val.setStyleSheet(f"color:{C_TEXT}; font-size:17px; font-weight:bold;")
         self._lbl_rate_val.setFixedWidth(52)
         rate_row.addWidget(lbl_rt); rate_row.addWidget(self._prog_rate, 1)
         rate_row.addWidget(self._lbl_rate_val)
@@ -2064,7 +2074,7 @@ class FloatingMonitor(QWidget):
         self._lbl_fh  = QLabel("피격 —")
         self._lbl_spd = QLabel("— 회/s")
         for l in (self._lbl_ed, self._lbl_fh, self._lbl_spd):
-            l.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            l.setStyleSheet(f"color:{C_TEXT}; font-size:14px;")
         kpi_row.addWidget(self._lbl_ed); kpi_row.addWidget(self._lbl_fh)
         kpi_row.addStretch(); kpi_row.addWidget(self._lbl_spd)
         mv.addLayout(kpi_row)
@@ -2074,7 +2084,7 @@ class FloatingMonitor(QWidget):
         self._phase_bars: dict = {}
 
         hist_hdr = QLabel("요격률 분포 (MC 표본)")
-        hist_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        hist_hdr.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         mv.addWidget(hist_hdr)
         self._rate_hist = RateHistogramWidget()
         mv.addWidget(self._rate_hist)
@@ -2083,9 +2093,9 @@ class FloatingMonitor(QWidget):
 
         # 수렴 감지 + 이전 실행 델타
         self._lbl_converge = QLabel("수렴  분석 중…")
-        self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self._lbl_delta    = QLabel("")
-        self._lbl_delta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._lbl_delta.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         conv_row = QHBoxLayout()
         conv_row.addWidget(self._lbl_converge)
         conv_row.addStretch()
@@ -2120,7 +2130,7 @@ class FloatingMonitor(QWidget):
         btn_stop.setFixedHeight(24)
         btn_stop.setStyleSheet(
             f"QPushButton {{ background:#3d1010; color:#e74c3c; border:1px solid #5a1a1a;"
-            f" border-radius:4px; font-size:12px; padding:0 10px; }}"
+            f" border-radius:4px; font-size:14px; padding:0 10px; }}"
             f"QPushButton:hover {{ background:#5a1a1a; }}"
         )
         btn_stop.clicked.connect(self.stop_requested)
@@ -2144,8 +2154,8 @@ class FloatingMonitor(QWidget):
     def _tag_lbl(self, title: str, init: str) -> QWidget:
         w = QWidget()
         h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(4)
-        t = QLabel(title); t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        v = QLabel(init);  v.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold;")
+        t = QLabel(title); t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
+        v = QLabel(init);  v.setStyleSheet(f"color:{C_TEXT}; font-size:16px; font-weight:bold;")
         v.setObjectName(f'tag_{title}')
         h.addWidget(t); h.addWidget(v)
         return w
@@ -2154,9 +2164,9 @@ class FloatingMonitor(QWidget):
         w = QWidget()
         v = QVBoxLayout(w); v.setContentsMargins(0, 2, 0, 2); v.setSpacing(1)
         t = QLabel(title); t.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+        t.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         val = QLabel(init); val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        val.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold;")
+        val.setStyleSheet(f"color:{C_TEXT}; font-size:16px; font-weight:bold;")
         val.setObjectName(f'sys_{title}')
         v.addWidget(t); v.addWidget(val)
         return w
@@ -2251,7 +2261,7 @@ class FloatingMonitor(QWidget):
         self._prog_rate.setValue(pct)
         self._prog_rate.setStyleSheet(self._bar_css(color))
         self._lbl_rate_val.setText(f"{mean_rate:.1%}")
-        self._lbl_rate_val.setStyleSheet(f"color:{color}; font-size:14px; font-weight:bold;")
+        self._lbl_rate_val.setStyleSheet(f"color:{color}; font-size:17px; font-weight:bold;")
         self._lbl_ed.setText(f"격추 {avg_ed:.1f}")
         self._lbl_fh.setText(f"피격 {avg_fh:.2f}")
         # 스파크라인
@@ -2270,10 +2280,10 @@ class FloatingMonitor(QWidget):
             std = _np.std(h[-20:]) * 100
             if std < 0.5:
                 self._lbl_converge.setText(f"📊 수렴 안정 ±{std:.1f}%p  ✅")
-                self._lbl_converge.setStyleSheet("color:#2ecc71; font-size:11px;")
+                self._lbl_converge.setStyleSheet("color:#2ecc71; font-size:13px;")
             else:
                 self._lbl_converge.setText(f"📊 수렴 진행 중 ±{std:.1f}%p")
-                self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+                self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         # 이전 실행 델타
         prev = SimWorker._last_intercept_rate
         if prev >= 0 and len(self._rates_history) >= 5:
@@ -2283,7 +2293,7 @@ class FloatingMonitor(QWidget):
             sign = "↑" if diff > 0 else "↓"
             col  = '#2ecc71' if diff > 0 else '#e74c3c'
             self._lbl_delta.setText(f"이전 대비 {sign}{abs(diff):.1f}%p")
-            self._lbl_delta.setStyleSheet(f"color:{col}; font-size:11px;")
+            self._lbl_delta.setStyleSheet(f"color:{col}; font-size:13px;")
 
     def update_histogram(self, rates: list):
         """개별 시뮬 요격률 누적 분포 — 데이터만 저장, 그리기는 _refresh_tick(1초)."""
@@ -2323,7 +2333,7 @@ class FloatingMonitor(QWidget):
         for lbl in self._log_labels:
             lbl.setText("")
         self._lbl_converge.setText("수렴  분석 중…")
-        self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._lbl_converge.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self._lbl_delta.setText("")
         self._timer.start()
         self._refresh_tick()
@@ -3000,7 +3010,7 @@ class SimWorker(QThread):
                 # 배치가 작을수록 (배치 완료마다 그래프 갱신되므로) 진행 화면 동기화가
                 # 잦아짐 + 취소 시 잔여 서브프로세스 최소화. 너무 작으면 디스패치
                 # 오버헤드↑ → 갱신 빈도와 처리량의 절충: 코어당 ~10여 회.
-                batch_size = max(8, min(12, self.mc_n // (n_cores * 8)))
+                batch_size = max(4, min(8, self.mc_n // (n_cores * 12)))
                 batches, seed_offset = [], 0
                 while seed_offset < self.mc_n:
                     actual = min(batch_size, self.mc_n - seed_offset)
@@ -6574,7 +6584,7 @@ class MainWindow(QMainWindow):
         self.chk_test_mode.setToolTip(
             "MC 10회·LHS 10회·스트레스 셀당 3회로 단축 실행.\n"
             "동작 확인용 — 통계적 의미 없음.")
-        self.chk_test_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        _wire_chk_color(self.chk_test_mode)
         mcl.addWidget(self.chk_test_mode)
 
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
@@ -8191,12 +8201,11 @@ class MainWindow(QMainWindow):
         self._enter_setup_mode()                       # 최초 설정 전체화면으로
 
     def _on_progress(self, msg: str):
-        self._lbl_status.setText(msg)
+        # 진행 상태(단계·MC 횟수·잔여시간)는 상단 진행 화면이 표시 — 좌하단 상태바 중복 제거
+        pass
 
     def _on_progress_detail(self, done: int, total: int, eta: float):
-        pct = f" ({done / total:.0%})" if total else ""
-        eta_str = f" | 잔여 {eta:.0f}s" if eta > 0 else ""
-        self._lbl_status.setText(f"MC {done}/{total}{pct}{eta_str}")
+        # MC 진행 수치는 상단 진행 화면이 표시 — 좌하단 상태바 중복 제거
         # ⑤ Windows 작업표시줄 진행바 (최소화 중에도 아이콘에 진행률)
         self._taskbar.set_progress(int(self.winId()), done, total)
 

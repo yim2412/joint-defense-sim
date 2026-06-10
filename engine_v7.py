@@ -1315,6 +1315,10 @@ class TimeStepEngine:
 
         self.friendly_ships: List[FriendlyShipObj]    = self._build_friendly()
         self.missiles:       List[MissileObj]         = []
+        # 위협 추적 표/Funnel/타임라인용 — 요격·명중으로 self.missiles에서 빠진
+        # 적 공격 미사일을 누적 보관 (객체 참조라 최종 상태가 그대로 반영). 단일 시뮬만.
+        self._retired_strikes: List[MissileObj]       = []
+        self._retired_uids:    set                    = set()
         self._init_threat_columns()   # v12.7 단계1: SoA 컬럼 (반드시 _build_enemies 전)
         self.enemy_threats:  List[EnemyThreatObj]     = self._build_enemies()
         self.aircraft:       List[FriendlyAircraftObj] = self._build_aircraft()
@@ -4072,6 +4076,11 @@ class TimeStepEngine:
             for m in self.missiles:
                 if not m.alive or m.intercepted:
                     self.track_radar.release(m.uid)
+                    # 위협 추적 표용 — 리스트에서 빠지기 직전 적 공격 미사일 누적 (단일 시뮬만)
+                    if (not self._mc_mode and m.mtype == 'enemy_strike'
+                            and m.uid not in self._retired_uids):
+                        self._retired_uids.add(m.uid)
+                        self._retired_strikes.append(m)
             self.missiles = [m for m in self.missiles
                              if m.alive and not m.intercepted]
 
@@ -4192,9 +4201,10 @@ class TimeStepEngine:
             __slots__ = ('label','is_active','intercepted','intercept_weapon',
                          'intercept_km','t_intercepted','gantt_bars','detect_m','enemy_info')
         evs = []
-        for m in self.missiles:
-            if m.mtype != 'enemy_strike':
-                continue
+        # 요격·명중으로 빠진 위협(_retired_strikes) + 현재 비행 중인 적 공격 미사일 모두 포함
+        all_strikes = self._retired_strikes + [
+            m for m in self.missiles if m.mtype == 'enemy_strike']
+        for m in all_strikes:
             ev = _EvAdapter()
             ev.label            = m.name
             ev.is_active        = True
