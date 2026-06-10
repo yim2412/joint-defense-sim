@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.18 — PyQt6 런처             ║
+║   합동 통합방어 시뮬레이터  v13.07.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.07.03 — 홈 화면 제목 한 줄 정리 + 엠블럼 위치 조정]                   ║
+║  수정  홈 타이틀을 '합동 통합방어 시뮬레이터' 한 줄로, 엠블럼을 위로 이동    ║
+║  [v13.07.02 — 앱 아이콘·화면 엠블럼을 JDS 모노그램으로 교체]                ║
+║  수정  창·실행파일 아이콘과 사이드바·홈 엠블럼을 JDS 엠블럼으로 통일        ║
+║  [v13.07.01 — 프로그램 이름을 '합동 통합방어 시뮬레이터'로 변경]            ║
+║  수정  육해공 통합 정체성 반영해 제품명 변경 (함대 명칭 '이지스 기동전단'은 유지)║
 ║  [v13.06.18 — UI 다듬기 계획에 버튼·표 우선 대상 명시]                      ║
 ║  NEW-A  'UI 디자인 전반 다듬기' 항목에 다음 우선 대상(버튼·표) 구체화       ║
 ║  [v13.06.17 — 향후 계획에 UI 디자인 다듬기 추가]                            ║
@@ -824,7 +830,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.18"
+APP_VERSION = "v13.07.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5056,7 +5062,7 @@ def _apply_window_geometry(win, settings_key: str, default_w: int, default_h: in
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"이지스 기동전단 통합 방어 시뮬레이터  {APP_VERSION}")
+        self.setWindowTitle(f"합동 통합방어 시뮬레이터  {APP_VERSION}")
         # 자유 리사이즈 가능하도록 합리적 최소 크기만 지정 (세로 고정 버그 방지)
         self.setMinimumSize(1000, 680)
         self.resize(1800, 1060)
@@ -8896,7 +8902,7 @@ class MainWindow(QMainWindow):
             ax.set_facecolor('#0a0e1a')
             ax.axis('off')
             lines = [
-                ("이지스 기동전단 통합 방어 시뮬레이터", 30, C_ACCENT, 'bold'),
+                ("합동 통합방어 시뮬레이터", 30, C_ACCENT, 'bold'),
                 ("전투 분석 보고서", 20, C_TEXT, 'normal'),
                 ("", 14, C_TEXT, 'normal'),
                 (f"날씨: {cfg.get('weather', '—')}  |  "
@@ -9583,7 +9589,7 @@ class SplashWindow(QWidget):
         super().__init__()
         from datetime import datetime
         _write_log(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]  앱 시작')
-        self.setWindowTitle("이지스 기동전단 통합 방어 시뮬레이터")
+        self.setWindowTitle("합동 통합방어 시뮬레이터")
         # 고정 크기 → 자유 리사이즈 (최소 크기만 지정)
         self.setMinimumSize(1000, 680)
         self.setStyleSheet(f"""
@@ -9658,15 +9664,17 @@ class SplashWindow(QWidget):
         logo = QHBoxLayout()
         logo.setContentsMargins(20, 22, 20, 18)
         logo.setSpacing(12)
-        icon = QLabel("⚓")
-        icon.setStyleSheet(f"font-size: 38px; color: {C_ACCENT};")
+        icon = QLabel()
+        icon.setPixmap(QPixmap(_res("assets/images/app_emblem.png")).scaled(
+            42, 42, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
         logo.addWidget(icon)
         names = QVBoxLayout()
         names.setSpacing(0)
-        n1 = QLabel("이지스 기동전단")
+        n1 = QLabel("합동 통합방어")
         n1.setFont(QFont('Malgun Gothic', 15, QFont.Weight.Bold))
         n1.setStyleSheet("color: #eaf2ff;")
-        n2 = QLabel("통합 방어 시뮬레이터")
+        n2 = QLabel("시뮬레이터")
         n2.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 12px;")
         names.addWidget(n1)
         names.addWidget(n2)
@@ -9742,23 +9750,20 @@ class SplashWindow(QWidget):
             }}
         """)
         v = QVBoxLayout(page)
-        v.setContentsMargins(50, 36, 50, 42)
+        v.setContentsMargins(50, 20, 50, 42)
         v.setSpacing(2)
 
         # ── 상단(하늘 영역): 엠블럼 + 타이틀, 좌측 정렬 ──
-        emblem = QLabel("⚓")
-        emblem.setStyleSheet("font-size: 50px; color: #e3eaf2;")
+        emblem = QLabel()
+        emblem.setPixmap(QPixmap(_res("assets/images/app_emblem.png")).scaled(
+            60, 60, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
         v.addWidget(emblem, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        t1 = QLabel("이지스 기동전단")
+        t1 = QLabel("합동 통합방어 시뮬레이터")
         t1.setFont(QFont('Malgun Gothic', 33, QFont.Weight.Bold))
         t1.setStyleSheet("color: #ffffff;")
         v.addWidget(t1, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        t2 = QLabel("통합 방어 시뮬레이터")
-        t2.setFont(QFont('Malgun Gothic', 33, QFont.Weight.Bold))
-        t2.setStyleSheet("color: #ffffff;")
-        v.addWidget(t2, alignment=Qt.AlignmentFlag.AlignLeft)
         v.addSpacing(10)
 
         en = QLabel("J O I N T   D E F E N S E   S I M U L A T O R")
@@ -9771,7 +9776,7 @@ class SplashWindow(QWidget):
         v.addWidget(desc, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # 사진 배경 위 가독성 — 텍스트에 검정 그림자
-        for _lbl in (emblem, t1, t2, en, desc):
+        for _lbl in (emblem, t1, en, desc):
             _e = QGraphicsDropShadowEffect()
             _e.setColor(QColor(0, 0, 0, 255))
             _e.setBlurRadius(26)
@@ -10690,7 +10695,7 @@ def main():
         CHART_DPI = max(150, min(300, px_w * 3 // 40))
 
     # 앱 아이콘 설정
-    _icon_path = _res('aegis_icon.ico')
+    _icon_path = _res('jds_icon.ico')
     if os.path.exists(_icon_path):
         from PyQt6.QtGui import QIcon
         app.setWindowIcon(QIcon(_icon_path))

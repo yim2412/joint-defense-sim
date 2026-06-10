@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# launcher.spec — 이지스 기동전단 시뮬레이터 PyInstaller 빌드 설정
+# launcher.spec — 합동 통합방어 시뮬레이터 PyInstaller 빌드 설정
 # onedir 모드: subprocess 워커가 번들 재압축해제 없이 즉시 import 가능
 
 import os
@@ -15,7 +15,7 @@ a = Analysis(
         ('engine_v7.py',           '.'),
         ('spec_db.py',             '.'),
         ('changelog.json',         '.'),
-        ('aegis_icon.ico',         '.'),
+        ('jds_icon.ico',           '.'),
         ('ocean_acoustic_db.py',   '.'),
         ('ocean_environment_db.py','.'),
         ('terrain_db.py',          '.'),
@@ -89,7 +89,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,          # onedir: 바이너리/데이터 EXE에 포함 안 함
-    name='이지스_기동전단_시뮬레이터',
+    name='합동_통합방어_시뮬레이터',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -100,7 +100,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='aegis_icon.ico',
+    icon='jds_icon.ico',
 )
 
 coll = COLLECT(
@@ -111,5 +111,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='이지스_기동전단_시뮬레이터',
+    name='합동_통합방어_시뮬레이터',
 )
