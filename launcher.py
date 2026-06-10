@@ -1,7 +1,32 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.06 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.14 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.14 — 로그·DB를 영구 보존 폴더로 이동]                              ║
+║  BUG-1  로그·크래시·DB가 exe 폴더에 저장돼 재빌드·재설치 시 유실되던 문제 →  ║
+║         사용자 영구 폴더(%LOCALAPPDATA%\AegisSim)로 이동해 영구 보존        ║
+║  [v13.06.13 — 중단 기록 + 크래시 로그 뷰어 + 로그 표 정리]                  ║
+║  NEW-A  중단된 시뮬도 실행 로그에 '중단' 상태로 부분 통계 기록             ║
+║  NEW-B  크래시 로그 버튼 — crash.log 내용을 창으로 바로 확인               ║
+║  NEW-C  실행 로그 표에 상태 컬럼 추가 + '±' 헤더를 '± 편차'로 명확화        ║
+║  [v13.06.12 — 실행 로그 창 팅김 근본 원인 수정]                             ║
+║  BUG-1  로그 표 시그널을 잘못 연결(currentRowChanged는 QListWidget 전용)해  ║
+║         창 생성 자체가 실패하던 문제 → currentCellChanged로 수정            ║
+║  [v13.06.11 — 크래시 이력 기록 강화 (crash.log + faulthandler)]             ║
+║  NEW-A  미처리 예외·C 레벨 크래시를 별도 crash.log에 시각·버전과 함께 기록  ║
+║         (세그폴트까지 faulthandler로 캡처 — 반복 크래시 원인 추적 가능)     ║
+║  [v13.06.10 — 실행 로그 창 크래시(팅김) 근본 차단]                          ║
+║  BUG-1  로그 표시 시 NULL 값 포맷으로 앱이 죽던 문제 → None-safe 처리       ║
+║  BUG-2  로그 로드/창 열기를 try/except로 감싸 어떤 오류든 크래시 대신       ║
+║         메시지 + sim_history.log 원인 기록으로 전환                         ║
+║  [v13.06.09 — 시뮬 중단 시 최초 설정 화면으로 복귀]                         ║
+║  NEW-A  진행 중 중단을 누르면 설정 전체화면으로 돌아가 바로 재설정 가능     ║
+║  [v13.06.08 — MC 중단이 백그라운드에서 계속 돌던 문제 수정]                 ║
+║  BUG-1  중단해도 글로벌 풀에 제출된 배치가 계속 실행되던 문제 → 슬라이딩    ║
+║         윈도우 제출(실행 중 코어×2만 유지)로 중단 시 즉시 정지             ║
+║  [v13.06.07 — 진행 그래프 1초 간격 규칙적 동기화]                           ║
+║  NEW-A  요격률 분포·수렴 그래프를 화면 자체 1초 타이머로 균일 갱신          ║
+║         (배치 완료 타이밍에 끌려 불규칙하던 갱신을 1초 주기로 고정)         ║
 ║  [v13.06.06 — 진행 화면 정리: 단계별 소요시간 → 요격률 분포 히스토그램]     ║
 ║  DEL-A  단계별 평균 소요시간 바 제거 (개발자용 성능 계측치)                ║
 ║  NEW-A  요격률 분포 히스토그램 — 개별 시뮬 표본 분포·평균 실시간 표시       ║
@@ -788,7 +813,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.06"
+APP_VERSION = "v13.06.14"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1006,9 +1031,17 @@ def _res(filename: str) -> str:
 #  실행 로그 (sim_history.log 텍스트 + sim_history.json 구조화)
 # ════════════════════════════════════════════════════════════════════════════
 def _log_base() -> str:
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    # v13.06.14: 실행 로그·크래시 로그·DB를 재빌드·재설치에도 보존되는 사용자
+    # 영구 폴더(%LOCALAPPDATA%\AegisSim)에 저장. exe 폴더는 빌드 시 갈아엎혀 유실됨.
+    try:
+        root = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+        base = os.path.join(root, 'AegisSim')
+        os.makedirs(base, exist_ok=True)
+        return base
+    except Exception:
+        if getattr(sys, 'frozen', False):
+            return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.abspath(__file__))
 
 def _log_path()  -> str: return os.path.join(_log_base(), 'sim_history.log')
 def _json_log_path() -> str: return os.path.join(_log_base(), 'sim_history.json')
@@ -1137,13 +1170,20 @@ def _ensure_db():
         avg_enemy_destroyed REAL,
         total_cost       REAL,
         req_pass         INTEGER,
-        cfg_json         TEXT
+        cfg_json         TEXT,
+        status           TEXT DEFAULT '완료'
     )''')
+    # 기존 DB 호환: status 컬럼이 없으면 추가 (이미 있으면 무시)
+    try:
+        con.execute("ALTER TABLE sim_history ADD COLUMN status TEXT DEFAULT '완료'")
+    except Exception:
+        pass
     con.commit()
     con.close()
 
 
-def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
+def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1,
+                  status: str = '완료'):
     import sqlite3
     from datetime import datetime as _dt
     _ensure_db()
@@ -1170,8 +1210,9 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
         con.execute('''INSERT INTO sim_history
             (datetime, fleet, weather, mc_n, sim_mode, enemy, total_threats,
              mean_intercept, std_intercept, full_pass_rate, cvar,
-             avg_friendly_hits, avg_enemy_destroyed, total_cost, req_pass, cfg_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+             avg_friendly_hits, avg_enemy_destroyed, total_cost, req_pass, cfg_json,
+             status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (now,
              cfg.get('fleet_preset', '?'),
              cfg.get('weather', '?'),
@@ -1187,7 +1228,8 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1):
              round(avg_edest, 2),
              result.get('total_cost', 0),
              req_pass,
-             json.dumps(safe_cfg, ensure_ascii=False)))
+             json.dumps(safe_cfg, ensure_ascii=False),
+             status))
         con.commit()
         con.close()
     except Exception:
@@ -1758,9 +1800,10 @@ class FloatingMonitor(QWidget):
         self._batch_rates: list = []
         self._phase_acc: dict   = {}   # 누적 단계 타이밍
         self._rates_history: list = [] # 수렴 감지용
+        self._pending_hist: list  = [] # 히스토그램 최신 데이터 (1초 타이머가 그림)
         self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._timer = QTimer(self)
-        self._timer.setInterval(800)
+        self._timer.setInterval(1000)   # 1초 — 진행 그래프 규칙적 갱신 주기
         self._timer.timeout.connect(self._refresh_tick)
         self._build_ui()
 
@@ -2020,6 +2063,11 @@ class FloatingMonitor(QWidget):
         self._find_sys('VRAM').setText(f"{mu}M" if mu is not None else "—")
         wn = len(c.get('worker_stats', []))
         self._find_sys('워커').setText(str(wn) if wn else "—")
+        # 진행 그래프는 여기서 1초 주기로 그림 — 데이터(배치 완료) 타이밍과 무관하게 규칙적
+        if self._rates_history:
+            self._conv_graph.set_data(self._rates_history)
+        if self._pending_hist:
+            self._rate_hist.set_data(self._pending_hist)
 
     # ── 외부 시그널 핸들러 ────────────────────────────────────────────────────
     def update_status(self, msg: str):
@@ -2081,8 +2129,7 @@ class FloatingMonitor(QWidget):
             else:
                 sq.setStyleSheet(f"background:{C_BORDER}; border-radius:2px;")
         # 수렴 감지 (최근 100개 vs 이전 100개 표준편차)
-        self._rates_history.append(mean_rate)
-        self._conv_graph.set_data(self._rates_history)   # ③ 수렴 라인 갱신
+        self._rates_history.append(mean_rate)   # ③ 수렴 라인은 _refresh_tick(1초)이 그림
         h = self._rates_history
         if len(h) >= 20:
             import numpy as _np
@@ -2105,8 +2152,8 @@ class FloatingMonitor(QWidget):
             self._lbl_delta.setStyleSheet(f"color:{col}; font-size:11px;")
 
     def update_histogram(self, rates: list):
-        """개별 시뮬 요격률 누적 분포를 히스토그램에 반영."""
-        self._rate_hist.set_data(rates)
+        """개별 시뮬 요격률 누적 분포 — 데이터만 저장, 그리기는 _refresh_tick(1초)."""
+        self._pending_hist = rates
 
     def update_phases(self, phase_times: dict):
         """MC 배치 완료마다 단계별 타이밍 바 갱신."""
@@ -2130,6 +2177,7 @@ class FloatingMonitor(QWidget):
         self._rates_history.clear()
         self._conv_graph.clear()
         self._rate_hist.clear()
+        self._pending_hist = []
         self._log_buf.clear()
         self._mc_done = 0
         self._mc_t0   = 0.0
@@ -2293,10 +2341,11 @@ class SimLogDialog(QDialog):
         ('편대',         'fleet',              140),
         ('날씨',         'weather',            110),
         ('모드',         'sim_mode',            55),
+        ('상태',         'status',              60),
         ('MC',           'mc_n',                55),
         ('총 위협',      'total_threats',       70),
         ('요격률',       'mean_intercept',      80),
-        ('±',            'std_intercept',       60),
+        ('± 편차',       'std_intercept',       65),
         ('완전요격',     'full_pass_rate',      75),
         ('CVaR',         'cvar',                70),
         ('REQ',          'req_pass',            50),
@@ -2419,17 +2468,29 @@ class SimLogDialog(QDialog):
         )
         self._detail.setFixedHeight(72)
 
-        self._tbl.currentRowChanged.connect(self._show_detail)
-        self._tbl.currentRowChanged.connect(
-            lambda row: self._btn_restore.setEnabled(row >= 0))
+        # QTableWidget에는 currentRowChanged가 없음(QListWidget 전용) → currentCellChanged 사용
+        self._tbl.currentCellChanged.connect(
+            lambda r, c, pr, pc: self._show_detail(r))
+        self._tbl.currentCellChanged.connect(
+            lambda r, c, pr, pc: self._btn_restore.setEnabled(r >= 0))
 
         root.addWidget(self._tbl, stretch=1)
         root.addWidget(self._detail)
 
     # ── 데이터 처리 ────────────────────────────────────────────────────────
     def _load(self):
-        self._records = _load_sim_db()   # SQLite — 이미 최신순(DESC)
-        self._apply_filter(self._search.text())
+        # QTimer.singleShot 콜백이라 여기서 예외가 새면 앱이 abort(팅김) → 반드시 방어
+        try:
+            self._records = _load_sim_db()   # SQLite — 이미 최신순(DESC)
+            self._apply_filter(self._search.text())
+        except Exception:
+            _write_log(f'[ERROR] 실행 로그 로드 실패: {traceback.format_exc()}')
+            self._records = []
+            try:
+                self._fill_table([])
+                self._lbl_count.setText("로그 로드 실패 — 형식 오류 (sim_history.log 참고)")
+            except Exception:
+                pass
 
     def _apply_filter(self, text: str):
         kw = text.strip().lower()
@@ -2449,21 +2510,24 @@ class SimLogDialog(QDialog):
             for row, rec in enumerate(records):
                 cvar = rec.get('cvar')
                 req  = rec.get('req_pass')
+                # None-safe: DB 값이 NULL이면 .get(k, 0)이 None을 반환 → 포맷 시 TypeError로
+                # 앱이 죽으므로 (rec.get(k) or 0) 패턴으로 강제 숫자화
                 values = [
-                    rec.get('datetime', ''),
-                    rec.get('fleet', ''),
-                    rec.get('weather', ''),
-                    rec.get('sim_mode', '—'),
-                    str(rec.get('mc_n', '')),
-                    str(rec.get('total_threats', '')),
-                    f"{rec.get('mean_intercept', 0):.1%}",
-                    f"±{rec.get('std_intercept', 0):.1%}",
-                    f"{rec.get('full_pass_rate', 0):.1%}",
+                    rec.get('datetime', '') or '',
+                    rec.get('fleet', '') or '',
+                    rec.get('weather', '') or '',
+                    rec.get('sim_mode', '—') or '—',
+                    rec.get('status', '완료') or '완료',
+                    str(rec.get('mc_n', '') if rec.get('mc_n') is not None else ''),
+                    str(rec.get('total_threats', '') if rec.get('total_threats') is not None else ''),
+                    f"{(rec.get('mean_intercept') or 0):.1%}",
+                    f"±{(rec.get('std_intercept') or 0):.1%}",
+                    f"{(rec.get('full_pass_rate') or 0):.1%}",
                     f"{cvar:.1%}" if cvar is not None else '—',
                     ('✅' if req == 1 else '❌' if req == 0 else '—'),
-                    f"{rec.get('avg_friendly_hits', 0):.1f}",
-                    f"{rec.get('total_cost', 0) / 1e6:.1f}",
-                    rec.get('enemy', ''),
+                    f"{(rec.get('avg_friendly_hits') or 0):.1f}",
+                    f"{(rec.get('total_cost') or 0) / 1e6:.1f}",
+                    rec.get('enemy', '') or '',
                 ]
                 last_col = len(self._COLS) - 1
                 for col, val in enumerate(values):
@@ -2472,13 +2536,16 @@ class SimLogDialog(QDialog):
                         Qt.AlignmentFlag.AlignCenter
                         if col != last_col
                         else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    if col == 6:
-                        rate = rec.get('mean_intercept', 0)
+                    if col == 4:   # 상태 — 중단은 주황으로 구분
+                        if (rec.get('status') or '완료') == '중단':
+                            item.setForeground(QColor('#f39c12'))
+                    if col == 7:   # 요격률
+                        rate = rec.get('mean_intercept') or 0
                         item.setForeground(QColor(
                             C_GREEN if rate >= 0.8 else
                             '#f39c12' if rate >= 0.5 else
                             '#e74c3c'))
-                    if col == 9 and cvar is not None:
+                    if col == 10 and cvar is not None:   # CVaR
                         item.setForeground(QColor(
                             C_GREEN if cvar >= 0.7 else
                             '#f39c12' if cvar >= 0.4 else
@@ -2508,11 +2575,11 @@ class SimLogDialog(QDialog):
             f"날씨: {rec.get('weather','')} &nbsp;|&nbsp; "
             f"모드: {rec.get('sim_mode','—')} / MC: {rec.get('mc_n','')}회 &nbsp;|&nbsp; "
             f"위협: {rec.get('total_threats','')}발/기<br>"
-            f"요격률: <b>{rec.get('mean_intercept',0):.1%}</b> "
-            f"(±{rec.get('std_intercept',0):.1%}) &nbsp;|&nbsp; "
-            f"완전요격: {rec.get('full_pass_rate',0):.1%} &nbsp;|&nbsp; "
+            f"요격률: <b>{(rec.get('mean_intercept') or 0):.1%}</b> "
+            f"(±{(rec.get('std_intercept') or 0):.1%}) &nbsp;|&nbsp; "
+            f"완전요격: {(rec.get('full_pass_rate') or 0):.1%} &nbsp;|&nbsp; "
             f"CVaR: {cvar_str} &nbsp;|&nbsp; REQ: {req_str} &nbsp;|&nbsp; "
-            f"비용: ${rec.get('total_cost',0):,.0f}<br>"
+            f"비용: ${(rec.get('total_cost') or 0):,.0f}<br>"
             f"<span style='color:{C_SUBTEXT}'>적군: {rec.get('enemy','')}</span>"
         )
 
@@ -2772,6 +2839,9 @@ class SimWorker(QThread):
 
             result = run_v7_simulation(self.cfg, step_cb=_step_cb,
                                        tactical_cb=_tactical_hook)
+            # 중단 기록용 스냅샷 — 중단 시 _on_cancelled가 부분 통계를 DB에 기록
+            self._partial_tt = result.get('total_threats', 0)
+            self._partial = None
             self.progress.emit(f"MC {self.mc_n}회 분석 중...")
             t0 = time.time()
 
@@ -2817,18 +2887,24 @@ class SimWorker(QThread):
                 batch_done_n = 0
                 _phase_acc: dict = {}   # v8.26: 배치별 단계 타이밍 누적
                 _extra_acc: dict = {}   # v12.4·v12.6: 침수·IFF 통계 누적
-                futs = {pool.submit(_mc_batch_worker, b): b for b in batches}
+                # 슬라이딩 윈도우 제출 — 전체 배치를 한 번에 풀에 던지지 않고
+                # 실행 중 배치를 코어×2로 제한. 중단 시 미제출 배치는 아예 돌지 않아
+                # 즉시 멈춤 (글로벌 풀은 앱 공유라 shutdown으로 못 끊기 때문).
+                _batch_iter = iter(batches)
+                inflight = set()
+                for _ in range(min(n_cores * 2, len(batches))):
+                    inflight.add(pool.submit(_mc_batch_worker, next(_batch_iter)))
                 # 0.5초마다 중단 체크 — as_completed()는 배치 완료까지 블로킹되어 즉시 반응 불가
-                remaining = set(futs)
-                while remaining:
+                while inflight:
                     if self.isInterruptionRequested():
-                        for f in remaining:
+                        for f in inflight:
                             f.cancel()
                         if _own:
                             pool.shutdown(wait=False)
                         raise _SimCancelled()
-                    done_futs, remaining = cf_wait(remaining, timeout=0.5,
-                                                   return_when=FIRST_COMPLETED)
+                    done_futs, inflight = cf_wait(inflight, timeout=0.5,
+                                                  return_when=FIRST_COMPLETED)
+                    inflight = set(inflight)
                     for fut in done_futs:
                         rates, fh, ed, fl, cs, wu, sh, wz, pt, xs = fut.result()
                         all_rates.extend(rates);  all_f_hits.extend(fh)
@@ -2843,6 +2919,8 @@ class SimWorker(QThread):
                         batch_done_n += 1
                         self.batch_done.emit(batch_done_n, len(batches))
                         _cb(done_count, self.mc_n)
+                        # 데이터는 매 배치 전달 — 화면은 자체 1초 타이머로 그래프를 그림
+                        # (throttle은 배치 완료 타이밍에 끌려가 1초가 불규칙해지므로 제거).
                         if all_rates:
                             self.rate_update.emit(
                                 float(np.mean(all_rates)),
@@ -2851,9 +2929,19 @@ class SimWorker(QThread):
                             )
                             # 개별 시뮬 요격률 분포 — 히스토그램용 (누적 평균과 별개)
                             self.hist_update.emit(list(all_rates))
+                            # 중단 기록용 부분 통계 스냅샷
+                            self._partial = {
+                                'done': done_count,
+                                'mean': float(np.mean(all_rates)),
+                                'tt':   self._partial_tt,
+                            }
                         if _phase_acc:
                             _n_b = max(batch_done_n, 1)
                             self.phase_update.emit({k: v / _n_b for k, v in _phase_acc.items()})
+                        # 슬라이딩 윈도우: 완료된 배치만큼 다음 배치를 채워 제출
+                        _nb = next(_batch_iter, None)
+                        if _nb is not None:
+                            inflight.add(pool.submit(_mc_batch_worker, _nb))
                 if _own:
                     pool.shutdown(wait=False)
 
@@ -5002,6 +5090,16 @@ class MainWindow(QMainWindow):
         btn_log.clicked.connect(self._open_log_file)
         self.status.addPermanentWidget(btn_log)
 
+        btn_crash = QPushButton("⚠ 크래시 로그")
+        btn_crash.setFixedHeight(22)
+        btn_crash.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_SUBTEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:3px; padding:0 8px; font-size:12px; }}"
+            f"QPushButton:hover {{ color:#f39c12; }}"
+        )
+        btn_crash.clicked.connect(self._open_crash_log)
+        self.status.addPermanentWidget(btn_crash)
+
         # ── 키보드 단축키 ─────────────────────────────────────────────
         # F5: 현재 설정으로 시뮬 재실행 (실행 가능 상태일 때만)
         sc_run = QShortcut(QKeySequence("F5"), self)
@@ -5249,28 +5347,55 @@ class MainWindow(QMainWindow):
         self._in_results_mode = True
         self._main_stack.setCurrentIndex(1)
 
+    def _open_crash_log(self):
+        """crash.log 내용을 텍스트 창으로 표시 (비어 있으면 안내)."""
+        try:
+            path = _crash_log_path()
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+            else:
+                content = "기록된 크래시가 없습니다. (정상)"
+        except Exception as e:
+            content = f"크래시 로그를 읽을 수 없습니다: {e}"
+        dlg = QDialog(self)
+        dlg.setWindowTitle("크래시 로그 (crash.log)")
+        dlg.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        dlg.resize(960, 600)
+        dlg.setStyleSheet(f"QDialog {{ background:{C_BG}; }}")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(10, 10, 10, 10)
+        txt = QTextBrowser()
+        txt.setPlainText(content)
+        txt.setStyleSheet(
+            f"QTextBrowser {{ background:{C_PANEL}; color:{C_TEXT};"
+            f" border:1px solid {C_BORDER}; font-family:'Consolas','D2Coding',monospace;"
+            f" font-size:12px; }}"
+        )
+        lay.addWidget(txt)
+        dlg.show()
+
     def _open_log_file(self):
         try:
-            alive = (hasattr(self, '_log_dialog')
-                     and self._log_dialog is not None
-                     and self._log_dialog.isVisible())
-        except RuntimeError:
-            alive = False
-        if not alive:
-            self._log_dialog = SimLogDialog(self)
-            self._log_dialog.restore_requested.connect(self._restore_cfg)
+            try:
+                alive = (hasattr(self, '_log_dialog')
+                         and self._log_dialog is not None
+                         and self._log_dialog.isVisible())
+            except RuntimeError:
+                alive = False
+            if not alive:
+                self._log_dialog = SimLogDialog(self)
+                self._log_dialog.restore_requested.connect(self._restore_cfg)
             self._log_dialog.show()
             self._log_dialog.raise_()
             self._log_dialog.activateWindow()
             # 창이 그려진 뒤 데이터 로드 (메인 스레드 블로킹 방지)
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._log_dialog._load)
-        else:
-            self._log_dialog.show()
-            self._log_dialog.raise_()
-            self._log_dialog.activateWindow()
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(0, self._log_dialog._load)
+        except Exception:
+            _write_log(f'[ERROR] 실행 로그 창 열기 실패: {traceback.format_exc()}')
+            QMessageBox.warning(self, "실행 로그",
+                                "실행 로그 창을 여는 중 오류가 발생했습니다.\n"
+                                "sim_history.log에 상세 내용이 기록되었습니다.")
 
     def _restore_cfg(self, cfg: dict):
         """실행 기록에서 설정을 복원한다 — 편대·날씨·적군 모드 복원."""
@@ -7909,10 +8034,24 @@ class MainWindow(QMainWindow):
         self._prog.setVisible(False)
         self._lbl_status.setText("중단됨")
         self._taskbar.clear(int(self.winId()))
-        # v13.06.03: 진행 모니터 정지 + 결과 없으면 대기 화면(index0)으로 복귀
+        # v13.06.03: 진행 모니터 정지. v13.06.09: 중단 시 최초 설정 화면으로 복귀
         self._float_mon.stop_monitor()
-        if self._result is None:
-            self._result_outer_stack.setCurrentIndex(0)
+        # v13.06.13: 중단된 시뮬도 실행 로그에 '중단' 상태로 부분 통계 기록
+        ws = self._worker
+        snap = getattr(ws, '_partial', None) if ws else None
+        cfg  = ws.cfg if ws else None
+        if cfg and snap:
+            try:
+                _result = {'total_threats': snap['tt'], 'total_cost': 0}
+                _mc = {'n': snap['done'], 'mean_intercept': snap['mean'],
+                       'std_intercept': 0, 'full_pass_rate': 0,
+                       'friendly_hits': [], 'enemy_destroyed': [], 'cvar': None}
+                _write_sim_db(cfg, _result, _mc,
+                              getattr(ws, 'sim_mode_idx', 1), status='중단')
+            except Exception:
+                _write_log(f'[WARN] 중단 기록 실패: {traceback.format_exc()}')
+        self._result_outer_stack.setCurrentIndex(0)   # 우측 결과영역 대기화면으로 리셋
+        self._enter_setup_mode()                       # 최초 설정 전체화면으로
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -10453,18 +10592,44 @@ class SplashWindow(QWidget):
 # ════════════════════════════════════════════════════════════════════════════
 #  진입점
 # ════════════════════════════════════════════════════════════════════════════
+_CRASH_FH = None   # faulthandler 파일 핸들 — 프로세스 수명 동안 열어둠 (GC 방지)
+
+
+def _crash_log_path() -> str:
+    return os.path.join(_log_base(), 'crash.log')
+
+
 def _install_crash_handler():
-    """미처리 예외 발생 시 로그 기록 후 프로세스 강제 종료."""
-    import traceback
+    """미처리 예외·C 레벨 크래시를 crash.log에 기록 후 종료.
+    Python 예외(슬롯 포함)는 excepthook으로, 세그폴트 등 C 레벨은 faulthandler로 캡처."""
+    import traceback, faulthandler
+    from datetime import datetime as _dt
+    global _CRASH_FH
+
+    path = _crash_log_path()
+    # C 레벨 크래시(세그폴트·접근위반) 스택 덤프 — 파일 핸들 유지해야 유효
+    try:
+        _CRASH_FH = open(path, 'a', encoding='utf-8', buffering=1)
+        faulthandler.enable(file=_CRASH_FH, all_threads=True)
+    except Exception:
+        _CRASH_FH = None
+
+    def _record(exc_type, exc_value, exc_tb):
+        try:
+            msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write(f"\n===== [CRASH] {_dt.now():%Y-%m-%d %H:%M:%S}  {APP_VERSION} =====\n{msg}\n")
+        except Exception:
+            pass
+        try:
+            _write_log(f'[CRASH] {exc_type.__name__}: {exc_value} (crash.log 참고)')
+        except Exception:
+            pass
 
     def _on_exception(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
             os._exit(0)
-        try:
-            msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
-            _write_log(f'[CRASH] {msg}')
-        except Exception:
-            pass
+        _record(exc_type, exc_value, exc_tb)
         os._exit(1)
 
     def _on_thread_exception(args):
