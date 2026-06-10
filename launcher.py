@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.02 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.03 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.03 — 시뮬 진행 표시를 결과 화면 내부로 임베드]                     ║
+║  NEW-A  진행 모니터를 떠다니는 창 → 결과영역 내부 페이지로 통합            ║
+║         (실행 즉시 좌측 설정·우측 진행 화면 전환, 다른 앱 안 가림)          ║
+║         떠다니는 창 부수기능(항상 위·드래그·최소화 연동) 제거              ║
 ║  [v13.06.01~02 — 전황 지표판 신설 + 공격 임무 설정 패널 숨김 (v13.3)]      ║
 ║  NEW-A  전황 지표판 탭 — 탄약 소모 효율·요격당 비용·피아 교환비·방어        ║
 ║         포화도 4개 파생 지표를 카드 그리드 + 자동 해석으로 한 화면 표시     ║
@@ -774,7 +778,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.02"
+APP_VERSION = "v13.06.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1665,12 +1669,9 @@ class FloatingMonitor(QWidget):
     _SPARK_N = 10
 
     def __init__(self, parent=None):
-        super().__init__(parent,
-                         Qt.WindowType.Window |
-                         Qt.WindowType.FramelessWindowHint |
-                         Qt.WindowType.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(480, 590)
+        # v13.06.03: 떠다니는 창 → 결과영역 임베드 페이지. 창 플래그·고정크기 제거.
+        super().__init__(parent)
+        self.setMinimumSize(480, 590)
         self._show_time: float  = 0.0
         self._mc_t0: float      = 0.0
         self._mc_done: int      = 0
@@ -1679,7 +1680,6 @@ class FloatingMonitor(QWidget):
         self._batch_rates: list = []
         self._phase_acc: dict   = {}   # 누적 단계 타이밍
         self._rates_history: list = [] # 수렴 감지용
-        self._drag_pos = None
         self.setStyleSheet("* { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }")
         self._timer = QTimer(self)
         self._timer.setInterval(800)
@@ -2082,21 +2082,9 @@ class FloatingMonitor(QWidget):
         self._timer.start()
         self._refresh_tick()
 
-    def close(self):
+    def stop_monitor(self):
+        """v13.06.03: 진행 종료 시 갱신 타이머만 정지 (임베드 위젯이라 close 불필요)."""
         self._timer.stop()
-        super().close()
-
-    # ── 드래그 이동 ──────────────────────────────────────────────────────────
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-
-    def mouseMoveEvent(self, event):
-        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -6340,6 +6328,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self._result_outer_stack.addWidget(panel)  # index 1
+        # 페이지 2: 진행 모니터 임베드 (v13.06.03) — 떠다니는 창 대체
+        self._result_outer_stack.addWidget(self._float_mon)  # index 2
         outer_layout.addWidget(self._result_outer_stack, stretch=1)
 
         # 핵심 지표 카드 영역
@@ -7801,7 +7791,7 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(self._on_error)
         # 플로팅 모니터 연결 (v8.26: step_update / phase_update 추가)
         self._worker.sim_started.connect(self._show_float_mon)
-        self._worker.sim_ended.connect(self._float_mon.close)
+        self._worker.sim_ended.connect(self._float_mon.stop_monitor)
         self._worker.progress_detail.connect(self._float_mon.update_mc)
         self._worker.progress.connect(self._float_mon.update_status)
         self._worker.rate_update.connect(self._float_mon.update_rate)
@@ -7821,29 +7811,12 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.resume_tactical(choice)
 
-    def changeEvent(self, event):
-        """메인 창 최소화 시 MC 진행 팝업도 함께 숨기고, 복원 시 재표시."""
-        if event.type() == QEvent.Type.WindowStateChange:
-            mon = getattr(self, '_float_mon', None)
-            if mon is not None:
-                if self.windowState() & Qt.WindowState.WindowMinimized:
-                    # 현재 떠 있을 때만 복원 대상으로 기억
-                    if mon.isVisible():
-                        self._float_mon_was_visible = True
-                        mon.hide()
-                elif getattr(self, '_float_mon_was_visible', False):
-                    mon.show()
-                    self._float_mon_was_visible = False
-        super().changeEvent(event)
-
     def _show_float_mon(self):
-        """플로팅 모니터를 메인 창 오른쪽 하단에 배치 후 표시."""
-        geo = self.geometry()
-        mon = self._float_mon
-        x = geo.right()  - mon.width()  - 20
-        y = geo.bottom() - mon.height() - 60
-        mon.move(x, y)
-        mon.show()
+        """v13.06.03: 진행 모니터를 결과영역 임베드 페이지(index 2)로 표시.
+        실행 즉시 결과 모드로 전환 → 좌측 압축 설정 + 우측 진행 화면."""
+        self._enter_results_mode()
+        self._float_mon.show()                       # 상태 리셋 + 갱신 타이머 시작
+        self._result_outer_stack.setCurrentIndex(2)  # 우측 영역 = 진행 화면
 
     def _stop_worker(self):
         """플로팅 모니터 중단 버튼 → 워커 인터럽트."""
@@ -7857,6 +7830,10 @@ class MainWindow(QMainWindow):
         self._prog.setVisible(False)
         self._lbl_status.setText("중단됨")
         self._taskbar.clear(int(self.winId()))
+        # v13.06.03: 진행 모니터 정지 + 결과 없으면 대기 화면(index0)으로 복귀
+        self._float_mon.stop_monitor()
+        if self._result is None:
+            self._result_outer_stack.setCurrentIndex(0)
 
     def _on_progress(self, msg: str):
         self._lbl_status.setText(msg)
@@ -8323,6 +8300,10 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
         self._lbl_status.setText("오류 발생")
+        # v13.06.03: 진행 모니터 정지 + 결과 없으면 대기 화면(index0)으로 복귀
+        self._float_mon.stop_monitor()
+        if self._result is None:
+            self._result_outer_stack.setCurrentIndex(0)
         QMessageBox.critical(self, "시뮬레이션 오류", msg)
 
     def closeEvent(self, event):
