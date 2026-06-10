@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.03 — PyQt6 런처             ║
+║   이지스 기동전단 통합 방어 시뮬레이터  v13.06.04 — PyQt6 런처             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.06.04 — 중단 미반응 구간 수정 (순차 MC·Sobol)]                        ║
+║  BUG-1  소규모/테스트 MC·Sobol 단계에서 중단 버튼이 먹지 않던 문제 수정     ║
+║         (진행 콜백 중단 확인 추가 + Sobol 중단 예외 전파)                  ║
 ║  [v13.06.03 — 시뮬 진행 표시를 결과 화면 내부로 임베드]                     ║
 ║  NEW-A  진행 모니터를 떠다니는 창 → 결과영역 내부 페이지로 통합            ║
 ║         (실행 즉시 좌측 설정·우측 진행 화면 전환, 다른 앱 안 가림)          ║
@@ -778,7 +781,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.06.03"
+APP_VERSION = "v13.06.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2711,6 +2714,9 @@ class SimWorker(QThread):
             t0 = time.time()
 
             def _cb(done, total):
+                # v13.06.04: 순차 MC 경로도 진행 콜백에서 중단 확인
+                if self.isInterruptionRequested():
+                    raise _SimCancelled()
                 elapsed = time.time() - t0
                 eta = (elapsed / done * (total - done)) if done > 0 else 0.0
                 self.progress_detail.emit(done, total, eta)
@@ -2874,6 +2880,9 @@ class SimWorker(QThread):
                 sobol_t0 = time.time()
 
                 def _sobol_cb(done, total):
+                    # v13.06.04: Sobol 단계도 진행 콜백에서 중단 확인
+                    if self.isInterruptionRequested():
+                        raise _SimCancelled()
                     if done % max(1, total // 20) == 0:
                         ela = time.time() - sobol_t0
                         eta = ela / done * (total - done) if done > 0 else 0
@@ -2884,6 +2893,8 @@ class SimWorker(QThread):
                     sobol_result = sobol_analysis(
                         self.cfg, n_sobol=4096, n_per_point=npp,
                         progress_cb=_sobol_cb, map_fn=_pool_map)   # 글로벌 풀 8코어 병렬
+                except _SimCancelled:
+                    raise   # v13.06.04: 중단은 삼키지 말고 전파
                 except Exception as ex:
                     sobol_result = {'error': str(ex)}
 
