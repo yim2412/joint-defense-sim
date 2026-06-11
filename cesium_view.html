@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D 전장</title>
+  <!-- Cesium CDN (jsDelivr, 메이저 1 최신). 온라인 의존 — 인터넷 필요 -->
+  <script>window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/';</script>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/Cesium.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #0b1a2b; }
+    /* PoC 진단 오버레이 — 본 구현에서 제거 */
+    #diag {
+      position: absolute; top: 8px; left: 8px; z-index: 9999;
+      font: 13px/1.5 'Consolas', monospace; color: #9fe6a0;
+      background: rgba(0,0,0,0.55); padding: 8px 10px; border-radius: 6px;
+      max-width: 60%; white-space: pre-wrap; pointer-events: none;
+    }
+    #diag .err { color: #ff6b6b; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <div id="diag"></div>
+  <script>
+    const diag = document.getElementById('diag');
+    function log(msg, isErr) {
+      const span = document.createElement('span');
+      if (isErr) span.className = 'err';
+      span.textContent = msg + '\n';
+      diag.appendChild(span);
+      (isErr ? console.error : console.log)('[CESIUM-POC] ' + msg);
+    }
+    window.onerror = function (m, s, l, c) { log('JS ERROR: ' + m + ' @' + l + ':' + c, true); };
+
+    try {
+      if (typeof Cesium === 'undefined') {
+        log('Cesium 라이브러리 로드 실패 — CDN/네트워크 확인', true);
+      } else {
+        log('Cesium ' + Cesium.VERSION + ' 로드됨');
+        // 파이썬이 __CESIUM_ION_TOKEN__ 자리에 토큰 주입. 비어 있으면 위성영상만 미표시(지구본은 뜸).
+        const token = '__CESIUM_ION_TOKEN__';
+        if (token && token.length > 10) {
+          Cesium.Ion.defaultAccessToken = token;
+          log('토큰 적용됨 (위성영상·지형 사용)');
+        } else {
+          log('토큰 없음 — 기본 지구본만 표시 (cesium_token.txt 확인)', true);
+        }
+
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+          timeline: true, animation: true, baseLayerPicker: false,
+          geocoder: false, homeButton: false, sceneModePicker: false,
+          navigationHelpButton: false, fullscreenButton: false,
+        });
+        log('Viewer 생성 성공 (WebGL OK)');
+
+        // 한반도 동해 중부(_REGION_REF 기본값)로 카메라 이동 — 실제 좌표계 확인
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(131.9, 37.2, 1_200_000.0),
+          duration: 2.0,
+        });
+        log('카메라 → 한반도 동해 중부 (37.2N, 131.9E)');
+      }
+    } catch (e) {
+      log('EXCEPTION: ' + (e && e.message ? e.message : e), true);
+    }
+  </script>
+</body>
+</html>

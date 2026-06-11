@@ -1,7 +1,15 @@
 # v14.1 — 3D 전장 + 실제 지도 (CesiumJS) 설계
 
-> 상태: **설계 합의 완료 + 코드 검증 완료 (2026-06-11), 구현 미착수**
+> 상태: **1단계(QtWebEngine 빌드 PoC) 완료 (2026-06-11)** — 최대 리스크 통과. 다음 = 2단계(CZML 변환 + '3D 전장' 탭)
 > 난이도: 매우 높음 · 모델: Opus 4.8 · 코드리뷰: `/code-review high`
+
+## ✅ 1단계 PoC 결과 (2026-06-11) — 최대 리스크 통과
+- `PyQt6-WebEngine 6.11.0`(+Qt6 6.11.1, 133MB) 설치. 기존 PyQt6 6.11과 버전 일치.
+- `poc_cesium.py` + `cesium_view.html`: `QWebEngineView`에 CesiumJS(1.142.0, jsDelivr CDN) 로드.
+- **개발 모드·PyInstaller exe 양쪽 모두 `Viewer 생성 성공 (WebGL OK)`** + 토큰 적용 위성영상 지구본 시각 확인 완료.
+- **PyInstaller가 QtWebEngine을 추가 spec 손질 없이 자동 번들링** — "exe만 빈 화면" 함정 회피 확인.
+- **API 키 저장 방식 확정**: `cesium_token.txt`(gitignore) 한 줄 저장 → 파이썬이 읽어 HTML `__CESIUM_ION_TOKEN__` 치환. 토큰은 git 미노출.
+- exe 토큰 경로 주의: 본 구현 시 `_MEIPASS` 내부가 아닌 **실행파일 옆 디렉토리**에서 토큰을 읽도록 해야 함(현 PoC는 _MEIPASS라 exe에서 "토큰 없음").
 
 ---
 
@@ -108,7 +116,7 @@ cesium_view.html:  viewer.dataSources.add(Cesium.CzmlDataSource.load(czml))
 
 ## 7. 미해결 / 착수 전 확정 사항
 
-- [ ] **Cesium ion API 키 발급** (사용자) — [cesium.com/ion](https://cesium.com/ion) 무료 티어. 키 저장 위치: 하드코드 vs 설정 파일 (결정 필요)
+- [x] ~~Cesium ion API 키 발급 + 저장 위치~~ → **완료**: 발급·`cesium_token.txt`(gitignore) 저장 확정
 - [ ] **이벤트 마커 데이터 경로** 확정: frame.events(문자열)엔 위치 없음 → frames의 미사일 alive→dead 전이 위치 + intercepted 플래그로 마커 생성 (엔진 보강 없이 가능할 듯)
 - [ ] **잠수함·어뢰 음수 고도**(수심) 표현 방식 — Cesium 해수면 아래는 가시성 낮음. 수면 투영 vs 반투명 vs 생략 판단
 - [ ] **카메라 초기 위치** — 시나리오 해역(`_REGION_REF`) 중심으로 자동 줌
@@ -118,7 +126,7 @@ cesium_view.html:  viewer.dataSources.add(Cesium.CzmlDataSource.load(czml))
 
 ## 8. 권장 착수 순서 (리스크 선행 격리)
 
-1. **PoC: QtWebEngine 빌드 검증** — `pip install PyQt6-WebEngine` → 빈 Cesium 페이지를 QWebEngineView에 띄우는 최소 exe를 먼저 빌드해 **타일 로드 확인**. (최대 리스크를 가장 먼저 제거)
+1. ~~**PoC: QtWebEngine 빌드 검증**~~ → **✅ 완료 (2026-06-11)** — 개발·exe 양쪽 WebGL OK, 위성영상 지구본 확인. (위 '1단계 PoC 결과' 참조)
 2. `_build_czml()` 변환 + cesium_view.html (개발 모드 `python launcher.py`에서 함정·궤적·마커 재생 확인)
 3. '3D 전장' 탭 통합 + 타임라인 UI
 4. 전체 빌드 + 스모크 실행(지구본 타일 로드 필수 확인) + `verify_regression.py`(엔진 보강 시)

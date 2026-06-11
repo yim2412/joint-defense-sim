@@ -29,7 +29,7 @@ python -m PyInstaller launcher.spec --noconfirm
 ### 필수 패키지
 
 ```
-pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 psutil SALib
+pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine psutil SALib
 ```
 
 ---

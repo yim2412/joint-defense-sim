@@ -11,3 +11,6 @@ dist/
 sim_history.log
 sim_history.json
 app_state.json
+
+# Cesium ion 액세스 토큰 (개인 키 — 절대 커밋 금지)
+cesium_token.txt
