@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v13.09.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v13.09.05 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v13.09.05 — PDF 보고서·차트 한글 깨짐 수정]                               ║
+║  BUG-1  PDF 표지·제목 등 한글이 □로 깨지던 문제 해결 (전역 한글 폰트 지정) ║
+║         + 음수 축 레이블 마이너스 기호 깨짐 동시 해결                       ║
 ║  [v13.09.04 — 진행 화면 동기화 가속]                                        ║
 ║  수정  진행 화면 갱신 주기 1초→0.3초 + MC 배치 축소로 진행 표시 반영을 빠르게║
 ║  [v13.09.03 — 진행 화면 글자 크기 1.2배]                                    ║
@@ -856,7 +859,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.09.04"
+APP_VERSION = "v13.09.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1330,6 +1333,11 @@ import warnings as _warnings
 _warnings.filterwarnings('ignore', message='.*not compatible with tight_layout.*')
 _warnings.filterwarnings('ignore', message='.*Tight layout not applied.*')
 import matplotlib.pyplot as plt
+# 전역 한글 폰트: PDF/차트의 제목·축 레이블이 fontfamily 미지정 시 DejaVu Sans(한글 없음)로
+# 떨어져 한글이 □로 깨지던 문제 방지. unicode_minus=False는 Malgun Gothic에 유니코드
+# 마이너스(−) 글리프가 없어 음수 축 레이블이 깨지던 것을 ASCII 하이픈으로 대체.
+plt.rcParams['font.family'] = 'Malgun Gothic'
+plt.rcParams['axes.unicode_minus'] = False
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
