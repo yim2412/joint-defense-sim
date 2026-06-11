@@ -4254,8 +4254,25 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
         return (base + datetime.timedelta(seconds=float(t))).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     t0, t1 = frames[0].t, frames[-1].t
-    avail = f"{_iso(t0)}/{_iso(t1)}"
     epoch0 = _iso(0)
+
+    # 미사일 선수집 + 표시용 ripple(같은 시각 발사를 순서대로 1.5초씩 시차 표시 — 엔진 불변, 시각 전용)
+    mis: dict = {}
+    for f in frames:
+        for m in f.missiles:
+            mis.setdefault(m[0], (m[3], m[4], []))[2].append((f.t, m[1], m[2], m[5]))
+    _grp: dict = {}
+    for _uid, (_mt, _mn, _sq) in mis.items():
+        _grp.setdefault(_sq[0][0], []).append(_uid)
+    _ripple: dict = {}
+    for _spawn_t, _uids in _grp.items():
+        for _i, _u in enumerate(sorted(_uids)):
+            _ripple[_u] = _i * 1.5
+    disp_end = t1
+    for _uid, (_mt, _mn, _sq) in mis.items():
+        disp_end = max(disp_end, _sq[-1][0] + _ripple.get(_uid, 0.0))
+
+    avail = f"{_iso(t0)}/{_iso(disp_end)}"   # ripple로 미사일이 늦게 끝나는 만큼 연장
     doc["clock"] = {
         "interval": avail, "currentTime": _iso(t0),
         "multiplier": 2, "range": "LOOP_STOP", "step": "SYSTEM_CLOCK_MULTIPLIER",
@@ -4278,7 +4295,8 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
     for name, seq in fri.items():
         packets.append({
             "id": f"ship/{name}", "name": name, "availability": avail,
-            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq)},
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq),
+                         "forwardExtrapolationType": "HOLD"},
             "point": {"pixelSize": 13, "color": {"rgba": [0, 190, 255, 255]},
                       "outlineColor": {"rgba": [255, 255, 255, 255]}, "outlineWidth": 2},
             "label": {"text": name, "font": "12px sans-serif", "scale": 0.85,
@@ -4297,7 +4315,8 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
     for uid, (preset, seq) in ene.items():
         packets.append({
             "id": f"enemy/{uid}", "name": preset, "availability": avail,
-            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq)},
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq),
+                         "forwardExtrapolationType": "HOLD"},
             "point": {"pixelSize": 12, "color": {"rgba": [255, 80, 80, 255]},
                       "outlineColor": {"rgba": [60, 0, 0, 255]}, "outlineWidth": 2},
             "label": {"text": preset, "font": "11px sans-serif", "scale": 0.8,
@@ -4306,15 +4325,12 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
                       "showBackground": True, "backgroundColor": {"rgba": [40, 0, 0, 160]}},
         })
 
-    # ── 미사일 궤적 + 적 미사일 소멸점 마커 ──
-    mis: dict = {}
-    for f in frames:
-        for m in f.missiles:
-            mis.setdefault(m[0], (m[3], m[4], []))[2].append((f.t, m[1], m[2], m[5]))
+    # ── 미사일 궤적 + 적 미사일 소멸점 마커 (mis는 위에서 선수집) ──
     threat_times = []   # 발수 카운터용 적 미사일 [등장t, 소멸t]
     for uid, (mtype, mname, seq) in mis.items():
         ox, oy = _spread_offset(uid)
-        seq = [(t, x + ox, y + oy, a) for (t, x, y, a) in seq]   # 겹침 방지 미세 분산
+        ro = _ripple.get(uid, 0.0)
+        seq = [(t + ro, x + ox, y + oy, a) for (t, x, y, a) in seq]   # 분산 + 표시용 ripple 시차
         ta, tb = seq[0][0], seq[-1][0]
         is_enemy = (mtype == 'enemy_strike')
         if is_enemy:
