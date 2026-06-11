@@ -4226,6 +4226,15 @@ class TimeStepEngine:
 #  v14.1: 3D 전장 — frames → CesiumJS CZML 변환 (순수 읽기, 회귀 무영향)
 # ════════════════════════════════════════════════════════════════════════════
 
+def _spread_offset(uid: str) -> tuple:
+    """동시 발사 미사일이 한 점에 겹치지 않게 황금각 나선으로 미세 분산(시각용 오프셋)."""
+    digits = ''.join(ch for ch in uid if ch.isdigit())
+    n = int(digits) if digits else 0
+    ang = n * 2.399963229728653          # 황금각(rad) — 고르게 퍼짐
+    r = 200.0 * math.sqrt(n % 40)        # 나선 반경(최대 ~1.26km, 비행거리 44km 대비 미세)
+    return math.cos(ang) * r, math.sin(ang) * r
+
+
 def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
     """
     시뮬 결과의 frames(SimFrame 리스트)를 CesiumJS CZML 패킷 리스트로 변환한다.
@@ -4302,9 +4311,14 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
     for f in frames:
         for m in f.missiles:
             mis.setdefault(m[0], (m[3], m[4], []))[2].append((f.t, m[1], m[2], m[5]))
+    threat_times = []   # 발수 카운터용 적 미사일 [등장t, 소멸t]
     for uid, (mtype, mname, seq) in mis.items():
+        ox, oy = _spread_offset(uid)
+        seq = [(t, x + ox, y + oy, a) for (t, x, y, a) in seq]   # 겹침 방지 미세 분산
         ta, tb = seq[0][0], seq[-1][0]
         is_enemy = (mtype == 'enemy_strike')
+        if is_enemy:
+            threat_times.append([ta, tb])
         col = [255, 90, 60, 255] if is_enemy else [90, 230, 140, 255]
         packets.append({
             "id": f"missile/{uid}", "name": mname,
@@ -4317,12 +4331,14 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
         if is_enemy:
             ll = LatLon.from_xy(seq[-1][1], seq[-1][2])
             packets.append({
-                "id": f"impact/{uid}", "availability": f"{_iso(tb)}/{_iso(t1)}",
+                # 요격 순간 2.5초만 번쩍 — 되감기/누적 방지
+                "id": f"impact/{uid}", "availability": f"{_iso(tb)}/{_iso(tb + 2.5)}",
                 "position": {"cartographicDegrees": [round(ll.lon, 6), round(ll.lat, 6), 0]},
                 "point": {"pixelSize": 9, "color": {"rgba": [255, 210, 0, 230]},
                           "outlineColor": {"rgba": [255, 90, 0, 255]}, "outlineWidth": 2},
             })
 
+    doc["_threatTimes"] = threat_times   # JS 발수 카운터가 시각별로 집계
     return packets
 
 

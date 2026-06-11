@@ -19,11 +19,19 @@
       max-width: 60%; white-space: pre-wrap; pointer-events: none;
     }
     #diag .err { color: #ff6b6b; }
+    #counter {
+      position: absolute; top: 10px; right: 12px; z-index: 9999; display: none;
+      font: 13px/1.6 'Malgun Gothic', sans-serif; color: #e6eef7;
+      background: rgba(10,22,40,0.72); padding: 10px 14px; border-radius: 8px;
+      border: 1px solid rgba(120,170,255,0.35); pointer-events: none; min-width: 116px;
+    }
+    #counter b { color: #ffd166; font-size: 15px; }
   </style>
 </head>
 <body>
   <div id="cesiumContainer"></div>
   <div id="diag"></div>
+  <div id="counter"></div>
   <script>
     const diag = document.getElementById('diag');
     function log(msg, isErr) {
@@ -65,6 +73,28 @@
 
         // 파이썬이 시뮬 결과를 CZML로 주입하는 통로
         window._viewer = viewer;
+        // 발수 카운터 — 시각별 위협 미사일 집계(발사/비행중/처리됨)
+        let _counterTick = null;
+        function _setupCounter(src) {
+          const tt = (src[0] && src[0]._threatTimes) || [];
+          const el = document.getElementById('counter');
+          const clock = viewer.clock;
+          if (_counterTick) clock.onTick.removeEventListener(_counterTick);
+          if (!tt.length) { el.style.display = 'none'; return; }
+          el.style.display = 'block';
+          _counterTick = function () {
+            const t = Cesium.JulianDate.secondsDifference(clock.currentTime, clock.startTime);
+            let fired = 0, flying = 0, done = 0;
+            for (let k = 0; k < tt.length; k++) {
+              if (t >= tt[k][0]) { fired++; if (t <= tt[k][1] + 0.001) flying++; else done++; }
+            }
+            el.innerHTML = '위협 발사 <b>' + fired + '</b><br>비행 중 <b>' + flying +
+                           '</b><br>처리됨 <b>' + done + '</b>';
+          };
+          clock.onTick.addEventListener(_counterTick);
+          _counterTick();
+        }
+
         window.loadCzml = function (czml) {
           try {
             const src = (typeof czml === 'string') ? JSON.parse(czml) : czml;
@@ -73,6 +103,7 @@
               viewer.dataSources.add(ds);
               viewer.clock.shouldAnimate = true;
               viewer.flyTo(ds, { duration: 1.5 });
+              _setupCounter(src);
               log('CZML 로드 성공: ' + src.length + ' 패킷');
             }).catch(function (e) { log('CZML 로드 실패: ' + e, true); });
           } catch (e) { log('CZML 파싱 실패: ' + e, true); }
