@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v13.09.07 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v14.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v14.01.01 — 3D 전장: 위성 지도 위 교전 시간순 재생]                       ║
+║  NEW-A  교전 분석에 '3D 전장' 탭 신설 (함정·미사일 궤적·교전 지점 재생)     ║
 ║  [v13.09.07 — 향후 계획에 극초음속 위협 항목 추가]                          ║
 ║  NEW-A  v16.2 극초음속 활공체·순항미사일 위협 + 글라이드 페이즈 요격 추가   ║
 ║  [v13.09.06 — 향후 계획 로드맵 교차참조 번호 정리]                          ║
@@ -863,7 +865,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v13.09.07"
+APP_VERSION = "v14.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1075,6 +1077,15 @@ def _res(filename: str) -> str:
     """PyInstaller exe 및 일반 실행 모두에서 리소스 파일 경로 반환."""
     base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, filename)
+
+
+def _token_path() -> str:
+    """Cesium ion 토큰(개인키, 빌드 제외) — exe는 실행파일 옆, 개발은 스크립트 옆에서 읽음."""
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, 'cesium_token.txt')
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1328,7 +1339,15 @@ from PyQt6.QtGui import (
     QFont, QColor, QPalette, QShortcut, QKeySequence, QPixmap, QPainter,
     QPainterPath, QPen,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF, QEvent, QObject, QPoint
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QRectF, QEvent, QObject, QPoint, QUrl
+
+# v14.1: 3D 전장용 WebEngine (미설치 환경에서도 앱이 죽지 않도록 가드)
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    _WEBENGINE_OK = True
+except Exception:
+    QWebEngineView = None
+    _WEBENGINE_OK = False
 
 import matplotlib
 matplotlib.use('QtAgg')
@@ -1352,6 +1371,7 @@ import numpy as np
 try:
     from engine_v7 import (
         run_v7_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
+        build_czml,
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
         WEATHER_DB,
@@ -3653,6 +3673,9 @@ class EngagementAnalysisTab(QWidget):
         self._tab_gantt = ChartPageWidget()
         tabs.addTab(self._tab_gantt, "⏱  교전 타임라인")
 
+        # ── Sub-tab 4: 3D 전장 (CesiumJS) ──────────────────────────────────
+        tabs.addTab(self._build_3d_tab(), "🌐  3D 전장")
+
         layout.addWidget(tabs)
 
         # 초기 안내
@@ -3664,6 +3687,69 @@ class EngagementAnalysisTab(QWidget):
         tabs.hide()
         self._tabs_widget = tabs
 
+    # ── 3D 전장 (CesiumJS) ─────────────────────────────────────────────────
+    def _build_3d_tab(self) -> QWidget:
+        """CesiumJS 3D 전장 서브탭. 시뮬 결과를 CZML로 변환해 시간순 리플레이."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self._web3d = None
+        self._web3d_ready = False
+        self._czml_pending = None
+
+        if not _WEBENGINE_OK:
+            lbl = QLabel("3D 전장은 PyQt6-WebEngine 설치가 필요합니다.\n"
+                         "pip install PyQt6-WebEngine")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px; font-family:'Malgun Gothic';")
+            lay.addWidget(lbl)
+            return w
+
+        token = ''
+        try:
+            with open(_token_path(), encoding='utf-8') as f:
+                token = f.read().strip()
+        except Exception:
+            pass
+        try:
+            with open(_res('cesium_view.html'), encoding='utf-8') as f:
+                html = f.read().replace('__CESIUM_ION_TOKEN__', token)
+        except Exception:
+            html = ("<html><body style='background:#0b1a2b;color:#ddd;font-family:sans-serif'>"
+                    "cesium_view.html 로드 실패</body></html>")
+
+        self._web3d = QWebEngineView()
+
+        def _on_load(ok):
+            self._web3d_ready = bool(ok)
+            if ok and self._czml_pending is not None:
+                self._inject_czml(self._czml_pending)
+                self._czml_pending = None
+
+        self._web3d.loadFinished.connect(_on_load)
+        self._web3d.setHtml(html, QUrl("https://localhost/"))
+        lay.addWidget(self._web3d)
+        return w
+
+    def _inject_czml(self, czml: list):
+        if self._web3d is None:
+            return
+        payload = json.dumps(czml, ensure_ascii=False)
+        self._web3d.page().runJavaScript(f"loadCzml({payload})")
+
+    def _load_3d(self, result: dict):
+        """시뮬 결과 → CZML 주입. 페이지 로드 전이면 보류 후 loadFinished에서 주입."""
+        if self._web3d is None:
+            return
+        try:
+            czml = build_czml(result)
+        except Exception:
+            return
+        if self._web3d_ready:
+            self._inject_czml(czml)
+        else:
+            self._czml_pending = czml
+
     def load_result(self, result: dict):
         active_events = result.get('active_events', [])
         self._lbl_empty.hide()
@@ -3672,6 +3758,9 @@ class EngagementAnalysisTab(QWidget):
         # Funnel & Gantt — 백그라운드 렌더
         self._tab_funnel.start_render(_render_engagement_funnel, active_events)
         self._tab_gantt.start_render(_render_engagement_gantt, active_events)
+
+        # 3D 전장 — frames → CZML 주입 (단일 시뮬만, MC는 frames 없어 document만)
+        self._load_3d(result)
 
         # 위협 추적 테이블 — 메인 스레드 직접 채움
         self._fill_table(active_events)
@@ -10227,8 +10316,9 @@ class SplashWindow(QWidget):
              "기능 변경 없이 시각적 완성도만 높이는 작업."),
             # ── v14.x — 3D 전장 & 실제 지도 ─────────────────────────────────
             ("v14.1", "매우 높음", "3D 전장 + 실제 지도",
-             "실제 수심·지형 데이터 기반 3D 전장 표시. 레이더 커버리지·미사일 궤적 입체 표현. "
-             "실제 좌표계와 직결. 최소 적용은 2.5D 지도 오버레이부터(3D는 비용 대비 효용 낮음). "
+             "위성 지도 위 3D 전장 시간순 재생 구현 완료 — 아군 함정·적함·미사일 궤적·교전 지점을 "
+             "실제 좌표 위에 표시하고 타임라인으로 재생(결과 교전 분석의 '3D 전장' 탭). "
+             "남은 개선: 레이더·SAM 커버리지 입체 표현, 함정 아이콘·색감 등 표현 고도화. "
              "【현실성】레이더 커버리지는 수평선·지형 차폐로 비대칭."),
             # ── v15.x — AI & 자율화 ────────────────────────────────────────────
             ("v15.1", "매우 높음", "적응형 전술 AI",

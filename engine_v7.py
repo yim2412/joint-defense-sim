@@ -4223,6 +4223,110 @@ class TimeStepEngine:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  v14.1: 3D 전장 — frames → CesiumJS CZML 변환 (순수 읽기, 회귀 무영향)
+# ════════════════════════════════════════════════════════════════════════════
+
+def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
+    """
+    시뮬 결과의 frames(SimFrame 리스트)를 CesiumJS CZML 패킷 리스트로 변환한다.
+    - frames는 단일 시뮬에서만 존재(MC 모드는 _record_frame 생략) → MC 결과엔 document만 반환.
+    - 좌표 x,y(m) → LatLon.from_xy로 위경도 변환(시뮬 직후 모듈 _ref 기준이 유효).
+    - 아군 함정·적함·미사일(궤적) + 적 미사일 소멸점 마커를 패킷으로 생성.
+    """
+    import datetime
+    frames = result.get('frames', [])
+    doc = {"id": "document", "name": "battlefield", "version": "1.0"}
+    if not frames:
+        return [doc]
+
+    base = datetime.datetime.fromisoformat(epoch_iso.replace("Z", "+00:00"))
+
+    def _iso(t):
+        return (base + datetime.timedelta(seconds=float(t))).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    t0, t1 = frames[0].t, frames[-1].t
+    avail = f"{_iso(t0)}/{_iso(t1)}"
+    epoch0 = _iso(0)
+    doc["clock"] = {
+        "interval": avail, "currentTime": _iso(t0),
+        "multiplier": 2, "range": "LOOP_STOP", "step": "SYSTEM_CLOCK_MULTIPLIER",
+    }
+    packets = [doc]
+
+    def _cart(seq, with_alt=False):
+        out = []
+        for it in seq:
+            ll = LatLon.from_xy(it[1], it[2])
+            h = float(it[3]) if (with_alt and len(it) > 3 and it[3]) else 0.0
+            out += [float(it[0]), round(ll.lon, 6), round(ll.lat, 6), h]
+        return out
+
+    # ── 아군 함정 ──
+    fri: dict = {}
+    for f in frames:
+        for s in f.friendly_ships:
+            fri.setdefault(s[0], []).append((f.t, s[1], s[2]))
+    for name, seq in fri.items():
+        packets.append({
+            "id": f"ship/{name}", "name": name, "availability": avail,
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq)},
+            "point": {"pixelSize": 13, "color": {"rgba": [0, 190, 255, 255]},
+                      "outlineColor": {"rgba": [255, 255, 255, 255]}, "outlineWidth": 2},
+            "label": {"text": name, "font": "12px sans-serif", "scale": 0.85,
+                      "pixelOffset": {"cartesian2": [0, -22]},
+                      "fillColor": {"rgba": [180, 235, 255, 255]},
+                      "showBackground": True, "backgroundColor": {"rgba": [0, 20, 40, 160]}},
+            "path": {"width": 2, "leadTime": 0, "trailTime": 99999, "resolution": 5,
+                     "material": {"solidColor": {"color": {"rgba": [0, 190, 255, 110]}}}},
+        })
+
+    # ── 적함 ──
+    ene: dict = {}
+    for f in frames:
+        for e in f.enemy_ships:
+            ene.setdefault(e[0], (e[1], []))[1].append((f.t, e[2], e[3]))
+    for uid, (preset, seq) in ene.items():
+        packets.append({
+            "id": f"enemy/{uid}", "name": preset, "availability": avail,
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq)},
+            "point": {"pixelSize": 12, "color": {"rgba": [255, 80, 80, 255]},
+                      "outlineColor": {"rgba": [60, 0, 0, 255]}, "outlineWidth": 2},
+            "label": {"text": preset, "font": "11px sans-serif", "scale": 0.8,
+                      "pixelOffset": {"cartesian2": [0, -20]},
+                      "fillColor": {"rgba": [255, 200, 200, 255]},
+                      "showBackground": True, "backgroundColor": {"rgba": [40, 0, 0, 160]}},
+        })
+
+    # ── 미사일 궤적 + 적 미사일 소멸점 마커 ──
+    mis: dict = {}
+    for f in frames:
+        for m in f.missiles:
+            mis.setdefault(m[0], (m[3], m[4], []))[2].append((f.t, m[1], m[2], m[5]))
+    for uid, (mtype, mname, seq) in mis.items():
+        ta, tb = seq[0][0], seq[-1][0]
+        is_enemy = (mtype == 'enemy_strike')
+        col = [255, 90, 60, 255] if is_enemy else [90, 230, 140, 255]
+        packets.append({
+            "id": f"missile/{uid}", "name": mname,
+            "availability": f"{_iso(ta)}/{_iso(tb)}",
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq, with_alt=True)},
+            "point": {"pixelSize": 6, "color": {"rgba": col}},
+            "path": {"width": 1.5, "leadTime": 0, "trailTime": 6, "resolution": 1,
+                     "material": {"solidColor": {"color": {"rgba": col[:3] + [150]}}}},
+        })
+        if is_enemy:
+            ll = LatLon.from_xy(seq[-1][1], seq[-1][2])
+            packets.append({
+                "id": f"impact/{uid}", "availability": f"{_iso(tb)}/{_iso(t1)}",
+                "position": {"cartographicDegrees": [round(ll.lon, 6), round(ll.lat, 6), 0]},
+                "point": {"pixelSize": 9, "color": {"rgba": [255, 210, 0, 230]},
+                          "outlineColor": {"rgba": [255, 90, 0, 255]}, "outlineWidth": 2},
+            })
+
+    return packets
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  탐지거리 자동 계산 (함대 편성 + 날씨 + 데이터링크)
 # ════════════════════════════════════════════════════════════════════════════
 

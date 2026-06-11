@@ -21,6 +21,7 @@ a = Analysis(
         ('terrain_db.py',          '.'),
         ('military_db.py',         '.'),
         ('assets/images',          'assets/images'),
+        ('cesium_view.html',       '.'),
     ],
     hiddenimports=[
         # PyQt6 core
@@ -28,6 +29,8 @@ a = Analysis(
         'PyQt6.QtWidgets',
         'PyQt6.QtCore',
         'PyQt6.QtGui',
+        'PyQt6.QtWebEngineWidgets',
+        'PyQt6.QtWebEngineCore',
         'PyQt6.sip',
         # matplotlib Qt backend
         'matplotlib.backends.backend_qtagg',

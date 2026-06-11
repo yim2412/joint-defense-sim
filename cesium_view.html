@@ -10,8 +10,9 @@
   <link href="https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
     html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #0b1a2b; }
-    /* PoC 진단 오버레이 — 본 구현에서 제거 */
+    /* 진단 오버레이 — 본 통합: 화면 비표시(콘솔 로그는 유지). 디버깅 시 display:block */
     #diag {
+      display: none;
       position: absolute; top: 8px; left: 8px; z-index: 9999;
       font: 13px/1.5 'Consolas', monospace; color: #9fe6a0;
       background: rgba(0,0,0,0.55); padding: 8px 10px; border-radius: 6px;
@@ -61,6 +62,21 @@
           duration: 2.0,
         });
         log('카메라 → 한반도 동해 중부 (37.2N, 131.9E)');
+
+        // 파이썬이 시뮬 결과를 CZML로 주입하는 통로
+        window._viewer = viewer;
+        window.loadCzml = function (czml) {
+          try {
+            const src = (typeof czml === 'string') ? JSON.parse(czml) : czml;
+            Cesium.CzmlDataSource.load(src).then(function (ds) {
+              viewer.dataSources.removeAll();
+              viewer.dataSources.add(ds);
+              viewer.clock.shouldAnimate = true;
+              viewer.flyTo(ds, { duration: 1.5 });
+              log('CZML 로드 성공: ' + src.length + ' 패킷');
+            }).catch(function (e) { log('CZML 로드 실패: ' + e, true); });
+          } catch (e) { log('CZML 파싱 실패: ' + e, true); }
+        };
       }
     } catch (e) {
       log('EXCEPTION: ' + (e && e.message ? e.message : e), true);
