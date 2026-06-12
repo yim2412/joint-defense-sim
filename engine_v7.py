@@ -2366,7 +2366,9 @@ class TimeStepEngine:
         irate = (self.stats['intercepted_threats'] / fired) if fired > 0 else 0.0
 
         prev = self._adaptive_mode
-        if irate > 0.5 and sat < 0.7:
+        if irate > 0.7:
+            new = 'deception'    # 분산으로도 못 뚫음 → 기만(종말 회피·시차 극대)
+        elif irate > 0.5 and sat < 0.7:
             new = 'dispersal'    # 잘 막힘 + 채널 여유 → 분산
         elif irate < 0.3:
             new = 'saturation'   # 잘 뚫림 → 포화 유지/복귀
@@ -2375,7 +2377,8 @@ class TimeStepEngine:
         if new != prev:
             self._adaptive_mode = new
             if not self._mc_mode:
-                _lbl = {'saturation': '포화 공격', 'dispersal': '분산 접근'}
+                _lbl = {'saturation': '포화 공격', 'dispersal': '분산 접근',
+                        'deception': '기만 침투'}
                 self._log(f"[적 전술 전환] {_lbl.get(prev, prev)} → {_lbl.get(new, new)} "
                           f"(요격률 {irate*100:.0f}%, 채널포화 {sat*100:.0f}%)")
 
@@ -2404,9 +2407,14 @@ class TimeStepEngine:
 
             _smin = et.info.get('missile_salvo_min', 1)
             _smax = et.info.get('missile_salvo_max', 2)
-            # v15.1 적응형: 포화=최대 살보, 분산=중간 살보(작게 나눠 재발사 시차 유도)
+            # v15.1 적응형: 포화=최대 / 분산=중간(시차 유도) / 기만=최소(시차 극대)
             if self._adaptive_ai:
-                salvo = _smax if self._adaptive_mode == 'saturation' else max(_smin, (_smin + _smax) // 2)
+                if self._adaptive_mode == 'saturation':
+                    salvo = _smax
+                elif self._adaptive_mode == 'deception':
+                    salvo = _smin
+                else:  # dispersal
+                    salvo = max(_smin, (_smin + _smax) // 2)
             else:
                 salvo = random.randint(_smin, _smax)
             m_speed = et.info.get('missile_speed_ms') or 300
@@ -2435,7 +2443,11 @@ class TimeStepEngine:
                     t_spawn  = self.t,
                 )
                 # 포팅 B: 전술 속성 설정
-                _m.terminal_evasion_factor = et.info.get('missile_terminal_evasion', 1.0)
+                _ev = et.info.get('missile_terminal_evasion', 1.0)
+                # v15.1 기만: 종말 회피 강화(계수↓ → 요격 더 어려움). 하한 0.2.
+                if self._adaptive_ai and self._adaptive_mode == 'deception':
+                    _ev = max(0.2, _ev * 0.6)
+                _m.terminal_evasion_factor = _ev
                 _m.is_torpedo = _is_torp
                 self.missiles.append(_m)
 
