@@ -1798,26 +1798,46 @@ class TimeStepEngine:
 
     def _log_detections(self):
         """위협이 처음 레이더/소나 탐지 범위에 들어온 시점을 1회 로깅 (스탠드오프 가시화).
+        함대 공유(Link-16) 실효 탐지거리(detect_km/surface/sub) 기준 — 실제 교전 탐지와 일치.
         순수 거리 판정만 사용 — RNG 미소비라 결정론 보존. MC 모드는 _log가 자동으로 무시."""
         if self._mc_mode:
             return
         ships = [s for s in self.friendly_ships if s.alive]
         if not ships:
             return
+        air_km  = self.cfg.get('detect_km', 200)
+        surf_km = self.cfg.get('surface_detect_km', air_km)
+        sub_km  = self.cfg.get('sub_detect_km', 50)
+
+        # 함정·항공기·잠수함 위협 — 개체별 최초 탐지
         for et in self.enemy_threats:
             if not et.alive or et.uid in self._detected_log_set:
                 continue
             if et.is_sub:
-                cat, sensor = '대잠', '소나'
+                sensor, rng_m = '소나', sub_km * 1000
             elif et.is_aircraft:
-                cat, sensor = '대공', '레이더'
+                sensor, rng_m = '레이더', air_km * 1000
             else:
-                cat, sensor = '대함', '레이더'
+                sensor, rng_m = '레이더', surf_km * 1000
             best = min(ships, key=lambda s: s.pos.dist_to(et.pos))
             dist = best.pos.dist_to(et.pos)
-            if dist <= self._detect_range_m(best, cat, et.altitude_m):
+            if dist <= rng_m:
                 self._detected_log_set.add(et.uid)
                 self._log(f"[탐지] {best.name} {sensor} → {et.preset_name} 포착 "
+                          f"(거리 {dist/1000:.0f}km)")
+
+        # 독립 미사일 위협(탄도·순항 등) — 종류별 최초 1회만 (살보 폭증 방지)
+        for m in self.missiles:
+            if not m.alive or m.mtype != 'enemy_strike':
+                continue
+            key = f"missile:{m.name}"
+            if key in self._detected_log_set:
+                continue
+            best = min(ships, key=lambda s: s.pos.dist_to(m.pos))
+            dist = best.pos.dist_to(m.pos)
+            if dist <= air_km * 1000:
+                self._detected_log_set.add(key)
+                self._log(f"[탐지] {best.name} 레이더 → {m.name} 포착 "
                           f"(거리 {dist/1000:.0f}km)")
 
     def _detect_range_m(self, ship: FriendlyShipObj, category: str,
