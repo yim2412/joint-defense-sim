@@ -1238,6 +1238,11 @@ class TimeStepEngine:
         self._tactical_pause_cb = None  # SimWorker가 주입하는 콜백 (state) → choice dict
         self._tactical_interval  = cfg.get('tactical_interval', 30)  # 일시정지 간격(초)
 
+        # v15.1: 적응형 전술 AI — ai_tactic='adaptive'일 때만 동작
+        self._adaptive_ai     = (cfg.get('ai_tactic') == 'adaptive')
+        self._adaptive_mode   = 'saturation'   # 초기 전술 (포화)
+        self._adaptive_last_t = -999.0         # 마지막 재평가 시각
+
         # BUG-2 fix: LatLon.from_xy() 기준점을 _build_*() 호출 전에 설정
         _set_region_ref(cfg.get('fleet_region', '동해 북부'))
         self._log_entries: list = []
@@ -2339,6 +2344,41 @@ class TimeStepEngine:
 
     # ── 2단계: 적 발사 ────────────────────────────────────────────────────────
 
+    def _adaptive_tactic_update(self):
+        """
+        v15.1: 적응형 전술 AI — 주기(20초)마다 전장 상태를 평가해 전술 전환.
+        규칙기반(포화↔분산). 기만은 v15.01.02. adaptive 모드에서만 호출.
+          sat   = 비행 중 위협 / 아군 총 교전 채널 (채널 포화도)
+          irate = 누적 요격률
+        잘 막히고(요격률↑) 채널 여유 있으면 → 분산(채널 분할 강요),
+        잘 뚫리면(요격률↓) → 포화 유지/복귀.
+        """
+        AI_REEVAL_S = 20.0
+        if self.t - self._adaptive_last_t < AI_REEVAL_S:
+            return
+        self._adaptive_last_t = self.t
+
+        total_ch  = max(sum(s.max_channels for s in self.friendly_ships if s.alive), 1)
+        in_flight = sum(1 for m in self.missiles
+                        if m.alive and m.mtype == 'enemy_strike')
+        sat   = in_flight / total_ch
+        fired = self.stats['total_threats']
+        irate = (self.stats['intercepted_threats'] / fired) if fired > 0 else 0.0
+
+        prev = self._adaptive_mode
+        if irate > 0.5 and sat < 0.7:
+            new = 'dispersal'    # 잘 막힘 + 채널 여유 → 분산
+        elif irate < 0.3:
+            new = 'saturation'   # 잘 뚫림 → 포화 유지/복귀
+        else:
+            new = prev           # 중간 — 유지
+        if new != prev:
+            self._adaptive_mode = new
+            if not self._mc_mode:
+                _lbl = {'saturation': '포화 공격', 'dispersal': '분산 접근'}
+                self._log(f"[적 전술 전환] {_lbl.get(prev, prev)} → {_lbl.get(new, new)} "
+                          f"(요격률 {irate*100:.0f}%, 채널포화 {sat*100:.0f}%)")
+
     def _enemy_fire(self):
         primary = self._primary()
         for et in self.enemy_threats:
@@ -2362,10 +2402,13 @@ class TimeStepEngine:
             if dist_m > fire_range_m:
                 continue
 
-            salvo   = random.randint(
-                et.info.get('missile_salvo_min', 1),
-                et.info.get('missile_salvo_max', 2),
-            )
+            _smin = et.info.get('missile_salvo_min', 1)
+            _smax = et.info.get('missile_salvo_max', 2)
+            # v15.1 적응형: 포화=최대 살보, 분산=중간 살보(작게 나눠 재발사 시차 유도)
+            if self._adaptive_ai:
+                salvo = _smax if self._adaptive_mode == 'saturation' else max(_smin, (_smin + _smax) // 2)
+            else:
+                salvo = random.randint(_smin, _smax)
             m_speed = et.info.get('missile_speed_ms') or 300
             m_name  = et.info.get('missile_name') or '대함미사일'
 
@@ -2375,11 +2418,17 @@ class TimeStepEngine:
                     et.pos.x + random.uniform(-500, 500),
                     et.pos.y + random.uniform(-500, 500),
                 )
+                # v15.1 적응형 포화: 기함(primary) 집중 / 그 외: 기존 분산 선택
+                # (random 호출 순서 보존 위해 offset 뒤에서 표적 선택)
+                if self._adaptive_ai and self._adaptive_mode == 'saturation' and not _is_torp:
+                    _tgt = primary
+                else:
+                    _tgt = self._pick_target(is_torpedo=_is_torp)
                 _m = MissileObj(
                     mtype    = 'enemy_strike',
                     name     = m_name,
                     pos      = offset,
-                    target   = self._pick_target(is_torpedo=_is_torp),
+                    target   = _tgt,
                     speed_ms = m_speed,
                     pk_base  = _MISSILE_PK_MAP.get(m_name, _MISSILE_PK_DEFAULT),  # MED-5
                     owner_id = id(et),
@@ -4071,6 +4120,8 @@ class TimeStepEngine:
             self._n_alive_threats: int = sum(1 for et in self.enemy_threats if et.alive)
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
             self._log_detections()   # 첫 탐지 시점 로깅 (위치 갱신 후, 적 발사 전)
+            if self._adaptive_ai:    # v15.1: 적응형 전술 재평가 (발사 직전)
+                self._adaptive_tactic_update()
             _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
             self._arm_radar_off_check()
             _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0

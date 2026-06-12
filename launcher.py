@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v14.03.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.01.01 — 적응형 전술 AI (포화↔분산)]                                   ║
+║  NEW-A  전술 AI '적응형(자동)' 신설 — 적이 요격률·채널 포화를 보고          ║
+║         포화 공격↔분산 접근을 교전 중 실시간 전환 (전환 사유 로그 기록)     ║
 ║  [v14.03.01~02 — 3D 탐지권: 수평선·지형 차폐 반영]                          ║
 ║  NEW-A  저고도 해면 탐지 한계를 외곽선으로 표시 (수평선 너머 차폐, 약 33km) ║
 ║  NEW-B  지형 차폐 켜면 육지(산맥) 방위로 저고도 탐지권이 패임 (비대칭)      ║
@@ -883,7 +886,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v14.03.02"
+APP_VERSION = "v15.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6518,12 +6521,13 @@ class MainWindow(QMainWindow):
         lbl_ai_tactic = QLabel("전술 AI:")
         lbl_ai_tactic.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.cmb_ai_tactic = NoScrollComboBox()
-        self.cmb_ai_tactic.addItems(['없음', '채널 포화', '시차 공격', '약점 공략'])
+        self.cmb_ai_tactic.addItems(['없음', '채널 포화', '시차 공격', '약점 공략', '적응형(자동)'])
         self.cmb_ai_tactic.setToolTip(
             "없음: 기본 동시 접근\n"
             "채널 포화: 아군 교전 채널 수 ×1.5 위협 자동 증폭 — 방어망 과부하\n"
             "시차 공격: 고속(탄도·HGV) 선발 → 채널 소모 → 순항미사일 후속 (+30~60초)\n"
-            "약점 공략: 모든 위협이 단일 방향 집중 접근 — 레이더 사각 공략"
+            "약점 공략: 모든 위협이 단일 방향 집중 접근 — 레이더 사각 공략\n"
+            "적응형(자동): 적이 교전 중 요격률·채널 포화를 보고 포화↔분산을 실시간 전환"
         )
         ai_tactic_row.addWidget(lbl_ai_tactic)
         ai_tactic_row.addWidget(self.cmb_ai_tactic, stretch=1)
@@ -8213,6 +8217,7 @@ class MainWindow(QMainWindow):
             'ai_tactic': {
                 '없음': None, '채널 포화': 'saturation',
                 '시차 공격': 'stagger', '약점 공략': 'exploit_weakness',
+                '적응형(자동)': 'adaptive',
             }.get(self.cmb_ai_tactic.currentText(), None),
             'sim_seed':               self.spn_sim_seed.value() or None,
             # v9.3: 공격 임무
