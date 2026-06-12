@@ -1,7 +1,17 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.01.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.02.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.02.02 — 교전 로그 가독성 개선]                                        ║
+║  NEW-A  첫 탐지 요약 패널 — 위협별 최초 포착 시각·거리·센서를 상단에 표시   ║
+║  NEW-B  교전 로그를 이벤트 유형별 색상으로 표시 (탐지·요격·피격·전환 등)    ║
+║  수정  로그 표시 한도 300→1000줄 (대규모 교전도 잘리지 않음)               ║
+║  [v15.02.01 — 교전 로그 탭 간소화]                                          ║
+║  수정  이벤트 타임라인 차트를 제거하고 교전 로그 표를 전체로 확대 (가독성)  ║
+║  [v15.01.03 — 적응형 전술 AI: 점진 전환 다듬기]                             ║
+║  NEW-A  최근 교전 구간(슬라이딩 윈도우) 요격률로 판단 — 상황 변화에 민감    ║
+║  NEW-B  전술을 포화→분산→기만 한 단계씩 점진 전환 (급점프 방지·양방향)      ║
+║         교전 로그에 전환 ⚡ 강조 + 전환 횟수 집계                           ║
 ║  [v15.01.02 — 적응형 전술 AI: 기만 침투 추가]                               ║
 ║  NEW-A  분산으로도 안 통하면 '기만 침투'로 전환 — 종말 회피 강화 +          ║
 ║         발사 시차 극대 + 표적 분산으로 요격 회피 (포화→분산→기만 3단계)     ║
@@ -884,12 +894,12 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp, traceback
+import sys, os, io, re, time, threading, json, multiprocessing, subprocess as _sp, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wait, FIRST_COMPLETED
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.01.02"
+APP_VERSION = "v15.02.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4839,15 +4849,17 @@ def _render_ammo_curve(mc: dict) -> Figure:
 
 
 # 교전 로그 이벤트 분류 — (카테고리, 색상). 우선순위 순서로 검사한다.
+# 로그 표 행 텍스트 색상에 사용 (유형별 가독성).
 _LOG_CATEGORIES = [
-    ('탐지',            '#16a085'),
+    ('전술 전환',       '#f1c40f'),
+    ('탐지',            '#1abc9c'),
     ('미사일 발사',     '#5dade2'),
     ('요격 성공',       '#3498db'),
     ('실패·회피·통과',  '#e67e22'),
     ('아군 피격',       '#e74c3c'),
     ('적함 피격·격침',  '#2ecc71'),
     ('침수·침몰',       '#9b59b6'),
-    ('기타',            '#7f8c8d'),
+    ('기타',            '#c8d4e0'),
 ]
 _LOG_CAT_COLOR = dict(_LOG_CATEGORIES)
 
@@ -4855,6 +4867,8 @@ _LOG_CAT_COLOR = dict(_LOG_CATEGORIES)
 def _classify_log_event(msg: str) -> str:
     """로그 메시지를 _LOG_CATEGORIES 중 하나로 분류 (대괄호 접두사·키워드 기반)."""
     m = msg
+    if '전술 전환' in m:
+        return '전술 전환'
     if '[탐지]' in m:
         return '탐지'
     if '침몰' in m or '침수' in m:
@@ -4873,44 +4887,6 @@ def _classify_log_event(msg: str) -> str:
     if '발사' in m or 'BMD' in m or '[공격]' in m:   # [공격] = 아군 대함 미사일 발사
         return '미사일 발사'
     return '기타'
-
-
-def _plot_log_timeline(fig: Figure, log: list):
-    """주어진 Figure에 교전 이벤트 시간축 타임라인을 그린다 (카테고리별 색상 레인)."""
-    fig.clear()
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    fig.patch.set_facecolor(C_BG)
-    if not log:
-        ax.axis('off')
-        ax.text(0.5, 0.5, '교전 로그 없음', ha='center', va='center',
-                color=C_SUBTEXT, fontsize=12, transform=ax.transAxes)
-        return
-    cats = [c for c, _ in _LOG_CATEGORIES]
-    xs_by_cat = {c: [] for c in cats}
-    for t, msg in log:
-        xs_by_cat[_classify_log_event(msg)].append(t)
-    # 이벤트가 있는 카테고리만 레인으로 표시 (아래→위)
-    used = [c for c in cats if xs_by_cat[c]]
-    if not used:
-        used = cats
-    ypos = {c: i for i, c in enumerate(used)}
-    for c in used:
-        xs = xs_by_cat[c]
-        if xs:
-            ax.scatter(xs, [ypos[c]] * len(xs), s=26, c=_LOG_CAT_COLOR[c],
-                       alpha=0.75, edgecolors='none', zorder=3)
-    ax.set_yticks(range(len(used)))
-    ax.set_yticklabels([f'{c}  ({len(xs_by_cat[c])})' for c in used], fontsize=10)
-    for lbl, c in zip(ax.get_yticklabels(), used):
-        lbl.set_color(_LOG_CAT_COLOR[c])
-    ax.set_ylim(-0.6, len(used) - 0.4)
-    ax.set_xlabel('교전 시각 (s)', color=C_SUBTEXT, fontsize=11)
-    ax.set_title('교전 이벤트 타임라인 (유형별 발생 시점)', color=C_TEXT, fontsize=13)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=10)
-    ax.grid(axis='x', color='#1e2a3a', linewidth=0.6, zorder=0)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    fig.tight_layout()
 
 
 def _render_ci_chart(mc: dict) -> Figure:
@@ -7712,13 +7688,28 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # 위: 시간축 이벤트 타임라인 (유형별 색상 레인)
-        self._log_fig    = Figure(figsize=(12, 4), facecolor=C_BG)
-        self._log_canvas = FigureCanvas(self._log_fig)
-        self._log_canvas.setMinimumHeight(200)
-        _plot_log_timeline(self._log_fig, [])
+        # 상단: 첫 탐지 요약 — 각 적 위협을 처음 포착한 시각·거리·센서
+        det_hdr = QLabel("  📡  첫 탐지 요약 (위협별 최초 포착 시점)")
+        det_hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(det_hdr)
 
-        # 아래: 정밀 상세용 텍스트 표 (검색·정확한 무기/함정/거리)
+        self.detect_table = QTableWidget(0, 4)
+        self.detect_table.setHorizontalHeaderLabels(["시각 (s)", "센서", "위협", "거리"])
+        _dh = self.detect_table.horizontalHeader()
+        _dh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.detect_table.setColumnWidth(0, 90)
+        self.detect_table.setColumnWidth(1, 70)
+        self.detect_table.setColumnWidth(3, 90)
+        self.detect_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.detect_table.setMaximumHeight(150)
+        self.detect_table.setStyleSheet(f"background-color: {C_BG};")
+        layout.addWidget(self.detect_table)
+
+        # 하단: 교전 이벤트 로그 — 시각별 상세 표 (유형별 색상)
+        hdr = QLabel("  📜  교전 이벤트 로그")
+        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
+        layout.addWidget(hdr)
+
         self.log_table = QTableWidget(0, 2)
         self.log_table.setHorizontalHeaderLabels(["시각 (s)", "이벤트"])
         self.log_table.horizontalHeader().setSectionResizeMode(
@@ -7730,13 +7721,7 @@ class MainWindow(QMainWindow):
         self.log_table.setStyleSheet(
             f"alternate-background-color: {C_PANEL};"
             f"background-color: {C_BG};")
-
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self._log_canvas)
-        split.addWidget(self.log_table)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        layout.addWidget(split)
+        layout.addWidget(self.log_table, stretch=1)
         return w
 
     def _build_subsystem_tab(self) -> QWidget:
@@ -8988,14 +8973,29 @@ class MainWindow(QMainWindow):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
 
     def _fill_log(self, log: list):
-        # 시간축 타임라인 갱신 (전체 로그 기준 — 유형별 발생 시점 시각화)
-        try:
-            _plot_log_timeline(self._log_fig, log)
-            self._log_canvas.draw_idle()
-        except Exception:
-            pass
-        # BUG-1: 최대 300행 제한 + 배치 삽입 (UI 블로킹 방지)
-        entries = log[-300:] if len(log) > 300 else log
+        # 상단: 첫 탐지 요약 — [탐지] 줄을 파싱해 위협별 최초 포착 시점 표시
+        self.detect_table.setUpdatesEnabled(False)
+        self.detect_table.setRowCount(0)
+        _pat = re.compile(r'\[탐지\] (.+?) (레이더|소나) → (.+?) 포착 \(거리 (.+?)\)')
+        for t, msg in log:
+            mm = _pat.search(msg)
+            if not mm:
+                continue
+            _ship, sensor, threat, dist = mm.groups()
+            r = self.detect_table.rowCount()
+            self.detect_table.insertRow(r)
+            ti = QTableWidgetItem(f"{t:.0f}s"); ti.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.detect_table.setItem(r, 0, ti)
+            si = QTableWidgetItem(sensor); si.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            si.setForeground(QColor(_LOG_CAT_COLOR['탐지']))
+            self.detect_table.setItem(r, 1, si)
+            self.detect_table.setItem(r, 2, QTableWidgetItem(threat))
+            di = QTableWidgetItem(dist); di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.detect_table.setItem(r, 3, di)
+        self.detect_table.setUpdatesEnabled(True)
+
+        # 하단: 교전 로그 — 최대 1000행(대규모전 591줄 여유) + 유형별 색상
+        entries = log[-1000:] if len(log) > 1000 else log
         self.log_table.setUpdatesEnabled(False)
         self.log_table.setRowCount(0)
         for t, msg in entries:
@@ -9004,7 +9004,9 @@ class MainWindow(QMainWindow):
             t_item = QTableWidgetItem(f"{t:.0f}s")
             t_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.log_table.setItem(row, 0, t_item)
-            self.log_table.setItem(row, 1, QTableWidgetItem(msg))
+            ev_item = QTableWidgetItem(msg)
+            ev_item.setForeground(QColor(_LOG_CAT_COLOR[_classify_log_event(msg)]))
+            self.log_table.setItem(row, 1, ev_item)
         self.log_table.setUpdatesEnabled(True)
 
     def _draw_channel_heatmap(self, result: dict):

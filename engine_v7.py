@@ -1239,9 +1239,13 @@ class TimeStepEngine:
         self._tactical_interval  = cfg.get('tactical_interval', 30)  # 일시정지 간격(초)
 
         # v15.1: 적응형 전술 AI — ai_tactic='adaptive'일 때만 동작
-        self._adaptive_ai     = (cfg.get('ai_tactic') == 'adaptive')
-        self._adaptive_mode   = 'saturation'   # 초기 전술 (포화)
-        self._adaptive_last_t = -999.0         # 마지막 재평가 시각
+        self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
+        self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
+        self._adaptive_last_t  = -999.0         # 마지막 재평가 시각
+        # v15.01.03 슬라이딩 윈도우 — 직전 평가 대비 델타로 최근 요격률 산출
+        self._adaptive_prev_fired = 0
+        self._adaptive_prev_itc   = 0
+        self._adaptive_switches   = 0           # 전술 전환 횟수(결과 표시용)
 
         # BUG-2 fix: LatLon.from_xy() 기준점을 _build_*() 호출 전에 설정
         _set_region_ref(cfg.get('fleet_region', '동해 북부'))
@@ -2344,14 +2348,16 @@ class TimeStepEngine:
 
     # ── 2단계: 적 발사 ────────────────────────────────────────────────────────
 
+    _ADAPTIVE_MODES = ('saturation', 'dispersal', 'deception')
+
     def _adaptive_tactic_update(self):
         """
         v15.1: 적응형 전술 AI — 주기(20초)마다 전장 상태를 평가해 전술 전환.
-        규칙기반(포화↔분산). 기만은 v15.01.02. adaptive 모드에서만 호출.
-          sat   = 비행 중 위협 / 아군 총 교전 채널 (채널 포화도)
-          irate = 누적 요격률
-        잘 막히고(요격률↑) 채널 여유 있으면 → 분산(채널 분할 강요),
-        잘 뚫리면(요격률↓) → 포화 유지/복귀.
+        규칙기반 3단계(포화→분산→기만). adaptive 모드에서만 호출.
+          sat    = 비행 중 위협 / 아군 총 교전 채널 (채널 포화도)
+          r_recent = 직전 평가 이후(최근 20초 구간) 요격률 — 슬라이딩 윈도우
+        v15.01.03: 누적 요격률 대신 최근 구간으로 판단(관성 제거) + 목표 단계로
+        한 칸씩만 이동(포화→분산→기만 점진적으로 밟음, 급점프 방지).
         """
         AI_REEVAL_S = 20.0
         if self.t - self._adaptive_last_t < AI_REEVAL_S:
@@ -2363,24 +2369,37 @@ class TimeStepEngine:
                         if m.alive and m.mtype == 'enemy_strike')
         sat   = in_flight / total_ch
         fired = self.stats['total_threats']
-        irate = (self.stats['intercepted_threats'] / fired) if fired > 0 else 0.0
+        itc   = self.stats['intercepted_threats']
+        # 슬라이딩 윈도우: 직전 평가 이후 발사/요격 델타로 최근 요격률
+        d_fired = fired - self._adaptive_prev_fired
+        d_itc   = itc   - self._adaptive_prev_itc
+        self._adaptive_prev_fired, self._adaptive_prev_itc = fired, itc
+        if d_fired > 0:
+            r_recent = d_itc / d_fired
+        else:   # 이번 구간 발사 없음 — 누적치로 폴백
+            r_recent = (itc / fired) if fired > 0 else 0.0
 
-        prev = self._adaptive_mode
-        if irate > 0.7:
-            new = 'deception'    # 분산으로도 못 뚫음 → 기만(종말 회피·시차 극대)
-        elif irate > 0.5 and sat < 0.7:
-            new = 'dispersal'    # 잘 막힘 + 채널 여유 → 분산
-        elif irate < 0.3:
-            new = 'saturation'   # 잘 뚫림 → 포화 유지/복귀
+        # 최근 요격률 → 목표 단계 (0=포화, 1=분산, 2=기만)
+        if r_recent > 0.6:
+            target = 2
+        elif r_recent > 0.35:
+            target = 1
         else:
-            new = prev           # 중간 — 유지
+            target = 0
+        cur  = self._ADAPTIVE_MODES.index(self._adaptive_mode)
+        prev = self._adaptive_mode
+        if   target > cur: cur += 1   # 한 칸씩만 상승
+        elif target < cur: cur -= 1   # 한 칸씩만 하강
+        new = self._ADAPTIVE_MODES[cur]
+
         if new != prev:
             self._adaptive_mode = new
+            self._adaptive_switches += 1
             if not self._mc_mode:
                 _lbl = {'saturation': '포화 공격', 'dispersal': '분산 접근',
                         'deception': '기만 침투'}
-                self._log(f"[적 전술 전환] {_lbl.get(prev, prev)} → {_lbl.get(new, new)} "
-                          f"(요격률 {irate*100:.0f}%, 채널포화 {sat*100:.0f}%)")
+                self._log(f"⚡[적 전술 전환] {_lbl.get(prev, prev)} → {_lbl.get(new, new)} "
+                          f"(최근 요격률 {r_recent*100:.0f}%, 채널포화 {sat*100:.0f}%)")
 
     def _enemy_fire(self):
         primary = self._primary()
@@ -4272,6 +4291,7 @@ class TimeStepEngine:
             'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
             'carrier_status':    carrier_status,               # v10.6
             'coverage':          coverage,                     # v14.1: 3D 커버리지 돔
+            'enemy_tactic_switches': self._adaptive_switches,  # v15.01.03: 적 전술 전환 횟수
         }
 
     def _build_coverage(self) -> dict:
