@@ -26,12 +26,20 @@
       border: 1px solid rgba(120,170,255,0.35); pointer-events: none; min-width: 116px;
     }
     #counter b { color: #ffd166; font-size: 15px; }
+    #covtoggle {
+      position: absolute; top: 10px; left: 12px; z-index: 9999; display: none;
+      font: 13px 'Malgun Gothic', sans-serif; color: #e6eef7;
+      background: rgba(10,22,40,0.72); padding: 8px 12px; border-radius: 8px;
+      border: 1px solid rgba(120,170,255,0.35); user-select: none;
+    }
+    #covtoggle label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
   </style>
 </head>
 <body>
   <div id="cesiumContainer"></div>
   <div id="diag"></div>
   <div id="counter"></div>
+  <div id="covtoggle"><label><input type="checkbox" id="covchk" checked> 방어 커버리지 표시</label></div>
   <script>
     const diag = document.getElementById('diag');
     function log(msg, isErr) {
@@ -95,6 +103,18 @@
           _counterTick();
         }
 
+        // 커버리지 돔 ON/OFF — coverage/* 엔티티 일괄 토글
+        let _covDs = null;
+        function _applyCoverage(show) {
+          if (!_covDs) return;
+          const ents = _covDs.entities.values;
+          for (let i = 0; i < ents.length; i++) {
+            if (ents[i].id && ents[i].id.indexOf('coverage/') === 0) ents[i].show = show;
+          }
+        }
+        const _covChk = document.getElementById('covchk');
+        _covChk.addEventListener('change', function () { _applyCoverage(_covChk.checked); });
+
         window.loadCzml = function (czml) {
           try {
             const src = (typeof czml === 'string') ? JSON.parse(czml) : czml;
@@ -104,6 +124,12 @@
               viewer.clock.shouldAnimate = true;
               viewer.flyTo(ds, { duration: 1.5 });
               _setupCounter(src);
+              // 커버리지 패킷 유무로 토글 노출 + 현재 체크 상태 반영
+              _covDs = ds;
+              const hasCov = ds.entities.values.some(function (e) {
+                return e.id && e.id.indexOf('coverage/') === 0; });
+              document.getElementById('covtoggle').style.display = hasCov ? 'block' : 'none';
+              if (hasCov) _applyCoverage(_covChk.checked);
               log('CZML 로드 성공: ' + src.length + ' 패킷');
             }).catch(function (e) { log('CZML 로드 실패: ' + e, true); });
           } catch (e) { log('CZML 파싱 실패: ' + e, true); }

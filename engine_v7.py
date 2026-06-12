@@ -4173,6 +4173,9 @@ class TimeStepEngine:
             if et.info.get('type') == '항모'
         }
 
+        # v14.1: 3D 전장 커버리지 돔용 — 함대 대표 1겹씩(레이더 탐지권·SAM 교전권)
+        coverage = self._build_coverage()
+
         return {
             **self.stats,
             'intercept_rate':    intercept_rate,
@@ -4193,7 +4196,30 @@ class TimeStepEngine:
             'thaad_fired':       self.stats['thaad_fired'],
             'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
             'carrier_status':    carrier_status,               # v10.6
+            'coverage':          coverage,                     # v14.1: 3D 커버리지 돔
         }
+
+    def _build_coverage(self) -> dict:
+        """
+        v14.1: 3D 전장 커버리지 돔 데이터.
+          radar : 최대 대공 센서 함정 중심 + 함대 공유 실효 탐지거리(detect_km)
+        함대 대표로 레이더 탐지권 1겹만 생성(SAM 교전권은 미표시).
+        MC 모드는 frames가 없어 3D 미사용 → 빈 dict.
+        """
+        if self._mc_mode:
+            return {}
+        alive = [s for s in self.friendly_ships if s.alive]
+        if not alive:
+            return {}
+
+        # 레이더 탐지권 — 최대 대공 센서 함정 중심, 함대 공유 detect_km 반경
+        radar_ship = max(alive, key=lambda s: s.sensor_km.get('대공', 0))
+        radar_km = self.cfg.get('detect_km') or radar_ship.sensor_km.get('대공', 0) or 0
+
+        cov: dict = {}
+        if radar_km > 0:
+            cov['radar'] = {'ship': radar_ship.name, 'km': float(radar_km)}
+        return cov
 
     def _build_active_events(self) -> list:
         """A-1: enemy_strike MissileObj → EngagementAnalysisTab 어댑터 리스트."""
@@ -4292,6 +4318,33 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
     for f in frames:
         for s in f.friendly_ships:
             fri.setdefault(s[0], []).append((f.t, s[1], s[2]))
+
+    # ── 레이더 탐지권 돔 (1겹, 함정 따라 이동) ──
+    # ellipsoid 중심 고도 0 → 아래 반구는 지구에 가려져 위쪽 반투명 반구만 표시.
+    cov = result.get('coverage') or {}
+    def _dome(layer, color, line):
+        info = cov.get(layer)
+        if not info:
+            return
+        seq = fri.get(info['ship'])
+        if not seq:
+            return
+        r = float(info['km']) * 1000.0
+        packets.append({
+            "id": f"coverage/{layer}", "name": f"{info['ship']} {layer}",
+            "availability": avail,
+            "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq),
+                         "forwardExtrapolationType": "HOLD"},
+            "ellipsoid": {
+                "radii": {"cartesian": [r, r, r]},
+                "fill": True,
+                "material": {"solidColor": {"color": {"rgba": color}}},
+                "outline": True, "outlineColor": {"rgba": line}, "outlineWidth": 1,
+                "slicePartitions": 32, "stackPartitions": 16,
+            },
+        })
+    _dome('radar', [0, 200, 255, 28], [0, 200, 255, 90])
+
     for name, seq in fri.items():
         packets.append({
             "id": f"ship/{name}", "name": name, "availability": avail,
