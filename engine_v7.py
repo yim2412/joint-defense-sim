@@ -677,6 +677,37 @@ _REGION_REF: dict[str, tuple] = {
 }
 _DEFAULT_REF = (37.2, 131.9)  # 기본: 동해 중부
 
+# v15.03: 위협 접근 방위 — 적 세력 실제 발진 좌표 (lat, lon)
+# 함대 위치에서 이 좌표로 bearing 계산 → 위협이 지리적 방향에서 접근.
+_THREAT_ORIGIN: dict[str, tuple] = {
+    'china':         (36.1, 120.3),   # 칭다오 (북해함대)
+    'china_carrier': (33.5, 129.5),   # 대한해협 남측 — 중국 항모 동해 진입 경유(현실적 경로)
+    'nk_west':       (38.7, 125.4),   # 남포 (북한 서해)
+    'nk_east':       (39.2, 127.4),   # 원산 (북한 동해)
+    'russia':        (43.1, 131.9),   # 블라디보스토크 (태평양함대)
+    'japan':         (35.5, 135.4),   # 마이즈루 (동해측 해자대)
+}
+# 적 편대 프리셋 없음(랜덤·커스텀 모드)일 때 해역별 기본 세력
+_REGION_DEFAULT_ORIGIN: dict[str, str] = {
+    '동해 북부': 'russia',
+    '동해 중부': 'japan',
+    '서해':       'china',
+    # 대한해협은 STRAIT_BEARING이 처리
+}
+ORIGIN_SPREAD_DEG = 35.0   # 위협 접근 방위 분산 폭(±)
+
+
+def _preset_origin(preset_name: str) -> str:
+    """적 편대 프리셋 이름 → 세력키(_THREAT_ORIGIN). 'nk'는 함대 해역에서 서/동 결정."""
+    n = preset_name or ''
+    if '북한' in n:
+        return 'nk'
+    if '러시아' in n or '쓰시마' in n:   # 쓰시마 봉쇄=Tu-22M3·슬라바·킬로(러 자산)
+        return 'russia'
+    if '항모전단' in n:                  # 랴오닝·산둥·푸젠 → 대한해협 경유 진입
+        return 'china_carrier'
+    return 'china'                       # 그 외 중국 계열 기본
+
 # 시뮬 시작 시 _set_region_ref() 로 갱신
 _ref_lat: float = _DEFAULT_REF[0]
 _ref_lon: float = _DEFAULT_REF[1]
@@ -1575,6 +1606,8 @@ class TimeStepEngine:
         #                       OFF → 모두 단일 방향(기본 0°)
         # (해협 시나리오 활성 시 아래 분기 대신 _strait_bases 사용)
         _multibearing = self.cfg.get('enable_multibearing', False)
+        # v15.03: 적 세력 발진 좌표 기반 접근 방위 (다방위·해협 아닐 때)
+        _origin_base = None
         if not _strait_active:
             if _multibearing:
                 _n_sectors = min(4, max(2, total))
@@ -1583,7 +1616,9 @@ class TimeStepEngine:
                     for i in range(_n_sectors)
                 ]
             else:
-                _single_bearing = math.radians(random.uniform(0, 360))
+                _origin_base = self._threat_origin_bearing()
+                if _origin_base is None:   # 세력 미해결 → 기존 랜덤 폴백
+                    _single_bearing = math.radians(random.uniform(0, 360))
 
         # 적 편대 전술 기동 — 초기 배치 오프셋
         # 'v_formation': V자 대형 (선두 1기 + 양익)
@@ -1609,6 +1644,10 @@ class TimeStepEngine:
                     sector = idx % _n_sectors
                     bearing_rad = _sector_bases[sector] + math.radians(
                         random.uniform(-15, 15))
+                elif _origin_base is not None:
+                    # v15.03: 적 세력 발진 방위 ± ORIGIN_SPREAD_DEG
+                    bearing_rad = _origin_base + math.radians(
+                        random.uniform(-ORIGIN_SPREAD_DEG, ORIGIN_SPREAD_DEG))
                 else:
                     bearing_rad = _single_bearing
 
@@ -1795,6 +1834,28 @@ class TimeStepEngine:
             return
         self._log_entries.append((self.t, msg))
         self._tick_events.append(msg)
+
+    def _threat_origin_bearing(self):
+        """v15.03: 함대 위치에서 적 세력 발진 좌표로의 접근 방위(rad). 해결 불가 시 None.
+        프리셋 모드면 이름으로 세력 분류, 아니면 해역 기본 세력. 북한은 함대 경도로 서/동."""
+        region = self.cfg.get('fleet_region', '동해 중부')
+        mode   = self.cfg.get('enemy_fleet_mode', 'preset')
+        preset = self.cfg.get('enemy_fleet_preset') if mode == 'preset' else None
+        origin = _preset_origin(preset) if preset else _REGION_DEFAULT_ORIGIN.get(region)
+        if not origin:
+            return None
+        flat, flon = _REGION_REF.get(region, _DEFAULT_REF)
+        if origin == 'nk':   # 함대 경도로 북한 서해(남포)/동해(원산) 발진점 선택
+            origin = 'nk_west' if flon < 127.0 else 'nk_east'
+        coord = _THREAT_ORIGIN.get(origin)
+        if not coord:
+            return None
+        olat, olon = coord
+        dx = (olon - flon) * math.cos(math.radians(flat))   # 동(+)
+        dy = (olat - flat)                                   # 북(+)
+        if dx == 0.0 and dy == 0.0:
+            return None
+        return math.atan2(dy, dx)
 
     def _log_detections(self):
         """위협이 처음 레이더/소나 탐지 범위에 들어온 시점을 1회 로깅 (스탠드오프 가시화).

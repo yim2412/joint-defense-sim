@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.02.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.03.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.03.01 — 위협 접근 방위 현실화]                                        ║
+║  NEW-A  적 위협이 세력·해역에 맞는 실제 지리 방향에서 접근                  ║
+║         (중국=서·북한=북·러시아 등 발진 거점 좌표 기반 자동 계산)           ║
+║  NEW-B  중국 항모전단은 대한해협 거쳐 남쪽에서 진입하는 현실적 경로 반영    ║
+║  [v15.02.04 — 첫 탐지 요약 패널 제거]                                       ║
+║  삭제  탐지가 교전 로그에 색상으로 표시되어 중복인 요약 패널 제거           ║
 ║  [v15.02.03 — 탐지 로그 누락 수정]                                          ║
 ║  BUG-1  원거리·고고도 항공기와 미사일 위협의 첫 탐지가 로그에 안 남던 문제  ║
 ║         수정 — 함대 공유(Link-16) 실효 탐지거리 기준으로 판정              ║
@@ -897,12 +903,12 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, io, re, time, threading, json, multiprocessing, subprocess as _sp, traceback
+import sys, os, io, time, threading, json, multiprocessing, subprocess as _sp, traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wait, FIRST_COMPLETED
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.02.03"
+APP_VERSION = "v15.03.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7691,24 +7697,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # 상단: 첫 탐지 요약 — 각 적 위협을 처음 포착한 시각·거리·센서
-        det_hdr = QLabel("  📡  첫 탐지 요약 (위협별 최초 포착 시점)")
-        det_hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(det_hdr)
-
-        self.detect_table = QTableWidget(0, 4)
-        self.detect_table.setHorizontalHeaderLabels(["시각 (s)", "센서", "위협", "거리"])
-        _dh = self.detect_table.horizontalHeader()
-        _dh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.detect_table.setColumnWidth(0, 90)
-        self.detect_table.setColumnWidth(1, 70)
-        self.detect_table.setColumnWidth(3, 90)
-        self.detect_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.detect_table.setMaximumHeight(150)
-        self.detect_table.setStyleSheet(f"background-color: {C_BG};")
-        layout.addWidget(self.detect_table)
-
-        # 하단: 교전 이벤트 로그 — 시각별 상세 표 (유형별 색상)
+        # 교전 이벤트 로그 — 시각별 상세 표 (유형별 색상)
         hdr = QLabel("  📜  교전 이벤트 로그")
         hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
         layout.addWidget(hdr)
@@ -8976,28 +8965,7 @@ class MainWindow(QMainWindow):
         self.tab_mc_canvas.start_render(_render_mc_chart, result, mc, cfg)
 
     def _fill_log(self, log: list):
-        # 상단: 첫 탐지 요약 — [탐지] 줄을 파싱해 위협별 최초 포착 시점 표시
-        self.detect_table.setUpdatesEnabled(False)
-        self.detect_table.setRowCount(0)
-        _pat = re.compile(r'\[탐지\] (.+?) (레이더|소나) → (.+?) 포착 \(거리 (.+?)\)')
-        for t, msg in log:
-            mm = _pat.search(msg)
-            if not mm:
-                continue
-            _ship, sensor, threat, dist = mm.groups()
-            r = self.detect_table.rowCount()
-            self.detect_table.insertRow(r)
-            ti = QTableWidgetItem(f"{t:.0f}s"); ti.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.detect_table.setItem(r, 0, ti)
-            si = QTableWidgetItem(sensor); si.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            si.setForeground(QColor(_LOG_CAT_COLOR['탐지']))
-            self.detect_table.setItem(r, 1, si)
-            self.detect_table.setItem(r, 2, QTableWidgetItem(threat))
-            di = QTableWidgetItem(dist); di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.detect_table.setItem(r, 3, di)
-        self.detect_table.setUpdatesEnabled(True)
-
-        # 하단: 교전 로그 — 최대 1000행(대규모전 591줄 여유) + 유형별 색상
+        # 교전 로그 — 최대 1000행(대규모전 591줄 여유) + 유형별 색상
         entries = log[-1000:] if len(log) > 1000 else log
         self.log_table.setUpdatesEnabled(False)
         self.log_table.setRowCount(0)
