@@ -387,6 +387,18 @@ REGION_TO_ACOUSTIC_KEY: dict[str, str] = {
     '대한해협':   'KOREA_STRAIT',
 }
 
+# v14.3: 3D 저고도 탐지 경계 수평선 한계용 안테나·표적 가정 고도(m)
+_RADAR_ANT_H_M = 25.0    # 이지스 SPY급 안테나 해발 고도
+_SEA_SKIM_H_M  = 10.0    # 해면 밀착 대함미사일 비행 고도
+
+# v14.3 지형 차폐 시각화 — 해역별 (육지 방위 rad: 동=0·북=π/2, 대표 음영각 deg)
+# 출처: terrain_db.radar_shadow_reference (동해 태백 3.4°·설악 8.1° → 대표 6°)
+_TERRAIN_SHADOW: dict[str, tuple] = {
+    'EAST_SEA':     (math.pi,        6.0),   # 한반도 육지 서쪽 — 태백·설악산맥
+    'YELLOW_SEA':   (0.0,            0.4),   # 육지 동쪽 — 낭림산맥 원거리(영향 미약)
+    'KOREA_STRAIT': (math.pi / 2.0,  0.9),   # 육지 북쪽 — 소백산맥
+}
+
 # 해역별 저고도 레이더 음영 배율 (altitude_m → factor)
 # 출처: terrain_db.TERRAIN_DB['radar_shadow_reference'] 음영각 기반
 # 동해 3.4~8.1° (태백·설악), 서해 0.4° (낭림 원거리), 대한해협 0.9° (소백)
@@ -4201,8 +4213,9 @@ class TimeStepEngine:
 
     def _build_coverage(self) -> dict:
         """
-        v14.1: 3D 전장 커버리지 돔 데이터.
+        v14.1/14.3: 3D 전장 커버리지 돔 데이터.
           radar : 최대 대공 센서 함정 중심 + 함대 공유 실효 탐지거리(detect_km)
+                  + 저고도(해면) 수평선 한계(low_km) + 해역(region, 지형 차폐용)
         함대 대표로 레이더 탐지권 1겹만 생성(SAM 교전권은 미표시).
         MC 모드는 frames가 없어 3D 미사용 → 빈 dict.
         """
@@ -4215,11 +4228,28 @@ class TimeStepEngine:
         # 레이더 탐지권 — 최대 대공 센서 함정 중심, 함대 공유 detect_km 반경
         radar_ship = max(alive, key=lambda s: s.sensor_km.get('대공', 0))
         radar_km = self.cfg.get('detect_km') or radar_ship.sensor_km.get('대공', 0) or 0
+        if radar_km <= 0:
+            return {}
 
-        cov: dict = {}
-        if radar_km > 0:
-            cov['radar'] = {'ship': radar_ship.name, 'km': float(radar_km)}
-        return cov
+        # v14.3 저고도 수평선 한계 — 4/3 지구반경 모델 d≈4.12(√h_r+√h_t) km.
+        # 안테나 고도 h_r≈25m(이지스 SPY급), 해면 밀착 표적 h_t≈10m → ~33km.
+        horizon_km = 4.12 * (math.sqrt(_RADAR_ANT_H_M) + math.sqrt(_SEA_SKIM_H_M))
+        low_km = min(float(radar_km), horizon_km)
+
+        radar = {
+            'ship':   radar_ship.name,
+            'km':     float(radar_km),
+            'low_km': round(low_km, 1),
+            'region': self.cfg.get('fleet_region', '동해 중부'),
+        }
+        # v14.3 지형 차폐 — enable_terrain ON일 때만 저고도 경계를 육지 방위로 패이게
+        # (엔진 탐지의 _terrain_penalty와 동일 조건). OFF면 수평선 한계 대칭 원.
+        if self.cfg.get('enable_terrain', False):
+            region_key = REGION_TO_ACOUSTIC_KEY.get(radar['region'], 'EAST_SEA')
+            terr = _TERRAIN_SHADOW.get(region_key)
+            if terr:
+                radar['terrain'] = {'bearing': terr[0], 'shadow_deg': terr[1]}
+        return {'radar': radar}
 
     def _build_active_events(self) -> list:
         """A-1: enemy_strike MissileObj → EngagementAnalysisTab 어댑터 리스트."""
@@ -4251,6 +4281,25 @@ class TimeStepEngine:
 # ════════════════════════════════════════════════════════════════════════════
 #  v14.1: 3D 전장 — frames → CesiumJS CZML 변환 (순수 읽기, 회귀 무영향)
 # ════════════════════════════════════════════════════════════════════════════
+
+def _low_radius_km(base_km: float, th_rad: float, radar: dict) -> float:
+    """
+    저고도(해면) 탐지 경계의 방위각별 반경(km).
+    수평선 한계(base_km)에 지형 음영을 곱해 육지 방위 섹터를 안으로 패이게 한다.
+    - 음영 없음(enable_terrain OFF·해역 미정): 대칭 원.
+    - 있음: 육지 방위(terrain.bearing)에서 최대 축소, ±90° 밖은 영향 0(cos 가중).
+      축소율 fmin = max(0.2, 1 - 음영각×0.1) — 설악 8.1°→0.2, 태백 3.4°→0.66, 소백 0.9°→0.91.
+    th_rad: 평면 방위각(동=0, 북=π/2).
+    """
+    terr = radar.get('terrain')
+    if not terr:
+        return base_km
+    # 육지 방위와의 각거리(0~π)
+    d = abs(((th_rad - terr['bearing'] + math.pi) % (2.0 * math.pi)) - math.pi)
+    w = max(0.0, math.cos(d))                       # ±90° 내에서만 가중
+    fmin = max(0.2, 1.0 - terr['shadow_deg'] * 0.1)
+    return base_km * (1.0 - (1.0 - fmin) * w)
+
 
 def _spread_offset(uid: str) -> tuple:
     """동시 발사 미사일이 한 점에 겹치지 않게 황금각 나선으로 미세 분산(시각용 오프셋)."""
@@ -4344,6 +4393,33 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
             },
         })
     _dome('radar', [0, 200, 255, 28], [0, 200, 255, 90])
+
+    # ── 저고도(해면) 탐지 경계 폴리곤 (수평선·지형 차폐 반영) ──
+    # 반구는 고고도 탐지권 / 이 외곽선은 해면 밀착 표적의 탐지 한계.
+    # 중심 = 레이더 함정 시작 위치 고정(교전 짧고 저속 → 이동 무시 가능).
+    _radar = cov.get('radar')
+    if _radar and _radar.get('low_km'):
+        _seq = fri.get(_radar['ship'])
+        if _seq:
+            cx, cy = _seq[0][1], _seq[0][2]
+            base_km = float(_radar['low_km'])
+            N = 72
+            pts = []
+            for i in range(N):
+                th = 2.0 * math.pi * i / N
+                r_m = _low_radius_km(base_km, th, _radar) * 1000.0
+                ll = LatLon.from_xy(cx + r_m * math.cos(th), cy + r_m * math.sin(th))
+                pts += [round(ll.lon, 6), round(ll.lat, 6), 0.0]
+            packets.append({
+                "id": "coverage/lowalt", "name": "저고도 탐지 한계",
+                "availability": avail,
+                "polygon": {
+                    "positions": {"cartographicDegrees": pts},
+                    "height": 0,
+                    "material": {"solidColor": {"color": {"rgba": [0, 210, 255, 50]}}},
+                    "outline": True, "outlineColor": {"rgba": [140, 235, 255, 210]},
+                },
+            })
 
     for name, seq in fri.items():
         packets.append({
