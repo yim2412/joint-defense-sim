@@ -79,7 +79,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 from engine import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
-    SHIP_DB, FLEET_PRESETS,
+    SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD,
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
@@ -5271,6 +5271,135 @@ def optimize_weapon_loadout_v7(cfg: dict,
         })
 
     return sorted(final, key=lambda x: -x['rate'])
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  v15.1: 적정 편대 추천 — 후보 편대 프리셋을 MC 평가해 성능·비용효과 순위 산출
+# ════════════════════════════════════════════════════════════════════════════
+
+# 후보 편대 — 한국 단독 / 한미 연합 두 그룹으로 분리 (FLEET_PRESETS 키)
+_FLEET_CANDIDATES_KR = [
+    '단독 작전', '기동전단 기본', 'BMD 중점', '대잠 중점', '대잠전단',
+    '최대 편대', '이지스 기동전단', '이지스 기동전단 (강화)', '전 이지스 기동전단',
+    '독도함 상륙전단', '동해 해역방어 (1함대)', '서해 해역방어 (2함대)',
+]
+_FLEET_CANDIDATES_COMBINED = [
+    '한미 기동전단 기본', '한미 기동전단 강화', '한미 항모전단 지원',
+]
+
+
+def fleet_procurement_cost(preset_name: str) -> float:
+    """편대 조달비용(USD) = Σ함정 조달가 + Σ탑재 무기 재고비(CIWS 무한재고 제외)."""
+    total = 0.0
+    for ship in FLEET_PRESETS.get(preset_name, []):
+        stype = ship['type']
+        total += SHIP_PROCUREMENT_USD.get(stype, 0)
+        spec = SHIP_DB.get(stype, {})
+        for wpn, cnt in spec.get('default_inventory', {}).items():
+            if cnt >= 9999:        # CIWS 등 무한재고 마커 제외
+                continue
+            total += cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
+        for wpn, cnt in spec.get('default_strike_inventory', {}).items():
+            total += cnt * FRIENDLY_DB.get(wpn, {}).get('cost_usd', 0)
+    return total
+
+
+def _fleet_reason(preset_name: str) -> str:
+    """편대 구성에서 강점을 추출해 '왜 이 편대인지' 자연어로 생성."""
+    ships = FLEET_PRESETS.get(preset_name, [])
+    aegis_types = ('KDX-III-B2', 'KDX-III-B1', 'DDG-51', 'CG-47')
+    n_aegis = sum(1 for s in ships if s['type'] in aegis_types)
+    n_bmd   = sum(1 for s in ships if 'BMD' in SHIP_DB.get(s['type'], {}).get('role', []))
+    n_sub   = sum(1 for s in ships if SHIP_DB.get(s['type'], {}).get('is_submarine'))
+    n_heli  = sum(1 for s in ships if s['type'] in ('LPH', 'CVN', 'LPD'))  # 대잠 헬기 모함급
+    channels = sum(SHIP_DB.get(s['type'], {}).get('max_channels', 0) for s in ships)
+    n_total = len(ships)
+
+    parts = []
+    if n_aegis >= 2:
+        parts.append(f"이지스 {n_aegis}척·동시교전 {channels}채널 → 포화 공격 분산 대응 우수")
+    elif n_aegis == 1:
+        parts.append(f"이지스 1척 중심({channels}채널) → 표준 위협 대응")
+    else:
+        parts.append(f"방공 채널 {channels}개 → 제한적 대공 방어")
+    if n_bmd >= 1:
+        parts.append(f"BMD 자산 {n_bmd}척 → 탄도·극초음속 요격 가능")
+    if n_sub >= 1 or n_heli >= 1:
+        parts.append("대잠 헬기·잠수함 보유 → 수중 위협 대응 우위")
+    if n_total >= 6:
+        parts.append("대규모 편성 → 전면전·장기 교전 지속력")
+    elif n_total <= 1:
+        parts.append("최소 편성 → 저비용·제한 위협용")
+    return ' / '.join(parts)
+
+
+def _fleet_metrics_worker(args):
+    """편대 1개의 단일 시뮬 평가 — (preset, 요격률, 생존율) 스칼라만 반환(피클 안전)."""
+    preset_name, cfg, seed = args
+    run_cfg = {**cfg, 'fleet_preset': preset_name, 'mc_mode': True}
+    if seed is not None:
+        run_cfg['sim_seed'] = seed
+    r = run_v7_simulation(run_cfg)
+    ships   = r.get('friendly_ships', [])
+    n_ships = len(ships) if ships else 1
+    lost    = r.get('friendly_ships_lost', 0)
+    survival = max(0.0, 1.0 - lost / n_ships)
+    return (preset_name, r['intercept_rate'], survival)
+
+
+def recommend_fleet_v7(cfg: dict,
+                       candidates,
+                       n:           int = 150,
+                       progress_cb = None,
+                       map_fn = map) -> list:
+    """
+    후보 편대들을 동일 위협(현재 cfg)에 대해 MC 평가 → 성능·비용효과 순위.
+
+    각 후보 × n 시뮬을 펼쳐 시뮬 단위로 병렬화(seed = base_seed + i 고정 → 결정론).
+    성능 점수 = 요격률 0.6 + 함정 생존율 0.4. 비용효과 = 성능 / 정규화 조달비용.
+    반환(성능순 정렬): [{preset, rate, std, survival, fleet_cost,
+                         perf_score, cost_eff, reason}, ...]
+    """
+    candidates = list(candidates)
+    base_seed  = cfg.get('sim_seed', None)
+    args = []
+    for preset in candidates:
+        for i in range(n):
+            seed = (int(base_seed) + i) if base_seed else None
+            args.append((preset, dict(cfg), seed))
+
+    flat = []
+    for idx, m in enumerate(map_fn(_fleet_metrics_worker, args)):
+        flat.append(m)
+        if progress_cb and (idx + 1) % n == 0:
+            progress_cb((idx + 1) // n, len(candidates), 'eval')
+
+    out = []
+    for ci, preset in enumerate(candidates):
+        seg   = flat[ci * n:(ci + 1) * n]
+        rates = np.array([s[1] for s in seg])
+        survs = np.array([s[2] for s in seg])
+        rate  = float(rates.mean())
+        surv  = float(survs.mean())
+        cost  = fleet_procurement_cost(preset)
+        perf  = rate * 0.6 + surv * 0.4
+        out.append({
+            'preset':     preset,
+            'rate':       rate,
+            'std':        float(rates.std()),
+            'survival':   surv,
+            'fleet_cost': cost,
+            'perf_score': perf,
+            'reason':     _fleet_reason(preset),
+        })
+
+    # 비용효과: 그룹 내 최소 조달비용 기준 정규화 (같은 성능이면 싼 편대 우위)
+    min_cost = min((o['fleet_cost'] for o in out if o['fleet_cost'] > 0), default=1.0)
+    for o in out:
+        c = o['fleet_cost'] if o['fleet_cost'] > 0 else min_cost
+        o['cost_eff'] = o['perf_score'] * (min_cost / c)
+
+    return sorted(out, key=lambda x: -x['perf_score'])
 
 
 # ════════════════════════════════════════════════════════════════════════════

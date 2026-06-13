@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.03.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.04.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.04.01 — 적정 편대 추천 (무기 조합 추천 대체)]                         ║
+║  NEW-A  현재 위협 시나리오에 가장 적합한 편대를 추천 — 한국 단독·한미 연합   ║
+║         두 그룹으로 나눠 요격률·생존율·조달비용 기반 성능/가성비 순위 제시   ║
+║  DEL-A  실용성 낮은 최적 무기 조합 추천(VLS 예산 그리드 서치)을 편대 추천으로 ║
+║         교체                                                                ║
 ║  [v15.03.01 — 위협 접근 방위 현실화]                                        ║
 ║  NEW-A  적 위협이 세력·해역에 맞는 실제 지리 방향에서 접근                  ║
 ║         (중국=서·북한=북·러시아 등 발진 거점 좌표 기반 자동 계산)           ║
@@ -908,7 +913,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.03.01"
+APP_VERSION = "v15.04.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1433,7 +1438,7 @@ try:
         normalize_enemy_db as _normalize_enemy_db,
         monte_carlo_lhs, stress_test_grid, sobol_analysis, compute_cvar,
         _LHS_PARAM_DEFS, STRESS_DIMS,
-        optimize_weapon_loadout_v7,
+        recommend_fleet_v7, _FLEET_CANDIDATES_KR, _FLEET_CANDIDATES_COMBINED,
         compare_ab_v7,
         cec_comparison_v7,
         generate_briefing,
@@ -2884,30 +2889,33 @@ class MinStockWorker(QThread):
             self.error.emit(str(e))
 
 
-class OptimizeWorker(QThread):
-    """최적 무기 조합 탐색을 백그라운드에서 실행."""
-    progress = pyqtSignal(int, int, str)   # (done, total, phase)
-    finished = pyqtSignal(list)            # results list
+class FleetRecommendWorker(QThread):
+    """적정 편대 추천 — 한국 단독·한미 연합 두 그룹을 MC 평가."""
+    progress = pyqtSignal(int, int, str)   # (done, total, group)
+    finished = pyqtSignal(dict)            # {'kr': [...], 'combined': [...]}
     error    = pyqtSignal(str)
 
-    def __init__(self, cfg: dict, budget: int = 64, step: int = 16):
+    def __init__(self, cfg: dict, n: int = 150):
         super().__init__()
-        self.cfg    = cfg
-        self.budget = budget
-        self.step   = step
+        self.cfg = cfg
+        self.n   = n
 
     def run(self):
         if not _V7_OK:
             return
         try:
-            def _cb(i, total, phase):
-                self.progress.emit(i, total, phase)
-            # 조합 단위 글로벌 풀 병렬(map_fn)로 속도 해결 → coarse_n·fine_n 정확도 복원(20·200).
-            # 각 조합은 독립 평가라 병렬 결과는 직렬과 동일.
-            results = optimize_weapon_loadout_v7(
-                self.cfg, budget=self.budget, step=self.step,
-                coarse_n=20, fine_n=200, progress_cb=_cb, map_fn=_pool_map)
-            self.finished.emit(results)
+            groups = [('kr', _FLEET_CANDIDATES_KR), ('combined', _FLEET_CANDIDATES_COMBINED)]
+            total  = sum(len(c) for _, c in groups)
+            done   = 0
+            out: dict = {}
+            for key, cands in groups:
+                def _cb(i, _tot, _phase, _base=done):
+                    self.progress.emit(_base + i, total, key)
+                # 후보 × n 시뮬을 글로벌 풀 병렬(map_fn). seed 고정 → 결정론.
+                out[key] = recommend_fleet_v7(
+                    self.cfg, cands, n=self.n, progress_cb=_cb, map_fn=_pool_map)
+                done += len(cands)
+            self.finished.emit(out)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -3861,7 +3869,7 @@ class AccordionSidebar(QWidget):
             (2,  "✅  REQ 판정 & 충족률"),
             (23, "📋  전황 지표판"),
             (7,  "💰  비용 효과"),
-            (21, "🔧  최적 조합 추천"),
+            (21, "⚓  적정 편대 추천"),
             (22, "⚖  A/B 편대 비교"),
         ]),
         ("🖥", "시스템", [
@@ -4597,60 +4605,76 @@ def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
     return fig
 
 
-def _render_optimize_chart(results: list) -> Figure:
-    """최적 무기 조합 수평 막대 차트 (백그라운드 렌더링)."""
+def _render_fleet_chart(results: dict) -> Figure:
+    """적정 편대 추천 — 한국 단독·한미 연합 두 그룹 성능/비용효과 차트."""
     _KRW = 1_350
-    fig = Figure(figsize=(14, 7), facecolor='#0a0e1a')
-    fig.patch.set_facecolor('#0a0e1a')
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
+    kr   = results.get('kr') or []
+    comb = results.get('combined') or []
 
-    if not results:
-        ax.text(0.5, 0.5, '탐색 결과 없음', transform=ax.transAxes,
+    if not kr and not comb:
+        fig = Figure(figsize=(14, 8), facecolor='#0a0e1a')
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '추천 결과 없음', transform=ax.transAxes,
                 ha='center', va='center', color=C_TEXT, fontsize=14)
+        ax.axis('off')
         return fig
 
-    labels, rates, stds, clrs, costs = [], [], [], [], []
-    for i, r in enumerate(results):
-        c = r['combo']
-        parts = []
-        for wpn, key in [('SM-3', 'SM-3 Block IIA'), ('SM-6', 'SM-6'),
-                         ('SM-2', 'SM-2 Block IIIB'), ('RAM', 'RIM-116 RAM')]:
-            if c.get(key, 0) > 0:
-                parts.append(f'{wpn}×{c[key]}')
-        total = r['total']
-        labels.append(f"{'  |  '.join(parts)}   [{total}발]")
-        rates.append(r['rate'] * 100)
-        stds.append(r['std'] * 100)
-        clrs.append('#2ecc71' if i == 0 else '#3498db')
-        costs.append(r.get('combo_cost', 0))
+    from matplotlib.gridspec import GridSpec
+    n_kr, n_comb = max(len(kr), 1), max(len(comb), 1)
+    fig = Figure(figsize=(15, max(7, 0.7 * (n_kr + n_comb) + 2.5)), facecolor='#0a0e1a')
+    fig.patch.set_facecolor('#0a0e1a')
+    gs = GridSpec(2, 1, height_ratios=[n_kr, n_comb], hspace=0.35, figure=fig)
 
-    y = list(range(len(results)))
-    ax.barh(y, rates, xerr=stds, color=clrs, height=0.55,
-            error_kw={'elinewidth': 1.5, 'ecolor': '#ffffff50', 'capsize': 4})
+    def _draw_group(ax, grp: list, title: str):
+        ax.set_facecolor('#0a0e1a')
+        if not grp:
+            ax.text(0.5, 0.5, '후보 없음', transform=ax.transAxes,
+                    ha='center', va='center', color=C_SUBTEXT, fontsize=12)
+            ax.axis('off')
+            return
+        # 가성비(cost_eff) 순위 매핑
+        ce_order = sorted(range(len(grp)), key=lambda i: -grp[i]['cost_eff'])
+        ce_rank  = {i: r + 1 for r, i in enumerate(ce_order)}
 
-    max_std = max(stds) if stds else 0
-    for i, (rate, std, cost) in enumerate(zip(rates, stds, costs)):
-        cost_krw = cost * _KRW / 1e8
-        cost_lbl = f"  {cost_krw:.0f}억원" if cost_krw > 0 else ""
-        ax.text(rate + max_std + 1.0, i,
-                f'{rate:.1f}% ± {std:.1f}%{cost_lbl}',
-                va='center', color=C_TEXT, fontsize=10.5)
+        n = len(grp)
+        y = list(range(n - 1, -1, -1))   # 위에서부터 1위
+        perf = [g['perf_score'] * 100 for g in grp]
+        clrs = ['#2ecc71' if i == 0 else
+                ('#27ae60' if ce_rank[i] == 1 else '#3498db') for i in range(n)]
+        ax.barh(y, perf, color=clrs, height=0.6)
 
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=C_TEXT, fontsize=11)
-    ax.set_xlabel('요격률 (%)', color=C_SUBTEXT, fontsize=12)
-    ax.set_title(
-        '최적 무기 조합 추천  (상위 5개 — 정밀 검증 완료)\n'
-        '■ 최적 조합 (녹색)  ■ 차선 조합 (파랑)  |  오차막대 = ±1σ  ·  비용은 조달 단가 기반 개략 추정 ±30%',
-        color=C_TEXT, fontsize=12, pad=10,
-    )
-    ax.set_xlim(0, 120)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    if rates:
-        ax.axvline(rates[0], color='#2ecc71', linestyle='--', alpha=0.25, linewidth=1)
-    fig.tight_layout()
+        for i, g in enumerate(grp):
+            yi = y[i]
+            cost_kr = g['fleet_cost'] * _KRW / 1e8   # 억원
+            cost_lbl = (f"{cost_kr/10000:.2f}조원" if cost_kr >= 10000
+                        else f"{cost_kr:,.0f}억원")
+            tag = '  ★가성비1위' if ce_rank[i] == 1 else f'  가성비{ce_rank[i]}위'
+            ax.text(perf[i] + 1.0, yi,
+                    f"성능 {g['perf_score']*100:.0f}  "
+                    f"(요격 {g['rate']:.0%}·생존 {g['survival']:.0%})  "
+                    f"· {cost_lbl}{tag}",
+                    va='center', color=C_TEXT, fontsize=9.5)
+            # 추천 이유 (작은 글씨, 막대 아래)
+            ax.text(0.5, yi - 0.30, g['reason'],
+                    va='center', color='#8aa0b8', fontsize=7.8)
+
+        ax.set_yticks(y)
+        ax.set_yticklabels([g['preset'] for g in grp], color=C_TEXT, fontsize=10.5)
+        ax.set_xlim(0, 135)
+        ax.set_xlabel('종합 성능 점수  (요격률 60% + 함정 생존율 40%)',
+                      color=C_SUBTEXT, fontsize=10)
+        ax.set_title(title, color=C_TEXT, fontsize=12.5, pad=8, loc='left')
+        ax.tick_params(colors=C_SUBTEXT, labelsize=10)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1])
+    _draw_group(ax1, kr,   '⚓ 한국 단독 편대  (성능 순위 ▼ · ★=가성비 1위)')
+    _draw_group(ax2, comb, '🤝 한미 연합 편대  (성능 순위 ▼ · ★=가성비 1위)')
+    fig.suptitle('적정 편대 추천 — 현재 위협 시나리오 기준',
+                 color=C_TEXT, fontsize=14, y=0.985)
+    fig.subplots_adjust(left=0.16, right=0.97, top=0.93, bottom=0.06)
     return fig
 
 
@@ -8795,7 +8819,7 @@ class MainWindow(QMainWindow):
             if not ms.wait(1000):
                 ms.terminate()
                 ms.wait(500)
-        # OptimizeWorker 중단
+        # FleetRecommendWorker 중단
         opt = getattr(self, '_opt_worker', None)
         if opt and opt.isRunning():
             opt.requestInterruption()
@@ -9021,14 +9045,14 @@ class MainWindow(QMainWindow):
         self.tab_min_stock.start_render(_render_min_stock_chart, results, target_rate)
 
     def _lazy_start_optimize(self):
-        """최적 조합 탭 첫 방문 시 OptimizeWorker 기동 (lazy-start)."""
+        """적정 편대 추천 탭 첫 방문 시 FleetRecommendWorker 기동 (lazy-start)."""
         if not hasattr(self, '_pending_cfg'):
             return
         opt = getattr(self, '_opt_worker', None)
         if opt and opt.isRunning():
             return
         self._optimize_placeholder()
-        self._opt_worker = OptimizeWorker(self._pending_cfg)
+        self._opt_worker = FleetRecommendWorker(self._pending_cfg)
         self._opt_worker.progress.connect(self._on_optimize_progress)
         self._opt_worker.finished.connect(self._on_optimize_done)
         self._opt_worker.error.connect(lambda e: self._optimize_error(e))
@@ -9036,24 +9060,24 @@ class MainWindow(QMainWindow):
 
     def _optimize_placeholder(self):
         self.tab_optimize._loading_lbl.setText(
-            "  최적 조합 탐색 중… (예산 64발 / 16발 단위 그리드 서치 + 정밀 검증) ⏳")
+            "  적정 편대 추천 분석 중… (한국 단독·한미 연합 후보 편대 몬테카를로 평가) ⏳")
         self.tab_optimize._pane.setCurrentIndex(0)
 
     def _optimize_error(self, msg: str):
-        self.tab_optimize._loading_lbl.setText(f"  최적 조합 탐색 오류: {msg}")
+        self.tab_optimize._loading_lbl.setText(f"  적정 편대 추천 오류: {msg}")
 
-    def _on_optimize_progress(self, done: int, total: int, phase: str):
-        phase_lbl = '정밀 검증' if phase == 'fine' else '1차 탐색'
-        self._lbl_status.setText(f"최적 조합 탐색 중 ({done}/{total}) — {phase_lbl}")
+    def _on_optimize_progress(self, done: int, total: int, group: str):
+        grp_lbl = '한미 연합' if group == 'combined' else '한국 단독'
+        self._lbl_status.setText(f"적정 편대 추천 분석 중 ({done}/{total}) — {grp_lbl} 평가")
 
-    def _on_optimize_done(self, results: list):
-        self.tab_optimize.start_render(_render_optimize_chart, results)
-        best = results[0] if results else None
-        if best:
+    def _on_optimize_done(self, results: dict):
+        self.tab_optimize.start_render(_render_fleet_chart, results)
+        kr = results.get('kr') or []
+        if kr:
+            best = kr[0]
             self._lbl_status.setText(
-                f"최적 조합: 요격률 {best['rate']:.1%} | "
-                + '  '.join(f"{k.split()[0]}×{v}"
-                            for k, v in best['combo'].items() if v > 0))
+                f"추천 편대(한국 단독): {best['preset']} — "
+                f"요격률 {best['rate']:.1%}·생존율 {best['survival']:.0%}")
 
     def _draw_stress_test(self, mc: dict):
         self.tab_stress.start_render(_render_stress_test, mc.get('stress', {}))
@@ -10310,10 +10334,6 @@ class SplashWindow(QWidget):
              "신규 기능 추가 시 반드시 이 5개 묶음 중 적합한 곳에 배치. "
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v15.x — AI & 자율화 ────────────────────────────────────────────
-            ("v15.1", "매우 높음", "적응형 전술 AI",
-             "적 지휘관이 상황을 분석해 전술을 실시간 전환하는 AI(몬테카를로 트리탐색). "
-             "포화공격 → 분산접근 → 기만 순으로 적응. 난이도로 AI 사고 깊이 조정. "
-             "【현실성】완벽한 적은 비현실 → 규칙기반 적응 AI부터 시작 권장."),
             ("v15.2", "높음", "학습 기반 즉시 예측",
              "과거 분석 결과를 학습한 예측 모델. 설정 바꾸는 즉시 요격률·피해를 추정(몬테카를로 없이). "
              "작전급 캠페인의 핵심 부품(교전을 즉시 계산해 72시간을 수초로). "
