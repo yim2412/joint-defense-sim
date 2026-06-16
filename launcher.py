@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.06.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.06.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.06.03 — 지속 전장 모드 작전 결과·목표 달성판]                         ║
+║  NEW-A  교전 분석 상단에 작전 결과 배너 — 승/패/무·임무 점수·목표 달성도    ║
+║  NEW-B  전장 모드는 시뮬 후 교전 분석(배너) 화면으로 자동 이동             ║
 ║  [v15.06.02 — 지속 전장 모드 몬테카를로 승률 집계]                          ║
 ║  NEW-A  전장 모드 MC가 승/패/무 승률·평균 임무 점수 집계 → 상태줄 'MC 승률' ║
 ║  [v15.06.01 — 지속 전장 모드 도입 (실험적·병행 구축)]                       ║
@@ -922,7 +925,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.06.02"
+APP_VERSION = "v15.06.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3706,6 +3709,24 @@ class EngagementAnalysisTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
+        # ── 작전 결과 배너 (지속 전장 모드 전용 — 승/패 + 목표 달성판) ────────
+        self._battle_panel = QFrame()
+        self._battle_panel.setObjectName("battlePanel")
+        bp = QVBoxLayout(self._battle_panel)
+        bp.setContentsMargins(14, 10, 14, 12)
+        bp.setSpacing(6)
+        self._bp_outcome = QLabel()
+        bp.addWidget(self._bp_outcome)
+        self._bp_score = QLabel()
+        self._bp_score.setStyleSheet(f"color:{C_SUBTEXT}; font-size:14px; font-family:'Malgun Gothic';")
+        bp.addWidget(self._bp_score)
+        self._bp_obj = QLabel()
+        self._bp_obj.setWordWrap(True)
+        self._bp_obj.setStyleSheet("color:#e6edf3; font-size:14px; font-family:'Malgun Gothic';")
+        bp.addWidget(self._bp_obj)
+        self._battle_panel.hide()
+        layout.addWidget(self._battle_panel)
+
         tabs = QTabWidget()
         tabs.setStyleSheet(
             f"QTabWidget::pane {{ border:1px solid #30363d; background:{C_BG}; }}"
@@ -3825,6 +3846,7 @@ class EngagementAnalysisTab(QWidget):
         active_events = result.get('active_events', [])
         self._lbl_empty.hide()
         self._tabs_widget.show()
+        self._fill_battle_panel(result)
 
         # Funnel & Gantt — 백그라운드 렌더
         self._tab_funnel.start_render(_render_engagement_funnel, active_events)
@@ -3835,6 +3857,39 @@ class EngagementAnalysisTab(QWidget):
 
         # 위협 추적 테이블 — 메인 스레드 직접 채움
         self._fill_table(active_events)
+
+    def _fill_battle_panel(self, result: dict):
+        """지속 전장 모드 — 작전 결과(승/패) + 목표 달성판. 단발 모드면 숨김."""
+        outcome = result.get('outcome')
+        if not outcome:
+            self._battle_panel.hide()
+            return
+        _map = {'win': ('🟢 승리', '#2ecc71'), 'loss': ('🔴 패배', '#e74c3c'),
+                'draw': ('🟡 무승부', '#f1c40f')}
+        label, color = _map.get(outcome, (outcome, C_SUBTEXT))
+        self._battle_panel.setStyleSheet(
+            f"QFrame#battlePanel {{ background:#161d2a; border-radius:8px;"
+            f" border-left:5px solid {color}; }}"
+            f"QFrame#battlePanel QLabel {{ background:transparent; }}")
+        self._bp_outcome.setText(f"⚔ 작전 결과:  {label}")
+        self._bp_outcome.setStyleSheet(
+            f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
+        self._bp_score.setText(
+            f"아군 임무 점수 {result.get('friendly_score', 0.0):.0%}  ·  "
+            f"적 임무 점수 {result.get('enemy_score', 0.0):.0%}  ·  "
+            f"작전 시간 {result.get('sim_time', 0):.0f}s / 지평 {int(result.get('battle_horizon_s', 0))}s")
+        _otype = {'defend_asset': '자산 방어', 'destroy_asset': '자산 격침',
+                  'sea_control': '해역 통제', 'attrition': '소모전', 'sustainment': '작전 지속성'}
+        _ost = {'달성': '✅', '실패': '❌', '진행': '◾'}
+        lines = []
+        for ob in result.get('objectives', []):
+            if ob.get('side') != 'friendly':   # 방어 시뮬 — 아군 목표만 표시
+                continue
+            nm = _otype.get(ob.get('type'), ob.get('type'))
+            st = ob.get('status', '진행')
+            lines.append(f"{_ost.get(st, '◾')} {nm} — 달성도 {ob.get('progress', 0):.0%} ({st})")
+        self._bp_obj.setText('      '.join(lines))
+        self._battle_panel.show()
 
     def _fill_table(self, active_events: list):
         evs = [e for e in active_events if e.is_active]
@@ -8439,10 +8494,12 @@ class MainWindow(QMainWindow):
                 self._cb_ab_fleet_b.setCurrentText(prev)
             self._cb_ab_fleet_b.blockSignals(False)
 
-        # v8.26: 아코디언 사이드바 배지 표시 + MC 통계 탭으로 전환
+        # v8.26: 아코디언 사이드바 배지 표시 + 결과 탭으로 전환
+        # 전장 모드는 교전 분석(0, 작전 결과 배너)으로, 그 외는 MC 통계(1)로 착지
         self._sidebar.mark_new_data(list(range(26)))
-        self._sidebar.set_current_index(1)
-        self._on_page_changed(1)       # BUG-1: 이미 인덱스 1이면 item_selected 미발화 → 수동 트리거
+        _land_idx = 0 if result.get('outcome') else 1
+        self._sidebar.set_current_index(_land_idx)
+        self._on_page_changed(_land_idx)   # BUG-1: 동일 인덱스면 item_selected 미발화 → 수동 트리거
         sim_mode_idx = getattr(self._worker, 'sim_mode_idx', 1)
         _write_sim_log(cfg, result, mc)
         _write_sim_db(cfg, result, mc, sim_mode_idx)

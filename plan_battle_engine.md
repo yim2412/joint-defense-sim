@@ -219,7 +219,8 @@ Phase 4  RL 통합
   - **회귀 PASS**(부모 무변경) + 스모크 실행(기준 시나리오 3시드 outcome 산출 확인).
 - ✅ **UI 통합 완료** (launcher.py, v15.06.01): `enable_battle_mode` 토글 3종 세트(환경 묶음 체크박스 + cfg 빌드 + cfg 로드) + 워커 단일 시뮬 라우팅(`run_battle_simulation`) + 결과 상태줄 승/패 표시(⚔ 전장 결과) + `run_battle_simulation`에서 진행바 총량을 horizon으로 보고(step_cb 래핑). 회귀 PASS·빌드 성공.
 - ✅ **MC 전장 승률 집계 완료** (engine_v7+launcher, v15.06.02): `_mc_run_one`(전장/단발 라우팅) + `_battle_agg`(승/패/무 승률·평균 임무점수). 4개 시뮬 호출부(`monte_carlo_v7`·`_mc_batch_worker`·`_mc_lhs_batch_worker`·`monte_carlo_lhs` 폴백) + 병렬 조립부는 `extra_stats` 경유(튜플 인덱스 무변경). 상태줄 'MC 승률' 표시. 회귀 PASS(단발 무영향)·전장 MC 집계 검증(기동전단 vs 랴오닝 승률 0%/패 100%).
-- ⬜ **남은 Phase 1**: 결과 탭 본문에 목표 달성판(현재는 상태줄만), 적 항공 재접근이 실제로 드러나는 강한 방어 시나리오 검증.
+- ✅ **결과 탭 목표 달성판 완료** (v15.06.03): 교전 분석 탭 상단 작전 결과 배너(승/패/무·아군·적 임무 점수·작전 시간·목표별 달성도). `EngagementAnalysisTab._fill_battle_panel`, 전장 모드만 표시·단발은 숨김. 회귀 PASS·빌드.
+- ⬜ **남은 Phase 1**: 적 항공 재접근(`max_reattacks` 상향)이 실제로 드러나는 강한 방어 시나리오 검증 → 이후 Phase 1 종료, Phase 2 착수.
 
 ## 다음 행동
 
