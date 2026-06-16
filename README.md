@@ -1,5 +1,7 @@
 # Joint Defense Simulator — 육해공 통합 방어 시뮬레이터
 
+🇰🇷 한국어 (기본) · [🇺🇸 English](#-english)
+
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
@@ -97,3 +99,93 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 
 - **라이선스**: [PolyForm Noncommercial License 1.0.0](LICENSE.md) — 비상업 목적의 사용·수정·공유는 자유, 상업적 이용은 금지됩니다.
 - 무기 체계 제원·수치는 공개된 자료를 바탕으로 한 **학습용 근사치**이며, 실제 군사 운용 데이터가 아닙니다.
+
+---
+---
+
+## 🇺🇸 English
+
+A project aiming to be a **joint air–land–sea integrated defense simulator**.
+It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
+requirement (REQ) evaluation, and Excel/PNG report generation.
+
+> **Current stage:** Navy — Aegis task force integrated defense (v15.06)
+> **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
+> **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
+
+### Vision — Air–Land–Sea Integration
+
+The project currently models the **multi-layered defense of a naval Aegis task force** in detail, and will
+expand to other force domains step by step.
+
+| Domain | Status | Scope |
+|--------|--------|-------|
+| 🌊 **Naval** | ✅ In development | Aegis task force multi-layer air/surface/subsurface defense |
+| ✈️ **Air** | 🔜 Planned | Air superiority engagements, CAP, SEAD integration |
+| 🪖 **Land** | 🔜 Planned | Ground-based air defense, coastal defense integration |
+
+### Key Features (current — Naval stage)
+
+- **Time-step bidirectional engagement engine** — detection, tracking, interception, and counterstrike simulated per second
+- **Multi-layer defense model** — SAM (SM-3 / SM-2 / ESSM / K-SAAM) · CIWS (Phalanx / RAM) · electronic warfare (ECM) · chaff/flares
+- **Anti-surface & anti-submarine warfare** — ship/submarine surface strikes (Haeseong, Harpoon, Hyunmoo-3C) + torpedo engagements by shipborne helicopters and maritime patrol aircraft (P-8A, etc.)
+- **Air asset integration** — CAP fighter BVR interception · Haeseong-II anti-ship strikes · ARM-evasion radar-off tactics
+- **Detailed physics models** — RCS-based detection · sonar equation (passive/active) · dynamic flooding & stability · missile proportional navigation (PNG) · terrain/horizon masking
+- **Adaptive tactical AI** — the enemy evaluates defensive saturation and gradually shifts among salvo concentration ↔ dispersion ↔ deception penetration
+- **Persistent battle mode** (experimental) — a win/loss engine where both sides pursue operational objectives (asset defense, sea control, etc.) over a time horizon
+- **3D battlefield visualization** — ships, aircraft, missile trajectories, and engagement events replayed on a CesiumJS satellite globe
+- **Monte Carlo analysis** — standard MC + LHS fast sampling (multiprocessing) · stress / Sobol sensitivity / A·B comparison
+- **Extensive weapon-system DB** — 65 enemy threats · 14 friendly defenses · 8 surface-strike weapons · 21 ship classes · 7 air assets · 38 fleet presets
+- **Operational scenario library & fleet recommendation** — doctrine-based scenario auto-setup + cost-effectiveness fleet ranking
+- **Report export** — engagement results to Excel (.xlsx) and PNG
+
+### Running
+
+```powershell
+# Run in a development environment
+python launcher.py
+
+# Build the executable (exe)
+python -m PyInstaller launcher.spec --noconfirm
+```
+
+Build output is generated under `dist/이지스_기동전단_시뮬레이터/`.
+
+### Requirements
+
+```
+pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine psutil SALib
+```
+
+> `PyQt6-WebEngine` is needed for the 3D battlefield (CesiumJS) tab; `SALib` for Sobol sensitivity analysis.
+
+### File Structure
+
+| File | Role |
+|------|------|
+| `engine.py` | Core DBs (enemy/friendly/ships), physics models, detection & engagement logic |
+| `engine_v7.py` | Time-step bidirectional engagement engine |
+| `launcher.py` | PyQt6 launcher — UI, sim workers, result/DB/plan tabs, the whole app |
+| `spec_db.py` | Detailed spec-sheet descriptions for the DB tab |
+| `changelog.json` | Patch history |
+| `launcher.spec` | PyInstaller build spec |
+| `assets/images/` | Equipment photos per DB entry |
+
+### Usage Flow
+
+1. Click **[🚀 Start Simulator]** on the start screen
+2. Configure friendly fleet, enemy threats, sea area, weather, etc. in the settings panel
+3. Run **[▶ Run Simulation]** or a Monte Carlo analysis
+4. Review interception rate, cost, damage, etc. in the result tabs
+5. Export Excel/PNG reports
+
+### Project Nature · License
+
+This repository is a **non-commercial, personal hobby/learning project**. There is no commercial intent,
+and **feedback and suggestions are welcome** (feel free to open Issues/Discussions).
+
+- **License**: [PolyForm Noncommercial License 1.0.0](LICENSE.md) — non-commercial use, modification, and sharing are free; commercial use is prohibited.
+- Weapon-system specifications and figures are **learning-purpose approximations** based on publicly available sources, and are **not** real operational military data.
+
+> Note: the in-app text, changelog, and roadmap are maintained in Korean, as the project is built around
+> Republic of Korea Navy/military systems. This English section mirrors the Korean documentation above.
