@@ -4765,15 +4765,46 @@ class BattleEngine(TimeStepEngine):
         # 방어 자산 = 기함(primary). 시작 시점에 고정 식별(격침 판정용)
         self._asset        = self._primary()
         self._asset_max_hp = self._asset._max_hp
-        w_def = float(cfg.get('battle_w_defend', 0.6))
+        w_def = float(cfg.get('battle_w_defend', 0.5))   # Phase 2: 0.6→0.5 재배분
+        w_sea = float(cfg.get('battle_w_sea',    0.3))
+        # v15.07.01: 해역 통제 — 보호점(기함)까지 돌파선
+        self._sea_line_km   = float(cfg.get('battle_sea_control_line_km', 50.0))
+        self._sea_max_pen   = 0.0    # 작전 전체 최악(최대 침투) km
+        self._sea_pen_now   = 0.0    # 현재 틱 침투 km
+        self._frontline_tl  = []     # [(t, deepest_penetration_km), ...] 단일 시뮬만
+        self._sea_tl_last_t = -1.0   # timeline 중복 t 방지
         self.objectives = [
             Objective('defend_asset',  'friendly', w_def, {'asset': self._asset.name}),
             Objective('destroy_asset', 'enemy',    w_def, {'asset': self._asset.name}),
+            Objective('sea_control',   'friendly', w_sea, {'line_km': self._sea_line_km}),
+            Objective('sea_control',   'enemy',    w_sea, {'line_km': self._sea_line_km}),
         ]
 
     # ── 목표 진행 갱신 ────────────────────────────────────────────────────────
     def _asset_alive(self) -> bool:
         return any(s is self._asset and s.alive for s in self.friendly_ships)
+
+    def _sea_control_update(self):
+        """해역 통제 — 보호점(기함)까지 생존 위협·적 미사일 최단거리로 침투량 갱신."""
+        asset_pos = self._asset.pos
+        line_km   = self._sea_line_km
+        closest_m = min(
+            (asset_pos.dist_to(et.pos) for et in self.enemy_threats if et.alive),
+            default=float('inf'))
+        closest_m = min(
+            closest_m,
+            min((asset_pos.dist_to(m.pos) for m in self.missiles
+                 if m.alive and m.mtype == 'enemy_strike'), default=float('inf')))
+        if closest_m == float('inf'):           # 위협 없음 → 침투 0
+            self._sea_pen_now = 0.0
+        else:
+            self._sea_pen_now = max(0.0, min(line_km - closest_m / 1000.0, line_km))
+        if self._sea_pen_now > self._sea_max_pen:
+            self._sea_max_pen = self._sea_pen_now
+        # timeline 누적 — 단일 시뮬만, 틱당 1회
+        if not self._mc_mode and self.t != self._sea_tl_last_t:
+            self._sea_tl_last_t = self.t
+            self._frontline_tl.append((round(self.t, 1), round(self._sea_pen_now, 2)))
 
     def _update_objectives(self):
         if self._asset_alive() and self._asset_max_hp:
@@ -4782,6 +4813,11 @@ class BattleEngine(TimeStepEngine):
             frac = 1.0
         else:
             frac = 0.0
+        self._sea_control_update()
+        line_km   = self._sea_line_km
+        breached  = self._sea_max_pen >= line_km                 # 자산 도달
+        held      = self._sea_max_pen <= 0.0                     # 완전 저지
+        sea_prog_f = 1.0 - (self._sea_max_pen / line_km if line_km else 0.0)
         for ob in self.objectives:
             if ob.type == 'defend_asset':
                 ob.progress = frac
@@ -4789,6 +4825,12 @@ class BattleEngine(TimeStepEngine):
             elif ob.type == 'destroy_asset':
                 ob.progress = 1.0 - frac
                 ob.status   = '달성' if frac <= 0.0 else '진행'
+            elif ob.type == 'sea_control' and ob.side == 'friendly':
+                ob.progress = sea_prog_f
+                ob.status   = '실패' if breached else ('달성' if held else '진행')
+            elif ob.type == 'sea_control' and ob.side == 'enemy':
+                ob.progress = 1.0 - sea_prog_f
+                ob.status   = '달성' if breached else '진행'
 
     # ── 종료조건 (목표 기반 — 부모의 위협소진 종료를 대체) ─────────────────────
     def _is_over(self) -> bool:
@@ -4839,6 +4881,8 @@ class BattleEngine(TimeStepEngine):
         result['enemy_score']      = round(escore, 3)
         result['objectives']       = [ob.as_dict() for ob in self.objectives]
         result['battle_horizon_s'] = self.horizon_s
+        if not self._mc_mode:      # timeline은 단일 시뮬 전용 (frames와 동일 패턴)
+            result['timeline'] = {'frontline_km': self._frontline_tl}
         return result
 
 
