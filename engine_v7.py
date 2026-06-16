@@ -4723,6 +4723,150 @@ def run_v7_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  지속 전장 엔진 (Phase 1 — 아키텍처 전환)
+#  단발 살보 교전을 양측이 작전 목표를 두고 시간에 걸쳐 겨루는 지속 전장으로 전환.
+#  TimeStepEngine을 상속해 물리층(요격·침수·미사일 비행 등)을 그대로 재사용하고,
+#  오케스트레이션(종료조건·승패 출력·적 지속 압박)만 오버라이드한다. 부모는 무수정.
+#  정본 설계: plan_battle_engine.md
+# ════════════════════════════════════════════════════════════════════════════
+
+# 표준 전장 시간 지평(초) — 단발 ~40s보다 충분히 길고 작전급(수 시간)보다 짧음
+BATTLE_HORIZON_S = 1800
+
+
+class Objective:
+    """단일 작전 목표 — {type, side, weight, progress(0..1), status}."""
+
+    def __init__(self, otype: str, side: str, weight: float, params: dict = None):
+        self.type    = otype          # 'defend_asset' | 'destroy_asset' | ...
+        self.side    = side           # 'friendly' | 'enemy'
+        self.weight  = weight
+        self.params  = params or {}
+        self.progress = 1.0 if side == 'friendly' else 0.0
+        self.status  = '진행'         # '진행' | '달성' | '실패'
+
+    def as_dict(self) -> dict:
+        return {'type': self.type, 'side': self.side, 'status': self.status,
+                'progress': round(self.progress, 3), 'weight': self.weight}
+
+
+class BattleEngine(TimeStepEngine):
+    """지속 전장 엔진. Phase 1 MVP: 자산 방어↔자산 격침 1쌍 + 목표 기반 종료·승패."""
+
+    def __init__(self, cfg: dict, step_cb=None):
+        super().__init__(cfg, step_cb=step_cb)
+        self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
+        # 적 지속 압박 — 항공 위협이 1회 이탈 후 사라지지 않고 재접근.
+        # (Phase 2에서 목표지향 적 AI로 교체 예정인 임시 레버)
+        air_reattacks = int(cfg.get('battle_air_reattacks', 3))
+        for i in range(len(self._et_alive)):
+            if self._et_is_aircraft[i]:
+                self._et_max_reattacks[i] = max(self._et_max_reattacks[i], air_reattacks)
+        # 방어 자산 = 기함(primary). 시작 시점에 고정 식별(격침 판정용)
+        self._asset        = self._primary()
+        self._asset_max_hp = self._asset._max_hp
+        w_def = float(cfg.get('battle_w_defend', 0.6))
+        self.objectives = [
+            Objective('defend_asset',  'friendly', w_def, {'asset': self._asset.name}),
+            Objective('destroy_asset', 'enemy',    w_def, {'asset': self._asset.name}),
+        ]
+
+    # ── 목표 진행 갱신 ────────────────────────────────────────────────────────
+    def _asset_alive(self) -> bool:
+        return any(s is self._asset and s.alive for s in self.friendly_ships)
+
+    def _update_objectives(self):
+        if self._asset_alive() and self._asset_max_hp:
+            frac = max(0.0, self._asset.hp / self._asset_max_hp)
+        elif self._asset_alive():
+            frac = 1.0
+        else:
+            frac = 0.0
+        for ob in self.objectives:
+            if ob.type == 'defend_asset':
+                ob.progress = frac
+                ob.status   = '실패' if frac <= 0.0 else '진행'
+            elif ob.type == 'destroy_asset':
+                ob.progress = 1.0 - frac
+                ob.status   = '달성' if frac <= 0.0 else '진행'
+
+    # ── 종료조건 (목표 기반 — 부모의 위협소진 종료를 대체) ─────────────────────
+    def _is_over(self) -> bool:
+        self._update_objectives()
+        if not self._asset_alive():
+            if not self._mc_mode:
+                self._log(f"[종료] 방어 자산 {self._asset.name} 격침 — 적 승")
+            return True
+        if all(not s.alive for s in self.friendly_ships):
+            if not self._mc_mode:
+                self._log("[종료] 아군 전멸 — 적 승")
+            return True
+        if self.t >= self.horizon_s:
+            if not self._mc_mode:
+                self._log(f"[종료] 작전 시간({int(self.horizon_s)}s) 도달 — 자산 방어 성공")
+            return True
+        # 적 위협 전소 + 재접근 불가 → 아군 승
+        enemy_active = [et for et in self.enemy_threats
+                        if et.alive and not (et.is_aircraft and et.is_retreating
+                                             and et.reattack_count >= et.max_reattacks)]
+        active_missiles = [m for m in self.missiles
+                           if m.alive and m.mtype == 'enemy_strike']
+        if not enemy_active and not active_missiles:
+            if not self._mc_mode:
+                self._log("[종료] 적 위협 격멸 — 자산 방어 성공")
+            return True
+        return False
+
+    # ── 승패 점수 (요격률 대체 핵심 지표) ──────────────────────────────────────
+    def _score_outcome(self):
+        self._update_objectives()
+        fw = sum(ob.weight for ob in self.objectives if ob.side == 'friendly') or 1.0
+        ew = sum(ob.weight for ob in self.objectives if ob.side == 'enemy') or 1.0
+        f  = sum(ob.weight * ob.progress for ob in self.objectives if ob.side == 'friendly') / fw
+        e  = sum(ob.weight * ob.progress for ob in self.objectives if ob.side == 'enemy') / ew
+        margin = float(self.cfg.get('battle_draw_margin', 0.1))
+        if   f - e >  margin: outcome = 'win'
+        elif e - f >  margin: outcome = 'loss'
+        else:                 outcome = 'draw'
+        return outcome, f, e
+
+    # ── 출력 (요격률 → outcome 중심으로 확장) ──────────────────────────────────
+    def _compile(self) -> dict:
+        result = super()._compile()       # 물리 통계·intercept_rate(보조 지표) 유지
+        outcome, fscore, escore = self._score_outcome()
+        result['outcome']          = outcome
+        result['friendly_score']   = round(fscore, 3)
+        result['enemy_score']      = round(escore, 3)
+        result['objectives']       = [ob.as_dict() for ob in self.objectives]
+        result['battle_horizon_s'] = self.horizon_s
+        return result
+
+
+def run_battle_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
+    """지속 전장 1회 실행. run_v7_simulation의 전장 버전 — 부모 함수는 무수정."""
+    if not cfg.get('detect_km_manual', False):
+        ranges = calculate_fleet_detect_ranges(
+            cfg.get('fleet_preset', '단독 작전'),
+            cfg.get('weather', '맑음 (주간)'))
+        cfg = dict(cfg)
+        cfg['detect_km']         = ranges['대공']
+        cfg['surface_detect_km'] = ranges['대함']
+        cfg['sub_detect_km']     = ranges['대잠']
+    else:
+        cfg = dict(cfg)
+    _initial_weather = cfg.get('weather', '맑음 (주간)')
+    sim = BattleEngine(cfg, step_cb=None)
+    if step_cb:   # 진행바 총량을 MAX_SIM_TIME(3600)이 아닌 전장 시간 지평으로 보고
+        _horizon = sim.horizon_s
+        sim._step_cb = lambda t, _tmax, alive, vls, last: step_cb(t, _horizon, alive, vls, last)
+    if tactical_cb:
+        sim._tactical_pause_cb = tactical_cb
+    result = sim.run()
+    cfg['weather'] = _initial_weather
+    return result
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  몬테카를로 분석
 # ════════════════════════════════════════════════════════════════════════════
 

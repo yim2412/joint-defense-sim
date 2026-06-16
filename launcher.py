@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.05.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.06.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.06.01 — 지속 전장 모드 도입 (실험적·병행 구축)]                       ║
+║  NEW-A  지속 전장 모드 — 적이 살보 후 이탈하는 단발 교전 대신 양측이 작전   ║
+║         목표(방어 자산 생존)를 두고 겨루는 전장. 승/패/무로 판정            ║
+║  NEW-B  설정 환경 묶음에 '지속 전장 모드(실험적)' 토글 (기본 OFF, 공존)     ║
 ║  [v15.05.01 — 로드맵 재편: 지속 전장 엔진 차기 메이저 반영]                 ║
 ║  수정  향후 계획을 '지속 전장 엔진'(완전한 양방향 전장 전환) 중심으로 재편 ║
 ║        — 기존 기능 로드맵은 전환 완료까지 보류 표시                         ║
@@ -916,7 +920,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.05.01"
+APP_VERSION = "v15.06.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1421,7 +1425,7 @@ import numpy as np
 # ── 엔진 import ──────────────────────────────────────────────────────────────
 try:
     from engine_v7 import (
-        run_v7_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
+        run_v7_simulation, run_battle_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
         build_czml,
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
@@ -3067,8 +3071,12 @@ class SimWorker(QThread):
             if self.cfg.get('tactical_mode', False):
                 _tactical_hook = self._tactical_pause_cb
 
-            result = run_v7_simulation(self.cfg, step_cb=_step_cb,
-                                       tactical_cb=_tactical_hook)
+            if self.cfg.get('enable_battle_mode', False):
+                result = run_battle_simulation(self.cfg, step_cb=_step_cb,
+                                               tactical_cb=_tactical_hook)
+            else:
+                result = run_v7_simulation(self.cfg, step_cb=_step_cb,
+                                           tactical_cb=_tactical_hook)
             # 중단 기록용 스냅샷 — 중단 시 _on_cancelled가 부분 통계를 DB에 기록
             self._partial_tt = result.get('total_threats', 0)
             self._partial = None
@@ -5725,6 +5733,8 @@ class MainWindow(QMainWindow):
             self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
         if hasattr(self, 'chk_flooding'):
             self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
+        if hasattr(self, 'chk_battle'):
+            self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
         if hasattr(self, 'chk_weather_dyn'):
             self.chk_weather_dyn.setChecked(cfg.get('enable_weather_dynamics', False))
         if hasattr(self, 'cmb_weather_trend'):
@@ -6227,6 +6237,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_flooding.setChecked(True)
 
+        # 지속 전장 모드 — 단발 교전을 양측 작전 목표 기반 지속 전장으로 (아키텍처 전환·병행 구축)
+        self.chk_battle = QCheckBox("지속 전장 모드 (실험적)")
+        self.chk_battle.setToolTip(
+            "단발 살보 교전 대신, 양측이 작전 목표(자산 방어 등)를 두고\n"
+            "시간에 걸쳐 겨루는 지속 전장으로 실행합니다.\n"
+            "승패는 요격률이 아니라 임무 달성(방어 자산 생존)으로 판정됩니다.\n"
+            "기본값 OFF — 기존 단발 교전과 공존(병행 구축 단계). 단일 시뮬에 적용."
+        )
+        self.chk_battle.setChecked(False)
+
         self.chk_weather_dyn = QCheckBox("동적 기상 변화")
         self.chk_weather_dyn.setToolTip(
             "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
@@ -6299,6 +6319,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_png)
         fl_env.addRow("",            self.chk_sonar_eq)
         fl_env.addRow("",            self.chk_flooding)
+        fl_env.addRow("",            self.chk_battle)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
         fl_env.addRow("",            self.chk_iff)
@@ -8178,6 +8199,7 @@ class MainWindow(QMainWindow):
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
+            'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
             'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
@@ -8349,10 +8371,18 @@ class MainWindow(QMainWindow):
         self._prog.setVisible(False)
         self._taskbar.clear(int(self.winId()))
         cvar_str = f" | CVaR {mc.get('cvar', 0):.1%}" if mc.get('cvar') is not None else ''
-        self._lbl_status.setText(
-            f"완료 ({elapsed:.1f}s) | "
-            f"요격률 {mc['mean_intercept']:.1%}{cvar_str} | "
-            f"MC {mc['n']}회")
+        _outcome = result.get('outcome')
+        if _outcome:   # 지속 전장 모드 — 승/패 중심 표시 (단일 시뮬), MC 요격률은 참고
+            _oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(_outcome, _outcome)
+            self._lbl_status.setText(
+                f"완료 ({elapsed:.1f}s) | ⚔ 전장 결과: {_oc} "
+                f"(아군 임무 점수 {result.get('friendly_score', 0.0):.0%}) | "
+                f"참고 MC 요격률 {mc['mean_intercept']:.1%}")
+        else:
+            self._lbl_status.setText(
+                f"완료 ({elapsed:.1f}s) | "
+                f"요격률 {mc['mean_intercept']:.1%}{cvar_str} | "
+                f"MC {mc['n']}회")
 
         self._update_cards(result, mc)
         self._update_vls_warning(mc)

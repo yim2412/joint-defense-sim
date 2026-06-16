@@ -204,8 +204,23 @@ Phase 4  RL 통합
 
 ---
 
-## 다음 행동 (Phase 1 착수 전 확정 필요)
+## 확정된 결정 (Phase 1 착수)
 
-1. **시간 지평**: 자산 방어 전장의 표준 horizon (제안: 1800s = 30분). 자원 소모 의미가 생기는 길이.
-2. **MVP 시나리오 1개 선정**: 어떤 함대 vs 어떤 적이 어떤 자산을 두고 싸우는가 (기존 시나리오 라이브러리 재활용 가능).
-3. **새 엔진 배치 방식**: 신규 클래스(`BattleEngine`)로 분리 vs `TimeStepEngine`에 모드 분기. (병행 구축 동안은 분리 권장 → 컷오버 시 통합/치환)
+1. **시간 지평**: `BATTLE_HORIZON_S = 1800`초(30분). cfg `battle_horizon_s`로 조정 가능.
+2. **MVP 시나리오**: 기준 시나리오(`기동전단 기본` vs `랴오닝 항모전단`) — `baseline_v12_combined` 기준값 보유로 즉시 검증 가능.
+3. **새 엔진 배치**: `BattleEngine(TimeStepEngine)` **상속** — 물리층 재사용, 오케스트레이션만 오버라이드, **부모 무수정**(골든·fallback 안전). 컷오버 시 부모 삭제하며 독립.
+
+## Phase 1 진행 현황
+
+- ✅ **코어 골격 완료** (engine_v7.py): `Objective` + `BattleEngine` + `run_battle_simulation`.
+  - `_is_over` 오버라이드 — 위협 소진 종료 → **목표 기반 종료**(자산 격침=적승 / 시간 지평·적 격멸=방어성공 / 아군 전멸=적승).
+  - `_compile` 오버라이드 — `outcome(win/loss/draw)`·`friendly_score`·`enemy_score`·`objectives` 추가. `intercept_rate`는 보조 지표로 유지.
+  - 적 지속 압박 — 항공 위협 `max_reattacks` 상향(임시 레버, Phase 2서 목표지향 AI로 교체).
+  - **회귀 PASS**(부모 무변경) + 스모크 실행(기준 시나리오 3시드 outcome 산출 확인).
+- ✅ **UI 통합 완료** (launcher.py, v15.06.01): `enable_battle_mode` 토글 3종 세트(환경 묶음 체크박스 + cfg 빌드 + cfg 로드) + 워커 단일 시뮬 라우팅(`run_battle_simulation`) + 결과 상태줄 승/패 표시(⚔ 전장 결과) + `run_battle_simulation`에서 진행바 총량을 horizon으로 보고(step_cb 래핑). 회귀 PASS·빌드 성공.
+- ⬜ **남은 Phase 1**: MC 경로 전장 승률 집계(`monte_carlo` 3경로 — 현재 MC는 단발 모델 유지), 결과 탭 본문에 목표 달성판(현재는 상태줄만), 적 항공 재접근이 실제로 드러나는 강한 방어 시나리오 검증.
+
+## 다음 행동
+
+- 코드/로직 감사(`/code-review`) — 새 엔진 클래스(아키텍처 전환) 정책상 필수.
+- 이후 UI 통합 착수 (전장 모드 진입점 + 승/패 결과 표시).
