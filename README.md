@@ -95,10 +95,17 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 ## 프로젝트 성격 · 라이선스
 
 이 저장소는 **취미로 개발하는 비상업·개인 학습용 프로젝트**입니다. 상업적 목적이 전혀 없으며,
-관심 있는 분들의 **피드백·제안을 환영**합니다 (Issues/Discussions 자유롭게 남겨주세요).
+관심 있는 분들의 **피드백·제안을 환영**합니다.
 
 - **라이선스**: [PolyForm Noncommercial License 1.0.0](LICENSE.md) — 비상업 목적의 사용·수정·공유는 자유, 상업적 이용은 금지됩니다.
 - 무기 체계 제원·수치는 공개된 자료를 바탕으로 한 **학습용 근사치**이며, 실제 군사 운용 데이터가 아닙니다.
+
+## 피드백 · 의견
+
+- 🐛 **버그 신고**는 [Issues](../../issues) — 버그 신고 템플릿을 이용해주세요.
+- 💡 **기능 제안**도 [Issues](../../issues)의 기능 제안 템플릿으로 남겨주세요.
+- 💬 **자유로운 의견·질문·토론**은 [Discussions](../../discussions)에 남겨주세요.
+- **한국어·영어 모두 환영**합니다. 편한 언어로 자유롭게 작성해주세요.
 
 ---
 ---
@@ -182,10 +189,17 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 ### Project Nature · License
 
 This repository is a **non-commercial, personal hobby/learning project**. There is no commercial intent,
-and **feedback and suggestions are welcome** (feel free to open Issues/Discussions).
+and **feedback and suggestions are welcome**.
 
 - **License**: [PolyForm Noncommercial License 1.0.0](LICENSE.md) — non-commercial use, modification, and sharing are free; commercial use is prohibited.
 - Weapon-system specifications and figures are **learning-purpose approximations** based on publicly available sources, and are **not** real operational military data.
+
+### Feedback
+
+- 🐛 **Bug reports** → [Issues](../../issues) (bug report template)
+- 💡 **Feature requests** → [Issues](../../issues) (feature request template)
+- 💬 **Open-ended ideas, questions, discussion** → [Discussions](../../discussions)
+- **Both Korean and English are welcome** — write in whichever language is comfortable.
 
 > Note: the in-app text, changelog, and roadmap are maintained in Korean, as the project is built around
 > Republic of Korea Navy/military systems. This English section mirrors the Korean documentation above.

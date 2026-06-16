@@ -1,0 +1,39 @@
+name: 🐛 버그 신고 (Bug report)
+description: 시뮬레이터의 버그나 잘못된 동작을 신고합니다 / Report a bug or incorrect behavior
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        한국어 또는 영어로 자유롭게 작성해주세요. / Feel free to write in Korean or English.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 무슨 일이 있었나요? (What happened?)
+      description: 어떤 증상이 나타났는지 설명해주세요. / Describe the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 방법 (Steps to reproduce)
+      description: 어떤 설정·순서에서 발생했나요? / How can we reproduce it?
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작 (Expected behavior)
+      description: 원래 어떻게 동작해야 한다고 생각했나요? / What did you expect to happen?
+  - type: input
+    id: version
+    attributes:
+      label: 버전 (Version)
+      description: 앱 버전 (예 v15.06) / App version
+  - type: textarea
+    id: env
+    attributes:
+      label: 실행 환경 (Environment)
+      description: OS, 개발 실행(python)/exe 빌드 여부, 로그·스크린샷 등 / OS, run mode (python/exe), logs or screenshots
