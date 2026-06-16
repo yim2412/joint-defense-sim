@@ -90,4 +90,10 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 
 ---
 
-*이 저장소는 비공개 개인 프로젝트입니다.*
+## 프로젝트 성격 · 라이선스
+
+이 저장소는 **취미로 개발하는 비상업·개인 학습용 프로젝트**입니다. 상업적 목적이 전혀 없으며,
+관심 있는 분들의 **피드백·제안을 환영**합니다 (Issues/Discussions 자유롭게 남겨주세요).
+
+- **라이선스**: [PolyForm Noncommercial License 1.0.0](LICENSE.md) — 비상업 목적의 사용·수정·공유는 자유, 상업적 이용은 금지됩니다.
+- 무기 체계 제원·수치는 공개된 자료를 바탕으로 한 **학습용 근사치**이며, 실제 군사 운용 데이터가 아닙니다.
