@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.06.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.06.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.06.02 — 지속 전장 모드 몬테카를로 승률 집계]                          ║
+║  NEW-A  전장 모드 MC가 승/패/무 승률·평균 임무 점수 집계 → 상태줄 'MC 승률' ║
 ║  [v15.06.01 — 지속 전장 모드 도입 (실험적·병행 구축)]                       ║
 ║  NEW-A  지속 전장 모드 — 적이 살보 후 이탈하는 단발 교전 대신 양측이 작전   ║
 ║         목표(방어 자산 생존)를 두고 겨루는 전장. 승/패/무로 판정            ║
@@ -920,7 +922,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.06.01"
+APP_VERSION = "v15.06.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3203,6 +3205,13 @@ class SimWorker(QThread):
                     'mean_iff_failures':        float(np.mean(_extra_acc.get('iff_failures', [0]))),
                     'mean_iff_fratricide':      float(np.mean(_extra_acc.get('iff_fratricide', [0]))),
                 }
+                _bo = _extra_acc.get('outcome', [])
+                if _bo:   # 전장 모드 — 병렬 MC 승률 집계
+                    _bn = max(len(_bo), 1)
+                    mc['win_rate']  = _bo.count('win')  / _bn
+                    mc['loss_rate'] = _bo.count('loss') / _bn
+                    mc['draw_rate'] = _bo.count('draw') / _bn
+                    mc['mean_friendly_score'] = float(np.mean(_extra_acc.get('friendly_score', [0.0])))
 
             # ── CVaR: 기존 MC rates에서 직접 계산 (추가 시뮬 불필요) ─────────
             if _V7_OK:
@@ -8372,12 +8381,14 @@ class MainWindow(QMainWindow):
         self._taskbar.clear(int(self.winId()))
         cvar_str = f" | CVaR {mc.get('cvar', 0):.1%}" if mc.get('cvar') is not None else ''
         _outcome = result.get('outcome')
-        if _outcome:   # 지속 전장 모드 — 승/패 중심 표시 (단일 시뮬), MC 요격률은 참고
+        if _outcome:   # 지속 전장 모드 — 승/패 중심 표시 (단일 시뮬 + MC 승률)
             _oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(_outcome, _outcome)
+            _wr = mc.get('win_rate')
+            _mc_part = (f"MC 승률 {_wr:.0%}" if _wr is not None
+                        else f"참고 MC 요격률 {mc['mean_intercept']:.1%}")
             self._lbl_status.setText(
                 f"완료 ({elapsed:.1f}s) | ⚔ 전장 결과: {_oc} "
-                f"(아군 임무 점수 {result.get('friendly_score', 0.0):.0%}) | "
-                f"참고 MC 요격률 {mc['mean_intercept']:.1%}")
+                f"(아군 임무 점수 {result.get('friendly_score', 0.0):.0%}) | {_mc_part}")
         else:
             self._lbl_status.setText(
                 f"완료 ({elapsed:.1f}s) | "
