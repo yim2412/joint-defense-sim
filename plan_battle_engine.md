@@ -230,3 +230,78 @@ Phase 4  RL 통합
 
 - 코드/로직 감사(`/code-review`) — 새 엔진 클래스(아키텍처 전환) 정책상 필수.
 - 이후 UI 통합 착수 (전장 모드 진입점 + 승/패 결과 표시).
+
+---
+
+# Phase 2 설계 합의 (2026-06-16 확정)
+
+> 승리조건 3종(sea_control·attrition·sustainment) + 자원·기동 동역학.
+> **합의된 3대 결정**: ①지표 3종 먼저(저위험) → 동역학 ②sustainment = 탄약+연료(연료 신규) ③웨이브·재보급은 Phase 3로 이관.
+
+## 분할 (2개 마이너 블록)
+
+### v15.07.x — 승리조건 3종 (출력 지표, 엔진 교전 로직 무변경 → 저위험)
+
+세 목표 모두 "매 틱 기존 상태를 읽어 progress 계산"이라 물리·교전 코드를 안 건드린다.
+`BattleEngine.objectives`에 추가하고 `_update_objectives`에서 갱신, `_score_outcome`이 자동 흡수.
+종료 시 `_compile`에 `timeline` 추가.
+
+**v15.07.01 — `sea_control` (해역 통제)**
+- 보호점 = 함대 중심(기함 pos). 돌파선 `battle_sea_control_line_km`(기본 50km, cfg 조정).
+- 매 틱: `closest` = 생존 적 위협 + 생존 `enemy_strike` 미사일의 보호점까지 최단거리.
+- `penetration_km = clamp(line - closest, 0, line)`. **작전 전체 최악(최대 침투)** 누적 기록.
+- `progress_friendly = 1 - max_penetration/line` (한 번이라도 자산 도달 시 0).
+  `progress_enemy = 1 - progress_friendly`.
+- status: 달성=돌파 0 유지(저지), 실패=완전 돌파(자산 도달).
+- timeline `frontline_km`: `[(t, deepest_penetration_km), ...]`.
+
+**v15.07.02 — `attrition` (소모전)**
+- 전력 가치: 아군 = 생존 함정 `SHIP_PROCUREMENT_USD` 합(없으면 HP가중 fallback).
+  적 = 생존 위협 수 기반 프록시(Phase 2; 적 자산 조달가 미보유라 count·표적가치 근사. 후속 정밀화).
+- `friendly_frac = friendly_value_now / init`, `enemy_frac` 동일.
+- 교환비 progress: `progress_friendly = logistic(k·(enemy_loss_frac - friendly_loss_frac))` → 아군이 적을 더 깎을수록 1.
+  `progress_enemy = 1 - progress_friendly` (대칭).
+- timeline `force_ratio`: `[(t, friendly_frac, enemy_frac), ...]`.
+
+**v15.07.03 — `sustainment` (자원 지속성, 아군)**
+- 잔여 자원 최저 비율 = `min(탄약_잔여비, 연료_잔여비)`.
+  - 탄약 = `Σ remaining_inventory / Σ initial` (기존 추적값).
+  - 연료 = v15.08.01 도입 전까지 탄약만, 도입 후 `min(fuel_frac)` 합산.
+- `progress = 최저 비율`. status 실패 = 0(완전 고갈).
+- timeline `resource_min`: `[(t, ammo_frac, fuel_frac), ...]`.
+
+> **목표 가중치(cfg 조정)**: friendly = defend_asset 0.5 + sea_control 0.3 + sustainment 0.2,
+> enemy = destroy_asset 0.5 + sea_control(돌파) 0.3 + attrition 0.2. attrition은 양측 대칭 1쌍.
+> Phase 1의 defend/destroy 0.6은 위 0.5로 재배분(점수식 일관성 — 5절).
+> 결과 배너(`_fill_battle_panel`)에 목표 4종 전부 + timeline 미니 표시.
+
+### v15.08.x — 동역학 (엔진 물리 변경 → 회귀 위험 ↑, Opus·/code-review high)
+
+**v15.08.01 — 연료 소모 모델**
+- 신규 필드 `FriendlyShipObj.fuel`/`fuel_max`. 매 틱 소모(기동량·speed_factor 반영).
+- 기본값: horizon 1800s에선 여유, 장시간·고기동 시 압박되게 튜닝.
+- sustainment 연료 항목 활성화. **회귀 영향**(신규 상태) → 변경 후 골든 재확인.
+
+**v15.08.02 — 적 목표지향 기동 AI**
+- 임시 레버(`battle_air_reattacks`) 제거. 이탈 대신 **목표 미달 시 압박 유지**(9절 행동 트리).
+- 손실 임계 초과 시에만 후퇴/재편. `sea_control` 목표 시 돌파선 지향 기동.
+
+**v15.08.03 — (Phase 3 이관) 웨이브·재보급** — Phase 2 범위에서 제외 확정.
+
+## Phase 2 출력 스키마 증분 (`_compile`)
+
+```python
+result['timeline'] = {
+    'frontline_km': [(t, deepest_penetration_km), ...],   # v15.07.01
+    'force_ratio':  [(t, friendly_frac, enemy_frac), ...], # v15.07.02
+    'resource_min': [(t, ammo_frac, fuel_frac), ...],      # v15.07.03
+}
+# objectives 4종으로 확장, friendly_score/enemy_score 가중치 재배분
+```
+
+> 단일 시뮬만 timeline 누적(`if not self._mc_mode` 가드 — frames와 동일 패턴). MC는 outcome·score만.
+
+## Phase 2 감사
+
+각 마이너 빌드 전 `verify_regression.py`(단발 모드 무영향 확인) + v15.07은 /code-review medium,
+v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로 영향 없음(스키마 키 추가만).
