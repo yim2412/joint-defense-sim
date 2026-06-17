@@ -79,7 +79,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 from engine import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
-    SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD,
+    SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD, ENEMY_PROCUREMENT_USD,
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
@@ -4765,19 +4765,36 @@ class BattleEngine(TimeStepEngine):
         # 방어 자산 = 기함(primary). 시작 시점에 고정 식별(격침 판정용)
         self._asset        = self._primary()
         self._asset_max_hp = self._asset._max_hp
-        w_def = float(cfg.get('battle_w_defend', 0.5))   # Phase 2: 0.6→0.5 재배분
-        w_sea = float(cfg.get('battle_w_sea',    0.3))
+        w_def  = float(cfg.get('battle_w_defend',    0.5))   # Phase 2: 0.6→0.5 재배분
+        w_sea  = float(cfg.get('battle_w_sea',       0.3))
+        w_attr = float(cfg.get('battle_w_attrition', 0.2))   # v15.07.02
         # v15.07.01: 해역 통제 — 보호점(기함)까지 돌파선
         self._sea_line_km   = float(cfg.get('battle_sea_control_line_km', 50.0))
         self._sea_max_pen   = 0.0    # 작전 전체 최악(최대 침투) km
         self._sea_pen_now   = 0.0    # 현재 틱 침투 km
         self._frontline_tl  = []     # [(t, deepest_penetration_km), ...] 단일 시뮬만
         self._sea_tl_last_t = -1.0   # timeline 중복 t 방지
+        # v15.07.02: 소모전 — 양측 전력가치(USD 조달가) 교환비. 미사일류는 제외(플랫폼만).
+        self._attr_k         = float(cfg.get('battle_attrition_k', 5.0))  # 로지스틱 민감도
+        fr_v0 = self._friendly_force_value()
+        en_v0 = self._enemy_force_value()
+        # 양측 모두 플랫폼 전력이 있을 때만 소모전 평가(순수 미사일 편대 등은 무의미 → 점수 제외)
+        self._attr_active    = (fr_v0 > 0.0 and en_v0 > 0.0)
+        if not self._attr_active:
+            w_attr = 0.0
+        self._fr_value_init  = max(1.0, fr_v0)
+        self._en_value_init  = max(1.0, en_v0)
+        self._fr_frac        = 1.0
+        self._en_frac        = 1.0
+        self._force_tl       = []     # [(t, fr_frac, en_frac), ...] 단일 시뮬만
+        self._attr_tl_last_t = -1.0
         self.objectives = [
-            Objective('defend_asset',  'friendly', w_def, {'asset': self._asset.name}),
-            Objective('destroy_asset', 'enemy',    w_def, {'asset': self._asset.name}),
-            Objective('sea_control',   'friendly', w_sea, {'line_km': self._sea_line_km}),
-            Objective('sea_control',   'enemy',    w_sea, {'line_km': self._sea_line_km}),
+            Objective('defend_asset',  'friendly', w_def,  {'asset': self._asset.name}),
+            Objective('destroy_asset', 'enemy',    w_def,  {'asset': self._asset.name}),
+            Objective('sea_control',   'friendly', w_sea,  {'line_km': self._sea_line_km}),
+            Objective('sea_control',   'enemy',    w_sea,  {'line_km': self._sea_line_km}),
+            Objective('attrition',     'friendly', w_attr, {}),
+            Objective('attrition',     'enemy',    w_attr, {}),
         ]
 
     # ── 목표 진행 갱신 ────────────────────────────────────────────────────────
@@ -4806,6 +4823,26 @@ class BattleEngine(TimeStepEngine):
             self._sea_tl_last_t = self.t
             self._frontline_tl.append((round(self.t, 1), round(self._sea_pen_now, 2)))
 
+    # ── 소모전 전력가치 (USD 조달가 합, 미사일류 제외 = 플랫폼만) ───────────────
+    def _friendly_force_value(self) -> float:
+        return sum(SHIP_PROCUREMENT_USD.get(s.ship_type, 0)
+                   for s in self.friendly_ships if s.alive)
+
+    def _enemy_force_value(self) -> float:
+        # 함정·잠수함·항공기만 — 미사일류는 소모품이라 전력가치에서 제외
+        return sum(ENEMY_PROCUREMENT_USD.get(et.name, 0)
+                   for et in self.enemy_threats
+                   if et.alive and (et.is_ship or et.is_sub or et.is_aircraft))
+
+    def _attrition_update(self):
+        """소모전 — 양측 잔존 전력가치 비율 갱신(현재값/초기값, 0..1)."""
+        self._fr_frac = min(1.0, self._friendly_force_value() / self._fr_value_init)
+        self._en_frac = min(1.0, self._enemy_force_value()    / self._en_value_init)
+        if not self._mc_mode and self.t != self._attr_tl_last_t:
+            self._attr_tl_last_t = self.t
+            self._force_tl.append((round(self.t, 1),
+                                   round(self._fr_frac, 3), round(self._en_frac, 3)))
+
     def _update_objectives(self):
         if self._asset_alive() and self._asset_max_hp:
             frac = max(0.0, self._asset.hp / self._asset_max_hp)
@@ -4818,6 +4855,13 @@ class BattleEngine(TimeStepEngine):
         breached  = self._sea_max_pen >= line_km                 # 자산 도달
         held      = self._sea_max_pen <= 0.0                     # 완전 저지
         sea_prog_f = 1.0 - (self._sea_max_pen / line_km if line_km else 0.0)
+        # v15.07.02: 소모전 교환비 — 아군이 적을 더 깎을수록 progress↑ (로지스틱)
+        if self._attr_active:
+            self._attrition_update()
+            x = (1.0 - self._en_frac) - (1.0 - self._fr_frac)    # 적손실율 - 아군손실율
+            attr_prog_f = 1.0 / (1.0 + math.exp(-self._attr_k * x))
+            en_wiped = self._en_frac <= 0.0
+            fr_wiped = self._fr_frac <= 0.0
         for ob in self.objectives:
             if ob.type == 'defend_asset':
                 ob.progress = frac
@@ -4831,6 +4875,18 @@ class BattleEngine(TimeStepEngine):
             elif ob.type == 'sea_control' and ob.side == 'enemy':
                 ob.progress = 1.0 - sea_prog_f
                 ob.status   = '달성' if breached else '진행'
+            elif ob.type == 'attrition' and ob.side == 'friendly':
+                if not self._attr_active:
+                    ob.progress = 0.5; ob.status = '해당없음'
+                else:
+                    ob.progress = attr_prog_f
+                    ob.status   = '달성' if en_wiped else ('실패' if fr_wiped else '진행')
+            elif ob.type == 'attrition' and ob.side == 'enemy':
+                if not self._attr_active:
+                    ob.progress = 0.5; ob.status = '해당없음'
+                else:
+                    ob.progress = 1.0 - attr_prog_f
+                    ob.status   = '달성' if fr_wiped else '진행'
 
     # ── 종료조건 (목표 기반 — 부모의 위협소진 종료를 대체) ─────────────────────
     def _is_over(self) -> bool:
@@ -4882,7 +4938,8 @@ class BattleEngine(TimeStepEngine):
         result['objectives']       = [ob.as_dict() for ob in self.objectives]
         result['battle_horizon_s'] = self.horizon_s
         if not self._mc_mode:      # timeline은 단일 시뮬 전용 (frames와 동일 패턴)
-            result['timeline'] = {'frontline_km': self._frontline_tl}
+            result['timeline'] = {'frontline_km': self._frontline_tl,
+                                  'force_ratio':  self._force_tl}
         return result
 
 
