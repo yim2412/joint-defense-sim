@@ -79,7 +79,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 from engine import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
-    SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD, ENEMY_PROCUREMENT_USD,
+    SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD, ENEMY_PROCUREMENT_USD, SHIP_ENDURANCE,
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
@@ -1078,6 +1078,23 @@ class FriendlyShipObj:
         self.flood       = 0.0    # 현재 침수율 (0~1)
         self.flood_rate  = 0.0    # 침수 진행 속도 (/초)
         self.sunk_by_flood = False  # 침수로 침몰 (HP 즉사와 구분, 집계용)
+
+        # v15.08.01: 연료(자원 지속성 모델, BattleEngine 전용) — 정규화 0~1. 원자력은 무제한.
+        self.fuel_max = 1.0
+        self.fuel     = 1.0
+        _end = SHIP_ENDURANCE.get(ship_type)
+        if _end is None:                       # CVN·SSN 원자력 추진 = 사실상 무제한
+            self._nuclear = True
+            self._fuel_burn_per_s = 0.0
+        else:
+            self._nuclear = False
+            _rng_nm, _cruise_kt = _end
+            _t_ship_h = _rng_nm / _cruise_kt   # 함정별 실측 작전가능시간[h]
+            _burn_1800 = _FUEL_STD_BURN_1800 * (_FUEL_T_REF_H / _t_ship_h)
+            _burn_1800 = max(_FUEL_BURN_MIN, min(_FUEL_BURN_MAX, _burn_1800))
+            self._fuel_burn_per_s = _burn_1800 / 1800.0
+        self._prev_fuel_pos = None             # 회피 발생 판정용 직전 위치(BattleEngine._fuel_update)
+        self._maneuver_fuel_used = 0.0         # 회피 누적 추가 소모(상한 _FUEL_MANEUVER_CAP)
 
     @property
     def max_channels(self):
@@ -4736,6 +4753,19 @@ BATTLE_HORIZON_S = 1800
 # 자원 지속성 평가에서 무제한 탄(CIWS 초기 9999 등)을 거르는 임계 — 이 값 이상이면 제외
 _BATTLE_INF_AMMO = 1000
 
+# ── 연료 소모 모델 (v15.08.01) — 실측 항속거리를 1800s 표준 작전 기준으로 정규화 ──
+# 절대 항속시간(수백 시간)을 그대로 쓰면 1800s엔 거의 안 닳아 무의미 → 표준함이
+# 1800s 평탄 순항 시 0.40 소모하도록 스케일하고, 함정별 실측 작전가능시간 비로 차등.
+_FUEL_STD_BURN_1800 = 0.40       # 표준함이 1800s 순항 시 소모하는 연료 비율(잔여 0.60)
+_FUEL_T_REF_H       = 5500 / 18  # 표준함(KDX-III) 작전가능시간[h] = 항속/순항 — 정규화 기준
+_FUEL_BURN_MIN      = 0.10       # 1800s 순항 소모 하한(대형함·잠수함도 최소 소모)
+_FUEL_BURN_MAX      = 0.70       # 상한(소형 고속정 1800s 내 완전 고갈·조기탈락 방지)
+# 회피 기동 추가 소모: 점프 거리(300~800m/틱)는 회피 효과 표현용 추상값이라 물리 연료로
+# 부적합 → 거리 대신 '회피 발생 틱당 고정량'으로 과금하고, 함정별 누적 상한을 둔다.
+# (거리 비례 시 다살보 교전에서 회피가 매 틱 누적돼 연료가 0으로 붕괴 — 차등 무의미해짐)
+_FUEL_MANEUVER_TICK = 0.0015     # 회피 발생 틱 1회당 추가 연료
+_FUEL_MANEUVER_CAP  = 0.35       # 회피 누적 추가 소모 상한(격렬 교전이어도 차등 보존)
+
 
 class Objective:
     """단일 작전 목표 — {type, side, weight, progress(0..1), status}."""
@@ -4863,9 +4893,29 @@ class BattleEngine(TimeStepEngine):
                    for inv in (s.inventory, s.strike_inventory)
                    for v in inv.values() if v < _BATTLE_INF_AMMO)
 
+    def _fuel_update(self):
+        """매 틱 연료 소모 — 순항 기본분 + 회피 기동 추가분(틱당 고정·누적 상한). 원자력·격침 제외."""
+        for s in self.friendly_ships:
+            if not s.alive or s._nuclear:
+                continue
+            burn = s._fuel_burn_per_s * DT
+            # 아군 함정은 평상시 고정 진형 — pos가 1m 넘게 변하면 이번 틱 회피 기동 발생.
+            # 회피 점프 거리는 추상값이라 거리 비례 대신 틱당 고정량으로 과금(누적 상한 적용).
+            if s._prev_fuel_pos is not None and s.pos.dist_to(s._prev_fuel_pos) > 1.0:
+                add = min(_FUEL_MANEUVER_TICK, _FUEL_MANEUVER_CAP - s._maneuver_fuel_used)
+                if add > 0.0:
+                    s._maneuver_fuel_used += add
+                    burn += add
+            s.fuel = max(0.0, s.fuel - burn)
+            s._prev_fuel_pos = s.pos.copy()
+
     def _sustainment_update(self):
-        """자원 지속성 — 탄약 잔여비 갱신. 연료는 v15.08.01 도입 전까지 1.0."""
+        """자원 지속성 — 탄약·연료 잔여비 갱신. 둘 중 낮은 쪽이 progress."""
         self._ammo_frac = min(1.0, self._friendly_ammo_total() / self._ammo_init)
+        # 연료: 생존·비원자력 함정 중 최저 잔여비(원자력·격침 함정 제외). 없으면 1.0.
+        fuels = [s.fuel / s.fuel_max for s in self.friendly_ships
+                 if s.alive and not s._nuclear and s.fuel_max > 0]
+        self._fuel_frac = min(fuels) if fuels else 1.0
         if not self._mc_mode and self.t != self._sust_tl_last_t:
             self._sust_tl_last_t = self.t
             self._resource_tl.append((round(self.t, 1),
@@ -4924,6 +4974,7 @@ class BattleEngine(TimeStepEngine):
 
     # ── 종료조건 (목표 기반 — 부모의 위협소진 종료를 대체) ─────────────────────
     def _is_over(self) -> bool:
+        self._fuel_update()        # 매 틱 1회 연료 소모 (루프에서 _is_over만 호출 — 이중차감 없음)
         self._update_objectives()
         if not self._asset_alive():
             if not self._mc_mode:
