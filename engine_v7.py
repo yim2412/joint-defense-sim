@@ -80,6 +80,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 from engine import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
     SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD, ENEMY_PROCUREMENT_USD, SHIP_ENDURANCE,
+    ENEMY_MUNITION,
     ENEMY_FLEET_PRESETS, ENEMY_FLEET_RANDOM_CFG, MIXED_ATTACK_SCENARIOS,
     generate_random_enemy_fleet,
     calculate_detect_range_by_rcs,
@@ -874,6 +875,9 @@ class MissileObj:
 #  EnemyThreatObj — 적 플랫폼 위협 통합 (항공기 / 수상함 / 잠수함)
 #  독립 미사일(탄도/순항/HGV/QBM)은 _build_enemies()에서 MissileObj로 생성.
 # ════════════════════════════════════════════════════════════════════════════
+_ENEMY_MUNITION_INF = 99999   # 무장 유한화 미대상(1발성 위협 등) 무제한 표현
+
+
 def _et_col(col: str):
     """EnemyThreatObj proxy 속성 → 엔진 _et_* 컬럼(행 i)으로 위임하는 property.
     v12.7 단계1: 데이터는 엔진 컬럼에 있고 객체는 (엔진, 행 i)만 든다."""
@@ -986,6 +990,7 @@ class EnemyThreatObj:
     carrier_wave_interval = _et_col('_et_carrier_wave_interval')
     _last_wave_t          = _et_col('_et_last_wave_t')
     sam_inventory         = _et_col('_et_sam_inventory')
+    munition_remaining    = _et_col('_et_munition_remaining')   # 공격 무장 잔여(무장 유한화)
     sam_max_channels      = _et_col('_et_sam_max_channels')
     sam_channels_used     = _et_col('_et_sam_channels_used')
     alive                 = _et_col('_et_alive')
@@ -1287,6 +1292,7 @@ class TimeStepEngine:
         self._tactical_interval  = cfg.get('tactical_interval', 30)  # 일시정지 간격(초)
 
         # v15.1: 적응형 전술 AI — ai_tactic='adaptive'일 때만 동작
+        self._munition_limit   = bool(cfg.get('enable_munition_limit', True))  # 적 공격 무장 유한화
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
         self._adaptive_last_t  = -999.0         # 마지막 재평가 시각
@@ -1467,6 +1473,7 @@ class TimeStepEngine:
         self._et_sam_inventory: list        = []
         self._et_sam_max_channels: list     = []
         self._et_sam_channels_used: list    = []
+        self._et_munition_remaining: list   = []   # 공격 무장 잔여(무장 유한화)
         self._et_alive: list                = []
         self._et_intercepted: list          = []
         self._et_hit_count: list            = []
@@ -1518,6 +1525,8 @@ class TimeStepEngine:
         self._et_carrier_wave_interval.append(info.get('carrier_wave_interval', 0))
         self._et_last_wave_t.append(0.0)
         self._et_sam_inventory.append(sam_inv)
+        # 공격 무장 잔여 — 탑재량 목록에 없으면 무제한(1발성 미사일 위협 등). 발사 시 차감.
+        self._et_munition_remaining.append(ENEMY_MUNITION.get(preset_name, _ENEMY_MUNITION_INF))
         self._et_sam_max_channels.append(sam_max)
         self._et_sam_channels_used.append(0)
         self._et_alive.append(True)
@@ -2274,7 +2283,9 @@ class TimeStepEngine:
                 arrived = et.pos.move_toward(et.retreat_pos, et.speed_ms, DT)
                 if arrived:
                     # MED-12: 재공격 가능 시 재접근, 아니면 전장 이탈
-                    if et.reattack_count < et.max_reattacks:
+                    # 무장 소진 시 재접근 불가 — 재무장 위해 복귀(전장 이탈)
+                    _no_munition = self._munition_limit and et.munition_remaining <= 0
+                    if et.reattack_count < et.max_reattacks and not _no_munition:
                         et.reattack_count += 1
                         et.is_retreating = False
                         et.retreat_pos   = None
@@ -2506,6 +2517,9 @@ class TimeStepEngine:
                 continue
             if not et.info.get('can_fire_missile'):
                 continue
+            # 무장 유한화: 공격 무장 소진 시 발사 중단 (CIWS 등 방어무장 무관)
+            if self._munition_limit and et.munition_remaining <= 0:
+                continue
             # v9.6: 기습 잠수함 은닉 중 — 발사 불가
             if et.is_sub and self.t < et.hidden_until:
                 continue
@@ -2534,6 +2548,8 @@ class TimeStepEngine:
                     salvo = max(_smin, (_smin + _smax) // 2)
             else:
                 salvo = random.randint(_smin, _smax)
+            if self._munition_limit:
+                salvo = min(salvo, et.munition_remaining)   # 잔여 무장 한도 내로
             m_speed = et.info.get('missile_speed_ms') or 300
             m_name  = et.info.get('missile_name') or '대함미사일'
 
@@ -2569,7 +2585,10 @@ class TimeStepEngine:
                 self.missiles.append(_m)
 
             et.has_fired = True
+            if self._munition_limit:
+                et.munition_remaining -= salvo
             self.stats['total_threats'] += salvo
+            _munition_out = self._munition_limit and et.munition_remaining <= 0
 
             if et.is_aircraft:
                 et.is_retreating = True
@@ -2629,6 +2648,15 @@ class TimeStepEngine:
                     f"[적 발사] {et.preset_name} -> {m_name} {salvo}발 "
                     f"(거리 {dist_m/1000:.0f}km)"
                 )
+                # 무장 소진 수상함 — 재무장 위해 전장 이탈(복귀). 도착 시 위협 소멸.
+                if _munition_out:
+                    et.is_retreating = True
+                    _ang = et.pos.bearing_to(primary.pos) + math.pi
+                    et.retreat_pos = LatLon.from_xy(
+                        et.pos.x + math.cos(_ang) * 300_000,
+                        et.pos.y + math.sin(_ang) * 300_000,
+                    )
+                    self._log(f"[무장 소진·복귀] {et.preset_name} 전장 이탈(재무장)")
 
     # ── 3단계: 아군 방어 TEWA ─────────────────────────────────────────────────
 
@@ -4129,9 +4157,12 @@ class TimeStepEngine:
     def _is_over(self) -> bool:
         active_threats = [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike']
         # 이탈 중인 항공기: 재공격 가능하면 활성 위협으로 유지, 아니면 종료로 간주
+        # 무장 소진 위협은 발사 불가 → 재무장 복귀 중이므로 활성 위협에서 제외
         enemy_active   = [et for et in self.enemy_threats
-                          if et.alive and not (et.is_aircraft and et.is_retreating
-                                               and et.reattack_count >= et.max_reattacks)]
+                          if et.alive
+                          and not (self._munition_limit and et.munition_remaining <= 0)
+                          and not (et.is_aircraft and et.is_retreating
+                                   and et.reattack_count >= et.max_reattacks)]
 
         if not active_threats and not enemy_active:
             self._log("[종료] 교전 종료 - 모든 위협 소진/격침/이탈")
@@ -4988,10 +5019,12 @@ class BattleEngine(TimeStepEngine):
             if not self._mc_mode:
                 self._log(f"[종료] 작전 시간({int(self.horizon_s)}s) 도달 — 자산 방어 성공")
             return True
-        # 적 위협 전소 + 재접근 불가 → 아군 승
+        # 적 위협 전소 + 재접근 불가 → 아군 승 (무장 소진=복귀 중이므로 위협 제외)
         enemy_active = [et for et in self.enemy_threats
-                        if et.alive and not (et.is_aircraft and et.is_retreating
-                                             and et.reattack_count >= et.max_reattacks)]
+                        if et.alive
+                        and not (self._munition_limit and et.munition_remaining <= 0)
+                        and not (et.is_aircraft and et.is_retreating
+                                 and et.reattack_count >= et.max_reattacks)]
         active_missiles = [m for m in self.missiles
                            if m.alive and m.mtype == 'enemy_strike']
         if not enemy_active and not active_missiles:

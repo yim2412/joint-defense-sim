@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.08.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.08.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.08.03 — 적 무장 탑재량 한계(무장 유한화)]                            ║
+║  NEW-A  적 함정·항공기·잠수함이 실측 탑재량만큼만 공격 무장 사용 — 다 쏘면  ║
+║         재무장 위해 전장 이탈(복귀). CIWS 등 방어 무장은 무제한. 기본 ON   ║
 ║  [v15.08.02 — 결과 분석 8종 정리]                                          ║
 ║  DEL-A  결과 화면에서 채널 포화도·비용 효과·탄약 소모·최소 재고·서브시스템   ║
 ║         피해·A/B 편대 비교·공격 결과·생존성 히트맵 8종 제거(메뉴·워커·      ║
@@ -946,7 +949,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.08.02"
+APP_VERSION = "v15.08.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5413,6 +5416,8 @@ class MainWindow(QMainWindow):
             self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
         if hasattr(self, 'chk_flooding'):
             self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
+        if hasattr(self, 'chk_munition_limit'):
+            self.chk_munition_limit.setChecked(cfg.get('enable_munition_limit', True))
         if hasattr(self, 'chk_battle'):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
         if hasattr(self, 'chk_weather_dyn'):
@@ -5917,6 +5922,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_flooding.setChecked(True)
 
+        # 적 무장 탑재량 한계 — 적이 실제 탑재량만큼만 공격 무장 사용, 소진 시 재무장 복귀
+        self.chk_munition_limit = QCheckBox("적 무장 탑재량 한계")
+        self.chk_munition_limit.setToolTip(
+            "적 함정·항공기·잠수함이 실제 탑재량만큼만 공격 무장(대함미사일·어뢰)을 사용합니다.\n"
+            "탑재 무장을 다 쏘면 재무장을 위해 전장에서 이탈(복귀)합니다.\n"
+            "CIWS 등 방어 무장은 무제한 — 실제 교전 시간 내 거의 소진되지 않습니다.\n"
+            "기본값 ON — 무한 미사일의 비현실성을 제거합니다. (아군 무장은 항상 유한)"
+        )
+        self.chk_munition_limit.setChecked(True)
+
         # 지속 전장 모드 — 단발 교전을 양측 작전 목표 기반 지속 전장으로 (아키텍처 전환·병행 구축)
         self.chk_battle = QCheckBox("지속 전장 모드 (실험적)")
         self.chk_battle.setToolTip(
@@ -5989,7 +6004,8 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
-                    self.chk_flooding, self.chk_weather_dyn, self.chk_iff]:
+                    self.chk_flooding, self.chk_munition_limit,
+                    self.chk_weather_dyn, self.chk_iff]:
             _wire_chk_color(chk, 13)
 
         fl_env.addRow("",            self.chk_terrain)
@@ -5999,6 +6015,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_png)
         fl_env.addRow("",            self.chk_sonar_eq)
         fl_env.addRow("",            self.chk_flooding)
+        fl_env.addRow("",            self.chk_munition_limit)
         fl_env.addRow("",            self.chk_battle)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
@@ -7469,6 +7486,7 @@ class MainWindow(QMainWindow):
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
+            'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
