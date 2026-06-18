@@ -270,8 +270,10 @@ Phase 4  RL 통합
 - `progress = 최저 비율`. status 실패 = 0(완전 고갈).
 - timeline `resource_min`: `[(t, ammo_frac, fuel_frac), ...]`.
 
-> **목표 가중치(cfg 조정)**: friendly = defend_asset 0.5 + sea_control 0.3 + sustainment 0.2,
-> enemy = destroy_asset 0.5 + sea_control(돌파) 0.3 + attrition 0.2. attrition은 양측 대칭 1쌍.
+> **목표 가중치(cfg 조정)**: attrition은 양측 대칭 1쌍, sustainment는 아군 전용(표 4.1).
+> 따라서 friendly = defend_asset 0.5 + sea_control 0.3 + attrition 0.2 + sustainment 0.2 = 1.2,
+> enemy = destroy_asset 0.5 + sea_control(돌파) 0.3 + attrition 0.2 = 1.0.
+> `_score_outcome`이 각 측 가중치 합으로 정규화하므로 합이 1이 아니어도 점수는 0~1 유지(v15.07.03 확정).
 > Phase 1의 defend/destroy 0.6은 위 0.5로 재배분(점수식 일관성 — 5절).
 > 결과 배너(`_fill_battle_panel`)에 목표 4종 전부 + timeline 미니 표시.
 

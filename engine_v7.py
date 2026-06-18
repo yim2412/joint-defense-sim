@@ -4788,6 +4788,13 @@ class BattleEngine(TimeStepEngine):
         self._en_frac        = 1.0
         self._force_tl       = []     # [(t, fr_frac, en_frac), ...] 단일 시뮬만
         self._attr_tl_last_t = -1.0
+        # v15.07.03: 자원 지속성(아군) — 탄약 잔여 최저비. 연료는 v15.08.01 도입 전까지 1.0 고정.
+        w_sust = float(cfg.get('battle_w_sustainment', 0.2))
+        self._ammo_init      = max(1.0, self._friendly_ammo_total())  # 방어+공격 인벤토리 초기 총량
+        self._ammo_frac      = 1.0
+        self._fuel_frac      = 1.0    # 연료 모델(v15.08.01) 도입 전까지 1.0
+        self._resource_tl    = []     # [(t, ammo_frac, fuel_frac), ...] 단일 시뮬만
+        self._sust_tl_last_t = -1.0
         self.objectives = [
             Objective('defend_asset',  'friendly', w_def,  {'asset': self._asset.name}),
             Objective('destroy_asset', 'enemy',    w_def,  {'asset': self._asset.name}),
@@ -4795,6 +4802,7 @@ class BattleEngine(TimeStepEngine):
             Objective('sea_control',   'enemy',    w_sea,  {'line_km': self._sea_line_km}),
             Objective('attrition',     'friendly', w_attr, {}),
             Objective('attrition',     'enemy',    w_attr, {}),
+            Objective('sustainment',   'friendly', w_sust, {}),
         ]
 
     # ── 목표 진행 갱신 ────────────────────────────────────────────────────────
@@ -4843,6 +4851,19 @@ class BattleEngine(TimeStepEngine):
             self._force_tl.append((round(self.t, 1),
                                    round(self._fr_frac, 3), round(self._en_frac, 3)))
 
+    # ── 자원 지속성 (탄약 잔여비 = 방어+공격 인벤토리 합 / 초기 합) ──────────────
+    def _friendly_ammo_total(self) -> float:
+        return sum(sum(s.inventory.values()) + sum(s.strike_inventory.values())
+                   for s in self.friendly_ships)
+
+    def _sustainment_update(self):
+        """자원 지속성 — 탄약 잔여비 갱신. 연료는 v15.08.01 도입 전까지 1.0."""
+        self._ammo_frac = min(1.0, self._friendly_ammo_total() / self._ammo_init)
+        if not self._mc_mode and self.t != self._sust_tl_last_t:
+            self._sust_tl_last_t = self.t
+            self._resource_tl.append((round(self.t, 1),
+                                      round(self._ammo_frac, 3), round(self._fuel_frac, 3)))
+
     def _update_objectives(self):
         if self._asset_alive() and self._asset_max_hp:
             frac = max(0.0, self._asset.hp / self._asset_max_hp)
@@ -4862,6 +4883,9 @@ class BattleEngine(TimeStepEngine):
             attr_prog_f = 1.0 / (1.0 + math.exp(-self._attr_k * x))
             en_wiped = self._en_frac <= 0.0
             fr_wiped = self._fr_frac <= 0.0
+        # v15.07.03: 자원 지속성 — 탄약·연료 최저 잔여비
+        self._sustainment_update()
+        sust_prog_f = min(self._ammo_frac, self._fuel_frac)
         for ob in self.objectives:
             if ob.type == 'defend_asset':
                 ob.progress = frac
@@ -4887,6 +4911,9 @@ class BattleEngine(TimeStepEngine):
                 else:
                     ob.progress = 1.0 - attr_prog_f
                     ob.status   = '달성' if fr_wiped else '진행'
+            elif ob.type == 'sustainment' and ob.side == 'friendly':
+                ob.progress = sust_prog_f
+                ob.status   = '실패' if sust_prog_f <= 0.0 else '진행'
 
     # ── 종료조건 (목표 기반 — 부모의 위협소진 종료를 대체) ─────────────────────
     def _is_over(self) -> bool:
@@ -4939,7 +4966,8 @@ class BattleEngine(TimeStepEngine):
         result['battle_horizon_s'] = self.horizon_s
         if not self._mc_mode:      # timeline은 단일 시뮬 전용 (frames와 동일 패턴)
             result['timeline'] = {'frontline_km': self._frontline_tl,
-                                  'force_ratio':  self._force_tl}
+                                  'force_ratio':  self._force_tl,
+                                  'resource_min': self._resource_tl}
         return result
 
 
