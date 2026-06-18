@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.08.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.08.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.08.02 — 결과 분석 8종 정리]                                          ║
+║  DEL-A  결과 화면에서 채널 포화도·비용 효과·탄약 소모·최소 재고·서브시스템   ║
+║         피해·A/B 편대 비교·공격 결과·생존성 히트맵 8종 제거(메뉴·워커·      ║
+║         렌더 일괄 정리). 사이드바 '시스템'·'작전 결과' 묶음 사라짐          ║
 ║  [v15.08.01 — 지속 전장 연료 소모 모델]                                     ║
 ║  NEW-A  함정별 실측 항속거리·순항속도 기반 연료 소모 — 작전이 길거나 회피    ║
 ║         고기동이 잦을수록 연료 압박. 원자력 추진(항모·잠수함)은 무제한.       ║
@@ -942,7 +946,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.08.01"
+APP_VERSION = "v15.08.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1456,7 +1460,6 @@ try:
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
         MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
         evaluate_req_v7, REQ_ITEMS_V7,
-        find_all_min_stocks_v7,
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
         save_json_report_v7,
@@ -2893,31 +2896,6 @@ class SimLogDialog(QDialog):
 # ════════════════════════════════════════════════════════════════════════════
 #  백그라운드 시뮬레이션 워커
 # ════════════════════════════════════════════════════════════════════════════
-class MinStockWorker(QThread):
-    """REQ 달성 최소 재고 역산을 백그라운드에서 실행."""
-    progress = pyqtSignal(int, int, str)    # (i, total, weapon_name)
-    finished = pyqtSignal(dict, float)      # (results_dict, target_rate)
-    error    = pyqtSignal(str)
-
-    def __init__(self, cfg: dict, mc_n: int, target_rate: float = 0.90):
-        super().__init__()
-        self.cfg         = cfg
-        self.mc_n        = max(20, mc_n // 8)  # 속도 우선 — 근사치 허용
-        self.target_rate = target_rate
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            def _cb(i, total, name):
-                self.progress.emit(i, total, name)
-            results = find_all_min_stocks_v7(
-                self.cfg, self.target_rate, self.mc_n, _cb, map_fn=_pool_map)  # 무기 6종 병렬
-            self.finished.emit(results, self.target_rate)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
 class FleetRecommendWorker(QThread):
     """적정 편대 추천 — 한국 단독·한미 연합 두 그룹을 MC 평가."""
     progress = pyqtSignal(int, int, str)   # (done, total, group)
@@ -2945,85 +2923,6 @@ class FleetRecommendWorker(QThread):
                     self.cfg, cands, n=self.n, progress_cb=_cb, map_fn=_pool_map)
                 done += len(cands)
             self.finished.emit(out)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class ABCompareWorker(QThread):
-    """A/B 편대 비교 MC를 백그라운드에서 실행."""
-    finished = pyqtSignal(dict)
-    error    = pyqtSignal(str)
-
-    def __init__(self, cfg_a: dict, cfg_b: dict, n: int = 500):
-        super().__init__()
-        self.cfg_a = cfg_a
-        self.cfg_b = cfg_b
-        self.n     = n
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            result = compare_ab_v7(self.cfg_a, self.cfg_b, n=self.n, map_fn=_pool_map)  # A·B 동시
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class HeatmapWorker(QThread):
-    """편대 × 위협 2D 생존성 히트맵 MC — 각 셀마다 monte_carlo_lhs 실행."""
-    cell_done = pyqtSignal(int, int, float)   # (row, col, mean_intercept)
-    finished  = pyqtSignal(list)              # list[list[float]]  rows×cols
-    error     = pyqtSignal(str)
-
-    def __init__(self, base_cfg: dict, fleet_presets: list[str],
-                 enemy_presets: list[str], n: int = 200):
-        super().__init__()
-        self.base_cfg      = base_cfg
-        self.fleet_presets = fleet_presets   # Y 축 (행)
-        self.enemy_presets = enemy_presets   # X 축 (열)
-        self.n             = n
-
-    def run(self):
-        if not _V7_OK:
-            return
-        try:
-            rows, cols = len(self.fleet_presets), len(self.enemy_presets)
-            grid = [[0.0] * cols for _ in range(rows)]
-            # 셀(편대×위협)은 독립 → 글로벌 풀에 병렬 제출, 완료되는 대로 셀 갱신
-            cell_args = []
-            for r, fp in enumerate(self.fleet_presets):
-                for c, ep in enumerate(self.enemy_presets):
-                    cfg = dict(self.base_cfg)
-                    cfg['fleet_preset']       = fp
-                    cfg['enemy_fleet_mode']   = 'preset'
-                    cfg['enemy_fleet_preset'] = ep
-                    cell_args.append((cfg, r, c, self.n))
-
-            pool = _GLOBAL_POOL
-            if pool is None:
-                # 풀 없으면 직렬 폴백
-                for cfg, r, c, n in cell_args:
-                    if self.isInterruptionRequested():
-                        return
-                    _, _, val = _heatmap_cell_worker((cfg, r, c, n))
-                    grid[r][c] = val
-                    self.cell_done.emit(r, c, val)
-            else:
-                futs = {pool.submit(_heatmap_cell_worker, a): a for a in cell_args}
-                remaining = set(futs)
-                while remaining:
-                    if self.isInterruptionRequested():
-                        for f in remaining:
-                            f.cancel()
-                        return
-                    done, remaining = cf_wait(remaining, timeout=0.5,
-                                              return_when=FIRST_COMPLETED)
-                    for fut in done:
-                        r, c, val = fut.result()
-                        grid[r][c] = val
-                        self.cell_done.emit(r, c, val)
-            self.finished.emit(grid)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -3960,19 +3859,7 @@ class AccordionSidebar(QWidget):
         ("✅", "성능 평가", [
             (2,  "✅  REQ 판정 & 충족률"),
             (23, "📋  전황 지표판"),
-            (7,  "💰  비용 효과"),
             (21, "⚓  적정 편대 추천"),
-            (22, "⚖  A/B 편대 비교"),
-        ]),
-        ("🖥", "시스템", [
-            (20, "🛡  서브시스템 피해"),
-            (5,  "📡  채널 포화도"),
-            (8,  "🔫  탄약 소모"),
-            (12, "🔬  최소 재고"),
-        ]),
-        ("🎯", "작전 결과", [
-            (24, "⚔  공격 결과"),
-            (25, "🗺  생존성 히트맵"),
         ]),
     ]
 
@@ -4641,62 +4528,6 @@ class SysMonitorTab(QWidget):
 #  차트 순수 렌더 함수 (백그라운드 스레드에서 호출, Figure 반환)
 # ════════════════════════════════════════════════════════════════════════════
 
-def _render_min_stock_chart(results: dict, target_rate: float) -> Figure:
-    """최소 재고 역산 수평 막대 차트 — 백그라운드 스레드에서 호출."""
-    fig = Figure(figsize=(13, 6), facecolor=C_BG)
-    fig.patch.set_facecolor('#0a0e1a')
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    short_names = {
-        'SM-3 Block IIA':   'SM-3 IIA',
-        'SM-6':             'SM-6',
-        'SM-2 Block IIIB':  'SM-2 IIIB',
-        'RIM-116 RAM':      'RIM-116 RAM',
-        '홍상어 (대잠)':    '홍상어',
-        '청상어 (경어뢰)':  '청상어',
-    }
-    wpn_names = list(results.keys())
-    labels   = [short_names.get(w, w) for w in wpn_names]
-    currents = [results[w]['current_stock'] for w in wpn_names]
-    mins     = [results[w]['min_stock']     for w in wpn_names]
-    achieves = [results[w]['achievable']    for w in wpn_names]
-    y = list(range(len(wpn_names)))
-    ax.barh(y, currents, color='#2a3545', height=0.55, label='현재 재고')
-    for i, (mn, cur, ach) in enumerate(zip(mins, currents, achieves)):
-        if not ach:
-            color, bar_val = '#e74c3c', cur
-        elif mn == 0:
-            color, bar_val = '#3498db', 0
-        elif mn <= cur:
-            color, bar_val = '#2ecc71', mn
-        else:
-            color, bar_val = '#e67e22', mn
-        ax.barh(i, bar_val, color=color, height=0.55, alpha=0.9)
-        if not ach:
-            txt = '달성 불가'
-        elif mn == 0:
-            txt = '불필요'
-        else:
-            saving = cur - mn
-            txt = f'최소 {mn}발  ({"▼ " + str(saving) + "발 절약" if saving > 0 else ("▲ " + str(-saving) + "발 부족" if saving < 0 else "현재 최적")})'
-        ax.text(max(cur, mn) + 0.5, i, txt, va='center', color=C_TEXT, fontsize=11)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=C_TEXT, fontsize=13)
-    ax.set_xlabel('재고 수량 (함정당)', color=C_SUBTEXT, fontsize=12)
-    ax.set_title(
-        f'REQ 달성 최소 재고 역산  (목표: 완전 요격 성공률 ≥ {target_rate:.0%})\n'
-        '■ 현재 재고  ■ 최소 필요  (녹색=절약 가능 / 주황=부족 / 파랑=불필요)',
-        color=C_TEXT, fontsize=13, pad=10,
-    )
-    max_x = max(currents + [m for m in mins if m >= 0], default=50)
-    ax.set_xlim(0, max_x * 1.35)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax.spines.values(): sp.set_color('#1e2a3a')
-    ax.legend(fontsize=11, facecolor='#0a0e1a', labelcolor=C_TEXT,
-              edgecolor='#1e2a3a', loc='lower right')
-    fig.tight_layout()
-    return fig
-
-
 def _render_fleet_chart(results: dict) -> Figure:
     """적정 편대 추천 — 한국 단독·한미 연합 두 그룹 성능/비용효과 차트."""
     _KRW = 1_350
@@ -4788,193 +4619,6 @@ def _render_mc_chart(result: dict, mc: dict, cfg: dict) -> bytes:
     return b''
 
 
-def _render_channel_heatmap(result: dict) -> Figure:
-    frames = result.get('frames', [])
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
-    if not frames or not getattr(frames[0], 'ship_channels', None):
-        ax = fig.add_subplot(111, facecolor='#0a0e1a')
-        ax.text(0.5, 0.5, '채널 데이터 없음\n(시뮬레이션 재실행 필요)',
-                ha='center', va='center', color='#7d8590',
-                fontsize=12, transform=ax.transAxes)
-        return fig
-    ship_names = [sc[0] for sc in frames[0].ship_channels]
-    times = [f.t for f in frames]
-    usage = np.zeros((len(ship_names), len(frames)))
-    for fi, frame in enumerate(frames):
-        for si, sc in enumerate(frame.ship_channels):
-            _, ch_used, ch_max = sc
-            usage[si, fi] = ch_used / ch_max if ch_max > 0 else 0.0
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    im = ax.imshow(usage, aspect='auto',
-                   extent=[times[0], times[-1], -0.5, len(ship_names) - 0.5],
-                   origin='lower', cmap='RdYlGn_r', vmin=0, vmax=1,
-                   interpolation='nearest')
-    ax.set_yticks(range(len(ship_names)))
-    ax.set_yticklabels(ship_names, color='#aab', fontsize=12)
-    ax.set_xlabel('시간 (s)', color='#aab', fontsize=12)
-    ax.set_title('채널 포화도  (빨강=포화, 초록=여유)', color='#dde', fontsize=14)
-    ax.tick_params(colors='#aab', labelsize=11)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-    cbar.ax.tick_params(colors='#aab', labelsize=10)
-    cbar.set_label('채널 사용률', color='#aab', fontsize=11)
-    fig.tight_layout()
-    return fig
-
-
-def _render_cost_effect(result: dict, mc: dict) -> Figure:
-    _KRW_PER_USD = 1_350          # 원/달러 환율 (개략)
-    _COST_FACTOR  = 0.30          # ±30% 단가 불확실성
-    fig = Figure(figsize=(12, 6), facecolor=C_BG)
-    costs     = mc.get('total_costs', [])
-    e_dest    = mc.get('enemy_destroyed', [])
-    mean_cost = float(np.mean(costs)) if costs else 0.0
-    mean_kill = float(np.mean(e_dest)) if e_dest else 0.0
-    cost_per_kill = mean_cost / mean_kill if mean_kill > 0 else float('inf')
-
-    cost_lo  = mean_cost * (1 - _COST_FACTOR)
-    cost_hi  = mean_cost * (1 + _COST_FACTOR)
-    cpk_lo   = cost_per_kill * (1 - _COST_FACTOR)
-    cpk_hi   = cost_per_kill * (1 + _COST_FACTOR)
-
-    wpn_rem = mc.get('weapon_avg_remaining', {})
-    kor_shots = result.get('kor_shots', 0)
-    usa_shots = result.get('usa_shots', 0)
-    has_alliance = (kor_shots + usa_shots > 0) and usa_shots > 0
-
-    if has_alliance:
-        gs  = fig.add_gridspec(1, 3, wspace=0.42)
-        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
-        ax3 = fig.add_subplot(gs[2], facecolor='#0a0e1a')
-    else:
-        gs  = fig.add_gridspec(1, 2, wspace=0.38)
-        ax1 = fig.add_subplot(gs[0], facecolor='#0a0e1a')
-        ax2 = fig.add_subplot(gs[1], facecolor='#0a0e1a')
-        ax3 = None
-
-    # ── 왼쪽: 비용 수치 ──────────────────────────────────────────────────────
-    ax1.axis('off')
-    ax1.set_facecolor('#0a0e1a')
-
-    ax1.text(0.5, 0.92, '격추 1건당 평균 비용', ha='center', va='top',
-             color=C_TEXT, fontsize=13, transform=ax1.transAxes)
-
-    if cost_per_kill == float('inf'):
-        ax1.text(0.5, 0.72, 'N/A', ha='center', va='center',
-                 color=C_SUBTEXT, fontsize=28, transform=ax1.transAxes)
-    else:
-        ax1.text(0.5, 0.72, f"${cost_per_kill:,.0f}",
-                 ha='center', va='center', color=C_GREEN, fontsize=30,
-                 fontweight='bold', transform=ax1.transAxes)
-        cpk_krw_lo = cpk_lo * _KRW_PER_USD / 1e8
-        cpk_krw_hi = cpk_hi * _KRW_PER_USD / 1e8
-        ax1.text(0.5, 0.56,
-                 f"범위  ${cpk_lo:,.0f} ~ ${cpk_hi:,.0f}  "
-                 f"({cpk_krw_lo:.1f}억 ~ {cpk_krw_hi:.1f}억 원)",
-                 ha='center', va='center', color=C_SUBTEXT, fontsize=10.5,
-                 transform=ax1.transAxes)
-
-    # 축 좌표(transAxes) 기준 구분선 — axhline은 transform 인자를 거부하므로 Line2D 사용
-    ax1.add_line(Line2D([0.08, 0.92], [0.46, 0.46], color='#2a3a4a',
-                        linewidth=0.8, transform=ax1.transAxes))
-
-    krw_lo  = cost_lo  * _KRW_PER_USD / 1e8
-    krw_hi  = cost_hi  * _KRW_PER_USD / 1e8
-    krw_avg = mean_cost * _KRW_PER_USD / 1e8
-    ax1.text(0.5, 0.38, f"총 소모 비용 평균  ${mean_cost:,.0f}  ({krw_avg:.1f}억 원)",
-             ha='center', va='center', color=C_SUBTEXT, fontsize=11.5,
-             transform=ax1.transAxes)
-    ax1.text(0.5, 0.27,
-             f"추정 범위  {krw_lo:.1f}억 ~ {krw_hi:.1f}억 원  ·  평균 격침 {mean_kill:.1f}척",
-             ha='center', va='center', color='#7d8590', fontsize=10.5,
-             transform=ax1.transAxes)
-    ax1.text(0.5, 0.10,
-             "⚠  단가는 공개 자료 기반 개략 추정 ±30%  —  실제 조달 비용과 상이할 수 있음",
-             ha='center', va='center', color='#e67e22', fontsize=9.5,
-             transform=ax1.transAxes)
-
-    # ── 오른쪽: 잔여 재고 막대 ───────────────────────────────────────────────
-    ax2.set_facecolor('#0a0e1a')
-    if wpn_rem:
-        names = list(wpn_rem.keys())
-        vals  = [wpn_rem[n] for n in names]
-        colors = [C_GREEN if v > 5 else C_ORANGE if v > 0 else C_RED for v in vals]
-        y = list(range(len(names)))
-        ax2.barh(y, vals, color=colors, height=0.6)
-        ax2.set_yticks(y)
-        ax2.set_yticklabels(names, color=C_TEXT, fontsize=11)
-        ax2.set_xlabel('평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=12)
-        ax2.set_title('무기별 평균 잔여 재고', color=C_TEXT, fontsize=13)
-        ax2.tick_params(colors=C_SUBTEXT, labelsize=11)
-        for sp in ax2.spines.values():
-            sp.set_color('#1e2a3a')
-    else:
-        ax2.axis('off')
-        ax2.text(0.5, 0.5, '잔여 재고 데이터 없음',
-                 ha='center', va='center', color=C_SUBTEXT,
-                 fontsize=12, transform=ax2.transAxes)
-
-    # ── 오른쪽: 한미 기여도 (한미 연합 편대 선택 시에만) ─────────────────────
-    if ax3 is not None:
-        ax3.set_facecolor('#0a0e1a')
-        kor_cost = result.get('kor_cost', 0)
-        usa_cost = result.get('usa_cost', 0)
-        nations  = ['한국 (KOR)', '미국 (USA)']
-        shots    = [kor_shots, usa_shots]
-        costs_k  = [kor_cost * _KRW_PER_USD / 1e8, usa_cost * _KRW_PER_USD / 1e8]
-        clrs     = ['#3498db', '#e74c3c']
-
-        x = [0, 1]
-        bars = ax3.bar(x, shots, color=clrs, width=0.5, alpha=0.85)
-        ax3.set_xticks(x)
-        ax3.set_xticklabels(nations, color=C_TEXT, fontsize=11)
-        ax3.set_ylabel('발사 발수', color=C_SUBTEXT, fontsize=11)
-        ax3.set_title('한미 연합 기여도', color=C_TEXT, fontsize=13)
-        ax3.tick_params(colors=C_SUBTEXT, labelsize=10)
-        for sp in ax3.spines.values():
-            sp.set_color('#1e2a3a')
-        for bar, n, c in zip(bars, shots, costs_k):
-            ax3.text(bar.get_x() + bar.get_width() / 2,
-                     bar.get_height() + 0.3,
-                     f'{n}발\n({c:.1f}억원)',
-                     ha='center', color=C_TEXT, fontsize=10)
-
-    fig.tight_layout()
-    return fig
-
-
-def _render_ammo_curve(mc: dict) -> Figure:
-    fig = Figure(figsize=(12, 5), facecolor=C_BG)
-    ax = fig.add_subplot(111, facecolor='#0a0e1a')
-    wpn_rem = mc.get('weapon_avg_remaining', {})
-    if not wpn_rem:
-        ax.text(0.5, 0.5, '데이터 없음\n(시뮬레이션 재실행 필요)',
-                ha='center', va='center', color=C_SUBTEXT,
-                fontsize=12, transform=ax.transAxes)
-        fig.tight_layout()
-        return fig
-    names = list(wpn_rem.keys())
-    vals  = [wpn_rem[n] for n in names]
-    y     = np.arange(len(names))
-    bars  = ax.barh(y, vals, color=C_ACCENT, height=0.55, alpha=0.85)
-    for bar, val in zip(bars, vals):
-        ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
-                f'{val:.1f}', va='center', color=C_TEXT, fontsize=11)
-    ax.set_yticks(y)
-    ax.set_yticklabels(names, color=C_TEXT, fontsize=12)
-    ax.set_xlabel('MC 평균 잔여 재고 (발)', color=C_SUBTEXT, fontsize=12)
-    ax.set_title('무기별 평균 잔여 재고 (MC 전체 평균)', color=C_TEXT, fontsize=13)
-    ax.tick_params(colors=C_SUBTEXT, labelsize=11)
-    for sp in ax.spines.values():
-        sp.set_color('#1e2a3a')
-    fig.tight_layout()
-    return fig
-
-
-# 교전 로그 이벤트 분류 — (카테고리, 색상). 우선순위 순서로 검사한다.
-# 로그 표 행 텍스트 색상에 사용 (유형별 가독성).
 _LOG_CATEGORIES = [
     ('전술 전환',       '#f1c40f'),
     ('탐지',            '#1abc9c'),
@@ -5264,51 +4908,6 @@ def _render_sobol_chart(sobol: dict) -> Figure:
     return fig
 
 
-def _render_strike_chart(mc: dict) -> Figure:
-    """v9.3: MC 적 격침 수 분포 히스토그램 + 평균선."""
-    fig = Figure(figsize=(12, 5), facecolor='#0a0e1a')
-    ax  = fig.add_subplot(111, facecolor='#0a0e1a')
-
-    e_dest = mc.get('enemy_destroyed', [])
-    if not e_dest or all(v == 0 for v in e_dest):
-        ax.text(0.5, 0.5,
-                "공격 임무 비활성화 또는\n적 수상함 없음",
-                ha='center', va='center', color=C_SUBTEXT,
-                fontsize=13, transform=ax.transAxes)
-        ax.set_facecolor('#0a0e1a')
-        return fig
-
-    import numpy as _np
-    arr   = _np.array(e_dest, dtype=float)
-    mean  = arr.mean()
-    mx    = int(arr.max())
-    bins  = _np.arange(-0.5, mx + 1.5, 1)
-    counts, edges = _np.histogram(arr, bins=bins)
-    centers = (edges[:-1] + edges[1:]) / 2
-
-    bars = ax.bar(centers, counts / len(arr) * 100,
-                  width=0.7, color='#e74c3c', alpha=0.80,
-                  edgecolor='#c0392b', linewidth=0.8)
-    ax.axvline(mean, color='#f1c40f', lw=2, ls='--',
-               label=f'평균 {mean:.2f}척')
-
-    ax.set_xlabel('격침 적 함정 수', color=C_SUBTEXT, fontsize=12)
-    ax.set_ylabel('비율 (%)',       color=C_SUBTEXT, fontsize=12)
-    ax.set_title(f'MC 적 격침 수 분포  (n={len(arr)}회)',
-                 color=C_TEXT, fontsize=13, pad=8)
-    ax.set_xticks(range(mx + 2))
-    ax.tick_params(colors=C_SUBTEXT)
-    ax.spines[:].set_color('#21262d')
-    ax.legend(fontsize=11, facecolor='#161b22', labelcolor=C_TEXT)
-    fig.tight_layout()
-    return fig
-
-
-# ════════════════════════════════════════════════════════════════════════════
-#  메인 윈도우
-# ════════════════════════════════════════════════════════════════════════════
-# ── 작전 시나리오 라이브러리 (v11.5) ──────────────────────────────────────────
-# 교리 기반 시나리오: 편대·적편대·해역·날씨·계절을 한 번에 세팅. _restore_cfg로 적용.
 SCENARIO_LIBRARY = {
     '서해 차단작전': {
         'desc': '북한의 서해 NLL 도발·기습 상륙 시도를 2함대가 차단한다. '
@@ -7033,17 +6632,17 @@ class MainWindow(QMainWindow):
         self.tab_mc_canvas   = ChartPageWidget()
         self.tab_req         = self._build_req_tab()
         self.tab_log         = self._build_log_tab()
-        self.tab_channel     = ChartPageWidget()
-        # 결과 탭 간소화(v13.04.01)로 제거된 항목들 — 스택 인덱스 매핑(0~25)
-        # 유지를 위해 빈 플레이스홀더만 둠. (시스템 모니터6·교전 타임라인10·감도 분석11·
-        # 방위각13·위협 유형별15·취약 시간대16·이전 비교17·CEC 비교23·날씨 비교3)
+        self.tab_channel     = QWidget()   # v15.08.02 제거(채널 포화도)
+        # 결과 탭 간소화로 제거된 항목들 — 스택 인덱스 매핑(0~25) 유지를 위해 빈 placeholder만 둠.
+        #  v13.04.01: 시스템 모니터6·타임라인10·감도11·방위각13·위협유형15·취약시간16·이전비교17·날씨3
+        #  v15.08.02: 채널 포화도5·비용 효과7·탄약 소모8·최소 재고12·서브시스템20·A/B22·공격결과24·히트맵25
         self.tab_sysmon      = QWidget()
-        self.tab_cost_eff    = ChartPageWidget()
-        self.tab_ammo_curve  = ChartPageWidget()
+        self.tab_cost_eff    = QWidget()   # v15.08.02 제거(비용 효과)
+        self.tab_ammo_curve  = QWidget()   # v15.08.02 제거(탄약 소모)
         self.tab_ci          = ChartPageWidget()
         self.tab_timeline    = QWidget()
         self.tab_sensitivity = QWidget()
-        self.tab_min_stock   = ChartPageWidget()   # 백그라운드 렌더
+        self.tab_min_stock   = QWidget()   # v15.08.02 제거(최소 재고)
         self.tab_bearing     = QWidget()
         self.tab_req_radar   = QWidget()   # REQ 충족률은 REQ 판정 탭(2)에 통합 — 인덱스 유지용 placeholder
         self.tab_threat_type = QWidget()
@@ -7052,12 +6651,12 @@ class MainWindow(QMainWindow):
         self.tab_weather     = QWidget()
         self.tab_stress      = ChartPageWidget()   # 스트레스 테스트 히트맵
         self.tab_sobol       = ChartPageWidget()   # Sobol 민감도 분석
-        self.tab_subsystem   = self._build_subsystem_tab()  # 서브시스템 피해 현황
+        self.tab_subsystem   = QWidget()   # v15.08.02 제거(서브시스템 피해)
         self.tab_optimize    = ChartPageWidget()   # 최적 무기 조합 추천
-        self.tab_ab_compare  = self._build_ab_compare_tab()  # A/B 편대 비교
+        self.tab_ab_compare  = QWidget()   # v15.08.02 제거(A/B 편대 비교)
         self.tab_status_board = self._build_status_board_tab()  # v13.3 전황 지표판
-        self.tab_strike      = self._build_strike_tab()  # v9.3 공격 결과
-        self.tab_heatmap     = self._build_heatmap_tab()  # v9.5 생존성 히트맵
+        self.tab_strike      = QWidget()   # v15.08.02 제거(공격 결과)
+        self.tab_heatmap     = QWidget()   # v15.08.02 제거(생존성 히트맵)
 
         # 사이드바 (v8.26: AccordionSidebar)
         self._sidebar = AccordionSidebar()
@@ -7136,16 +6735,10 @@ class MainWindow(QMainWindow):
         cfg = self._worker.cfg if self._worker else {}
         render_map = {
             1:  lambda: self._draw_mc_chart(self._result, self._mc, cfg),
-            5:  lambda: self._draw_channel_heatmap(self._result),
-            7:  lambda: self._draw_cost_effect(self._result, self._mc),
-            8:  lambda: self._draw_ammo_curve(self._mc),
             9:  lambda: self._draw_ci_chart(self._mc),
-            12: lambda: self._lazy_start_min_stock(),
             18: lambda: self._draw_stress_test(self._mc),
             19: lambda: self._draw_sobol_chart(self._mc),
-            20: lambda: self._draw_subsystem_damage(self._result),
             21: lambda: self._lazy_start_optimize(),
-            24: lambda: self._draw_strike_result(self._result, self._mc),
         }
         if idx in render_map:
             render_map[idx]()
@@ -7582,244 +7175,6 @@ class MainWindow(QMainWindow):
             msgs.append("✅ 주요 지표 양호 — 채널 여유·교환비 우세·탄약 효율 정상 범위입니다.")
         self._sb_interp.setText("\n".join(msgs))
 
-    def _build_ab_compare_tab(self) -> QWidget:
-        """A/B 편대 구성 비교 탭 — 두 편대를 동일 위협 조건으로 MC 비교."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
-
-        hdr = QLabel("  ⚖  A/B 편대 구성 비교")
-        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(hdr)
-
-        note = QLabel(
-            "  현재 시뮬레이션 설정을 A 편대 기준으로 사용합니다. "
-            "B 편대는 아래에서 다른 편대 프리셋을 선택하세요. "
-            "위협·날씨 조건은 A와 동일하게 적용됩니다."
-        )
-        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-
-        # ── B 편대 선택 행 ─────────────────────────────────────────────────
-        sel_row = QWidget()
-        sel_layout = QHBoxLayout(sel_row)
-        sel_layout.setContentsMargins(0, 0, 0, 0)
-        sel_layout.setSpacing(8)
-
-        lbl_b = QLabel("B 편대 프리셋:")
-        lbl_b.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
-        sel_layout.addWidget(lbl_b)
-
-        self._cb_ab_fleet_b = NoScrollComboBox()
-        self._cb_ab_fleet_b.setMinimumWidth(220)
-        self._cb_ab_fleet_b.setStyleSheet(
-            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
-        sel_layout.addWidget(self._cb_ab_fleet_b)
-
-        lbl_n = QLabel("MC 횟수:")
-        lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
-        sel_layout.addWidget(lbl_n)
-
-        self._sb_ab_n = NoScrollSpinBox()
-        self._sb_ab_n.setRange(100, 2000)
-        self._sb_ab_n.setSingleStep(100)
-        self._sb_ab_n.setValue(500)
-        self._sb_ab_n.setStyleSheet(
-            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
-        sel_layout.addWidget(self._sb_ab_n)
-
-        self.btn_ab_run = QPushButton("⚖  A/B 비교 실행")
-        self.btn_ab_run.setFixedHeight(36)
-        self.btn_ab_run.clicked.connect(self._run_ab_compare)
-        sel_layout.addWidget(self.btn_ab_run)
-        sel_layout.addStretch()
-        layout.addWidget(sel_row)
-
-        # ── 요약 비교 테이블 ────────────────────────────────────────────────
-        lbl_tbl = QLabel("  비교 결과")
-        lbl_tbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
-        layout.addWidget(lbl_tbl)
-
-        self._ab_summary_table = QTableWidget(2, 6)
-        self._ab_summary_table.setVerticalHeaderLabels(["A 편대", "B 편대"])
-        self._ab_summary_table.setHorizontalHeaderLabels([
-            "편대 프리셋", "평균 요격률", "완전 성공률",
-            "평균 비용 ($)", "최다 소모 무기", "가장 많이 피격된 함정"
-        ])
-        hh = self._ab_summary_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        for col in [1, 2, 3]:
-            self._ab_summary_table.setColumnWidth(col, 110)
-        self._ab_summary_table.setFixedHeight(90)
-        self._ab_summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._ab_summary_table.setAlternatingRowColors(True)
-        self._ab_summary_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self._ab_summary_table)
-
-        # ── Δ 차이 레이블 ──────────────────────────────────────────────────
-        self._lbl_ab_delta = QLabel("")
-        self._lbl_ab_delta.setStyleSheet(
-            f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:6px 4px;")
-        layout.addWidget(self._lbl_ab_delta)
-
-        # ── 세부 무기 잔여 비교 테이블 ─────────────────────────────────────
-        lbl_wpn = QLabel("  무기별 평균 잔여 재고")
-        lbl_wpn.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
-        layout.addWidget(lbl_wpn)
-
-        self._ab_weapon_table = QTableWidget(0, 3)
-        self._ab_weapon_table.setHorizontalHeaderLabels(["무기", "A 잔여 (발)", "B 잔여 (발)"])
-        hh2 = self._ab_weapon_table.horizontalHeader()
-        hh2.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._ab_weapon_table.setColumnWidth(1, 120)
-        self._ab_weapon_table.setColumnWidth(2, 120)
-        self._ab_weapon_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._ab_weapon_table.setAlternatingRowColors(True)
-        self._ab_weapon_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self._ab_weapon_table, stretch=1)
-
-        return w
-
-    def _build_heatmap_tab(self) -> QWidget:
-        """v9.5 생존성 히트맵 — 편대(행) × 위협(열) 2D MC 격자."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        hdr = QLabel("  🗺  생존성 히트맵 — 편대 × 위협 조합별 요격률")
-        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(hdr)
-
-        note = QLabel(
-            "  아군 편대(행)와 적군 위협(열)의 모든 조합에 대해 MC를 돌려 "
-            "요격률을 색상 격자로 시각화합니다. 시뮬레이션 실행 없이 독립 실행 가능합니다."
-        )
-        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-
-        # ── 설정 행 ────────────────────────────────────────────────────────
-        ctrl_row = QWidget()
-        ctrl_layout = QHBoxLayout(ctrl_row)
-        ctrl_layout.setContentsMargins(0, 0, 0, 0)
-        ctrl_layout.setSpacing(10)
-
-        lbl_n = QLabel("셀당 MC:")
-        lbl_n.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
-        ctrl_layout.addWidget(lbl_n)
-
-        self._hm_sb_n = NoScrollSpinBox()
-        self._hm_sb_n.setRange(50, 1000)
-        self._hm_sb_n.setSingleStep(50)
-        self._hm_sb_n.setValue(200)
-        self._hm_sb_n.setStyleSheet(
-            f"background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; padding:3px;")
-        ctrl_layout.addWidget(self._hm_sb_n)
-
-        self.btn_hm_run = QPushButton("🗺  히트맵 실행")
-        self.btn_hm_run.setFixedHeight(34)
-        self.btn_hm_run.clicked.connect(self._run_heatmap)
-        ctrl_layout.addWidget(self.btn_hm_run)
-
-        self.btn_hm_save = QPushButton("💾 PNG 저장")
-        self.btn_hm_save.setFixedHeight(34)
-        self.btn_hm_save.setEnabled(False)
-        self.btn_hm_save.clicked.connect(self._save_heatmap_png)
-        ctrl_layout.addWidget(self.btn_hm_save)
-
-        self._hm_progress_lbl = QLabel("")
-        self._hm_progress_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
-        ctrl_layout.addWidget(self._hm_progress_lbl)
-        ctrl_layout.addStretch()
-        layout.addWidget(ctrl_row)
-
-        # ── 편대 / 위협 선택 체크박스 패널 ────────────────────────────────
-        sel_splitter = QSplitter(Qt.Orientation.Horizontal)
-        sel_splitter.setFixedHeight(160)
-
-        # 아군 편대 (행)
-        fleet_box = QGroupBox("아군 편대 (행)")
-        fleet_box.setStyleSheet(
-            f"QGroupBox {{ color:{C_TEXT}; border:1px solid #30363d;"
-            f" border-radius:4px; margin-top:6px; padding:4px; }}"
-            f"QGroupBox::title {{ subcontrol-origin:margin; left:8px; color:{C_SUBTEXT}; }}")
-        fleet_inner = QVBoxLayout(fleet_box)
-        fleet_inner.setSpacing(2)
-        fleet_scroll = QScrollArea()
-        fleet_scroll.setWidgetResizable(True)
-        fleet_scroll.setStyleSheet(
-            f"QScrollArea {{ border:none; background:{C_BG}; }}")
-        fleet_content = QWidget()
-        fleet_content_layout = QVBoxLayout(fleet_content)
-        fleet_content_layout.setSpacing(1)
-        fleet_content_layout.setContentsMargins(2, 2, 2, 2)
-
-        self._hm_fleet_checks: list[QCheckBox] = []
-        default_fleets = ['단독 작전', '기동전단 기본', 'BMD 중점', '대잠 중점',
-                          '이지스 기동전단', '이지스 기동전단 (강화)', '최대 편대']
-        for name in (list(V7_FLEET_PRESETS.keys()) if _V7_OK else default_fleets):
-            chk = QCheckBox(name)
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
-            chk.setChecked(name in default_fleets[:4])
-            fleet_content_layout.addWidget(chk)
-            self._hm_fleet_checks.append(chk)
-
-        fleet_scroll.setWidget(fleet_content)
-        fleet_inner.addWidget(fleet_scroll)
-        sel_splitter.addWidget(fleet_box)
-
-        # 적군 위협 (열)
-        enemy_box = QGroupBox("적군 위협 (열)")
-        enemy_box.setStyleSheet(
-            f"QGroupBox {{ color:{C_TEXT}; border:1px solid #30363d;"
-            f" border-radius:4px; margin-top:6px; padding:4px; }}"
-            f"QGroupBox::title {{ subcontrol-origin:margin; left:8px; color:{C_SUBTEXT}; }}")
-        enemy_inner = QVBoxLayout(enemy_box)
-        enemy_inner.setSpacing(2)
-        enemy_scroll = QScrollArea()
-        enemy_scroll.setWidgetResizable(True)
-        enemy_scroll.setStyleSheet(
-            f"QScrollArea {{ border:none; background:{C_BG}; }}")
-        enemy_content = QWidget()
-        enemy_content_layout = QVBoxLayout(enemy_content)
-        enemy_content_layout.setSpacing(1)
-        enemy_content_layout.setContentsMargins(2, 2, 2, 2)
-
-        self._hm_enemy_checks: list[QCheckBox] = []
-        default_enemies = ['A2/AD 항공 포화', '항모 킬 체인', '수상함 편대전',
-                           '대잠 복합', 'BMD 탄도 포화', '전면전 포화']
-        for name in (list(V7_ENEMY_FLEET_PRESETS.keys()) if _V7_OK else default_enemies):
-            chk = QCheckBox(name)
-            chk.setStyleSheet(f"color:{C_TEXT}; font-size:11px;")
-            chk.setChecked(name in default_enemies)
-            enemy_content_layout.addWidget(chk)
-            self._hm_enemy_checks.append(chk)
-
-        enemy_scroll.setWidget(enemy_content)
-        enemy_inner.addWidget(enemy_scroll)
-        sel_splitter.addWidget(enemy_box)
-
-        sel_splitter.setSizes([400, 600])
-        layout.addWidget(sel_splitter)
-
-        # ── 히트맵 캔버스 ──────────────────────────────────────────────────
-        self._hm_canvas = MplCanvas(figsize=(10, 5), facecolor=C_BG)
-        layout.addWidget(self._hm_canvas, stretch=1)
-
-        # 히트맵 데이터 보관
-        self._hm_grid: list | None = None
-        self._hm_fleet_labels: list[str] = []
-        self._hm_enemy_labels: list[str] = []
-
-        return w
-
     def _build_log_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -7844,172 +7199,6 @@ class MainWindow(QMainWindow):
             f"background-color: {C_BG};")
         layout.addWidget(self.log_table, stretch=1)
         return w
-
-    def _build_subsystem_tab(self) -> QWidget:
-        """서브시스템 피해 현황 탭 — 함정별 레이더/추진/무장 손상 상태 테이블."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        hdr = QLabel("  🛡  함정별 서브시스템 피해 현황 (단일 시뮬레이션 기준)")
-        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(hdr)
-
-        self._subsystem_table = QTableWidget(0, 7)
-        self._subsystem_table.setHorizontalHeaderLabels([
-            "함정", "HP", "피격", "레이더", "추진", "채널", "비활성 무기"
-        ])
-        hh = self._subsystem_table.horizontalHeader()
-        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-        self._subsystem_table.setColumnWidth(0, 160)
-        self._subsystem_table.setColumnWidth(1, 60)
-        self._subsystem_table.setColumnWidth(2, 50)
-        self._subsystem_table.setColumnWidth(3, 90)
-        self._subsystem_table.setColumnWidth(4, 90)
-        self._subsystem_table.setColumnWidth(5, 90)
-        self._subsystem_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._subsystem_table.setAlternatingRowColors(True)
-        self._subsystem_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self._subsystem_table, stretch=1)
-
-        note = QLabel("  레이더·추진·채널: 1.00=정상 / 낮을수록 손상. 빨간색=임계 손상(≤0.50)")
-        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; padding:2px 0;")
-        layout.addWidget(note)
-        return w
-
-    def _draw_subsystem_damage(self, result: dict):
-        if result is None:
-            return
-        data = result.get('ship_subsystem_damage', {})
-        self._subsystem_table.setRowCount(0)
-        for ship_name, info in data.items():
-            row = self._subsystem_table.rowCount()
-            self._subsystem_table.insertRow(row)
-            hp_str = f"{info['hp']} / {info['max_hp']}" if info['alive'] else f"격침 (HP {info['hp']})"
-            hits_str = str(info.get('hits_taken', 0))
-            dis_wpns = ', '.join(info['disabled_weapons']) if info['disabled_weapons'] else '—'
-
-            items = [
-                QTableWidgetItem(ship_name),
-                QTableWidgetItem(hp_str),
-                QTableWidgetItem(hits_str),
-                QTableWidgetItem(f"{info['radar_factor']:.2f}"),
-                QTableWidgetItem(f"{info['speed_factor']:.2f}"),
-                QTableWidgetItem(f"{info['channel_factor']:.2f}"),
-                QTableWidgetItem(dis_wpns),
-            ]
-            for col, item in enumerate(items):
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                # 임계 손상(≤0.50) 또는 격침 → 빨간색 강조
-                if col in (3, 4, 5):
-                    try:
-                        val = float(item.text())
-                        if val <= 0.50:
-                            item.setForeground(QColor('#ff4444'))
-                        elif val <= 0.80:
-                            item.setForeground(QColor('#ffaa00'))
-                    except ValueError:
-                        pass
-                if not info['alive']:
-                    item.setForeground(QColor('#ff4444'))
-                self._subsystem_table.setItem(row, col, item)
-
-    # ── v9.3: 공격 결과 탭 ───────────────────────────────────────────────────
-
-    def _build_strike_tab(self) -> QWidget:
-        """공격 결과 탭 — 격침 테이블 (상단) + MC 격침 분포 차트 (하단)."""
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        hdr = QLabel("  ⚔  아군 공격 결과 (단일 시뮬레이션 기준)")
-        hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
-        layout.addWidget(hdr)
-
-        # 격침 테이블
-        self._strike_table = QTableWidget(0, 4)
-        self._strike_table.setHorizontalHeaderLabels(["표적 함정", "사용 무기", "격침 시각(s)", "결과"])
-        hh = self._strike_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._strike_table.setColumnWidth(1, 140)
-        self._strike_table.setColumnWidth(2, 90)
-        self._strike_table.setColumnWidth(3, 70)
-        self._strike_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._strike_table.setAlternatingRowColors(True)
-        self._strike_table.setStyleSheet(
-            f"alternate-background-color: {C_PANEL}; background-color: {C_BG};")
-        layout.addWidget(self._strike_table, stretch=1)
-
-        # MC 격침 통계 레이블 + 차트
-        self._strike_mc_lbl = QLabel("  MC 격침 통계: 시뮬레이션 실행 후 표시됩니다.")
-        self._strike_mc_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; padding:2px 0;")
-        layout.addWidget(self._strike_mc_lbl)
-
-        self.tab_strike_chart = ChartPageWidget()
-        layout.addWidget(self.tab_strike_chart, stretch=1)
-        return w
-
-    def _draw_strike_result(self, result: dict, mc: dict):
-        """공격 결과 탭 갱신."""
-        # 격침 테이블
-        logs = result.get('strike_log', [])
-        self._strike_table.setRowCount(0)
-        if not logs:
-            self._strike_table.insertRow(0)
-            msg = QTableWidgetItem("공격 임무 비활성화 또는 교전 없음")
-            msg.setForeground(QColor(C_SUBTEXT))
-            self._strike_table.setItem(0, 0, msg)
-        else:
-            for entry in logs:
-                row = self._strike_table.rowCount()
-                self._strike_table.insertRow(row)
-                sunk = entry.get('sunk', False)
-                result_str = '격침' if sunk else f"손상 (HP {entry.get('hp_remaining', '?')})"
-                items = [
-                    QTableWidgetItem(entry.get('target', '?')),
-                    QTableWidgetItem(entry.get('weapon', '?')),
-                    QTableWidgetItem(str(entry.get('t', '?'))),
-                    QTableWidgetItem(result_str),
-                ]
-                for col, item in enumerate(items):
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    if sunk:
-                        item.setForeground(QColor('#2ecc71'))
-                    self._strike_table.setItem(row, col, item)
-
-        # MC 통계 레이블
-        mean_dest = mc.get('mean_enemy_destroyed', 0.0)
-        max_dest  = mc.get('max_enemy_destroyed', 0)
-        n         = mc.get('n', 0)
-        # v9.4: 현무-4 발사 수 (단일 시뮬)
-        ground_rem = result.get('ground_remaining', {})
-        h4_init    = getattr(self, 'spn_hyunmoo4', None)
-        h4_stock   = h4_init.value() if h4_init else 0
-        h4_fired   = h4_stock - ground_rem.get('현무-4 (ASBM)', h4_stock)
-        h4_str     = f"  |  현무-4 발사: {h4_fired}발" if h4_stock > 0 else ""
-        ashore_fired = result.get('ashore_sm3_fired', 0)
-        thaad_fired  = result.get('thaad_fired', 0)
-        bmd_str = ""
-        if ashore_fired > 0: bmd_str += f"  |  어쇼어 SM-3: {ashore_fired}발"
-        if thaad_fired  > 0: bmd_str += f"  |  THAAD: {thaad_fired}발"
-        # v10.6: 항모 격침/전투불능 상태
-        carrier_str = ""
-        for cname, cinfo in result.get('carrier_status', {}).items():
-            st  = cinfo['status']
-            hp  = cinfo['hp']
-            mhp = cinfo['max_hp']
-            color_tag = '🔴' if st == '격침' else ('🟡' if st == '전투불능' else '🟢')
-            carrier_str += f"  |  {color_tag} {cname}: {st} (HP {hp}/{mhp})"
-        self._strike_mc_lbl.setText(
-            f"  MC {n}회 평균 적 격침: {mean_dest:.2f}척  |  최대: {max_dest}척  |"
-            f"  단일 시뮬 격침: {result.get('enemy_ships_destroyed', 0)}척{h4_str}{bmd_str}{carrier_str}"
-        )
-
-        # MC 격침 분포 차트
-        self.tab_strike_chart.start_render(_render_strike_chart, mc)
 
     # ── 툴팁 / 편성 표시 ────────────────────────────────────────────────────
 
@@ -8497,20 +7686,6 @@ class MainWindow(QMainWindow):
         if len(self._history) > 5:
             self._history.pop(0)
 
-        # A/B 탭 B 편대 콤보박스 갱신
-        if _V7_OK:
-            current_preset = cfg.get('fleet_preset', '')
-            all_presets = list(V7_FLEET_PRESETS.keys())
-            self._cb_ab_fleet_b.blockSignals(True)
-            prev = self._cb_ab_fleet_b.currentText()
-            self._cb_ab_fleet_b.clear()
-            for p in all_presets:
-                if p != current_preset:
-                    self._cb_ab_fleet_b.addItem(p)
-            if prev and self._cb_ab_fleet_b.findText(prev) >= 0:
-                self._cb_ab_fleet_b.setCurrentText(prev)
-            self._cb_ab_fleet_b.blockSignals(False)
-
         # v8.26: 아코디언 사이드바 배지 표시 + 결과 탭으로 전환
         # 전장 모드는 교전 분석(0, 작전 결과 배너)으로, 그 외는 MC 통계(1)로 착지
         self._sidebar.mark_new_data(list(range(26)))
@@ -8665,247 +7840,6 @@ class MainWindow(QMainWindow):
         else:
             self._lbl_vls_warn.setText("")
 
-    def _run_ab_compare(self):
-        """A/B 편대 비교 실행 (ABCompareWorker 비차단)."""
-        if not _V7_OK or not hasattr(self, '_result'):
-            QMessageBox.information(self, "안내", "먼저 시뮬레이션을 실행하세요.")
-            return
-        cfg_a = self._worker.cfg if self._worker else {}
-        if not cfg_a:
-            return
-        preset_b = self._cb_ab_fleet_b.currentText()
-        if not preset_b or preset_b == cfg_a.get('fleet_preset', ''):
-            QMessageBox.information(self, "안내",
-                "B 편대를 A 편대와 다른 프리셋으로 선택하세요.")
-            return
-        cfg_b = dict(cfg_a)
-        cfg_b['fleet_preset'] = preset_b
-        n = self._sb_ab_n.value()
-        self.btn_ab_run.setEnabled(False)
-        self.btn_ab_run.setText(f"실행 중... (각 {n}회 MC)")
-        self._ab_worker = ABCompareWorker(cfg_a, cfg_b, n=n)
-        self._ab_worker.finished.connect(self._on_ab_done)
-        self._ab_worker.error.connect(self._on_ab_error)
-        self._ab_worker.start()
-
-    def _on_ab_done(self, result: dict):
-        mc_a = result['a']
-        mc_b = result['b']
-        cfg_a = self._worker.cfg if self._worker else {}
-        preset_a = cfg_a.get('fleet_preset', 'A')
-        preset_b = self._cb_ab_fleet_b.currentText()
-
-        def _top_wpn(mc):
-            rem = mc.get('weapon_avg_remaining', {})
-            if rem:
-                k = min(rem, key=lambda x: rem[x])
-                return f"{k} ({rem[k]:.1f}발 잔여)"
-            return "—"
-
-        def _top_ship(mc):
-            sh = mc.get('ship_avg_hits', {})
-            if sh and max(sh.values(), default=0) > 0:
-                k = max(sh, key=lambda x: sh[x])
-                return f"{k} ({sh[k]:.2f}회)"
-            return "없음"
-
-        rows = [
-            (0, preset_a, mc_a),
-            (1, preset_b, mc_b),
-        ]
-        for row, preset, mc in rows:
-            vals = [
-                preset,
-                f"{mc['mean_intercept']:.1%}",
-                f"{mc.get('full_pass_rate', 0):.1%}",
-                f"${float(__import__('numpy').mean(mc['total_costs'])):,.0f}",
-                _top_wpn(mc),
-                _top_ship(mc),
-            ]
-            for col, text in enumerate(vals):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if col == 1:
-                    item.setForeground(
-                        QColor('#2ecc71' if mc['mean_intercept'] >= 0.9 else '#e74c3c'))
-                self._ab_summary_table.setItem(row, col, item)
-
-        d_int = result['delta_intercept']
-        d_cost = result['delta_cost']
-        sign_int  = "▲" if d_int  >= 0 else "▼"
-        sign_cost = "▲" if d_cost >= 0 else "▼"
-        color_int  = '#2ecc71' if d_int  >= 0 else '#e74c3c'
-        color_cost = '#e74c3c' if d_cost >= 0 else '#2ecc71'  # 비용은 증가가 불리
-        self._lbl_ab_delta.setText(
-            f"  Δ 요격률 (B−A): "
-            f"<span style='color:{color_int};'>{sign_int} {abs(d_int):.1%}</span>"
-            f"    Δ 비용 (B−A): "
-            f"<span style='color:{color_cost};'>{sign_cost} ${abs(d_cost):,.0f}</span>"
-        )
-        self._lbl_ab_delta.setTextFormat(Qt.TextFormat.RichText)
-
-        # 무기 잔여 비교 테이블
-        wpn_a = mc_a.get('weapon_avg_remaining', {})
-        wpn_b = mc_b.get('weapon_avg_remaining', {})
-        all_wpns = sorted(set(wpn_a) | set(wpn_b))
-        self._ab_weapon_table.setRowCount(0)
-        for wpn in all_wpns:
-            r = self._ab_weapon_table.rowCount()
-            self._ab_weapon_table.insertRow(r)
-            va = wpn_a.get(wpn, 0.0)
-            vb = wpn_b.get(wpn, 0.0)
-            for col, (val, is_b) in enumerate([(wpn, False), (va, False), (vb, True)]):
-                text = f"{val:.1f}" if isinstance(val, float) else str(val)
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if is_b and isinstance(vb, float) and isinstance(va, float):
-                    if vb < va:
-                        item.setForeground(QColor('#e74c3c'))
-                    elif vb > va:
-                        item.setForeground(QColor('#2ecc71'))
-                self._ab_weapon_table.setItem(r, col, item)
-
-        self.btn_ab_run.setEnabled(True)
-        self.btn_ab_run.setText("⚖  A/B 비교 실행")
-        self._sidebar.setCurrentRow(22)
-
-    def _on_ab_error(self, msg: str):
-        QMessageBox.critical(self, "A/B 비교 오류", msg)
-        self.btn_ab_run.setEnabled(True)
-        self.btn_ab_run.setText("⚖  A/B 비교 실행")
-
-    # ── 생존성 히트맵 ────────────────────────────────────────────────────────
-
-    def _run_heatmap(self):
-        """HeatmapWorker 시작."""
-        fleet_sel = [c.text() for c in self._hm_fleet_checks if c.isChecked()]
-        enemy_sel = [c.text() for c in self._hm_enemy_checks if c.isChecked()]
-        if len(fleet_sel) < 1 or len(enemy_sel) < 1:
-            QMessageBox.information(self, "안내", "편대와 위협을 각각 1개 이상 선택하세요.")
-            return
-
-        # base_cfg: 현재 시뮬 설정 or 기본값
-        if self._worker and self._worker.cfg:
-            base_cfg = dict(self._worker.cfg)
-        else:
-            base_cfg = {
-                'weather': '맑음 (주간)', 'detect_km_manual': False,
-                'enemy_fleet_mode': 'preset', 'enemy_fleet_preset': fleet_sel[0],
-                'enemy_fleet_difficulty': '보통', 'enemy_fleet_seed': None,
-                'enable_ecm': True, 'enable_evasion': True,
-                'enable_decoy': True, 'enable_selfdefense': True,
-                # BUG-3 fix: 항공 자산 기본 OFF (체크박스 반영), CEC 키 신버전으로 통일
-                'enable_helo': False, 'enable_p3c': False, 'enable_p8a': False,
-                'enable_f35a': False, 'enable_kf21': False, 'enable_fa50': False,
-                'enable_layered_defense': True, 'enable_cec': True,
-                'enable_multibearing': False, 'enable_cec_jammed': False,
-                'enable_ship_evasion': True, 'enable_radar_off': True,
-                'enable_random_placement': True, 'random_spread_km': 10.0,
-                'enemy_tactics': None, 'ai_tactic': None,
-                'sim_seed': None, 'enable_strike': False,
-                'haesong2_stock': 8, 'harpoon_stock': 4, 'hyunmoo4_stock': 2,
-                'cd_time_s': 10, 'confirm_time_s': 3,
-            }
-
-        n = self._hm_sb_n.value()
-        total = len(fleet_sel) * len(enemy_sel)
-
-        self._hm_fleet_labels = fleet_sel
-        self._hm_enemy_labels = enemy_sel
-        self._hm_done_count   = 0
-        self._hm_total        = total
-
-        self.btn_hm_run.setEnabled(False)
-        self.btn_hm_run.setText("실행 중...")
-        self.btn_hm_save.setEnabled(False)
-        self._hm_progress_lbl.setText(f"0 / {total} 셀 완료")
-
-        self._hm_worker = HeatmapWorker(base_cfg, fleet_sel, enemy_sel, n=n)
-        self._hm_worker.cell_done.connect(self._on_heatmap_cell)
-        self._hm_worker.finished.connect(self._on_heatmap_done)
-        self._hm_worker.error.connect(self._on_heatmap_error)
-        self._hm_worker.start()
-
-    def _on_heatmap_cell(self, r: int, c: int, val: float):
-        """셀 하나 완료 — 진행률 갱신."""
-        self._hm_done_count += 1
-        self._hm_progress_lbl.setText(
-            f"{self._hm_done_count} / {self._hm_total} 셀 완료")
-
-    def _on_heatmap_done(self, grid: list):
-        """모든 셀 완료 — matplotlib 히트맵 렌더링."""
-        import numpy as np
-        import matplotlib.colors as mcolors
-
-        self._hm_grid = grid
-        rows = self._hm_fleet_labels
-        cols = self._hm_enemy_labels
-        data = np.array(grid)   # shape (len(rows), len(cols))
-
-        fig = self._hm_canvas.figure
-        fig.clf()
-        ax = fig.add_subplot(111)
-        fig.patch.set_facecolor(C_BG)
-        ax.set_facecolor(C_BG)
-
-        # 0=적색, 0.5=주황, 1=녹색 커스텀 컬러맵
-        cmap = mcolors.LinearSegmentedColormap.from_list(
-            'surv', ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71'])
-        im = ax.imshow(data, cmap=cmap, vmin=0.0, vmax=1.0,
-                       aspect='auto', interpolation='nearest')
-
-        # 셀 텍스트 오버레이
-        for r_i, row_data in enumerate(data):
-            for c_i, val in enumerate(row_data):
-                color = 'white' if val < 0.65 else '#0d1117'
-                ax.text(c_i, r_i, f"{val:.0%}",
-                        ha='center', va='center',
-                        fontsize=9, color=color, fontweight='bold')
-
-        ax.set_xticks(range(len(cols)))
-        ax.set_yticks(range(len(rows)))
-        ax.set_xticklabels(cols, rotation=30, ha='right',
-                           fontsize=9, color=C_TEXT)
-        ax.set_yticklabels(rows, fontsize=9, color=C_TEXT)
-        ax.set_xlabel("적군 위협 프리셋", color=C_SUBTEXT, fontsize=10)
-        ax.set_ylabel("아군 편대", color=C_SUBTEXT, fontsize=10)
-        ax.set_title("생존성 히트맵  (요격률 — 녹색 = 높음 / 적색 = 낮음)",
-                     color=C_TEXT, fontsize=11, pad=10)
-        ax.tick_params(colors=C_TEXT)
-        for spine in ax.spines.values():
-            spine.set_edgecolor(C_BORDER)
-
-        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-        cbar.ax.yaxis.set_tick_params(color=C_SUBTEXT)
-        cbar.set_label("요격률", color=C_SUBTEXT, fontsize=9)
-        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=C_SUBTEXT, fontsize=8)
-
-        fig.tight_layout()
-        self._hm_canvas.draw()
-
-        self.btn_hm_run.setEnabled(True)
-        self.btn_hm_run.setText("🗺  히트맵 실행")
-        self.btn_hm_save.setEnabled(True)
-        self._hm_progress_lbl.setText(
-            f"완료 — {len(rows)}×{len(cols)} 셀")
-        self._sidebar.setCurrentRow(25)
-
-    def _on_heatmap_error(self, msg: str):
-        QMessageBox.critical(self, "히트맵 오류", msg)
-        self.btn_hm_run.setEnabled(True)
-        self.btn_hm_run.setText("🗺  히트맵 실행")
-        self._hm_progress_lbl.setText("오류")
-
-    def _save_heatmap_png(self):
-        """히트맵 PNG로 저장."""
-        path, _ = QFileDialog.getSaveFileName(
-            self, "히트맵 저장", "heatmap.png", "PNG (*.png)")
-        if path:
-            self._hm_canvas.figure.savefig(
-                path, dpi=150, bbox_inches='tight',
-                facecolor=C_BG)
-            QMessageBox.information(self, "저장 완료", f"저장됨: {path}")
-
     def _on_error(self, msg: str):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
@@ -8929,14 +7863,6 @@ class MainWindow(QMainWindow):
             if not self._worker.wait(2000):
                 self._worker.terminate()
                 self._worker.wait(500)
-        # MinStockWorker 중단
-        ms = getattr(self, '_ms_worker', None)
-        if ms and ms.isRunning():
-            ms.requestInterruption()
-            ms.quit()
-            if not ms.wait(1000):
-                ms.terminate()
-                ms.wait(500)
         # FleetRecommendWorker 중단
         opt = getattr(self, '_opt_worker', None)
         if opt and opt.isRunning():
@@ -8945,25 +7871,8 @@ class MainWindow(QMainWindow):
             if not opt.wait(1000):
                 opt.terminate()
                 opt.wait(500)
-        # ABCompareWorker 중단
-        ab = getattr(self, '_ab_worker', None)
-        if ab and ab.isRunning():
-            ab.requestInterruption()
-            ab.quit()
-            if not ab.wait(800):
-                ab.terminate()
-                ab.wait(300)
-        # HeatmapWorker 중단
-        hm = getattr(self, '_hm_worker', None)
-        if hm and hm.isRunning():
-            hm.requestInterruption()
-            hm.quit()
-            if not hm.wait(800):
-                hm.terminate()
-                hm.wait(300)
         # 차트 렌더 워커 중단 (ChartPageWidget._worker) — placeholder QWidget은 hasattr로 건너뜀
-        for attr in ('tab_mc_canvas', 'tab_channel', 'tab_cost_eff',
-                     'tab_ammo_curve', 'tab_ci', 'tab_min_stock',
+        for attr in ('tab_mc_canvas', 'tab_ci',
                      'tab_optimize', 'tab_stress', 'tab_sobol'):
             widget = getattr(self, attr, None)
             if widget is not None and hasattr(widget, 'stop_worker'):
@@ -9122,45 +8031,8 @@ class MainWindow(QMainWindow):
             self.log_table.setItem(row, 1, ev_item)
         self.log_table.setUpdatesEnabled(True)
 
-    def _draw_channel_heatmap(self, result: dict):
-        self.tab_channel.start_render(_render_channel_heatmap, result)
-
-    def _draw_cost_effect(self, result: dict, mc: dict):
-        self.tab_cost_eff.start_render(_render_cost_effect, result, mc)
-
-    def _draw_ammo_curve(self, mc: dict):
-        self.tab_ammo_curve.start_render(_render_ammo_curve, mc)
-
     def _draw_ci_chart(self, mc: dict):
         self.tab_ci.start_render(_render_ci_chart, mc)
-
-    def _lazy_start_min_stock(self):
-        """최소 재고 탭 첫 방문 시 MinStockWorker 기동 (lazy-start)."""
-        if not hasattr(self, '_pending_cfg'):
-            return
-        ms = getattr(self, '_ms_worker', None)
-        if ms and ms.isRunning():
-            return
-        self._min_stock_placeholder()
-        self._ms_worker = MinStockWorker(self._pending_cfg, self._pending_mc_n)
-        self._ms_worker.progress.connect(self._on_min_stock_progress)
-        self._ms_worker.finished.connect(self._on_min_stock_done)
-        self._ms_worker.error.connect(lambda e: self._min_stock_error(e))
-        self._ms_worker.start(QThread.Priority.LowPriority)
-
-    def _min_stock_placeholder(self):
-        self.tab_min_stock._loading_lbl.setText("  최소 재고 역산 계산 중… ⏳")
-        self.tab_min_stock._pane.setCurrentIndex(0)
-
-    def _min_stock_error(self, msg: str):
-        self.tab_min_stock._loading_lbl.setText(f"  최소 재고 계산 오류: {msg}")
-
-    def _on_min_stock_progress(self, i: int, total: int, name: str):
-        if i < total:
-            self._lbl_status.setText(f"최소 재고 계산 중 ({i}/{total}) — {name}")
-
-    def _on_min_stock_done(self, results: dict, target_rate: float):
-        self.tab_min_stock.start_render(_render_min_stock_chart, results, target_rate)
 
     def _lazy_start_optimize(self):
         """적정 편대 추천 탭 첫 방문 시 FleetRecommendWorker 기동 (lazy-start)."""
