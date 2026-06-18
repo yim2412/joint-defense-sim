@@ -4733,6 +4733,9 @@ def run_v7_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
 # 표준 전장 시간 지평(초) — 단발 ~40s보다 충분히 길고 작전급(수 시간)보다 짧음
 BATTLE_HORIZON_S = 1800
 
+# 자원 지속성 평가에서 무제한 탄(CIWS 초기 9999 등)을 거르는 임계 — 이 값 이상이면 제외
+_BATTLE_INF_AMMO = 1000
+
 
 class Objective:
     """단일 작전 목표 — {type, side, weight, progress(0..1), status}."""
@@ -4853,8 +4856,12 @@ class BattleEngine(TimeStepEngine):
 
     # ── 자원 지속성 (탄약 잔여비 = 방어+공격 인벤토리 합 / 초기 합) ──────────────
     def _friendly_ammo_total(self) -> float:
-        return sum(sum(s.inventory.values()) + sum(s.strike_inventory.values())
-                   for s in self.friendly_ships)
+        # CIWS(초기 9999)처럼 사실상 무제한인 탄은 제외 — 안 그러면 분모를 지배해
+        # 제약 탄약(SAM·어뢰·대함)을 전소해도 잔여비가 ~0.98로 고정돼 지표가 무의미해진다.
+        # 격침 함정의 잔여 탄약은 가용 자원이 아니므로 생존 함정만 합산(_friendly_force_value와 일관).
+        return sum(v for s in self.friendly_ships if s.alive
+                   for inv in (s.inventory, s.strike_inventory)
+                   for v in inv.values() if v < _BATTLE_INF_AMMO)
 
     def _sustainment_update(self):
         """자원 지속성 — 탄약 잔여비 갱신. 연료는 v15.08.01 도입 전까지 1.0."""
