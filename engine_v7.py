@@ -988,6 +988,8 @@ class EnemyThreatObj:
     high_value_target     = _et_col('_et_high_value')
     carrier_aircraft      = _et_col('_et_carrier_aircraft')
     carrier_wave_interval = _et_col('_et_carrier_wave_interval')
+    carrier_wing          = _et_col('_et_carrier_wing')         # 함재 전투기 항공단 규모(0=무제한)
+    wing_launched         = _et_col('_et_wing_launched')        # 누적 발진 수(전장 모드 상한 추적)
     _last_wave_t          = _et_col('_et_last_wave_t')
     sam_inventory         = _et_col('_et_sam_inventory')
     munition_remaining    = _et_col('_et_munition_remaining')   # 공격 무장 잔여(무장 유한화)
@@ -1293,6 +1295,7 @@ class TimeStepEngine:
 
         # v15.1: 적응형 전술 AI — ai_tactic='adaptive'일 때만 동작
         self._munition_limit   = bool(cfg.get('enable_munition_limit', True))  # 적 공격 무장 유한화
+        self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
         self._adaptive_last_t  = -999.0         # 마지막 재평가 시각
@@ -1469,6 +1472,8 @@ class TimeStepEngine:
         self._et_high_value: list           = []
         self._et_carrier_aircraft: list     = []
         self._et_carrier_wave_interval: list = []
+        self._et_carrier_wing: list         = []
+        self._et_wing_launched: list        = []
         self._et_last_wave_t: list          = []
         self._et_sam_inventory: list        = []
         self._et_sam_max_channels: list     = []
@@ -1523,6 +1528,8 @@ class TimeStepEngine:
         self._et_high_value.append(info.get('high_value_target', False))
         self._et_carrier_aircraft.append(info.get('carrier_aircraft', None))
         self._et_carrier_wave_interval.append(info.get('carrier_wave_interval', 0))
+        self._et_carrier_wing.append(info.get('carrier_air_wing', 0))
+        self._et_wing_launched.append(0)
         self._et_last_wave_t.append(0.0)
         self._et_sam_inventory.append(sam_inv)
         # 공격 무장 잔여 — 탑재량 목록에 없으면 무제한(1발성 미사일 위협 등). 발사 시 차감.
@@ -4258,10 +4265,19 @@ class TimeStepEngine:
                         and et.carrier_wave_interval > 0
                         and self.t > 0
                         and self.t - et._last_wave_t >= et.carrier_wave_interval):
+                    # v15.09.01: 전장 모드는 항공단 규모만큼만 발진(무한 생산 차단). 단발은 종전대로 2기씩.
+                    if self._enforce_wing_cap and et.carrier_wing > 0:
+                        remaining = et.carrier_wing - et.wing_launched
+                        if remaining <= 0:
+                            continue                 # 항공단 소진 — 더는 발진 없음
+                        n_launch = min(2, remaining)
+                        et.wing_launched += n_launch
+                    else:
+                        n_launch = 2
                     et._last_wave_t = self.t
                     self._pending_threats.append(
                         (self.t + 10.0,          # 10초 후 출격
-                         {'preset': et.carrier_aircraft, 'count': 2})
+                         {'preset': et.carrier_aircraft, 'count': n_launch})
                     )
 
             # v9.6: 기습 잠수함 은닉 해제 탐지 이벤트
@@ -4825,6 +4841,7 @@ class BattleEngine(TimeStepEngine):
     def __init__(self, cfg: dict, step_cb=None):
         super().__init__(cfg, step_cb=step_cb)
         self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
+        self._enforce_wing_cap = True   # v15.09.01: 전장 모드는 항모 항공단 규모만큼만 함재기 발진
         # v15.08.04: 목표지향 적 AI — 항공 위협은 무장이 남는 한 계속 재접근(압박 유지).
         # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
         self._enemy_withdrawing  = False

@@ -416,7 +416,7 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.45,'enemy_ciws_pk':0.40,
          'hp':5,'high_value_target':True,
-         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90},
+         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90,'carrier_air_wing':24},  # Type 001 J-15 ~24기
 
     '산둥 (항모)':
         {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
@@ -427,7 +427,7 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.45,'enemy_ciws_pk':0.40,  # PHY-6: 0.47/0.42→0.45/0.40 (항모 기준값 상한)
          'hp':5,'high_value_target':True,
-         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90},
+         'carrier_aircraft':'J-15 (비상어)','carrier_wave_interval':90,'carrier_air_wing':36},  # Type 002 J-15 ×36 (스펙시트 일치)
 
     '푸젠 (항모)':
         {'category':'대함','type':'항모','speed_ms':15.4,'altitude_m':30,
@@ -438,7 +438,7 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.48,'enemy_ciws_pk':0.43,  # PHY-7: 0.50/0.45→0.48/0.43 (최신 항모 상한 유지)
          'hp':5,'high_value_target':True,
-         'carrier_aircraft':'J-35 (백상어)','carrier_wave_interval':80},
+         'carrier_aircraft':'J-35 (백상어)','carrier_wave_interval':80,'carrier_air_wing':40},  # Type 003 J-35/J-15T ~40기
 
     # ════ 대잠: 잠수함 (5종) ══════════════════════════════════════════════════
     # altitude_m = 잠항 수심 (음수 = 수면 아래)
@@ -1577,6 +1577,7 @@ def normalize_enemy_db():
         e.setdefault('high_value_target',    False)
         e.setdefault('carrier_aircraft',     None)
         e.setdefault('carrier_wave_interval', 0)
+        e.setdefault('carrier_air_wing',     0)   # 함재 전투기 항공단 규모(0=무제한, 전장 모드서 발진 총량 상한)
         # v6.8: ECM 취약도 (seeker 유형별 차등)
         # radar=레이더 유도(full), ir=적외선 유도(약), combined=복합(중간), none=무효
         TYPE_ECM_SUSC = {
