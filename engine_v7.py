@@ -2282,17 +2282,7 @@ class TimeStepEngine:
             if et.is_retreating and et.retreat_pos:
                 arrived = et.pos.move_toward(et.retreat_pos, et.speed_ms, DT)
                 if arrived:
-                    # MED-12: 재공격 가능 시 재접근, 아니면 전장 이탈
-                    # 무장 소진 시 재접근 불가 — 재무장 위해 복귀(전장 이탈)
-                    _no_munition = self._munition_limit and et.munition_remaining <= 0
-                    if et.reattack_count < et.max_reattacks and not _no_munition:
-                        et.reattack_count += 1
-                        et.is_retreating = False
-                        et.retreat_pos   = None
-                        self._log(f"[재공격] {et.preset_name} 재접근 개시 ({et.reattack_count}/{et.max_reattacks})")
-                    else:
-                        et.alive = False
-                        self._log(f"[이탈] {et.preset_name} 전장 이탈 완료")
+                    self._on_retreat_arrived(et)
             else:
                 et.pos.move_toward(primary_pos, et.speed_ms, DT)
 
@@ -2509,6 +2499,21 @@ class TimeStepEngine:
                         'deception': '기만 침투'}
                 self._log(f"⚡[적 전술 전환] {_lbl.get(prev, prev)} → {_lbl.get(new, new)} "
                           f"(최근 요격률 {r_recent*100:.0f}%, 채널포화 {sat*100:.0f}%)")
+
+    def _on_retreat_arrived(self, et):
+        """후퇴 도착 위협 처리 — 기본(단발): 재공격 횟수 한도 내 재접근, 아니면 이탈.
+        (BattleEngine은 목표지향 압박 유지로 오버라이드 — max_reattacks 캡 제거)"""
+        # MED-12: 재공격 가능 시 재접근, 아니면 전장 이탈
+        # 무장 소진 시 재접근 불가 — 재무장 위해 복귀(전장 이탈)
+        _no_munition = self._munition_limit and et.munition_remaining <= 0
+        if et.reattack_count < et.max_reattacks and not _no_munition:
+            et.reattack_count += 1
+            et.is_retreating = False
+            et.retreat_pos   = None
+            self._log(f"[재공격] {et.preset_name} 재접근 개시 ({et.reattack_count}/{et.max_reattacks})")
+        else:
+            et.alive = False
+            self._log(f"[이탈] {et.preset_name} 전장 이탈 완료")
 
     def _enemy_fire(self):
         primary = self._primary()
@@ -4820,12 +4825,10 @@ class BattleEngine(TimeStepEngine):
     def __init__(self, cfg: dict, step_cb=None):
         super().__init__(cfg, step_cb=step_cb)
         self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
-        # 적 지속 압박 — 항공 위협이 1회 이탈 후 사라지지 않고 재접근.
-        # (Phase 2에서 목표지향 적 AI로 교체 예정인 임시 레버)
-        air_reattacks = int(cfg.get('battle_air_reattacks', 3))
-        for i in range(len(self._et_alive)):
-            if self._et_is_aircraft[i]:
-                self._et_max_reattacks[i] = max(self._et_max_reattacks[i], air_reattacks)
+        # v15.08.04: 목표지향 적 AI — 항공 위협은 무장이 남는 한 계속 재접근(압박 유지).
+        # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
+        self._enemy_withdrawing  = False
+        self._enemy_withdraw_loss = float(cfg.get('battle_enemy_withdraw_loss', 0.5))
         # 방어 자산 = 기함(primary). 시작 시점에 고정 식별(격침 판정용)
         self._asset        = self._primary()
         self._asset_max_hp = self._asset._max_hp
@@ -4905,6 +4908,55 @@ class BattleEngine(TimeStepEngine):
         return sum(ENEMY_PROCUREMENT_USD.get(et.name, 0)
                    for et in self.enemy_threats
                    if et.alive and (et.is_ship or et.is_sub or et.is_aircraft))
+
+    # ── v15.08.04: 목표지향 적 AI ──────────────────────────────────────────────
+    def _on_retreat_arrived(self, et):
+        """전장 모드 후퇴 도착 처리 — 단발과 달리 max_reattacks 캡 없이 압박 유지.
+        무장이 남으면 무한 재접근, 소진 시 재무장 복귀(이탈). 철수 발령 시 전원 이탈."""
+        if self._enemy_withdrawing:
+            et.alive = False
+            if not self._mc_mode:
+                self._log(f"[철수] {et.preset_name} 전장 이탈 완료")
+            return
+        if not (self._munition_limit and et.munition_remaining <= 0):
+            et.reattack_count += 1
+            et.is_retreating = False
+            et.retreat_pos   = None
+            if not self._mc_mode:
+                self._log(f"[재접근] {et.preset_name} 압박 유지 — 재공격 개시 (무장 잔여 {et.munition_remaining})")
+        else:
+            et.alive = False
+            if not self._mc_mode:
+                self._log(f"[무장 소진·복귀] {et.preset_name} 재무장 위해 전장 이탈")
+
+    def _enemy_combat_loss_value(self) -> float:
+        """전투로 격침된 적 플랫폼 전력가치(USD) 합. 자발 이탈·재무장 복귀(intercepted=False)는
+        제외 — 손실로 오인하면 격침 0인데도 철수가 발동된다. (격침 표식 = intercepted)"""
+        return sum(ENEMY_PROCUREMENT_USD.get(et.name, 0)
+                   for et in self.enemy_threats
+                   if (not et.alive) and et.intercepted
+                   and (et.is_ship or et.is_sub or et.is_aircraft))
+
+    def _enemy_withdraw_check(self):
+        """적 전투 손실이 임계 초과 시 생존 세력 전면 철수(임무 불가 — 자원 보존).
+        교리상 전투력 50% 상실 ≈ 임무 수행 불가. 격침된 플랫폼 전력가치 기준(이탈·재무장 제외)."""
+        if self._enemy_withdrawing or not self._attr_active:
+            return
+        en_loss = self._enemy_combat_loss_value() / self._en_value_init
+        if en_loss < self._enemy_withdraw_loss:
+            return
+        self._enemy_withdrawing = True
+        primary_pos = self._primary().pos
+        for et in self.enemy_threats:
+            if not et.alive or et.is_retreating:
+                continue
+            ang = et.pos.bearing_to(primary_pos) + math.pi   # 함대 반대 방향 이탈
+            et.retreat_pos = LatLon.from_xy(
+                et.pos.x + math.cos(ang) * 300_000,
+                et.pos.y + math.sin(ang) * 300_000)
+            et.is_retreating = True
+        if not self._mc_mode:
+            self._log(f"[적 전면 철수] 전투 손실 {en_loss*100:.0f}% — 생존 세력 임무 포기·이탈")
 
     def _attrition_update(self):
         """소모전 — 양측 잔존 전력가치 비율 갱신(현재값/초기값, 0..1)."""
@@ -5007,6 +5059,7 @@ class BattleEngine(TimeStepEngine):
     def _is_over(self) -> bool:
         self._fuel_update()        # 매 틱 1회 연료 소모 (루프에서 _is_over만 호출 — 이중차감 없음)
         self._update_objectives()
+        self._enemy_withdraw_check()   # v15.08.04: 손실 임계 초과 시 적 전면 철수
         if not self._asset_alive():
             if not self._mc_mode:
                 self._log(f"[종료] 방어 자산 {self._asset.name} 격침 — 적 승")
@@ -5019,12 +5072,12 @@ class BattleEngine(TimeStepEngine):
             if not self._mc_mode:
                 self._log(f"[종료] 작전 시간({int(self.horizon_s)}s) 도달 — 자산 방어 성공")
             return True
-        # 적 위협 전소 + 재접근 불가 → 아군 승 (무장 소진=복귀 중이므로 위협 제외)
+        # 적 위협 소멸 판정 → 아군 승. 무장 소진(복귀 중)·전면 철수 발령 위협은 제외.
+        # (v15.08.04: 압박 유지로 재접근하는 위협은 무장 남는 한 활성 — max_reattacks 캡 폐지)
         enemy_active = [et for et in self.enemy_threats
                         if et.alive
                         and not (self._munition_limit and et.munition_remaining <= 0)
-                        and not (et.is_aircraft and et.is_retreating
-                                 and et.reattack_count >= et.max_reattacks)]
+                        and not self._enemy_withdrawing]
         active_missiles = [m for m in self.missiles
                            if m.alive and m.mtype == 'enemy_strike']
         if not enemy_active and not active_missiles:
