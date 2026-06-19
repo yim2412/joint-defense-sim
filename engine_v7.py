@@ -989,7 +989,8 @@ class EnemyThreatObj:
     carrier_aircraft      = _et_col('_et_carrier_aircraft')
     carrier_wave_interval = _et_col('_et_carrier_wave_interval')
     carrier_wing          = _et_col('_et_carrier_wing')         # 함재 전투기 항공단 규모(0=무제한)
-    wing_launched         = _et_col('_et_wing_launched')        # 누적 발진 수(전장 모드 상한 추적)
+    wing_launched         = _et_col('_et_wing_launched')        # 항모를 떠나 있는 기체 수(공중+손실, 재무장 복귀 시 감소)
+    carrier_owner         = _et_col('_et_carrier_owner')        # 함재기의 모항 인덱스(None=함재기 아님)
     _last_wave_t          = _et_col('_et_last_wave_t')
     sam_inventory         = _et_col('_et_sam_inventory')
     munition_remaining    = _et_col('_et_munition_remaining')   # 공격 무장 잔여(무장 유한화)
@@ -1474,6 +1475,7 @@ class TimeStepEngine:
         self._et_carrier_wave_interval: list = []
         self._et_carrier_wing: list         = []
         self._et_wing_launched: list        = []
+        self._et_carrier_owner: list        = []
         self._et_last_wave_t: list          = []
         self._et_sam_inventory: list        = []
         self._et_sam_max_channels: list     = []
@@ -1530,6 +1532,7 @@ class TimeStepEngine:
         self._et_carrier_wave_interval.append(info.get('carrier_wave_interval', 0))
         self._et_carrier_wing.append(info.get('carrier_air_wing', 0))
         self._et_wing_launched.append(0)
+        self._et_carrier_owner.append(None)
         self._et_last_wave_t.append(0.0)
         self._et_sam_inventory.append(sam_inv)
         # 공격 무장 잔여 — 탑재량 목록에 없으면 무제한(1발성 미사일 위협 등). 발사 시 차감.
@@ -1858,6 +1861,7 @@ class TimeStepEngine:
             else:
                 et = self._new_threat(name, pos)
                 et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
+                et.carrier_owner = spec.get('carrier_owner')   # v15.09.02: 함재기면 모항 인덱스(재무장 복귀)
                 self.enemy_threats.append(et)
             self.stats['total_threats'] += 1
             self._log(f"[{name}] {self.t:.0f}s 파도 스폰")
@@ -4260,25 +4264,22 @@ class TimeStepEngine:
                     self._spawn_pending_threat(spec)
 
             # v8.15: 항모 함재기 파도 스폰
-            for et in self.enemy_threats:
+            for _ci, et in enumerate(self.enemy_threats):
                 if (et.alive and et.carrier_aircraft
                         and et.carrier_wave_interval > 0
                         and self.t > 0
                         and self.t - et._last_wave_t >= et.carrier_wave_interval):
                     # v15.09.01: 전장 모드는 항공단 규모만큼만 발진(무한 생산 차단). 단발은 종전대로 2기씩.
+                    spec = {'preset': et.carrier_aircraft, 'count': 2}
                     if self._enforce_wing_cap and et.carrier_wing > 0:
                         remaining = et.carrier_wing - et.wing_launched
                         if remaining <= 0:
-                            continue                 # 항공단 소진 — 더는 발진 없음
-                        n_launch = min(2, remaining)
-                        et.wing_launched += n_launch
-                    else:
-                        n_launch = 2
+                            continue                 # 항공단 소진 — 더는 발진 없음(재무장 복귀 시 재발진)
+                        spec['count'] = min(2, remaining)
+                        et.wing_launched += spec['count']
+                        spec['carrier_owner'] = _ci   # v15.09.02: 재무장 복귀용 모항 식별
                     et._last_wave_t = self.t
-                    self._pending_threats.append(
-                        (self.t + 10.0,          # 10초 후 출격
-                         {'preset': et.carrier_aircraft, 'count': n_launch})
-                    )
+                    self._pending_threats.append((self.t + 10.0, spec))  # 10초 후 출격
 
             # v9.6: 기습 잠수함 은닉 해제 탐지 이벤트
             for et in self.enemy_threats:
@@ -4842,6 +4843,10 @@ class BattleEngine(TimeStepEngine):
         super().__init__(cfg, step_cb=step_cb)
         self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
         self._enforce_wing_cap = True   # v15.09.01: 전장 모드는 항모 항공단 규모만큼만 함재기 발진
+        # v15.09.02: 재출격 사이클 — 무장 소진 이탈한 함재기가 모항 귀환→재무장 지연 후 재발진.
+        # 실제 항모 갑판 재무장 사이클 ~45분(기본 30분 전장선 거의 휴면, 작전급 긴 전장서 발현).
+        self._rearm_delay  = float(cfg.get('battle_rearm_delay_s', 2700.0))
+        self._rearm_queue  = []         # [(return_t, carrier_idx), ...]
         # v15.08.04: 목표지향 적 AI — 항공 위협은 무장이 남는 한 계속 재접근(압박 유지).
         # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
         self._enemy_withdrawing  = False
@@ -4943,7 +4948,13 @@ class BattleEngine(TimeStepEngine):
                 self._log(f"[재접근] {et.preset_name} 압박 유지 — 재공격 개시 (무장 잔여 {et.munition_remaining})")
         else:
             et.alive = False
-            if not self._mc_mode:
+            # v15.09.02: 함재기는 모항 귀환 → 재무장 지연 후 재발진(풀 복귀). 모항 격침 시 회수 불가.
+            owner = et.carrier_owner
+            if owner is not None and self.enemy_threats[owner].alive:
+                self._rearm_queue.append((self.t + self._rearm_delay, owner))
+                if not self._mc_mode:
+                    self._log(f"[무장 소진·귀함] {et.preset_name} 모항 복귀 — 재무장 후 재발진 예정")
+            elif not self._mc_mode:
                 self._log(f"[무장 소진·복귀] {et.preset_name} 재무장 위해 전장 이탈")
 
     def _enemy_combat_loss_value(self) -> float:
@@ -4953,6 +4964,18 @@ class BattleEngine(TimeStepEngine):
                    for et in self.enemy_threats
                    if (not et.alive) and et.intercepted
                    and (et.is_ship or et.is_sub or et.is_aircraft))
+
+    def _process_rearm(self):
+        """v15.09.02: 재무장 만기 함재기를 모항 풀에 복귀(wing_launched 감소 → 스폰 루프가 재발진).
+        모항 격침 시 회수 불가(airframe 손실). 손실(격침) 기체는 큐에 없으니 영구 미복귀."""
+        if not self._rearm_queue:
+            return
+        ready = [c for (rt, c) in self._rearm_queue if rt <= self.t]
+        self._rearm_queue = [(rt, c) for (rt, c) in self._rearm_queue if rt > self.t]
+        for idx in ready:
+            car = self.enemy_threats[idx]
+            if car.alive and car.wing_launched > 0:
+                car.wing_launched -= 1   # 1기 재무장 완료 — 풀 복귀(다음 웨이브 주기에 재발진)
 
     def _enemy_withdraw_check(self):
         """적 전투 손실이 임계 초과 시 생존 세력 전면 철수(임무 불가 — 자원 보존).
@@ -5076,6 +5099,7 @@ class BattleEngine(TimeStepEngine):
     def _is_over(self) -> bool:
         self._fuel_update()        # 매 틱 1회 연료 소모 (루프에서 _is_over만 호출 — 이중차감 없음)
         self._update_objectives()
+        self._process_rearm()          # v15.09.02: 재무장 만기 함재기 모항 풀 복귀
         self._enemy_withdraw_check()   # v15.08.04: 손실 임계 초과 시 적 전면 철수
         if not self._asset_alive():
             if not self._mc_mode:
