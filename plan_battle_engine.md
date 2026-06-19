@@ -284,9 +284,12 @@ Phase 4  RL 통합
 - 기본값: horizon 1800s에선 여유, 장시간·고기동 시 압박되게 튜닝.
 - sustainment 연료 항목 활성화. **회귀 영향**(신규 상태) → 변경 후 골든 재확인.
 
-**v15.08.02 — 적 목표지향 기동 AI**
-- 임시 레버(`battle_air_reattacks`) 제거. 이탈 대신 **목표 미달 시 압박 유지**(9절 행동 트리).
-- 손실 임계 초과 시에만 후퇴/재편. `sea_control` 목표 시 돌파선 지향 기동.
+**✅ v15.08.04 — 적 목표지향 기동 AI (완료 2026-06-19, 커밋 cbba0e2)**
+- (번호: 분석8종 제거가 08.02, 무장유한화 08.03 차지 → 기동AI는 08.04)
+- 임시 레버(`battle_air_reattacks`) 제거. 이탈 대신 **무장 남는 한 압박 유지**(재접근 무한, max_reattacks 캡 폐지).
+- 부모 무수정: `_on_retreat_arrived` 훅 추출(행동보존, 단발 회귀 PASS), BattleEngine 오버라이드.
+- 손실 임계 철수(`_enemy_withdraw_check`): **전투 격침(intercepted)** 전력가치 ≥`battle_enemy_withdraw_loss`(0.5) 시 생존 세력 전면 egress. 재무장 복귀·자발 이탈은 손실 제외(/code-review high 발견 수정).
+- **A안 합의**: egress 유지(현실적), 재출격 지연·웨이브 파상공격은 **Phase 3 이관**. sea_control 돌파선 지향 기동도 Phase 3.
 
 **v15.08.03 — (Phase 3 이관) 웨이브·재보급** — Phase 2 범위에서 제외 확정.
 
