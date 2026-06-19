@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.09.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.10.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.10.01 — 지속 전장 작전 시계열 시각화]                                ║
+║  NEW-A  교전 분석에 '작전 시계열' 화면 신설 — 적 최대 침투(해역 통제)·     ║
+║         양측 전력 잔여(소모전)·탄약·연료 잔여(자원 지속성)를 작전 시간축    ║
+║         그래프로 표시. 전장 모드 단일 시뮬에서 작전 전개를 한눈에           ║
 ║  [v15.09.03 — 지속 전장 해상급유(RAS) 재보급]                              ║
 ║  NEW-A  편대에 군수지원함(소양함·천지함)이 있으면 교전 소강 시 연료 부족    ║
 ║         전투함에 해상급유 — 자원 지속성이 크게 개선. 적 대함미사일 비행     ║
@@ -965,7 +969,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.09.03"
+APP_VERSION = "v15.10.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3617,6 +3621,72 @@ def _render_engagement_gantt(active_events: list) -> 'Figure':
     return fig
 
 
+def _render_battle_timeline(result: dict) -> 'Figure':
+    """지속 전장 작전 시계열 — 돌파선 침투·전력비·자원 잔여 3종(공통 시간축)."""
+    from matplotlib.figure import Figure as _Fig
+    tl    = result.get('timeline', {}) or {}
+    front = tl.get('frontline_km', [])
+    force = tl.get('force_ratio', [])
+    res   = tl.get('resource_min', [])
+    fig = _Fig(figsize=(14, 9), facecolor=C_BG)
+
+    if not (front or force or res):
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '작전 시계열은 지속 전장 모드 단일 시뮬에서 표시됩니다',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
+                transform=ax.transAxes, fontfamily='Malgun Gothic')
+        ax.axis('off')
+        return fig
+
+    def _style(ax, title, ylabel):
+        ax.set_facecolor('#0a0e1a')
+        ax.set_title(title, color=C_TEXT, fontsize=13, fontfamily='Malgun Gothic', loc='left')
+        ax.set_ylabel(ylabel, color=C_SUBTEXT, fontsize=11, fontfamily='Malgun Gothic')
+        ax.tick_params(colors=C_SUBTEXT, labelsize=9)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+        ax.grid(True, color='#1e2a3a', lw=0.5)
+
+    axes = fig.subplots(3, 1, sharex=True)
+
+    # 1. 해역 통제 — 적 최대 침투 (높을수록 기함 근접 = 위험)
+    ax = axes[0]
+    if front:
+        t  = [x[0] for x in front]; km = [x[1] for x in front]
+        ax.plot(t, km, color='#e74c3c', lw=1.6)
+        ax.fill_between(t, km, color='#e74c3c', alpha=0.15)
+    _style(ax, '해역 통제 — 적 최대 침투 (높을수록 위험)', '돌파 침투 (km)')
+
+    # 2. 소모전 — 양측 전력 잔여비
+    ax = axes[1]
+    if force:
+        t = [x[0] for x in force]
+        ax.plot(t, [x[1] for x in force], color='#2ecc71', lw=1.6, label='아군')
+        ax.plot(t, [x[2] for x in force], color='#e67e22', lw=1.6, label='적')
+        ax.set_ylim(0, 1.05)
+        ax.legend(fontsize=9, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a', loc='lower left',
+                  prop={'family': 'Malgun Gothic', 'size': 9})
+    _style(ax, '소모전 — 양측 전력 잔여', '전력 잔여비')
+
+    # 3. 자원 지속성 — 탄약·연료 잔여비
+    ax = axes[2]
+    if res:
+        t = [x[0] for x in res]
+        ax.plot(t, [x[1] for x in res], color='#3498db', lw=1.6, label='탄약')
+        ax.plot(t, [x[2] for x in res], color='#f1c40f', lw=1.6, label='연료')
+        ax.set_ylim(0, 1.05)
+        ax.legend(fontsize=9, facecolor='#0a0e1a', labelcolor=C_TEXT,
+                  edgecolor='#1e2a3a', loc='lower left',
+                  prop={'family': 'Malgun Gothic', 'size': 9})
+    _style(ax, '자원 지속성 — 탄약·연료 잔여', '잔여비')
+
+    axes[2].set_xlabel('작전 시각 (초)', color=C_SUBTEXT, fontsize=11,
+                       fontfamily='Malgun Gothic')
+    fig.tight_layout()
+    return fig
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  교전 분석 탭
 # ════════════════════════════════════════════════════════════════════════════
@@ -3700,7 +3770,11 @@ class EngagementAnalysisTab(QWidget):
         self._tab_gantt = ChartPageWidget()
         tabs.addTab(self._tab_gantt, "⏱  교전 타임라인")
 
-        # ── Sub-tab 4: 3D 전장 (CesiumJS) ──────────────────────────────────
+        # ── Sub-tab 4: 작전 시계열 (지속 전장 — 돌파선·전력비·자원) ─────────
+        self._tab_btimeline = ChartPageWidget()
+        tabs.addTab(self._tab_btimeline, "📈  작전 시계열")
+
+        # ── Sub-tab 5: 3D 전장 (CesiumJS) ──────────────────────────────────
         tabs.addTab(self._build_3d_tab(), "🌐  3D 전장")
 
         layout.addWidget(tabs)
@@ -3787,6 +3861,9 @@ class EngagementAnalysisTab(QWidget):
         self._tab_funnel.start_render(_render_engagement_funnel, active_events)
         self._tab_gantt.start_render(_render_engagement_gantt, active_events)
 
+        # 작전 시계열 — 전장 모드 timeline(돌파선·전력비·자원). 단발/MC는 안내문 표시
+        self._tab_btimeline.start_render(_render_battle_timeline, result)
+
         # 3D 전장 — frames → CZML 주입 (단일 시뮬만, MC는 frames 없어 document만)
         self._load_3d(result)
 
@@ -3854,6 +3931,7 @@ class EngagementAnalysisTab(QWidget):
     def stop_worker(self):
         self._tab_funnel.stop_worker()
         self._tab_gantt.stop_worker()
+        self._tab_btimeline.stop_worker()
 
 
 # ════════════════════════════════════════════════════════════════════════════
