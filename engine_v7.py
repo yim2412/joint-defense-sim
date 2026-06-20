@@ -2263,30 +2263,36 @@ class TimeStepEngine:
 
     # ── 1단계: 위치 갱신 ──────────────────────────────────────────────────────
 
+    def _apply_ship_evasion(self, evade_r_base: float = 15_000,
+                            jump_lo: float = 300.0, jump_hi: float = 800.0):
+        # 아군 함정 회피 기동: 적 미사일이 evade_r 이내 접근 시 지그재그 위치 보정.
+        # 기본 인자는 종전 고정값(15km·300~800m)과 동일 — 동작 보존.
+        if not self.cfg.get('enable_ship_evasion', False):
+            return
+        # v9.14: 해협 시나리오 — STRAITS_DB 폭 기반 기동 공간 제한
+        _evade_r = evade_r_base
+        if self.cfg.get('fleet_region', '') == '대한해협':
+            _st = self.cfg.get('strait_type', 'korea_west')
+            _sk = 'korea_east' if _st == 'korea_east' else 'korea_west'
+            _w  = STRAITS_DB.get(_sk, {}).get('width_km', _STRAIT_OPEN_SEA_KM)
+            _evade_r = int(_evade_r * min(1.0, _w / _STRAIT_OPEN_SEA_KM))
+        for ship in self.friendly_ships:
+            if not ship.alive:
+                continue
+            close = any(
+                m.alive and m.mtype == 'enemy_strike'
+                and m.pos.dist_to(ship.pos) < _evade_r
+                for m in self.missiles
+            )
+            if close:
+                angle = random.uniform(0, 2 * math.pi)
+                # 추진 피탄 시 speed_factor만큼 회피 거리 감소
+                evade_m = random.uniform(jump_lo, jump_hi) * ship.speed_factor
+                ship.pos.x += math.cos(angle) * evade_m
+                ship.pos.y += math.sin(angle) * evade_m
+
     def _update_positions(self):
-        # 아군 함정 회피 기동: 적 미사일이 15km 이내 접근 시 지그재그 위치 보정
-        if self.cfg.get('enable_ship_evasion', False):
-            # v9.14: 해협 시나리오 — STRAITS_DB 폭 기반 기동 공간 제한
-            _evade_r = 15_000
-            if self.cfg.get('fleet_region', '') == '대한해협':
-                _st = self.cfg.get('strait_type', 'korea_west')
-                _sk = 'korea_east' if _st == 'korea_east' else 'korea_west'
-                _w  = STRAITS_DB.get(_sk, {}).get('width_km', _STRAIT_OPEN_SEA_KM)
-                _evade_r = int(_evade_r * min(1.0, _w / _STRAIT_OPEN_SEA_KM))
-            for ship in self.friendly_ships:
-                if not ship.alive:
-                    continue
-                close = any(
-                    m.alive and m.mtype == 'enemy_strike'
-                    and m.pos.dist_to(ship.pos) < _evade_r
-                    for m in self.missiles
-                )
-                if close:
-                    angle = random.uniform(0, 2 * math.pi)
-                    # 추진 피탄 시 speed_factor만큼 회피 거리 감소
-                    evade_m = random.uniform(300, 800) * ship.speed_factor
-                    ship.pos.x += math.cos(angle) * evade_m
-                    ship.pos.y += math.sin(angle) * evade_m
+        self._apply_ship_evasion()
 
         primary_pos = self._primary().pos
         for et in self.enemy_threats:
@@ -4983,6 +4989,22 @@ class BattleEngine(TimeStepEngine):
             self.cfg['_tactical_target_priority'] = tp
         else:
             self.cfg.pop('_tactical_target_priority', None)
+        # v15.11.03: 함대 기동 자세 — _apply_ship_evasion 오버라이드가 읽는다.
+        mv = choice.get('maneuver')
+        if mv in ('passive', 'normal', 'aggressive'):
+            self._evasion_posture = mv
+
+    def _apply_ship_evasion(self):
+        """전장 모드 함대 기동 자세 — `_evasion_posture`에 따라 회피 적극도 조절.
+        passive=회피 안 함(연료 절약·생존 risk) / normal=현행 / aggressive=조기·대폭 회피
+        (생존↑·연료↑). 자세는 _apply_tactical_choice가 RL 행동으로 세팅."""
+        posture = getattr(self, '_evasion_posture', 'normal')
+        if posture == 'passive':
+            return
+        if posture == 'aggressive':
+            super()._apply_ship_evasion(evade_r_base=22_000, jump_lo=500.0, jump_hi=1300.0)
+        else:
+            super()._apply_ship_evasion()
 
     def _target_sort_key(self, obj, primary_pos):
         """전장 모드 표적 우선순위 전술 — cfg `_tactical_target_priority`에 따라 정렬 키 변경.

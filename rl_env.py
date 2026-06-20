@@ -42,6 +42,8 @@ _SALVO_OPTS = [1, 2, 3, 4]
 _RADAR_OPTS = ['on', 'off']
 # 표적 우선순위: auto=임박도(기본) / nearest=최근접 / fastest=고속 / leakers=탄도·HGV 우선.
 _TARGET_OPTS = ['auto', 'nearest', 'fastest', 'leakers']
+# 함대 기동 자세: passive=회피안함(연료↓·생존risk) / normal=현행 / aggressive=조기·대폭(생존↑·연료↑).
+_MANEUVER_OPTS = ['passive', 'normal', 'aggressive']
 
 _N_FEAT = 9   # 관측 피처 수 (집계)
 
@@ -62,6 +64,7 @@ _BALANCED_PRESETS = [
 _DEFAULT_CFG = dict(
     fleet_region='동해 북부', season='summer', weather='맑음 (주간)',
     enable_munition_limit=True, enable_battle_mode=True,
+    enable_ship_evasion=True,  # 함대 기동 자세 레버 작동 전제 (회피 ON)
     enemy_fleet_mode='preset', fleet_preset='이지스 기동전단',
     n_threads=4, cd_time_s=10, confirm_time_s=3,
 )
@@ -86,7 +89,8 @@ class BattleEnv(gym.Env):
         self._ep_preset = self._fixed_preset or _BALANCED_PRESETS[0]
 
         self.action_space = spaces.MultiDiscrete(
-            [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS), len(_TARGET_OPTS)])
+            [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS),
+             len(_TARGET_OPTS), len(_MANEUVER_OPTS)])
         self.observation_space = spaces.Box(
             low=-1.0, high=np.inf, shape=(_N_FEAT,), dtype=np.float32)
 
@@ -103,9 +107,10 @@ class BattleEnv(gym.Env):
         action = self._act_q.get()           # env.step()이 넣을 때까지 블록
         if action is None:                   # reset/close 신호
             raise _EnvAbort()
-        wi, si, ri, ti = action
+        wi, si, ri, ti, mi = action
         return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
-                'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti]}
+                'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
+                'maneuver': _MANEUVER_OPTS[mi]}
 
     def _run_engine(self):
         cfg = dict(self.base_cfg)
@@ -172,7 +177,7 @@ class BattleEnv(gym.Env):
 
     def step(self, action):
         a = np.asarray(action).ravel()
-        self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3])))
+        self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3]), int(a[4])))
         nxt = self._obs_q.get()
         if nxt is None:                      # 에피소드 종료
             r = self._result or {}
