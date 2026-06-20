@@ -38,6 +38,8 @@ _WPN_PRIORITY = [
     'CIWS-II (Phalanx)',  # 최후 근접
 ]
 _SALVO_OPTS = [1, 2, 3, 4]
+# 레이더 자세: on=자동(ARM 회피는 엔진 자동 유지) / off=능동 차단(ARM 회피 ↔ 탐지 손실).
+_RADAR_OPTS = ['on', 'off']
 
 _N_FEAT = 9   # 관측 피처 수 (집계)
 
@@ -81,7 +83,8 @@ class BattleEnv(gym.Env):
         self._fixed_preset = self.base_cfg.get('enemy_fleet_preset')
         self._ep_preset = self._fixed_preset or _BALANCED_PRESETS[0]
 
-        self.action_space = spaces.MultiDiscrete([len(_WPN_PRIORITY), len(_SALVO_OPTS)])
+        self.action_space = spaces.MultiDiscrete(
+            [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS)])
         self.observation_space = spaces.Box(
             low=-1.0, high=np.inf, shape=(_N_FEAT,), dtype=np.float32)
 
@@ -98,8 +101,9 @@ class BattleEnv(gym.Env):
         action = self._act_q.get()           # env.step()이 넣을 때까지 블록
         if action is None:                   # reset/close 신호
             raise _EnvAbort()
-        wi, si = action
-        return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si]}
+        wi, si, ri = action
+        return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
+                'radar': _RADAR_OPTS[ri]}
 
     def _run_engine(self):
         cfg = dict(self.base_cfg)
@@ -166,7 +170,7 @@ class BattleEnv(gym.Env):
 
     def step(self, action):
         a = np.asarray(action).ravel()
-        self._act_q.put((int(a[0]), int(a[1])))
+        self._act_q.put((int(a[0]), int(a[1]), int(a[2])))
         nxt = self._obs_q.get()
         if nxt is None:                      # 에피소드 종료
             r = self._result or {}

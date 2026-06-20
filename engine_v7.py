@@ -4966,6 +4966,18 @@ class BattleEngine(TimeStepEngine):
             elif not self._mc_mode:
                 self._log(f"[무장 소진·복귀] {et.preset_name} 재무장 위해 전장 이탈")
 
+    def _apply_tactical_choice(self, choice: dict):
+        """전장 모드 전술 선택 — 부모(무기 우선순위·살보)에 전장 전용 레버를 얹는다.
+        부모 무수정: 기존 radar_off_until 상태를 BattleEngine에서만 능동 제어."""
+        super()._apply_tactical_choice(choice)
+        if not choice:
+            return
+        # v15.11.01: 능동 레이더 OFF — ARM 회피 위해 수동으로 레이더 차단.
+        # 다음 결정까지(_tactical_interval) 유지. 'on'은 강제 점등 안 함(자동 ARM 회피 보존).
+        if choice.get('radar') == 'off':
+            p = self._primary()
+            p.radar_off_until = max(p.radar_off_until, self.t + self._tactical_interval)
+
     def _enemy_combat_loss_value(self) -> float:
         """전투로 격침된 적 플랫폼 전력가치(USD) 합. 자발 이탈·재무장 복귀(intercepted=False)는
         제외 — 손실로 오인하면 격침 0인데도 철수가 발동된다. (격침 표식 = intercepted)"""
