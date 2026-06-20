@@ -46,6 +46,8 @@ _TARGET_OPTS = ['auto', 'nearest', 'fastest', 'leakers']
 _MANEUVER_OPTS = ['passive', 'normal', 'aggressive']
 # CAP 전개 자세: forward=공세(멀리·자주, AAM조기소진) / normal=현행 / defensive=AAM절약(가까이·드물게).
 _CAP_OPTS = ['forward', 'normal', 'defensive']
+# ECM 자세: off=미사용 / normal=현행(적미사일 Pk -30%) / strong=강(-45%). 탄도·HGV·ARM엔 무효.
+_ECM_OPTS = ['off', 'normal', 'strong']
 
 _N_FEAT = 9   # 관측 피처 수 (집계)
 
@@ -92,7 +94,8 @@ class BattleEnv(gym.Env):
 
         self.action_space = spaces.MultiDiscrete(
             [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS),
-             len(_TARGET_OPTS), len(_MANEUVER_OPTS), len(_CAP_OPTS)])
+             len(_TARGET_OPTS), len(_MANEUVER_OPTS), len(_CAP_OPTS),
+             len(_ECM_OPTS)])
         self.observation_space = spaces.Box(
             low=-1.0, high=np.inf, shape=(_N_FEAT,), dtype=np.float32)
 
@@ -109,10 +112,11 @@ class BattleEnv(gym.Env):
         action = self._act_q.get()           # env.step()이 넣을 때까지 블록
         if action is None:                   # reset/close 신호
             raise _EnvAbort()
-        wi, si, ri, ti, mi, ci = action
+        wi, si, ri, ti, mi, ci, ei = action
         return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
                 'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
-                'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci]}
+                'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci],
+                'ecm': _ECM_OPTS[ei]}
 
     def _run_engine(self):
         cfg = dict(self.base_cfg)
@@ -180,7 +184,7 @@ class BattleEnv(gym.Env):
     def step(self, action):
         a = np.asarray(action).ravel()
         self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3]),
-                         int(a[4]), int(a[5])))
+                         int(a[4]), int(a[5]), int(a[6])))
         nxt = self._obs_q.get()
         if nxt is None:                      # 에피소드 종료
             r = self._result or {}

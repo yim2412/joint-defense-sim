@@ -5002,6 +5002,17 @@ class BattleEngine(TimeStepEngine):
         cp = choice.get('cap_posture')
         if cp in ('forward', 'normal', 'defensive'):
             self._cap_posture = cp
+        # v15.11.05: ECM 자세 — 부모 ECM 로직(_check_hits)이 cfg를 읽음(코드 무수정).
+        # off=미사용 / normal=현행(Pk -30%) / strong=강(Pk -45%). 탄도·HGV·ARM엔 무효.
+        ecm = choice.get('ecm')
+        if ecm == 'off':
+            self.cfg['enable_ecm'] = False
+        elif ecm == 'strong':
+            self.cfg['enable_ecm'] = True
+            self.cfg['ecm_scale'] = 1.5
+        elif ecm == 'normal':
+            self.cfg['enable_ecm'] = True
+            self.cfg['ecm_scale'] = 1.0
 
     def _apply_ship_evasion(self):
         """전장 모드 함대 기동 자세 — `_evasion_posture`에 따라 회피 적극도 조절.
