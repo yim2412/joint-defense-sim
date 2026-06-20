@@ -390,6 +390,21 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 
 > **5.1 설계 입력**: (a) horizon 상향은 짧은 시나리오엔 무효 → 종료조건을 "시간만료=draw"에서 재검토(긴 전장서 시간만료 draw가 적절한가). (b) 화력 소진 조기종료는 5.2 의존. (c) 재무장/재출격은 항모 편제 없이는 죽은 코드 → 5.4와 묶어 평가.
 
+### 5.1 설계 (합의 2026-06-21 — horizon 7200s 결정)
+
+**변경 3가지:**
+
+1. **루프 상한 인스턴스화** (부모 최소 침습) — `TimeStepEngine.__init__`에 `self._sim_time_cap = MAX_SIM_TIME` 추가, `run()` 루프(4266)·step_cb(4369)를 `self._sim_time_cap` 참조로. `BattleEngine.__init__`에서 `self._sim_time_cap = int(self.horizon_s) + 60`으로 상향. **단발은 기본값이 `MAX_SIM_TIME`으로 동일 → bit-identical**. "부모 무수정" 원칙은 한 줄 양보(동작 보존) — `run()` 전체 복붙 오버라이드보다 안전.
+2. **horizon 기본값 상향** — `BATTLE_HORIZON_S` 1800 → **7200** (cfg `battle_horizon_s` 조정 유지). 짧은 시나리오는 자연종료라 무영향, 긴 시나리오만 자연 결판까지.
+3. **종료 의미 정정** (동작 변경 아님) — 5253 메시지 "자산 방어 성공" → "작전 시간 종료 — 목표 기반 판정". 실제 승패는 `_score_outcome`이 판정(시간만료 draw = 양측 결판 안 남).
+
+**영향·주의:** 회귀=단발 bit-identical 예상(`verify_regression` 재확인). 감사=엔진 변경이라 `verify_regression`+`/code-review medium`. RL 비용=균형풀 6개 중 4개(전면전·중국3축·러시아·쓰시마) 에피소드 최대 4배 → **`tactical_interval` 조정은 5.1 범위 밖, 5.5에서**. launcher 전장 horizon UI 없음(코드 기본값만 반영).
+
+**구현 결과 (2026-06-21 완료):** 변경 ①②③ + 코드리뷰 발견 1건 수정. 회귀 PASS(단발 bit-identical).
+- **④ 연료 horizon 연동** (`/code-review medium` 발견) — `_FUEL_STD_BURN_1800`(0.40)이 1800s 앵커라 horizon 7200s에서 비원자력함 연료가 종료 전 0 포화 → 지속성 목표가 상수화돼 friendly_score 왜곡. `_fuel_update`의 순항 소모분에 `1800/horizon` 스케일 적용(회피 추가분은 누적 상한 있어 미스케일, horizon=1800이면 scale=1.0 동작 보존).
+- **5.0 결과 정정**: 5.0 관찰표의 "전면전 6764s **loss**(0.356)"는 연료 미연동(버그) 상태 값. 연료 연동 후 진짜 결과는 **draw(0.473)·지속성 0.699**(표준함 잔여 0.60 설계의도 일치). 즉 1800 컷오프의 가짜 draw도, 미연동 연료의 가짜 loss도 제거 → 5.1이 충실도를 양방향으로 교정.
+- **출하 방침**: Phase 4 RL 선례 따라 소스만 커밋(changelog/APP_VERSION/빌드는 Phase 5 블록 완료 시 일괄).
+
 ## 보류 메모
 
 - **보상 shaping**: rl_env `reward_shaping` 토글로 구현 완료, **현 짧은 전장에선 역효과(기본 OFF)**. 작전급 긴 전장(5.1+) 도입 후 재시도 후보 — 긴 에피소드에선 중간보상이 종료보상을 안 희석할 수 있음.

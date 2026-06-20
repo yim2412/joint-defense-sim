@@ -1291,6 +1291,9 @@ class TimeStepEngine:
     def __init__(self, cfg: dict, step_cb=None):
         self.cfg     = cfg
         self.t       = 0.0
+        # 시뮬 루프 시간 상한(초). 단발 교전은 MAX_SIM_TIME 그대로(동작 보존),
+        # 지속 전장(BattleEngine)은 작전급 horizon에 맞춰 상향 오버라이드(Phase 5.1).
+        self._sim_time_cap = MAX_SIM_TIME
         self._step_cb       = step_cb   # (t, t_max, alive, vls, last_log) — 단일 시뮬 진행 콜백
         self._phase_times: dict = {}    # 단계별 누적 실행 시간 (perf_counter 기반)
         # v10.7: 전술 의사결정 모드
@@ -4263,7 +4266,7 @@ class TimeStepEngine:
         _pc = _time.perf_counter
         _step_interval = 20   # step_cb 호출 간격(초) — 단일 시뮬 UI 갱신용
 
-        while self.t <= MAX_SIM_TIME:
+        while self.t <= self._sim_time_cap:
             # v12.5: 동적 기상 전이 판정
             if self._wx_dyn_enabled and self.t >= self._wx_next_check:
                 self._update_weather()
@@ -4366,7 +4369,7 @@ class TimeStepEngine:
                 vls_rem = sum(
                     getattr(s, 'vls_remaining', 0) for s in self.friendly_ships)
                 last_log = self._log_entries[-1][1] if self._log_entries else ""
-                self._step_cb(self.t, MAX_SIM_TIME, alive_count, vls_rem, last_log)
+                self._step_cb(self.t, self._sim_time_cap, alive_count, vls_rem, last_log)
 
             if self._is_over():
                 break
@@ -4814,8 +4817,9 @@ def run_v7_simulation(cfg: dict, step_cb=None, tactical_cb=None) -> dict:
 #  정본 설계: plan_battle_engine.md
 # ════════════════════════════════════════════════════════════════════════════
 
-# 표준 전장 시간 지평(초) — 단발 ~40s보다 충분히 길고 작전급(수 시간)보다 짧음
-BATTLE_HORIZON_S = 1800
+# 표준 전장 시간 지평(초) — Phase 5.1: 1800→7200(2h). 1800 컷오프가 자연 결판 전
+# 전장을 끊어 가짜 draw 생성(전면전 실측 6764s 자연종료) → 작전급으로 상향.
+BATTLE_HORIZON_S = 7200
 
 # 자원 지속성 평가에서 무제한 탄(CIWS 초기 9999 등)을 거르는 임계 — 이 값 이상이면 제외
 _BATTLE_INF_AMMO = 1000
@@ -4863,6 +4867,9 @@ class BattleEngine(TimeStepEngine):
     def __init__(self, cfg: dict, step_cb=None):
         super().__init__(cfg, step_cb=step_cb)
         self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
+        # Phase 5.1: 루프 시간 상한을 horizon에 맞춰 상향(부모 기본 MAX_SIM_TIME으로는 horizon 전 끊김).
+        # +60s 여유 — 마지막 틱에서 horizon 도달 종료가 정상 판정되도록.
+        self._sim_time_cap = int(self.horizon_s) + 60
         self._enforce_wing_cap = True   # v15.09.01: 전장 모드는 항모 항공단 규모만큼만 함재기 발진
         # v15.09.02: 재출격 사이클 — 무장 소진 이탈한 함재기가 모항 귀환→재무장 지연 후 재발진.
         # 실제 항모 갑판 재무장 사이클 ~45분(기본 30분 전장선 거의 휴면, 작전급 긴 전장서 발현).
@@ -5158,10 +5165,15 @@ class BattleEngine(TimeStepEngine):
 
     def _fuel_update(self):
         """매 틱 연료 소모 — 순항 기본분 + 회피 기동 추가분(틱당 고정·누적 상한). 원자력·격침 제외."""
+        # Phase 5.1: 순항 소모를 horizon에 연동. _fuel_burn_per_s는 1800s 앵커라 긴 전장
+        # (7200s)에선 종료 전 0 포화 → 지속성 목표가 상수화됨. 1800/horizon으로 스케일해
+        # 전장 길이와 무관하게 "종료 시 잔여 0.60(표준함)" 설계 의도를 유지(회귀 시 1.0).
+        # 회피 추가분은 누적 상한(_FUEL_MANEUVER_CAP)이 있어 horizon에 이미 robust — 미스케일.
+        cruise_scale = 1800.0 / self.horizon_s if self.horizon_s > 0 else 1.0
         for s in self.friendly_ships:
             if not s.alive or s._nuclear:
                 continue
-            burn = s._fuel_burn_per_s * DT
+            burn = s._fuel_burn_per_s * DT * cruise_scale
             # 아군 함정은 평상시 고정 진형 — pos가 1m 넘게 변하면 이번 틱 회피 기동 발생.
             # 회피 점프 거리는 추상값이라 거리 비례 대신 틱당 고정량으로 과금(누적 상한 적용).
             if s._prev_fuel_pos is not None and s.pos.dist_to(s._prev_fuel_pos) > 1.0:
@@ -5252,7 +5264,7 @@ class BattleEngine(TimeStepEngine):
             return True
         if self.t >= self.horizon_s:
             if not self._mc_mode:
-                self._log(f"[종료] 작전 시간({int(self.horizon_s)}s) 도달 — 자산 방어 성공")
+                self._log(f"[종료] 작전 시간({int(self.horizon_s)}s) 종료 — 목표 기반 판정")
             return True
         # 적 위협 소멸 판정 → 아군 승. 무장 소진(복귀 중)·전면 철수 발령 위협은 제외.
         # (v15.08.04: 압박 유지로 재접근하는 위협은 무장 남는 한 활성 — max_reattacks 캡 폐지)
