@@ -83,8 +83,12 @@ class BattleEnv(gym.Env):
 
     metadata = {'render_modes': []}
 
-    def __init__(self, cfg: dict | None = None, tactical_interval: int = 30):
+    def __init__(self, cfg: dict | None = None, tactical_interval: int = 30,
+                 reward_shaping: bool = False):
+        # reward_shaping 기본 OFF: 현 짧은 전장에선 중간보상이 종료보상을 희석해
+        # 오히려 평균 하락(+0.037→+0.022). 토글은 유지 — 작전급 긴 전장(진짜 전장)서 재시도.
         super().__init__()
+        self.reward_shaping = reward_shaping
         self.base_cfg = dict(cfg or _DEFAULT_CFG)
         self.base_cfg['enable_battle_mode'] = True
         self.base_cfg['tactical_interval'] = int(tactical_interval)
@@ -170,6 +174,25 @@ class BattleEnv(gym.Env):
         ]
         return np.asarray(feats, dtype=np.float32)
 
+    @staticmethod
+    def _fleet_hp(state) -> float:
+        """함대 생존 HP 합(정규화 분모 없이 절대량) — 피해 델타 계산용."""
+        if state is None:
+            return 0.0
+        return float(sum(s.get('hp', 0) for s in (state.ships or []) if s.get('alive')))
+
+    def _shaping_reward(self, prev, cur) -> float:
+        """포텐셜 기반 중간 보상 — 종료 보상(friendly_score)을 왜곡하지 않게 작게.
+        신규 요격(+)·함대 피해(−)만. 한 에피소드 합이 ±0.2 이내가 되도록 계수 보수적."""
+        if not self.reward_shaping or prev is None or cur is None:
+            return 0.0
+        d_intc = max(0, (cur.intercepted or 0) - (prev.intercepted or 0))
+        d_hp   = self._fleet_hp(cur) - self._fleet_hp(prev)   # 피해면 음수
+        # 요격 1건 +0.01, 함대 HP 1단위 손실 -0.02 (피해 회피를 요격보다 중시)
+        r = 0.01 * d_intc + 0.02 * min(0.0, d_hp)
+        # 단일 스텝 보상 클립(폭주 방지) — 종료 보상 대비 작게 유지
+        return float(max(-0.05, min(0.05, r)))
+
     # ── gym API ──────────────────────────────────────────────────────────────
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -201,9 +224,10 @@ class BattleEnv(gym.Env):
                     'friendly_score': fscore,
                     'enemy_score': float(r.get('enemy_score', 0.0)),
                     'preset': self._ep_preset}
-            return obs, fscore, True, False, info   # 종료 보상 = friendly_score
+            return obs, fscore, True, False, info   # 종료 보상 = friendly_score(지배적)
+        shaped = self._shaping_reward(self._last_state, nxt)  # 중간 진행 신호(작게)
         self._last_state = nxt
-        return self._featurize(nxt), 0.0, False, False, {}   # 중간 보상 0 (1단계)
+        return self._featurize(nxt), shaped, False, False, {}
 
     def close(self):
         self._stop_thread()

@@ -15,3 +15,4 @@ app_state.json
 # Cesium ion 액세스 토큰 (개인 키 — 절대 커밋 금지)
 cesium_token.txt
 _rl_ppo_model.zip
+_rl_train_*.log

@@ -29,7 +29,7 @@ def eval_baseline():
     """전부 기본값 고정 정책(auto·salvo2·radar on·target auto·maneuver/cap normal)."""
     cb = lambda s: {'weapon_priority': 'auto', 'max_salvo': 2, 'radar': 'on',
                     'target_priority': 'auto', 'maneuver': 'normal',
-                    'cap_posture': 'normal'}
+                    'cap_posture': 'normal', 'ecm': 'normal'}
     rows = {}
     for p in _BALANCED_PRESETS:
         scores = []
