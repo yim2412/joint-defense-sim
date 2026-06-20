@@ -184,6 +184,13 @@ class BattleEnv(gym.Env):
         self._stop_thread()
 
 
+def make_env(cfg: dict | None = None, tactical_interval: int = 30):
+    """SubprocVecEnv용 env 팩토리 (모듈 레벨 — Windows spawn 재import 시 picklable)."""
+    def _init():
+        return BattleEnv(cfg, tactical_interval)
+    return _init
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  스모크 / 속도 측정 (설치 후: python rl_env.py)
 # ════════════════════════════════════════════════════════════════════════════
@@ -221,6 +228,21 @@ def _smoke_ppo(timesteps: int = 10_000):
     env.close()
 
 
+def _smoke_vec(n_envs: int = 8, timesteps: int = 40_000):
+    """SubprocVecEnv 병렬 PPO — 단일 대비 가속비 측정 (Windows spawn 검증)."""
+    import time
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import SubprocVecEnv
+    venv = SubprocVecEnv([make_env() for _ in range(n_envs)])
+    # n_steps×n_envs = 업데이트당 롤아웃. 작게 둬 측정 중 최소 1회 업데이트 보장.
+    model = PPO('MlpPolicy', venv, device='cpu', verbose=0, n_steps=256)
+    t0 = time.perf_counter()
+    model.learn(total_timesteps=timesteps)
+    dt = time.perf_counter() - t0
+    print(f'VecPPO {n_envs}env {timesteps} 스텝: {dt:.1f}s → {timesteps/dt:.0f} 스텝/s')
+    venv.close()
+
+
 if __name__ == '__main__':
     import sys
     mode = sys.argv[1] if len(sys.argv) > 1 else 'random'
@@ -228,5 +250,8 @@ if __name__ == '__main__':
         _smoke_random()
     elif mode == 'ppo':
         _smoke_ppo()
+    elif mode == 'vec':
+        n = int(sys.argv[2]) if len(sys.argv) > 2 else 8
+        _smoke_vec(n_envs=n)
     else:
-        print('usage: python rl_env.py [random|ppo]')
+        print('usage: python rl_env.py [random|ppo|vec [n_envs]]')
