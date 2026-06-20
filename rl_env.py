@@ -41,12 +41,24 @@ _SALVO_OPTS = [1, 2, 3, 4]
 
 _N_FEAT = 9   # 관측 피처 수 (집계)
 
-# 1단계 표준 학습 시나리오 (적 시나리오 고정 — 강건화는 다음 단계에서 랜덤화)
+# 균형 학습 시나리오 풀 — 행동 민감도 진단(_rl_scenario_probe.py)으로 선별.
+# score가 중간대(0.1~0.7)면서 약↔강 정책에 따라 outcome/score가 실제로 갈리는
+# 매치업만. 항모전단(0.0~0.05 전패)·BMD/극초음속(0.9+ 전승)은 구배가 없어 제외.
+# reset마다 이 풀에서 무작위 추출 → 단일 국면 과적합 방지 + 강건한 정책 학습.
+_BALANCED_PRESETS = [
+    '전면전 포화',          # 약 win ↔ 강 loss (승패 갈림)
+    '중국 3축 동시 공격',   # draw ↔ win
+    '러시아 해군 입체',     # 큰 민감도
+    '쓰시마 봉쇄 돌파',     # win ↔ draw
+    '북한 포화 공격 (40발)',  # 경계
+    '수상함 편대전',        # 민감도 최대(약↔강 +0.106)
+]
+
+# 표준 학습 시나리오 (enemy_fleet_preset 미지정 → reset이 풀에서 무작위 추출).
 _DEFAULT_CFG = dict(
     fleet_region='동해 북부', season='summer', weather='맑음 (주간)',
     enable_munition_limit=True, enable_battle_mode=True,
     enemy_fleet_mode='preset', fleet_preset='이지스 기동전단',
-    enemy_fleet_preset='랴오닝 항모전단',
     n_threads=4, cd_time_s=10, confirm_time_s=3,
 )
 
@@ -65,6 +77,9 @@ class BattleEnv(gym.Env):
         self.base_cfg = dict(cfg or _DEFAULT_CFG)
         self.base_cfg['enable_battle_mode'] = True
         self.base_cfg['tactical_interval'] = int(tactical_interval)
+        # enemy_fleet_preset 직접 지정 시 고정, 아니면 균형 풀에서 매 에피소드 추출.
+        self._fixed_preset = self.base_cfg.get('enemy_fleet_preset')
+        self._ep_preset = self._fixed_preset or _BALANCED_PRESETS[0]
 
         self.action_space = spaces.MultiDiscrete([len(_WPN_PRIORITY), len(_SALVO_OPTS)])
         self.observation_space = spaces.Box(
@@ -87,9 +102,11 @@ class BattleEnv(gym.Env):
         return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si]}
 
     def _run_engine(self):
+        cfg = dict(self.base_cfg)
+        cfg['enemy_fleet_preset'] = self._ep_preset
         try:
             self._result = run_battle_simulation(
-                dict(self.base_cfg), tactical_cb=self._tactical_cb)
+                cfg, tactical_cb=self._tactical_cb)
         except _EnvAbort:
             self._result = None
             return
@@ -132,6 +149,10 @@ class BattleEnv(gym.Env):
     # ── gym API ──────────────────────────────────────────────────────────────
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        # 고정 모드가 아니면 균형 풀에서 이번 에피소드 적 편대 추출(seed 결정론).
+        if not self._fixed_preset:
+            i = int(self.np_random.integers(len(_BALANCED_PRESETS)))
+            self._ep_preset = _BALANCED_PRESETS[i]
         self._stop_thread()
         self._obs_q = queue.Queue()
         self._act_q = queue.Queue()
@@ -153,7 +174,8 @@ class BattleEnv(gym.Env):
             obs = self._featurize(self._last_state)
             info = {'outcome': r.get('outcome'),
                     'friendly_score': fscore,
-                    'enemy_score': float(r.get('enemy_score', 0.0))}
+                    'enemy_score': float(r.get('enemy_score', 0.0)),
+                    'preset': self._ep_preset}
             return obs, fscore, True, False, info   # 종료 보상 = friendly_score
         self._last_state = nxt
         return self._featurize(nxt), 0.0, False, False, {}   # 중간 보상 0 (1단계)
@@ -180,8 +202,8 @@ def _smoke_random(episodes: int = 3):
             done = term or trunc
             steps += 1
             total_r += r
-        print(f'  ep{ep}: {steps} 결정, 보상 {total_r:.3f}, '
-              f"outcome={info.get('outcome')} fscore={info.get('friendly_score')}")
+        print(f"  ep{ep}: [{info.get('preset')}] {steps} 결정, 보상 {total_r:.3f}, "
+              f"outcome={info.get('outcome')} fscore={info.get('friendly_score'):.3f}")
     env.close()
 
 
