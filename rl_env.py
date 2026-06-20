@@ -49,7 +49,7 @@ _CAP_OPTS = ['forward', 'normal', 'defensive']
 # ECM 자세: off=미사용 / normal=현행(적미사일 Pk -30%) / strong=강(-45%). 탄도·HGV·ARM엔 무효.
 _ECM_OPTS = ['off', 'normal', 'strong']
 
-_N_FEAT = 9   # 관측 피처 수 (집계)
+_N_FEAT = 14   # 관측 피처 수 (집계 9 + 위협구성·자원 5)
 
 # 균형 학습 시나리오 풀 — 행동 민감도 진단(_rl_scenario_probe.py)으로 선별.
 # score가 중간대(0.1~0.7)면서 약↔강 정책에 따라 outcome/score가 실제로 갈리는
@@ -150,6 +150,7 @@ class BattleEnv(gym.Env):
         fleet_hp = float(sum(s.get('hp', 0) for s in alive_ships))
         tot = state.total_threats or 0
         irate = (state.intercepted / tot) if tot else 0.0
+        ex = getattr(state, 'extra', None) or {}
         feats = [
             len(threats) / 20.0,               # 생존 위협 수
             min(dists) / 500.0,                # 최근접 거리
@@ -160,6 +161,12 @@ class BattleEnv(gym.Env):
             irate,                             # 요격률
             (state.shots_fired or 0) / 100.0,  # 발사 수
             (state.t or 0.0) / 1800.0,         # 진행도
+            # 위협 구성·자원 (전장 모드 extra — 레버 상황 적응용)
+            ex.get('leaker_frac', 0.0),        # 탄도·HGV 비율(ECM 무효)
+            ex.get('asm_inflight', 0.0),       # 비행 중 대함미사일 수(ECM 유효 표적)
+            ex.get('aircraft_frac', 0.0),      # 항공 위협 비율(CAP·표적)
+            ex.get('ammo_frac', 1.0),          # 탄약 잔여비(살보·절약)
+            ex.get('fuel_frac', 1.0),          # 연료 잔여비(기동 적극도)
         ]
         return np.asarray(feats, dtype=np.float32)
 

@@ -147,6 +147,7 @@ class TacticalState:
     intercepted: int    # 현재까지 요격 수
     total_threats: int  # 총 위협 수
     shots_fired: int    # 현재까지 발사 수
+    extra: dict = None  # 전장 모드 RL 보조 관측(위협 구성·자원). 부모는 None(단발 무영향)
 INTERCEPT_DIST_M = 200    # BUG-5: SAM 근접 신관 범위 (m). 기존 2000m 과대, 실제 50-200m
 ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km 과대)
 DECOY_PK         = 0.50   # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
@@ -5013,6 +5014,24 @@ class BattleEngine(TimeStepEngine):
         elif ecm == 'normal':
             self.cfg['enable_ecm'] = True
             self.cfg['ecm_scale'] = 1.0
+
+    def _make_tactical_state(self) -> 'TacticalState':
+        """전장 모드 RL 보조 관측 — 부모 스냅샷에 위협 구성·자원 잔여를 extra로 추가.
+        정책이 레버를 상황별로 쓰게 한다(ECM↔탄도비율, 기동↔연료, 살보↔탄약)."""
+        st = super()._make_tactical_state()
+        en_msl = [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike']
+        n_msl = len(en_msl)
+        leakers = sum(1 for m in en_msl if m.is_ballistic or m.is_hgv)  # ECM 무효
+        n_thr = sum(1 for et in self.enemy_threats if et.alive)
+        n_air = sum(1 for et in self.enemy_threats if et.alive and et.is_aircraft)
+        st.extra = {
+            'leaker_frac':   (leakers / n_msl) if n_msl else 0.0,
+            'asm_inflight':  (n_msl - leakers) / 20.0,        # ECM 유효 미사일 수(정규화)
+            'aircraft_frac': (n_air / n_thr) if n_thr else 0.0,
+            'ammo_frac':     getattr(self, '_ammo_frac', 1.0),
+            'fuel_frac':     getattr(self, '_fuel_frac', 1.0),
+        }
+        return st
 
     def _apply_ship_evasion(self):
         """전장 모드 함대 기동 자세 — `_evasion_posture`에 따라 회피 적극도 조절.
