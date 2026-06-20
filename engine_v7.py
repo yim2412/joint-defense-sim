@@ -2819,6 +2819,22 @@ class TimeStepEngine:
                 self._thaad_last_fire = self.t
                 sams_on += 1
 
+    def _target_sort_key(self, obj, primary_pos):
+        """위협 교전 우선순위 정렬 키 (sorted reverse=True, 클수록 먼저 교전).
+        기본 = 임박도(speed / 교전창 잔여거리). BattleEngine이 오버라이드해
+        표적 우선순위 전술을 주입한다 — 부모 동작 보존 훅(v15.11.02)."""
+        is_bal = getattr(obj, 'is_ballistic', False)
+        is_hgv = getattr(obj, 'is_hgv',       False)
+        is_qbm = getattr(obj, 'is_qbm',       False)
+        if is_bal or is_hgv:
+            floor = 150_000.0   # SM-3 중간단계 교전창 하한 ~150km
+        elif is_qbm:
+            floor = 20_000.0    # SM-6 최소 교전거리 ~20km
+        else:
+            floor = 5_000.0     # CIWS/RAM 최소 교전거리 ~5km
+        d_eff = max(obj.pos.dist_to(primary_pos) - floor, 200.0)
+        return getattr(obj, 'speed_ms', 300.0) / d_eff
+
     def _friendly_defense(self):
         """
         다층 방어 (enable_layered_defense=True, 기본 ON):
@@ -2840,23 +2856,7 @@ class TimeStepEngine:
         layered = self.cfg.get('enable_layered_defense', True) and not cec_jammed
 
         primary_pos = self._primary().pos
-
-        def _urgency(obj):
-            # 임박도 = speed / 교전창 잔여 거리 (교전창 하한 근접 시 임박도 급증)
-            # floor: 해당 위협 유형의 최소 유효 교전 거리 — 이 거리 이하엔 주 요격 무기 사용 불가
-            # 기존 speed/dist 공식은 탄도탄이 SM-3 교전창 끝에 가까울수록 순항미사일 대비
-            # urgency 비율이 오히려 하락하는 역전 현상 발생 → floor 도입으로 수정
-            is_bal = getattr(obj, 'is_ballistic', False)
-            is_hgv = getattr(obj, 'is_hgv',       False)
-            is_qbm = getattr(obj, 'is_qbm',       False)
-            if is_bal or is_hgv:
-                floor = 150_000.0   # SM-3 중간단계 교전창 하한 ~150km
-            elif is_qbm:
-                floor = 20_000.0    # SM-6 최소 교전거리 ~20km
-            else:
-                floor = 5_000.0     # CIWS/RAM 최소 교전거리 ~5km
-            d_eff = max(obj.pos.dist_to(primary_pos) - floor, 200.0)
-            return getattr(obj, 'speed_ms', 300.0) / d_eff
+        _urgency = lambda obj: self._target_sort_key(obj, primary_pos)  # noqa: E731
 
         # 다층 방어 우선순위 정렬 (B2=0, B1=1, KDX-II=2, FFX-III=3, FFX-II=4, FFX-I=5, 나머지=99)
         if layered:
@@ -4977,6 +4977,29 @@ class BattleEngine(TimeStepEngine):
         if choice.get('radar') == 'off':
             p = self._primary()
             p.radar_off_until = max(p.radar_off_until, self.t + self._tactical_interval)
+        # v15.11.02: 표적 우선순위 전술 — _target_sort_key 오버라이드가 읽는다.
+        tp = choice.get('target_priority')
+        if tp and tp != 'auto':
+            self.cfg['_tactical_target_priority'] = tp
+        else:
+            self.cfg.pop('_tactical_target_priority', None)
+
+    def _target_sort_key(self, obj, primary_pos):
+        """전장 모드 표적 우선순위 전술 — cfg `_tactical_target_priority`에 따라 정렬 키 변경.
+        모두 sorted(reverse=True) 내림차순 기준(클수록 먼저 교전). auto면 부모 임박도."""
+        pri = self.cfg.get('_tactical_target_priority', 'auto')
+        if pri == 'auto':
+            return super()._target_sort_key(obj, primary_pos)
+        dist = max(obj.pos.dist_to(primary_pos), 200.0)
+        if pri == 'nearest':                       # 최근접 우선
+            return 1.0 / dist
+        if pri == 'fastest':                       # 고속 위협 우선
+            return getattr(obj, 'speed_ms', 300.0)
+        if pri == 'leakers':                       # 탄도·HGV(누출 위험 큰 것) 우선
+            lead = 1e6 if (getattr(obj, 'is_ballistic', False)
+                           or getattr(obj, 'is_hgv', False)) else 0.0
+            return lead + getattr(obj, 'speed_ms', 300.0) / dist
+        return super()._target_sort_key(obj, primary_pos)
 
     def _enemy_combat_loss_value(self) -> float:
         """전투로 격침된 적 플랫폼 전력가치(USD) 합. 자발 이탈·재무장 복귀(intercepted=False)는

@@ -40,6 +40,8 @@ _WPN_PRIORITY = [
 _SALVO_OPTS = [1, 2, 3, 4]
 # 레이더 자세: on=자동(ARM 회피는 엔진 자동 유지) / off=능동 차단(ARM 회피 ↔ 탐지 손실).
 _RADAR_OPTS = ['on', 'off']
+# 표적 우선순위: auto=임박도(기본) / nearest=최근접 / fastest=고속 / leakers=탄도·HGV 우선.
+_TARGET_OPTS = ['auto', 'nearest', 'fastest', 'leakers']
 
 _N_FEAT = 9   # 관측 피처 수 (집계)
 
@@ -84,7 +86,7 @@ class BattleEnv(gym.Env):
         self._ep_preset = self._fixed_preset or _BALANCED_PRESETS[0]
 
         self.action_space = spaces.MultiDiscrete(
-            [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS)])
+            [len(_WPN_PRIORITY), len(_SALVO_OPTS), len(_RADAR_OPTS), len(_TARGET_OPTS)])
         self.observation_space = spaces.Box(
             low=-1.0, high=np.inf, shape=(_N_FEAT,), dtype=np.float32)
 
@@ -101,9 +103,9 @@ class BattleEnv(gym.Env):
         action = self._act_q.get()           # env.step()이 넣을 때까지 블록
         if action is None:                   # reset/close 신호
             raise _EnvAbort()
-        wi, si, ri = action
+        wi, si, ri, ti = action
         return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
-                'radar': _RADAR_OPTS[ri]}
+                'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti]}
 
     def _run_engine(self):
         cfg = dict(self.base_cfg)
@@ -170,7 +172,7 @@ class BattleEnv(gym.Env):
 
     def step(self, action):
         a = np.asarray(action).ravel()
-        self._act_q.put((int(a[0]), int(a[1]), int(a[2])))
+        self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3])))
         nxt = self._obs_q.get()
         if nxt is None:                      # 에피소드 종료
             r = self._result or {}
