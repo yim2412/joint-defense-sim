@@ -3575,13 +3575,18 @@ class TimeStepEngine:
                     f"— {retry_s}초 후 재시도 ({ac._detect_fails}/{max_att})"
                 )
 
+    def _cap_posture_factors(self):
+        """CAP 전개 자세 → (패트롤 반경 배율, 교전 후 쿨다운 초). 부모는 현행 고정값."""
+        return (1.0, 60.0)
+
     def _aircraft_cap(self):
         """
         v10.5: 한국 공군 CAP — 적 항공기 BVR 요격.
-        idle → (적 항공기 패트롤 반경 진입) → AAM 교전(즉시 Pk 판정) → 60s cooldown → idle
+        idle → (적 항공기 패트롤 반경 진입) → AAM 교전(즉시 Pk 판정) → cooldown → idle
         """
         primary = self._primary()
         weather = self.cfg.get('weather', '맑음 (주간)')
+        cap_rscale, cap_cooldown = self._cap_posture_factors()
         for ac in self.aircraft:
             if ac.info.get('aircraft_role', 'asw') != 'cap':
                 continue
@@ -3594,7 +3599,7 @@ class TimeStepEngine:
             if self.t < ac._next_attempt:
                 continue
 
-            patrol_m   = ac.info.get('cap_patrol_radius_km', 500) * 1000
+            patrol_m   = ac.info.get('cap_patrol_radius_km', 500) * 1000 * cap_rscale
             aam_range_m= ac.info.get('cap_aam_range_km', 100) * 1000
             aam_pk     = ac.info.get('cap_aam_pk', 0.55)
             base_dist_m= ac.info.get('base_dist_km', 300) * 1000
@@ -3630,8 +3635,8 @@ class TimeStepEngine:
                         f"{wpn_name} 교전 실패 (거리 {dist_threat/1000:.0f}km, Pk {aam_pk:.0%})"
                     )
 
-                # 교전 후 선회·재장전 cooldown
-                ac._next_attempt = self.t + 60.0
+                # 교전 후 선회·재장전 cooldown (자세에 따라 가변)
+                ac._next_attempt = self.t + cap_cooldown
                 break  # 한 tick당 한 표적
 
     def _aircraft_aas(self):
@@ -4993,6 +4998,10 @@ class BattleEngine(TimeStepEngine):
         mv = choice.get('maneuver')
         if mv in ('passive', 'normal', 'aggressive'):
             self._evasion_posture = mv
+        # v15.11.04: CAP 전개 자세 — _cap_posture_factors 오버라이드가 읽는다.
+        cp = choice.get('cap_posture')
+        if cp in ('forward', 'normal', 'defensive'):
+            self._cap_posture = cp
 
     def _apply_ship_evasion(self):
         """전장 모드 함대 기동 자세 — `_evasion_posture`에 따라 회피 적극도 조절.
@@ -5005,6 +5014,16 @@ class BattleEngine(TimeStepEngine):
             super()._apply_ship_evasion(evade_r_base=22_000, jump_lo=500.0, jump_hi=1300.0)
         else:
             super()._apply_ship_evasion()
+
+    def _cap_posture_factors(self):
+        """전장 모드 CAP 전개 자세 — `_cap_posture`에 따라 패트롤 반경·쿨다운 조절.
+        forward=공세(멀리·자주 차단, AAM 조기소진) / normal=현행 / defensive=AAM 절약(가까이·드물게)."""
+        posture = getattr(self, '_cap_posture', 'normal')
+        if posture == 'forward':
+            return (1.4, 40.0)
+        if posture == 'defensive':
+            return (0.6, 90.0)
+        return (1.0, 60.0)
 
     def _target_sort_key(self, obj, primary_pos):
         """전장 모드 표적 우선순위 전술 — cfg `_tactical_target_priority`에 따라 정렬 키 변경.

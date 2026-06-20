@@ -26,7 +26,7 @@ def _cb(posture):
 
 
 def run(preset, posture, seed):
-    cfg = dict(_BASE, enemy_fleet_preset=preset, seed=seed)
+    cfg = dict(_BASE, enemy_fleet_preset=preset, sim_seed=seed)
     r = run_battle_simulation(cfg, tactical_cb=_cb(posture))
     tl = r.get('timeline', {})
     return (r.get('friendly_score', 0.0), r.get('outcome'),
@@ -37,7 +37,7 @@ for preset in _PRESETS:
     print(f'\n=== {preset} ===')
     for posture in ('passive', 'normal', 'aggressive'):
         scores, rmins = [], []
-        for seed in range(4):
+        for seed in range(1, 5):   # seed 0은 엔진서 미적용(if seed:) → 1부터
             s, oc, rmin = run(preset, posture, seed)
             scores.append(s); rmins.append(rmin)
         print(f'  {posture:11s} score={np.mean(scores):.3f}  '
