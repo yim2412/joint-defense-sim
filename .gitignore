@@ -14,5 +14,7 @@ app_state.json
 
 # Cesium ion 액세스 토큰 (개인 키 — 절대 커밋 금지)
 cesium_token.txt
-_rl_ppo_model.zip
+# RL 학습 산출물 (대용량 바이너리·로그 — 커밋 금지). model.save 태그별 이름·체크포인트 포함.
+_rl_ppo_model*
+_rl_ckpt/
 _rl_train_*.log

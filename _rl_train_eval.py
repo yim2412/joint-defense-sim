@@ -91,20 +91,25 @@ def main(timesteps=200_000, n_envs=8, shaping=False):
     from stable_baselines3.common.vec_env import SubprocVecEnv
     from stable_baselines3.common.callbacks import CheckpointCallback
 
-    _tag = 'shaped' if shaping else 'base'
+    # Phase 5.5g: RL_ENT_COEF로 entropy 보너스 조절(기본 0.0=SB3 기본·5.5e 동일).
+    # 5.5e 진단: 400k 이후 정책이 다수파 행동으로 과수렴해 북한40발 등 소수 국면 붕괴.
+    # entropy 정규화로 탐색 유지 → 과수렴/붕괴 완화 시도.
+    ent_coef = float(os.environ.get('RL_ENT_COEF', '0.0'))
+    _tag = ('shaped' if shaping else 'base') + (f'_ent{ent_coef:g}' if ent_coef else '')
 
     print(f'[1/4] baseline 평가 (전부 기본값, {len(_BALANCED_PRESETS)}시나리오 × '
           f'{len(list(_EVAL_SEEDS))}seed)...', flush=True)
     base = eval_baseline()
 
-    print(f'[2/4] PPO 학습 {timesteps} 스텝 ({n_envs}env, shaping={shaping})...', flush=True)
+    print(f'[2/4] PPO 학습 {timesteps} 스텝 ({n_envs}env, shaping={shaping}, ent_coef={ent_coef})...', flush=True)
     venv = SubprocVecEnv([make_env(reward_shaping=shaping) for _ in range(n_envs)])
     # CheckpointCallback save_freq는 env-호출 횟수 기준 → 글로벌 _CKPT_EVERY = save_freq * n_envs.
     os.makedirs(_CKPT_DIR, exist_ok=True)
     ckpt_cb = CheckpointCallback(save_freq=max(_CKPT_EVERY // n_envs, 1),
                                  save_path=_CKPT_DIR, name_prefix=f'ppo_{_tag}')
     # verbose=1 → 롤아웃마다 진행률(스텝수·시간) 로그. log_interval=1로 매 업데이트 출력.
-    model = PPO('MlpPolicy', venv, device='cpu', verbose=1, n_steps=256)
+    model = PPO('MlpPolicy', venv, device='cpu', verbose=1, n_steps=256,
+                ent_coef=ent_coef)
     t0 = time.perf_counter()
     model.learn(total_timesteps=timesteps, log_interval=1, callback=ckpt_cb)
     print(f'      학습 완료 {time.perf_counter()-t0:.0f}s', flush=True)
