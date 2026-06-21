@@ -2298,6 +2298,11 @@ class TimeStepEngine:
                 ship.pos.x += math.cos(angle) * evade_m
                 ship.pos.y += math.sin(angle) * evade_m
 
+    def _threat_move_target(self, et, primary_pos):
+        """Phase 5.3.1: 위협이 향하는 표적 좌표. 부모(단발)는 항상 기함 → 동작 보존.
+        BattleEngine이 목표지향(수상함=돌파선/그 외=기함)으로 오버라이드."""
+        return primary_pos
+
     def _update_positions(self):
         self._apply_ship_evasion()
 
@@ -2310,7 +2315,7 @@ class TimeStepEngine:
                 if arrived:
                     self._on_retreat_arrived(et)
             else:
-                et.pos.move_toward(primary_pos, et.speed_ms, DT)
+                et.pos.move_toward(self._threat_move_target(et, primary_pos), et.speed_ms, DT)
 
         # NEW-B: 드론/스웜 자폭 — 200m 이내 도달 시 피격 처리
         primary = self._primary()
@@ -4878,6 +4883,9 @@ class BattleEngine(TimeStepEngine):
     """지속 전장 엔진. Phase 1 MVP: 자산 방어↔자산 격침 1쌍 + 목표 기반 종료·승패."""
 
     def __init__(self, cfg: dict, step_cb=None):
+        # Phase 5.3.1: 전장 모드는 다축 스폰 기본 활성(목표지향 기동의 다축 압박 전제).
+        # super().__init__ 전에 — _build_threats가 스폰 시 읽음. 명시값은 존중(시나리오가 끄면 OFF).
+        cfg.setdefault('enable_multibearing', True)
         super().__init__(cfg, step_cb=step_cb)
         self.horizon_s = float(cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
         # Phase 5.1: 루프 시간 상한을 horizon에 맞춰 상향(부모 기본 MAX_SIM_TIME으로는 horizon 전 끊김).
@@ -4891,6 +4899,8 @@ class BattleEngine(TimeStepEngine):
         # Phase 5.2: 발사 재장전 쿨다운 — 화력을 시간축으로 펄스 분산(파상공격). 전 위협 공통.
         # 단발 모드는 부모 _reload_delay_s=0(즉시연사)으로 무영향. 기본 150s(5.0 관찰 후 튜닝).
         self._reload_delay = float(cfg.get('battle_reload_delay_s', 150.0))
+        # Phase 5.3.1: 목표지향 기동 — 수상함은 돌파선 지향(다축 분산 포진), 그 외는 기함 지향.
+        self._sea_maneuver = bool(cfg.get('battle_sea_control_maneuver', True))
         # v15.08.04: 목표지향 적 AI — 항공 위협은 무장이 남는 한 계속 재접근(압박 유지).
         # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
         self._enemy_withdrawing  = False
@@ -4979,6 +4989,20 @@ class BattleEngine(TimeStepEngine):
     def _reload_delay_s(self, et) -> float:
         """전 위협 공통 재장전 지연 — 사거리 내 연사를 막아 화력을 파상공격으로 분산."""
         return self._reload_delay
+
+    # ── Phase 5.3.1: 목표지향 기동(공간 확장) ──────────────────────────────────
+    def _threat_move_target(self, et, primary_pos):
+        """수상함=해역 통제(자기 축 상 돌파선 점) / 그 외=자산 격침(기함).
+        수상함이 돌파선 원 둘레에 다축 분산 포진 → 아군 전방위 방어 강요."""
+        if not self._sea_maneuver or not et.is_ship:
+            return primary_pos
+        dx = et.pos.x - primary_pos.x
+        dy = et.pos.y - primary_pos.y
+        d  = math.hypot(dx, dy)
+        if d < 1.0:                      # 돌파선 안쪽 깊숙 — 0division 가드
+            return primary_pos
+        s = (self._sea_line_km * 1000.0) / d
+        return LatLon.from_xy(primary_pos.x + dx * s, primary_pos.y + dy * s)
 
     # ── v15.08.04: 목표지향 적 AI ──────────────────────────────────────────────
     def _on_retreat_arrived(self, et):
