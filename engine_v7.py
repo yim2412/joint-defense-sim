@@ -1007,6 +1007,7 @@ class EnemyThreatObj:
     retreat_pos           = _et_col('_et_retreat_pos')
     reattack_count        = _et_col('_et_reattack_count')
     max_reattacks         = _et_col('_et_max_reattacks')
+    next_fire_t           = _et_col('_et_next_fire_t')          # Phase 5.2: 이 시각 전엔 발사 금지(재장전 쿨다운)
     ecm_power             = _et_col('_et_ecm_power')
     hidden_until          = _et_col('_et_hidden_until')
     ambush_revealed       = _et_col('_et_ambush_revealed')
@@ -1497,6 +1498,7 @@ class TimeStepEngine:
         self._et_retreat_pos: list          = []
         self._et_reattack_count: list       = []
         self._et_max_reattacks: list        = []
+        self._et_next_fire_t: list          = []   # Phase 5.2: 재장전 쿨다운 만기 시각(기본 0=즉시)
         self._et_ecm_power: list            = []
         self._et_hidden_until: list         = []
         self._et_ambush_revealed: list      = []
@@ -1555,6 +1557,7 @@ class TimeStepEngine:
         self._et_retreat_pos.append(None)
         self._et_reattack_count.append(0)
         self._et_max_reattacks.append(1 if _is_air else 0)
+        self._et_next_fire_t.append(0.0)
         self._et_ecm_power.append(info.get('ecm_power', 0.0))
         self._et_hidden_until.append(0.0)
         self._et_ambush_revealed.append(False)
@@ -2538,6 +2541,11 @@ class TimeStepEngine:
             et.alive = False
             self._log(f"[이탈] {et.preset_name} 전장 이탈 완료")
 
+    def _reload_delay_s(self, et) -> float:
+        """Phase 5.2: 살보 발사 후 다음 발사까지 재장전 지연(초). 부모(단발)는 0 → 동작 보존.
+        BattleEngine이 오버라이드해 화력을 시간축으로 분산(파상공격)."""
+        return 0.0
+
     def _enemy_fire(self):
         primary = self._primary()
         for et in self.enemy_threats:
@@ -2557,6 +2565,9 @@ class TimeStepEngine:
                 if m.alive and m.owner_id == id(et) and m.mtype == 'enemy_strike'
             )
             if in_flight > 0:
+                continue
+            # Phase 5.2: 재장전 쿨다운 — 만기 전엔 발사 금지(부모는 next_fire_t=0 → 무영향)
+            if self.t < et.next_fire_t:
                 continue
 
             dist_m       = et.pos.dist_to(primary.pos)
@@ -2613,6 +2624,8 @@ class TimeStepEngine:
                 self.missiles.append(_m)
 
             et.has_fired = True
+            # Phase 5.2: 다음 발사까지 재장전 지연(부모 _reload_delay_s=0 → 다음 틱 즉시 가능, bit-identical)
+            et.next_fire_t = self.t + self._reload_delay_s(et)
             if self._munition_limit:
                 et.munition_remaining -= salvo
             self.stats['total_threats'] += salvo
@@ -4875,6 +4888,9 @@ class BattleEngine(TimeStepEngine):
         # 실제 항모 갑판 재무장 사이클 ~45분(기본 30분 전장선 거의 휴면, 작전급 긴 전장서 발현).
         self._rearm_delay  = float(cfg.get('battle_rearm_delay_s', 2700.0))
         self._rearm_queue  = []         # [(return_t, carrier_idx), ...]
+        # Phase 5.2: 발사 재장전 쿨다운 — 화력을 시간축으로 펄스 분산(파상공격). 전 위협 공통.
+        # 단발 모드는 부모 _reload_delay_s=0(즉시연사)으로 무영향. 기본 150s(5.0 관찰 후 튜닝).
+        self._reload_delay = float(cfg.get('battle_reload_delay_s', 150.0))
         # v15.08.04: 목표지향 적 AI — 항공 위협은 무장이 남는 한 계속 재접근(압박 유지).
         # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
         self._enemy_withdrawing  = False
@@ -4958,6 +4974,11 @@ class BattleEngine(TimeStepEngine):
         return sum(ENEMY_PROCUREMENT_USD.get(et.name, 0)
                    for et in self.enemy_threats
                    if et.alive and (et.is_ship or et.is_sub or et.is_aircraft))
+
+    # ── Phase 5.2: 화력 동역학(웨이브) ─────────────────────────────────────────
+    def _reload_delay_s(self, et) -> float:
+        """전 위협 공통 재장전 지연 — 사거리 내 연사를 막아 화력을 파상공격으로 분산."""
+        return self._reload_delay
 
     # ── v15.08.04: 목표지향 적 AI ──────────────────────────────────────────────
     def _on_retreat_arrived(self, et):
