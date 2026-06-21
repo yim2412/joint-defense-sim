@@ -13,17 +13,17 @@ rl_env.py — 지속 전장 엔진(BattleEngine)의 gymnasium 래퍼 (Phase 4 RL
 """
 from __future__ import annotations
 
-import queue
-import threading
-
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
 from engine import normalize_enemy_db, FRIENDLY_DB  # noqa: F401
-from engine_v7 import run_battle_simulation, BATTLE_HORIZON_S
+from engine_v7 import BattleEngine, BATTLE_HORIZON_S, calculate_fleet_detect_ranges
 
 normalize_enemy_db()
+
+# Phase 5.5c: _simulate() yield 유발용 truthy sentinel(실제 호출 안 됨 — RL이 직접 send 구동)
+_TACTICAL_SENTINEL = object()
 
 # 행동: 방공 무기 우선순위(요격 시 우선 사용할 SAM) — 'auto'는 엔진 기본 선택.
 # 공격·대잠 무기는 미사일 방어와 무관해 제외. 잘못된 이름이어도 available()==0으로 자동 폴백.
@@ -74,10 +74,6 @@ _DEFAULT_CFG = dict(
 )
 
 
-class _EnvAbort(Exception):
-    """reset/close 시 진행 중인 엔진 스레드를 즉시 종료시키는 신호."""
-
-
 class BattleEnv(gym.Env):
     """지속 전장 1 에피소드 = 1 전장. 행동은 _tactical_interval초마다 1회."""
 
@@ -106,57 +102,36 @@ class BattleEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-1.0, high=np.inf, shape=(_N_FEAT,), dtype=np.float32)
 
-        self._obs_q: queue.Queue | None = None
-        self._act_q: queue.Queue | None = None
-        self._thread: threading.Thread | None = None
+        # Phase 5.5c: 스레드/큐 제거 — 엔진 _simulate() 제너레이터를 동기 구동
+        self._engine = None
+        self._gen = None
         self._result: dict | None = None
         self._last_state = None
 
-    # ── 엔진 스레드 측 ───────────────────────────────────────────────────────
-    def _make_cb(self, obs_q, act_q):
-        """Phase 5.5b: 큐를 클로저로 캡처한 cb 생성 — self._obs_q/_act_q 공유 레이스 제거.
-        reset이 큐를 교체해도 옛 스레드는 자기 큐만 접근(짧은 전장 종료 데드락 방지)."""
-        def cb(state):
-            obs_q.put(state)
-            action = act_q.get()             # env.step()이 넣을 때까지 블록
-            if action is None:               # reset/close 신호
-                raise _EnvAbort()
-            wi, si, ri, ti, mi, ci, ei = action
-            return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
-                    'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
-                    'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci],
-                    'ecm': _ECM_OPTS[ei]}
-        return cb
+    # ── 엔진 구동(동기·제너레이터) ────────────────────────────────────────────
+    @staticmethod
+    def _action_to_choice(action):
+        """MultiDiscrete 행동 → 엔진 전술 choice dict."""
+        a = np.asarray(action).ravel()
+        wi, si, ri, ti, mi, ci, ei = (int(a[0]), int(a[1]), int(a[2]),
+                                      int(a[3]), int(a[4]), int(a[5]), int(a[6]))
+        return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
+                'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
+                'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci],
+                'ecm': _ECM_OPTS[ei]}
 
-    def _run_engine(self, obs_q, act_q):
+    def _build_engine(self):
+        """BattleEngine 생성(run_battle_simulation 전처리 복제 — 탐지거리 자동계산)."""
         cfg = dict(self.base_cfg)
         cfg['enemy_fleet_preset'] = self._ep_preset
-        try:
-            self._result = run_battle_simulation(
-                cfg, tactical_cb=self._make_cb(obs_q, act_q))
-        except _EnvAbort:
-            self._result = None
-            return
-        except Exception as e:
-            # Phase 5.5: 엔진 스레드 예외가 센티넬 없이 죽으면 step의 obs_q.get가 영구 블록(데드락).
-            # 모든 예외를 잡아 결과를 error로 채우고 센티넬 보장 + 원인 파일 로깅(worker stderr은 안 보임).
-            import traceback
-            try:
-                with open('_rl_engine_err.log', 'a', encoding='utf-8') as f:
-                    f.write(f'[{self._ep_preset}] {type(e).__name__}: {e}\n'
-                            f'{traceback.format_exc()}\n')
-            except Exception:
-                pass
-            self._result = {'friendly_score': 0.0, 'outcome': 'error'}
-        obs_q.put(None)                      # 에피소드 종료 센티넬(자기 큐 — 정상·예외 모두 보장)
-
-    def _stop_thread(self):
-        if self._thread and self._thread.is_alive():
-            try:
-                self._act_q.put(None)        # cb 언블록 → _EnvAbort
-            except Exception:
-                pass
-            self._thread.join(timeout=3.0)
+        if not cfg.get('detect_km_manual', False):
+            r = calculate_fleet_detect_ranges(
+                cfg.get('fleet_preset', '단독 작전'), cfg.get('weather', '맑음 (주간)'))
+            cfg['detect_km'], cfg['surface_detect_km'], cfg['sub_detect_km'] = \
+                r['대공'], r['대함'], r['대잠']
+        eng = BattleEngine(cfg)
+        eng._tactical_pause_cb = _TACTICAL_SENTINEL   # yield 유발(호출 안 됨 — send로 구동)
+        return eng
 
     # ── 관측·보상 ────────────────────────────────────────────────────────────
     def _featurize(self, state) -> np.ndarray:
@@ -211,57 +186,57 @@ class BattleEnv(gym.Env):
         return float(max(-0.05, min(0.05, r)))
 
     # ── gym API ──────────────────────────────────────────────────────────────
+    def _finish(self):
+        """에피소드 종료 — friendly_score 종료 보상 + info. (제너레이터 StopIteration 후)"""
+        r = self._result or {}
+        fscore = float(r.get('friendly_score', 0.0))
+        obs = self._featurize(self._last_state)
+        info = {'outcome': r.get('outcome'),
+                'friendly_score': fscore,
+                'enemy_score': float(r.get('enemy_score', 0.0)),
+                'preset': self._ep_preset}
+        return obs, fscore, True, False, info
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         # 고정 모드가 아니면 균형 풀에서 이번 에피소드 적 편대 추출(seed 결정론).
         if not self._fixed_preset:
             i = int(self.np_random.integers(len(_BALANCED_PRESETS)))
             self._ep_preset = _BALANCED_PRESETS[i]
-        self._stop_thread()
-        # Phase 5.5b: 지역 큐 생성 → 스레드에 인자로 캡처(self 공유 레이스 제거). self._*는 step용 현재 큐.
-        obs_q = queue.Queue()
-        act_q = queue.Queue()
-        self._obs_q = obs_q
-        self._act_q = act_q
+        # Phase 5.5c: 엔진 제너레이터 동기 구동 — 스레드/큐 없음.
+        if self._gen is not None:
+            self._gen.close()
         self._result = None
         self._last_state = None
-        self._thread = threading.Thread(target=self._run_engine, args=(obs_q, act_q), daemon=True)
-        self._thread.start()
-        state = obs_q.get()                  # 첫 결정 지점 (또는 결정 없이 종료=None) — 지역 큐
+        self._engine = self._build_engine()
+        self._gen = self._engine._simulate()
+        try:
+            state = next(self._gen)          # 첫 결정 지점
+        except StopIteration as e:           # 결정 없이 종료(0결정 전장)
+            self._result = e.value or {}
+            self._gen = None                 # 소진 — step이 보관된 _result로 즉시 done
+            state = None
         self._last_state = state
         return self._featurize(state), {}
 
     def step(self, action):
-        a = np.asarray(action).ravel()
-        self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3]),
-                         int(a[4]), int(a[5]), int(a[6])))
+        if self._gen is None:                # 이미 종료된 에피소드(0결정 등) — 즉시 done
+            return self._finish()
+        choice = self._action_to_choice(action)
         try:
-            nxt = self._obs_q.get(timeout=20)    # Phase 5.5: 엔진 무응답 데드락 방어(정상 step은 수십ms)
-        except queue.Empty:
-            # 드문 BattleEnv 스레드 데드락 — ep 강제 종료 후 빈도 로깅(원인 규명용)
-            try:
-                with open('_rl_hang.log', 'a', encoding='utf-8') as f:
-                    t = getattr(self._last_state, 't', '?')
-                    f.write(f'HANG [{self._ep_preset}] t={t}\n')
-            except Exception:
-                pass
-            self._stop_thread()
-            nxt = None                       # 무응답 → 강제 종료 처리(아래 None 분기)
-        if nxt is None:                      # 에피소드 종료
-            r = self._result or {}
-            fscore = float(r.get('friendly_score', 0.0))
-            obs = self._featurize(self._last_state)
-            info = {'outcome': r.get('outcome'),
-                    'friendly_score': fscore,
-                    'enemy_score': float(r.get('enemy_score', 0.0)),
-                    'preset': self._ep_preset}
-            return obs, fscore, True, False, info   # 종료 보상 = friendly_score(지배적)
+            nxt = self._gen.send(choice)
+        except StopIteration as e:           # 에피소드 종료
+            self._result = e.value or {}
+            self._gen = None
+            return self._finish()
         shaped = self._shaping_reward(self._last_state, nxt)  # 중간 진행 신호(작게)
         self._last_state = nxt
         return self._featurize(nxt), shaped, False, False, {}
 
     def close(self):
-        self._stop_thread()
+        if self._gen is not None:
+            self._gen.close()
+            self._gen = None
 
 
 def make_env(cfg: dict | None = None, tactical_interval: int = 60,

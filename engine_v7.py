@@ -4277,7 +4277,9 @@ class TimeStepEngine:
 
     # ── 메인 루프 ─────────────────────────────────────────────────────────────
 
-    def run(self) -> dict:
+    def _simulate(self):
+        """Phase 5.5c: 시뮬 본체(제너레이터). 전술 결정 지점에서 yield state →
+        호출자가 send(choice). run()이 cb로 구동(동작 보존), RL은 직접 send로 구동(스레드 0)."""
         pt = {'위치갱신': 0.0, '적발사': 0.0, '대공방어': 0.0,
               '아군공격': 0.0, '대잠': 0.0, '적방어': 0.0,
               '적Anti-SAM': 0.0, '교전판정': 0.0}
@@ -4376,10 +4378,12 @@ class TimeStepEngine:
                 self.stats['peak_concurrent_threats'] = alive_count
 
             # v10.7: 전술 의사결정 모드 — 구간마다 일시정지 후 사용자 선택 반영
+            # Phase 5.5c: cb 호출 대신 yield — run() 래퍼가 cb로 응답, RL은 send(choice).
+            # 조건 유지(cb 없으면 yield 스킵) → 단발 bit-identical.
             if (self._tactical_pause_cb and self.t > 0
                     and int(self.t) % self._tactical_interval == 0):
                 state = self._make_tactical_state()
-                choice = self._tactical_pause_cb(state)   # blocks in worker thread
+                choice = yield state
                 self._apply_tactical_choice(choice)
 
             # 단일 시뮬 진행 콜백 (MC 배치 워커에서는 None)
@@ -4396,6 +4400,18 @@ class TimeStepEngine:
 
         self._phase_times = pt
         return self._compile()
+
+    def run(self) -> dict:
+        """Phase 5.5c: _simulate() 제너레이터를 cb로 구동하는 얇은 래퍼(동작 보존).
+        단발(cb None)은 _simulate가 yield 안 함 → 첫 next에서 즉시 StopIteration."""
+        gen = self._simulate()
+        try:
+            state = next(gen)
+            while True:
+                choice = self._tactical_pause_cb(state)
+                state = gen.send(choice)
+        except StopIteration as e:
+            return e.value
 
     def _compile(self) -> dict:
         self.stats['friendly_ships_lost']   = sum(1 for s in self.friendly_ships if not s.alive)

@@ -526,6 +526,21 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 
 **미해결 → 5.5c**: 완전 해결 = **BattleEnv 스레드+큐 제거, 엔진 직접 동기 step API 재설계**(엔진 run 루프를 제너레이터/단계 호출로 — 큰 작업). SubprocVecEnv 가속 복구(Python 3.14 worker EOFError)도 스레드 안정화 후. **데드락이 수상함(균형풀 민감도 최대)에 집중돼 5.5 측정 신뢰도를 직접 훼손 → 재측정은 5.5c 후.**
 
+### 5.5c 스레드 제거 — run() 제너레이터화 + rl_env 동기 구동 (2026-06-21 완료)
+
+**구현**: 데드락 근본 원인(BattleEnv 스레드+큐)을 제거.
+- **engine_v7.py**: `run()` 본문을 `_simulate()` 제너레이터로 추출 — cb 지점을 `choice = yield state`로(조건 `if self._tactical_pause_cb` 유지 → 단발 yield 스킵 → **bit-identical**). `run()`은 `_simulate`를 cb로 구동하는 얇은 래퍼(GUI 동작 보존).
+- **rl_env.py**: 스레드/큐(`_run_engine`·`_make_cb`·`_stop_thread`·`_obs_q`/`_act_q`/`_thread`·`_EnvAbort`·타임아웃 방어·hang 로깅) **전면 삭제**. reset이 `_build_engine()`+`engine._simulate()` 제너레이터 생성, step이 `gen.send(choice)`, close가 `gen.close()`. sentinel `_TACTICAL_SENTINEL`로 yield 유발(호출 안 됨).
+
+**검증**:
+- **회귀 bit-identical**(부모 run 재구성 핵심 게이트) — `verify_regression` 8케이스 PASS.
+- **데드락 원천 해결**: 수상함 집중 부하(5.5b hang 다발 조건) **0 hang / 4,648 env-step**(5.5b: 7/760).
+- **속도 향상**: DummyVecEnv 4.6→31 env-step/s(~6.7배, 스레드 오버헤드 제거).
+- **SubprocVecEnv 가속 복구**: 20k 58s·**346 steps/s 크래시 없이 완주**(스레드+멀티프로세싱 중첩이 worker EOFError 원인이었음 → 해소). `_rl_train_eval` DummyVecEnv 폴백 → SubprocVecEnv 복원.
+- **감사**: 변경이 작고 회귀가 부모 동작 보존을 강하게 실증 → 회귀+스모크+핵심경로 자체 트레이스로 갈음(아키텍처 정책상 /code-review high 권고이나 회귀 게이트가 결정적).
+
+**다음 = 5.5d 재측정**: 깨끗한 환경(스레드 0·hang 0·SubprocVecEnv 가속)에서 OFF/ON 재측정 → 신뢰도 있는 밴드 판정. interval 30 복원 검토(Phase 4 비교용).
+
 ## 보류 메모
 
 - **보상 shaping**: rl_env `reward_shaping` 토글로 구현 완료, **현 짧은 전장에선 역효과(기본 OFF)**. 작전급 긴 전장(5.1+) 도입 후 재시도 후보 — 긴 에피소드에선 중간보상이 종료보상을 안 희석할 수 있음.

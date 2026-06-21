@@ -62,9 +62,8 @@ def eval_policy(model):
 
 def main(timesteps=200_000, n_envs=8, shaping=False):
     from stable_baselines3 import PPO
-    # Phase 5.5: SubprocVecEnv는 현 환경(Python 3.14)에서 worker 크래시(EOFError) → DummyVecEnv로 폴백.
-    # 단일 프로세스 순차라 병렬 가속은 없으나 안정적(단일 env 검증 통과). 가속 복구는 5.5b 과제.
-    from stable_baselines3.common.vec_env import DummyVecEnv as SubprocVecEnv
+    # Phase 5.5c: 스레드 제거(엔진 _simulate 제너레이터 동기 구동)로 worker 크래시 해소 → SubprocVecEnv 복원(병렬 가속).
+    from stable_baselines3.common.vec_env import SubprocVecEnv
 
     print(f'[1/3] baseline 평가 (전부 기본값, {len(_BALANCED_PRESETS)}시나리오 × '
           f'{len(list(_EVAL_SEEDS))}seed)...', flush=True)
