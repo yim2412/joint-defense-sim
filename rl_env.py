@@ -21,7 +21,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from engine import normalize_enemy_db, FRIENDLY_DB  # noqa: F401
-from engine_v7 import run_battle_simulation
+from engine_v7 import run_battle_simulation, BATTLE_HORIZON_S
 
 normalize_enemy_db()
 
@@ -83,8 +83,9 @@ class BattleEnv(gym.Env):
 
     metadata = {'render_modes': []}
 
-    def __init__(self, cfg: dict | None = None, tactical_interval: int = 30,
+    def __init__(self, cfg: dict | None = None, tactical_interval: int = 60,
                  reward_shaping: bool = False):
+        # Phase 5.5: interval 30→60 — horizon 7200(5.1)에서 결정 240→~120으로 비용·영향력 균형.
         # reward_shaping 기본 OFF: 현 짧은 전장에선 중간보상이 종료보상을 희석해
         # 오히려 평균 하락(+0.037→+0.022). 토글은 유지 — 작전급 긴 전장(진짜 전장)서 재시도.
         super().__init__()
@@ -92,6 +93,8 @@ class BattleEnv(gym.Env):
         self.base_cfg = dict(cfg or _DEFAULT_CFG)
         self.base_cfg['enable_battle_mode'] = True
         self.base_cfg['tactical_interval'] = int(tactical_interval)
+        # Phase 5.5: 관측 진행도 정규화 분모 — horizon 연동(5.1 7200 상향 반영)
+        self._horizon = float(self.base_cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
         # enemy_fleet_preset 직접 지정 시 고정, 아니면 균형 풀에서 매 에피소드 추출.
         self._fixed_preset = self.base_cfg.get('enemy_fleet_preset')
         self._ep_preset = self._fixed_preset or _BALANCED_PRESETS[0]
@@ -131,7 +134,18 @@ class BattleEnv(gym.Env):
         except _EnvAbort:
             self._result = None
             return
-        self._obs_q.put(None)                # 에피소드 종료 센티넬
+        except Exception as e:
+            # Phase 5.5: 엔진 스레드 예외가 센티넬 없이 죽으면 step의 obs_q.get가 영구 블록(데드락).
+            # 모든 예외를 잡아 결과를 error로 채우고 센티넬 보장 + 원인 파일 로깅(worker stderr은 안 보임).
+            import traceback
+            try:
+                with open('_rl_engine_err.log', 'a', encoding='utf-8') as f:
+                    f.write(f'[{self._ep_preset}] {type(e).__name__}: {e}\n'
+                            f'{traceback.format_exc()}\n')
+            except Exception:
+                pass
+            self._result = {'friendly_score': 0.0, 'outcome': 'error'}
+        self._obs_q.put(None)                # 에피소드 종료 센티넬(정상·예외 모두 보장)
 
     def _stop_thread(self):
         if self._thread and self._thread.is_alive():
@@ -164,7 +178,7 @@ class BattleEnv(gym.Env):
             fleet_hp / fleet_max,              # 함대 HP 비
             irate,                             # 요격률
             (state.shots_fired or 0) / 100.0,  # 발사 수
-            (state.t or 0.0) / 1800.0,         # 진행도
+            (state.t or 0.0) / self._horizon,  # 진행도(horizon 연동 — 0~1 유지)
             # 위협 구성·자원 (전장 모드 extra — 레버 상황 적응용)
             ex.get('leaker_frac', 0.0),        # 탄도·HGV 비율(ECM 무효)
             ex.get('asm_inflight', 0.0),       # 비행 중 대함미사일 수(ECM 유효 표적)
@@ -215,7 +229,18 @@ class BattleEnv(gym.Env):
         a = np.asarray(action).ravel()
         self._act_q.put((int(a[0]), int(a[1]), int(a[2]), int(a[3]),
                          int(a[4]), int(a[5]), int(a[6])))
-        nxt = self._obs_q.get()
+        try:
+            nxt = self._obs_q.get(timeout=20)    # Phase 5.5: 엔진 무응답 데드락 방어(정상 step은 수십ms)
+        except queue.Empty:
+            # 드문 BattleEnv 스레드 데드락 — ep 강제 종료 후 빈도 로깅(원인 규명용)
+            try:
+                with open('_rl_hang.log', 'a', encoding='utf-8') as f:
+                    t = getattr(self._last_state, 't', '?')
+                    f.write(f'HANG [{self._ep_preset}] t={t}\n')
+            except Exception:
+                pass
+            self._stop_thread()
+            nxt = None                       # 무응답 → 강제 종료 처리(아래 None 분기)
         if nxt is None:                      # 에피소드 종료
             r = self._result or {}
             fscore = float(r.get('friendly_score', 0.0))
@@ -233,10 +258,11 @@ class BattleEnv(gym.Env):
         self._stop_thread()
 
 
-def make_env(cfg: dict | None = None, tactical_interval: int = 30):
+def make_env(cfg: dict | None = None, tactical_interval: int = 60,
+             reward_shaping: bool = False):
     """SubprocVecEnv용 env 팩토리 (모듈 레벨 — Windows spawn 재import 시 picklable)."""
     def _init():
-        return BattleEnv(cfg, tactical_interval)
+        return BattleEnv(cfg, tactical_interval, reward_shaping=reward_shaping)
     return _init
 
 

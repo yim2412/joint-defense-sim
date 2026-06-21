@@ -36,7 +36,7 @@ def fixed_cb(choice):
 def run(preset, choice, seed):
     cfg = dict(BASE)
     cfg['enemy_fleet_preset'] = preset
-    cfg['seed'] = seed
+    cfg['sim_seed'] = seed   # 엔진은 sim_seed를 읽음(engine_v7:1325) — 'seed'는 미적용
     r = run_battle_simulation(cfg, tactical_cb=fixed_cb(choice))
     return float(r.get('friendly_score', 0.0)), r.get('outcome')
 

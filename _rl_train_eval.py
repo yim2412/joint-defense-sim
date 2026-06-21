@@ -60,23 +60,26 @@ def eval_policy(model):
     return rows
 
 
-def main(timesteps=200_000, n_envs=8):
+def main(timesteps=200_000, n_envs=8, shaping=False):
     from stable_baselines3 import PPO
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    # Phase 5.5: SubprocVecEnv는 현 환경(Python 3.14)에서 worker 크래시(EOFError) → DummyVecEnv로 폴백.
+    # 단일 프로세스 순차라 병렬 가속은 없으나 안정적(단일 env 검증 통과). 가속 복구는 5.5b 과제.
+    from stable_baselines3.common.vec_env import DummyVecEnv as SubprocVecEnv
 
     print(f'[1/3] baseline 평가 (전부 기본값, {len(_BALANCED_PRESETS)}시나리오 × '
           f'{len(list(_EVAL_SEEDS))}seed)...', flush=True)
     base = eval_baseline()
 
-    print(f'[2/3] PPO 학습 {timesteps} 스텝 ({n_envs}env)...', flush=True)
-    venv = SubprocVecEnv([make_env() for _ in range(n_envs)])
+    print(f'[2/3] PPO 학습 {timesteps} 스텝 ({n_envs}env, shaping={shaping})...', flush=True)
+    venv = SubprocVecEnv([make_env(reward_shaping=shaping) for _ in range(n_envs)])
     # verbose=1 → 롤아웃마다 진행률(스텝수·시간) 로그. log_interval=1로 매 업데이트 출력.
     model = PPO('MlpPolicy', venv, device='cpu', verbose=1, n_steps=256)
     t0 = time.perf_counter()
     model.learn(total_timesteps=timesteps, log_interval=1)
     print(f'      학습 완료 {time.perf_counter()-t0:.0f}s', flush=True)
-    model.save('_rl_ppo_model')   # 평가서 죽어도 모델 보존
-    print('      모델 저장: _rl_ppo_model.zip', flush=True)
+    _tag = 'shaped' if shaping else 'base'
+    model.save(f'_rl_ppo_model_{_tag}')   # 평가서 죽어도 모델 보존
+    print(f'      모델 저장: _rl_ppo_model_{_tag}.zip', flush=True)
     venv.close()
 
     print('[3/3] 학습 정책 평가 (동일 시나리오·seed)...', flush=True)
@@ -97,4 +100,5 @@ def main(timesteps=200_000, n_envs=8):
 if __name__ == '__main__':
     ts = int(sys.argv[1]) if len(sys.argv) > 1 else 200_000
     ne = int(sys.argv[2]) if len(sys.argv) > 2 else 8
-    main(ts, ne)
+    sh = (len(sys.argv) > 3 and sys.argv[3].lower() in ('1', 'on', 'shaped', 'true'))
+    main(ts, ne, shaping=sh)
