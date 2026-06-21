@@ -113,24 +113,27 @@ class BattleEnv(gym.Env):
         self._last_state = None
 
     # ── 엔진 스레드 측 ───────────────────────────────────────────────────────
-    def _tactical_cb(self, state):
-        """엔진 스레드에서 호출 — 관측 송출 후 행동 대기(블록)."""
-        self._obs_q.put(state)
-        action = self._act_q.get()           # env.step()이 넣을 때까지 블록
-        if action is None:                   # reset/close 신호
-            raise _EnvAbort()
-        wi, si, ri, ti, mi, ci, ei = action
-        return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
-                'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
-                'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci],
-                'ecm': _ECM_OPTS[ei]}
+    def _make_cb(self, obs_q, act_q):
+        """Phase 5.5b: 큐를 클로저로 캡처한 cb 생성 — self._obs_q/_act_q 공유 레이스 제거.
+        reset이 큐를 교체해도 옛 스레드는 자기 큐만 접근(짧은 전장 종료 데드락 방지)."""
+        def cb(state):
+            obs_q.put(state)
+            action = act_q.get()             # env.step()이 넣을 때까지 블록
+            if action is None:               # reset/close 신호
+                raise _EnvAbort()
+            wi, si, ri, ti, mi, ci, ei = action
+            return {'weapon_priority': _WPN_PRIORITY[wi], 'max_salvo': _SALVO_OPTS[si],
+                    'radar': _RADAR_OPTS[ri], 'target_priority': _TARGET_OPTS[ti],
+                    'maneuver': _MANEUVER_OPTS[mi], 'cap_posture': _CAP_OPTS[ci],
+                    'ecm': _ECM_OPTS[ei]}
+        return cb
 
-    def _run_engine(self):
+    def _run_engine(self, obs_q, act_q):
         cfg = dict(self.base_cfg)
         cfg['enemy_fleet_preset'] = self._ep_preset
         try:
             self._result = run_battle_simulation(
-                cfg, tactical_cb=self._tactical_cb)
+                cfg, tactical_cb=self._make_cb(obs_q, act_q))
         except _EnvAbort:
             self._result = None
             return
@@ -145,7 +148,7 @@ class BattleEnv(gym.Env):
             except Exception:
                 pass
             self._result = {'friendly_score': 0.0, 'outcome': 'error'}
-        self._obs_q.put(None)                # 에피소드 종료 센티넬(정상·예외 모두 보장)
+        obs_q.put(None)                      # 에피소드 종료 센티넬(자기 큐 — 정상·예외 모두 보장)
 
     def _stop_thread(self):
         if self._thread and self._thread.is_alive():
@@ -215,13 +218,16 @@ class BattleEnv(gym.Env):
             i = int(self.np_random.integers(len(_BALANCED_PRESETS)))
             self._ep_preset = _BALANCED_PRESETS[i]
         self._stop_thread()
-        self._obs_q = queue.Queue()
-        self._act_q = queue.Queue()
+        # Phase 5.5b: 지역 큐 생성 → 스레드에 인자로 캡처(self 공유 레이스 제거). self._*는 step용 현재 큐.
+        obs_q = queue.Queue()
+        act_q = queue.Queue()
+        self._obs_q = obs_q
+        self._act_q = act_q
         self._result = None
         self._last_state = None
-        self._thread = threading.Thread(target=self._run_engine, daemon=True)
+        self._thread = threading.Thread(target=self._run_engine, args=(obs_q, act_q), daemon=True)
         self._thread.start()
-        state = self._obs_q.get()            # 첫 결정 지점 (또는 결정 없이 종료=None)
+        state = obs_q.get()                  # 첫 결정 지점 (또는 결정 없이 종료=None) — 지역 큐
         self._last_state = state
         return self._featurize(state), {}
 
