@@ -18,3 +18,4 @@ cesium_token.txt
 _rl_ppo_model*
 _rl_ckpt/
 _rl_train_*.log
+_battle_surrogate_smoke.json

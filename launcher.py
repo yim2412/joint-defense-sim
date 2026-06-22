@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.13.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.13.05 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.13.05 — 실행 전 예상 전황 카드 (즉시 추정 룩업)]                     ║
+║  NEW-A  설정 화면 적군 편대에 '예상 전황(참고)' 카드 — 편대·적·날씨 선택 시 ║
+║         미리 계산한 룩업으로 예상 승률·임무점수·비용을 MC 없이 즉시 표시     ║
 ║  [v15.13.04 — 적정 편대 추천 지속 전장 모드 대응]                          ║
 ║  NEW-A  지속 전장 모드에서 적정 편대 추천이 요격률·생존율 대신 작전 승률·   ║
 ║         임무 점수로 후보 편대를 평가·순위. 단발 교전은 기존 기준 유지        ║
@@ -997,7 +1000,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.13.04"
+APP_VERSION = "v15.13.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1218,6 +1221,19 @@ def _token_path() -> str:
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, 'cesium_token.txt')
+
+
+def _load_surrogate() -> dict | None:
+    """실행 전 '예상 전황' 룩업 테이블(battle_surrogate.json) 로드.
+    없거나 깨지면 None 반환 → 기능 자동 비활성(하위호환). 번들 리소스라 _res 경로."""
+    try:
+        with open(_res('battle_surrogate.json'), encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get('table'), dict):
+            return data
+    except Exception:
+        pass
+    return None
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -5187,6 +5203,8 @@ class MainWindow(QMainWindow):
         self._t0     = 0.0
         self._history: list = []  # 이전 실행 결과 히스토리 (최대 5개)
         self._float_mon = FloatingMonitor()
+        # 실행 전 '예상 전황' 룩업(surrogate) — 없으면 None(기능 자동 비활성)
+        self._surrogate = _load_surrogate()
 
         # ── BUG-1: 탭 전환 디바운스 (200ms) ────────────────────────────────
         self._page_pending_idx: int = -1
@@ -6305,7 +6323,30 @@ class MainWindow(QMainWindow):
         rand_rl.addWidget(self.cmb_difficulty, stretch=1)
         el.addWidget(self._rand_row)
 
+        # ── 📊 예상 전황 (참고) — surrogate 룩업 (실행 전 즉시 추정) ──────────
+        self._forecast_card = QGroupBox()
+        self._forecast_card.setStyleSheet(
+            f"QGroupBox {{ background:#162032; border:1px solid #2a4a6a;"
+            f" border-radius:6px; padding:6px; margin-top:4px; }}")
+        _fcl = QVBoxLayout(self._forecast_card)
+        _fcl.setContentsMargins(8, 4, 8, 6); _fcl.setSpacing(3)
+        _ft = QLabel("📊  예상 전황 (참고)")
+        _ft.setStyleSheet(f"color:{C_ACCENT}; font-size:10px; font-weight:bold;")
+        _fcl.addWidget(_ft)
+        self._prev_lbl_forecast = QLabel("—")
+        self._prev_lbl_forecast.setWordWrap(True)
+        self._prev_lbl_forecast.setStyleSheet(
+            f"color:{C_TEXT}; font-size:11px; line-height:150%;")
+        _fcl.addWidget(self._prev_lbl_forecast)
+        el.addWidget(self._forecast_card)
+        if self._surrogate is None:
+            self._forecast_card.hide()   # JSON 없으면 카드 자체 숨김(하위호환)
+
         self.cmb_enemy_mode.currentIndexChanged.connect(self._on_enemy_mode_changed)
+        # 예상 전황 갱신 트리거: 아군/적 편대·날씨·모드 변경 시
+        self.cmb_fleet.currentTextChanged.connect(lambda _: self._update_forecast_card())
+        self.cmb_fleet_preset_e.currentTextChanged.connect(lambda _: self._update_forecast_card())
+        self.cmb_weather.currentTextChanged.connect(lambda _: self._update_forecast_card())
         self._on_enemy_mode_changed(0)  # 초기 상태 적용 (기본: 프리셋)
         if _V7_OK:
             if self.cmb_fleet_preset_e.count():
@@ -7724,6 +7765,50 @@ class MainWindow(QMainWindow):
         self._ep_preset_row.setVisible(is_preset)
         self._mixed_row.setVisible(is_mixed)
         self._rand_row.setVisible(mode == '랜덤')
+        self._update_forecast_card()
+
+    def _update_forecast_card(self):
+        """surrogate 룩업으로 '예상 전황' 카드 갱신 (실행 전 즉시 추정).
+        순수 표시 — 엔진·시뮬·회귀에 영향 없음. JSON 없으면 카드 숨김."""
+        if getattr(self, '_surrogate', None) is None \
+                or not hasattr(self, '_prev_lbl_forecast'):
+            return
+        table = self._surrogate.get('table', {})
+        ref_weather = self._surrogate.get('weather', '맑음 (주간)')
+        n = self._surrogate.get('n', 0)
+
+        mode = self.cmb_enemy_mode.currentText() if hasattr(self, 'cmb_enemy_mode') else ''
+        # 조회 가능 조건: 적 편대 모드 == '프리셋'
+        if mode != '프리셋':
+            self._prev_lbl_forecast.setText(
+                "적 편대를 '프리셋' 모드로 두면\n예상 승률·비용을 표시합니다.")
+            return
+
+        fleet  = self.cmb_fleet.currentText()          if hasattr(self, 'cmb_fleet') else ''
+        enemy  = self.cmb_fleet_preset_e.currentText() if hasattr(self, 'cmb_fleet_preset_e') else ''
+        weather = self.cmb_weather.currentText()        if hasattr(self, 'cmb_weather') else ''
+        rec = table.get(f'{fleet}|{enemy}')
+        if rec is None:
+            self._prev_lbl_forecast.setText("이 조합의 예상 데이터가 없습니다.")
+            return
+
+        win  = rec.get('win_rate', 0) * 100
+        draw = rec.get('draw_rate', 0) * 100
+        loss = rec.get('loss_rate', 0) * 100
+        score = rec.get('mean_friendly_score', 0) * 100
+        cost  = rec.get('mean_cost')
+        cpw   = rec.get('cost_per_win')
+        cost_s = f"${cost/1e6:.1f}M" if cost else "—"
+        cpw_s  = f"${cpw/1e6:.1f}M" if cpw else "승리 없음"
+        lines = [
+            f"승 {win:.0f}%   무 {draw:.0f}%   패 {loss:.0f}%",
+            f"평균 임무점수 {score:.0f}%",
+            f"평균 비용 {cost_s}  ·  승리당 {cpw_s}",
+        ]
+        if weather and weather != ref_weather:
+            lines.append(f"※ {ref_weather} 기준 근사값")
+        lines.append(f"참고 예상치 (MC {n}회·신뢰구간 없음)")
+        self._prev_lbl_forecast.setText('\n'.join(lines))
 
     def _update_mixed_scenario_detail(self, scenario_name: str):
         pass  # hover 팝업으로 대체
@@ -9636,6 +9721,8 @@ class SplashWindow(QWidget):
             ("v15.2", "높음", "학습 기반 즉시 예측",
              "과거 분석 결과를 학습한 예측 모델. 설정 바꾸는 즉시 요격률·피해를 추정(몬테카를로 없이). "
              "작전급 캠페인의 핵심 부품(교전을 즉시 계산해 72시간을 수초로). "
+             "【1차 구현 완료】실행 전 '예상 전황' 카드 — 미리 계산한 룩업 표로 편대·적·날씨별 예상 "
+             "승률·임무점수·비용을 즉시 표시(맑음 주간 한정). 다음: 날씨·임의 편성 확장, 신경망 추론. "
              "【현실성】학습 범위 밖은 부정확 — 빠른 1차 추정용."),
             ("v15.3", "높음", "함정별 자율 교전 AI",
              "각 함정이 독립 판단하는 AI. 협동 교전망·지령 없이도 자율 탐지·사격. "

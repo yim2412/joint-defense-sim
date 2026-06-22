@@ -15,6 +15,7 @@ a = Analysis(
         ('engine_v7.py',           '.'),
         ('spec_db.py',             '.'),
         ('changelog.json',         '.'),
+        ('battle_surrogate.json',  '.'),
         ('jds_icon.ico',           '.'),
         ('ocean_acoustic_db.py',   '.'),
         ('ocean_environment_db.py','.'),
