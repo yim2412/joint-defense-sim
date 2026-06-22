@@ -6186,6 +6186,77 @@ def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
     return verdicts, details
 
 
+# 지속 전장 모드 목표 → 표시 명칭 (launcher _otype과 일치)
+_BATTLE_OBJ_NAME = {
+    'defend_asset': '자산 방어', 'destroy_asset': '자산 격침',
+    'sea_control': '해역 통제', 'attrition': '소모전', 'sustainment': '작전 지속성',
+}
+# 작전 목표 달성 판정 임계 — progress 0~1 정규화 기준 '우세'
+_BATTLE_REQ_PROGRESS = 0.50
+_BATTLE_REQ_WINRATE  = 0.50
+
+
+def evaluate_req_battle_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
+    """지속 전장 모드 REQ 판정 — 단발 요격률 기준 대신 엔진 작전 목표(progress)·
+    승패를 그대로 판정으로 승격. 시나리오에 편성된 목표가 곧 REQ(동적).
+    반환: (items, verdicts, details) — 3-tuple (단발 evaluate_req_v7는 2-tuple, 별도).
+      ▸종합: 작전 승리(MC 승률, 없으면 단일 outcome)
+      ▸목표별: result['objectives']의 아군 목표 progress ≥ 0.5 (편성된 만큼 동적)
+      ▸공통 능력: 응답시간·채널 한계 (작전 성패 무관 시스템 요구성능)
+    """
+    items, verdicts, details = [], [], []
+    bidx = 1
+
+    # ── 종합: 작전 승리 ──────────────────────────────────────────────
+    wr = mc.get('win_rate')
+    if wr is not None:
+        v = wr >= _BATTLE_REQ_WINRATE
+        items.append({'id': f'REQ-B{bidx}', 'name': f'작전 승리 (MC 승률 ≥ {_BATTLE_REQ_WINRATE:.0%})',
+                      'desc': f'MC 작전 승률 ≥ {_BATTLE_REQ_WINRATE:.0%}'})
+        details.append(f"MC 승률 {wr:.0%} {'≥' if v else '<'} {_BATTLE_REQ_WINRATE:.0%}")
+    else:
+        oc = result.get('outcome')
+        v = (oc == 'win')
+        items.append({'id': f'REQ-B{bidx}', 'name': '작전 승리',
+                      'desc': '단일 작전에서 승리(임무 달성)'})
+        _ocname = {'win': '승리', 'loss': '패배', 'draw': '무승부'}.get(oc, oc)
+        details.append(f"작전 결과 {_ocname}")
+    verdicts.append(v); bidx += 1
+
+    # ── 목표별: 편성된 아군 목표 progress 그대로 (동적) ──────────────
+    for ob in result.get('objectives', []):
+        if ob.get('side') != 'friendly':
+            continue
+        prog = ob.get('progress', 0.0)
+        v = prog >= _BATTLE_REQ_PROGRESS
+        nm = _BATTLE_OBJ_NAME.get(ob.get('type'), ob.get('type'))
+        items.append({'id': f'REQ-B{bidx}', 'name': f'{nm} 달성',
+                      'desc': f'{nm} 달성도 ≥ {_BATTLE_REQ_PROGRESS:.0%}'})
+        details.append(f"{nm} 달성도 {prog:.0%} {'≥' if v else '<'} {_BATTLE_REQ_PROGRESS:.0%}")
+        verdicts.append(v); bidx += 1
+
+    # ── 공통 능력: 응답시간 (데이터 있을 때만 — 전장 _compile 미채움 시 제외) ─
+    tfirst = result.get('t_first_fire', -1.0)
+    if tfirst >= 0:
+        v = tfirst <= MAX_RESPONSE_TIME_S
+        items.append({'id': f'REQ-B{bidx}', 'name': '응답시간 충족',
+                      'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'})
+        details.append(f"첫 발사 {tfirst:.0f}s ≤ {MAX_RESPONSE_TIME_S}s")
+        verdicts.append(v); bidx += 1
+
+    # ── 공통 능력: 채널 한계 (관측된 동시 위협이 있을 때만) ──────────
+    peak_et = result.get('peak_concurrent_threats', 0)
+    if peak_et > 0:
+        tot_ch = result.get('total_channels', 16)
+        v = peak_et <= tot_ch
+        items.append({'id': f'REQ-B{bidx}', 'name': '채널 한계 미초과',
+                      'desc': '최대 동시 위협 ≤ 편대 총 채널'})
+        details.append(f"최대 동시 위협 {peak_et} ≤ 채널 {tot_ch}")
+        verdicts.append(v); bidx += 1
+
+    return items, verdicts, details
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  REQ 달성 최소 재고 역산
 # ════════════════════════════════════════════════════════════════════════════

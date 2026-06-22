@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.12.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.13.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.13.01 — 요구조건(REQ) 판정 지속 전장 모드 대응]                      ║
+║  NEW-A  지속 전장 모드에서 요구조건 판정이 요격률 기준 대신 작전 목표        ║
+║         달성(자산 방어·해역 통제·소모전·작전 지속성)과 작전 승률로 판정.     ║
+║         편성된 목표가 곧 판정 항목(시나리오별 자동 구성). 단발 교전은 유지   ║
 ║  [v15.12.04 — 동적 기상 변화 정규 기능 승격]                               ║
 ║  수정  검증 완료된 동적 기상 변화에서 '실험적' 표기를 제거하고 정규 옵션으로 ║
 ║         승격 (기본값 OFF 유지). IFF는 발현 조건 미충족으로 실험적 유지      ║
@@ -984,7 +988,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.12.04"
+APP_VERSION = "v15.13.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1399,11 +1403,15 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1,
     # REQ 전체 통과 여부 (평가 실패 시 None)
     req_pass = None
     try:
-        from engine_v7 import evaluate_req_v7, REQ_ITEMS_V7
-        verdicts, _ = evaluate_req_v7(result, mc, cfg)
+        if result.get('outcome'):   # 지속 전장 모드 — 목표 기반 REQ
+            from engine_v7 import evaluate_req_battle_v7
+            _, verdicts, _ = evaluate_req_battle_v7(result, mc, cfg)
+        else:
+            from engine_v7 import evaluate_req_v7
+            verdicts, _ = evaluate_req_v7(result, mc, cfg)
         req_pass = int(all(verdicts))
     except Exception:
-        _write_log(f'[WARN] evaluate_req_v7 실패: {traceback.format_exc()}')
+        _write_log(f'[WARN] evaluate_req 실패: {traceback.format_exc()}')
     # cfg 저장: enemy_fleet 리스트는 enemy_str 컬럼에 이미 있으므로 제외
     safe_cfg = {k: v for k, v in cfg.items() if k != 'enemy_fleet'}
     try:
@@ -1518,7 +1526,7 @@ try:
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
         MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
-        evaluate_req_v7, REQ_ITEMS_V7,
+        evaluate_req_v7, REQ_ITEMS_V7, evaluate_req_battle_v7,
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
         save_json_report_v7,
@@ -4918,10 +4926,14 @@ def _plot_req_radar(fig: Figure, result, mc, cfg=None):
                 transform=ax.transAxes)
         return
     try:
-        verdicts, _ = evaluate_req_v7(result, mc, cfg)
+        if result.get('outcome'):   # 지속 전장 모드 — 목표 기반 REQ 축
+            items, verdicts, _ = evaluate_req_battle_v7(result, mc, cfg)
+        else:
+            verdicts, _ = evaluate_req_v7(result, mc, cfg)
+            items = REQ_ITEMS_V7
     except Exception:
         return
-    labels = [r['id'] for r in REQ_ITEMS_V7]
+    labels = [r['id'] for r in items]
     N = len(labels)
     if N == 0:
         return
@@ -7855,10 +7867,14 @@ class MainWindow(QMainWindow):
             self._req_radar_canvas.draw_idle()
         except Exception:
             pass
-        verdicts, details = evaluate_req_v7(result, mc, cfg)
+        if result.get('outcome'):   # 지속 전장 모드 — 목표 기반 REQ(동적 항목)
+            items, verdicts, details = evaluate_req_battle_v7(result, mc, cfg)
+        else:
+            verdicts, details = evaluate_req_v7(result, mc, cfg)
+            items = REQ_ITEMS_V7
         self.req_table.setRowCount(0)
         _fail_bg = QColor(231, 76, 60, 38)   # 실패 행 옅은 적색 배경 — 한눈에 식별
-        for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
+        for req, v, d in zip(items, verdicts, details):
             row = self.req_table.rowCount()
             self.req_table.insertRow(row)
             for col, text in enumerate([req['id'], req['name'],
