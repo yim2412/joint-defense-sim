@@ -6772,7 +6772,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
 
     def cs(ws, r, c, v, bold=False, bg=None, center=True, color='000000'):
         cell = ws.cell(row=r, column=c, value=v)
-        cell.font      = Font(bold=bold, size=10, name='Arial', color=color)
+        cell.font      = Font(bold=bold, size=10, name='Malgun Gothic', color=color)
         cell.alignment = Alignment(
             horizontal='center' if center else 'left',
             vertical='center', wrap_text=True,
@@ -6785,7 +6785,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
         end_col = cols.split(':')[1]
         ws.merge_cells(f'A{r}:{end_col}{r}')
         cell = ws.cell(row=r, column=1, value=text)
-        cell.font      = Font(bold=True, size=13, color='FFFFFF', name='Arial')
+        cell.font      = Font(bold=True, size=13, color='FFFFFF', name='Malgun Gothic')
         cell.fill      = PatternFill('solid', start_color=bg)
         cell.alignment = Alignment(horizontal='center', vertical='center')
         ws.row_dimensions[r].height = 28
@@ -6793,7 +6793,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
     def hdr(ws, r, headers, bg='2C3E50'):
         for j, h in enumerate(headers, 1):
             cell = ws.cell(row=r, column=j, value=h)
-            cell.font      = Font(bold=True, size=10, color='FFFFFF', name='Arial')
+            cell.font      = Font(bold=True, size=10, color='FFFFFF', name='Malgun Gothic')
             cell.fill      = PatternFill('solid', start_color=bg)
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border    = tb
@@ -6850,7 +6850,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
             cs(ws1, i + 3, j, val, bg=bg, center=(j > 1))
 
     # 시나리오 파라미터 블록
-    ws1.cell(row=len(rows) + 5, column=1, value='【시나리오 파라미터】').font = Font(bold=True, size=11)
+    ws1.cell(row=len(rows) + 5, column=1, value='【시나리오 파라미터】').font = Font(bold=True, size=11, name='Malgun Gothic')
     params = [
         ('편대 프리셋',   cfg.get('fleet_preset', '?')),
         ('날씨',          cfg.get('weather', '?')),
@@ -6910,7 +6910,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
     briefing_text = generate_briefing(result, mc, cfg)
     for i, line in enumerate(briefing_text.split('\n'), 2):
         cell = ws4.cell(row=i, column=1, value=line)
-        cell.font      = Font(name='Consolas', size=10)
+        cell.font      = Font(name='Malgun Gothic', size=10)
         cell.alignment = Alignment(horizontal='left', vertical='center')
         ws4.row_dimensions[i].height = 16
 
