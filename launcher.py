@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.10.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.12.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.12.01 — 전장 모드 결과 로그 전장화]                                  ║
+║  수정  전장 모드 시뮬 완료 시 실행 로그(텍스트·JSON)에 작전 결과(승/패/무)· ║
+║         아군 임무 점수·MC 승률을 기록. 요격률 단일 지표 표시에서 전환       ║
 ║  [v15.10.02 — 향후 계획 갱신: 지속 전장 진행상황 + 자율 학습 AI]           ║
 ║  수정  향후 계획 탭의 지속 전장 엔진 항목을 '진행 중'으로 갱신(완료분 반영) ║
 ║         + '자율 학습 전술 AI(강화학습 + AI 자가개선 루프)' 항목 신설        ║
@@ -972,7 +975,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.10.02"
+APP_VERSION = "v15.12.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1278,8 +1281,21 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
         f'  적군 구성  : {enemy_str}',
         '',
         f'  총 위협    : {result.get("total_threats", 0)}발/기',
-        f'  요격률     : {mc.get("mean_intercept", 0):.1%}  (±{mc.get("std_intercept", 0):.1%})',
-        f'  완전요격   : {mc.get("full_pass_rate", 0):.1%}',
+    ]
+    _outcome = result.get('outcome')
+    if _outcome:   # 지속 전장 모드 — 승/패·임무 점수 중심, 요격률은 참고 지표
+        _oc = {'win': '승리', 'loss': '패배', 'draw': '무승부'}.get(_outcome, _outcome)
+        lines.append(f'  작전 결과  : {_oc}  (아군 임무 점수 {result.get("friendly_score", 0.0):.0%})')
+        _wr = mc.get('win_rate')
+        if _wr is not None:   # 전장 MC — 승률 분포
+            lines.append(
+                f'  MC 승률    : 승 {_wr:.0%} / 무 {mc.get("draw_rate", 0):.0%} / '
+                f'패 {mc.get("loss_rate", 0):.0%}  (평균 임무 점수 {mc.get("mean_friendly_score", 0.0):.2f})')
+        lines.append(f'  참고 요격률: {mc.get("mean_intercept", 0):.1%}')
+    else:
+        lines.append(f'  요격률     : {mc.get("mean_intercept", 0):.1%}  (±{mc.get("std_intercept", 0):.1%})')
+        lines.append(f'  완전요격   : {mc.get("full_pass_rate", 0):.1%}')
+    lines += [
         f'  아군 피격  : {avg_hits:.1f}회 (평균)',
         f'  적 격침    : {avg_edest:.1f}기/척 (평균)',
         f'  총 비용    : ${result.get("total_cost", 0):,.0f}',
@@ -1306,6 +1322,14 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
         'avg_enemy_destroyed':  round(avg_edest, 2),
         'total_cost':     result.get('total_cost', 0),
     }
+    if result.get('outcome'):   # 전장 모드 — 승/패·임무 점수 지표 동반 기록
+        record['outcome']       = result.get('outcome')
+        record['friendly_score'] = round(result.get('friendly_score', 0.0), 4)
+        if mc.get('win_rate') is not None:
+            record['win_rate']  = round(mc.get('win_rate', 0), 4)
+            record['draw_rate'] = round(mc.get('draw_rate', 0), 4)
+            record['loss_rate'] = round(mc.get('loss_rate', 0), 4)
+            record['mean_friendly_score'] = round(mc.get('mean_friendly_score', 0.0), 4)
     records = _load_json_log()
     records.append(record)
     _save_json_log(records)
