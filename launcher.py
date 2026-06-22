@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.13.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.13.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.13.02 — 실행 로그에 작전 결과(승/패·승률·임무점수) 기록]             ║
+║  NEW-A  실행 로그 뷰어에 작전 결과·승률·임무 점수 열 추가 — 지속 전장 모드  ║
+║         결과를 표에서 한눈에. 단발 교전 행은 기존 요격률 표시 유지          ║
 ║  [v15.13.01 — 요구조건(REQ) 판정 지속 전장 모드 대응]                      ║
 ║  NEW-A  지속 전장 모드에서 요구조건 판정이 요격률 기준 대신 작전 목표        ║
 ║         달성(자산 방어·해역 통제·소모전·작전 지속성)과 작전 승률로 판정.     ║
@@ -988,7 +991,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.13.01"
+APP_VERSION = "v15.13.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1376,13 +1379,22 @@ def _ensure_db():
         total_cost       REAL,
         req_pass         INTEGER,
         cfg_json         TEXT,
-        status           TEXT DEFAULT '완료'
+        status           TEXT DEFAULT '완료',
+        outcome          TEXT,
+        win_rate         REAL,
+        friendly_score   REAL
     )''')
-    # 기존 DB 호환: status 컬럼이 없으면 추가 (이미 있으면 무시)
-    try:
-        con.execute("ALTER TABLE sim_history ADD COLUMN status TEXT DEFAULT '완료'")
-    except Exception:
-        pass
+    # 기존 DB 호환: 컬럼이 없으면 추가 (이미 있으면 무시)
+    for _ddl in (
+        "ALTER TABLE sim_history ADD COLUMN status TEXT DEFAULT '완료'",
+        "ALTER TABLE sim_history ADD COLUMN outcome TEXT",          # 전장 모드 승/패/무
+        "ALTER TABLE sim_history ADD COLUMN win_rate REAL",         # 전장 MC 승률
+        "ALTER TABLE sim_history ADD COLUMN friendly_score REAL",   # 전장 아군 임무 점수
+    ):
+        try:
+            con.execute(_ddl)
+        except Exception:
+            pass
     con.commit()
     con.close()
 
@@ -1416,12 +1428,15 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1,
     safe_cfg = {k: v for k, v in cfg.items() if k != 'enemy_fleet'}
     try:
         con = sqlite3.connect(_db_path())
+        _outcome = result.get('outcome')   # 전장 모드만 값, 단발은 None(NULL)
+        _win_rate = round(mc.get('win_rate'), 4) if (_outcome and mc.get('win_rate') is not None) else None
+        _f_score  = round(result.get('friendly_score', 0.0), 4) if _outcome else None
         con.execute('''INSERT INTO sim_history
             (datetime, fleet, weather, mc_n, sim_mode, enemy, total_threats,
              mean_intercept, std_intercept, full_pass_rate, cvar,
              avg_friendly_hits, avg_enemy_destroyed, total_cost, req_pass, cfg_json,
-             status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+             status, outcome, win_rate, friendly_score)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (now,
              cfg.get('fleet_preset', '?'),
              cfg.get('weather', '?'),
@@ -1438,7 +1453,7 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1,
              result.get('total_cost', 0),
              req_pass,
              json.dumps(safe_cfg, ensure_ascii=False),
-             status))
+             status, _outcome, _win_rate, _f_score))
         con.commit()
         con.close()
     except Exception:
@@ -2667,6 +2682,9 @@ class SimLogDialog(QDialog):
         ('상태',         'status',              60),
         ('MC',           'mc_n',                55),
         ('총 위협',      'total_threats',       70),
+        ('작전결과',     'outcome',             70),   # 전장 모드 — 단발은 '—'
+        ('승률',         'win_rate',            60),   # 전장 MC 승률
+        ('임무점수',     'friendly_score',      70),   # 전장 아군 임무 점수
         ('요격률',       'mean_intercept',      80),
         ('± 편차',       'std_intercept',       65),
         ('완전요격',     'full_pass_rate',      75),
@@ -2833,6 +2851,11 @@ class SimLogDialog(QDialog):
             for row, rec in enumerate(records):
                 cvar = rec.get('cvar')
                 req  = rec.get('req_pass')
+                # 전장 모드 컬럼 (단발은 NULL → '—')
+                _oc   = rec.get('outcome')
+                _ocs  = {'win': '🟢 승', 'loss': '🔴 패', 'draw': '🟡 무'}.get(_oc, '—')
+                _wr   = rec.get('win_rate')
+                _fs   = rec.get('friendly_score')
                 # None-safe: DB 값이 NULL이면 .get(k, 0)이 None을 반환 → 포맷 시 TypeError로
                 # 앱이 죽으므로 (rec.get(k) or 0) 패턴으로 강제 숫자화
                 values = [
@@ -2843,6 +2866,9 @@ class SimLogDialog(QDialog):
                     rec.get('status', '완료') or '완료',
                     str(rec.get('mc_n', '') if rec.get('mc_n') is not None else ''),
                     str(rec.get('total_threats', '') if rec.get('total_threats') is not None else ''),
+                    _ocs,
+                    f"{_wr:.0%}" if _wr is not None else '—',
+                    f"{_fs:.0%}" if _fs is not None else '—',
                     f"{(rec.get('mean_intercept') or 0):.1%}",
                     f"±{(rec.get('std_intercept') or 0):.1%}",
                     f"{(rec.get('full_pass_rate') or 0):.1%}",
@@ -2862,13 +2888,17 @@ class SimLogDialog(QDialog):
                     if col == 4:   # 상태 — 중단은 주황으로 구분
                         if (rec.get('status') or '완료') == '중단':
                             item.setForeground(QColor('#f39c12'))
-                    if col == 7:   # 요격률
+                    if col == 7 and _oc:   # 작전결과 — 승/무/패 색상
+                        item.setForeground(QColor(
+                            C_GREEN if _oc == 'win' else
+                            '#f1c40f' if _oc == 'draw' else '#e74c3c'))
+                    if col == 10:   # 요격률 (작전결과·승률·임무점수 3컬럼 삽입으로 7→10)
                         rate = rec.get('mean_intercept') or 0
                         item.setForeground(QColor(
                             C_GREEN if rate >= 0.8 else
                             '#f39c12' if rate >= 0.5 else
                             '#e74c3c'))
-                    if col == 10 and cvar is not None:   # CVaR
+                    if col == 13 and cvar is not None:   # CVaR (10→13)
                         item.setForeground(QColor(
                             C_GREEN if cvar >= 0.7 else
                             '#f39c12' if cvar >= 0.4 else
