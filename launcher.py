@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.13.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.13.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.13.04 — 적정 편대 추천 지속 전장 모드 대응]                          ║
+║  NEW-A  지속 전장 모드에서 적정 편대 추천이 요격률·생존율 대신 작전 승률·   ║
+║         임무 점수로 후보 편대를 평가·순위. 단발 교전은 기존 기준 유지        ║
 ║  [v15.13.03 — 전황 지표판 지속 전장 모드 비용효과 대응]                    ║
 ║  NEW-A  지속 전장 모드에서 전황 지표판이 작전 승률·승리당 비용·평균 임무     ║
 ║         점수·방어 포화도를 MC 집계로 표시. 단발 교전은 기존 4지표 유지       ║
@@ -994,7 +997,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.13.03"
+APP_VERSION = "v15.13.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4746,10 +4749,12 @@ def _render_fleet_chart(results: dict) -> Figure:
             cost_lbl = (f"{cost_kr/10000:.2f}조원" if cost_kr >= 10000
                         else f"{cost_kr:,.0f}억원")
             tag = '  ★가성비1위' if ce_rank[i] == 1 else f'  가성비{ce_rank[i]}위'
+            if g.get('battle'):   # 전장 모드 — 승률·임무점수
+                metric_lbl = f"(승률 {g['win_rate']:.0%}·임무 {g['mission_score']:.0%})"
+            else:
+                metric_lbl = f"(요격 {g['rate']:.0%}·생존 {g['survival']:.0%})"
             ax.text(perf[i] + 1.0, yi,
-                    f"성능 {g['perf_score']*100:.0f}  "
-                    f"(요격 {g['rate']:.0%}·생존 {g['survival']:.0%})  "
-                    f"· {cost_lbl}{tag}",
+                    f"성능 {g['perf_score']*100:.0f}  {metric_lbl}  · {cost_lbl}{tag}",
                     va='center', color=C_TEXT, fontsize=9.5)
             # 추천 이유 (작은 글씨, 막대 아래)
             ax.text(0.5, yi - 0.30, g['reason'],
@@ -4758,7 +4763,9 @@ def _render_fleet_chart(results: dict) -> Figure:
         ax.set_yticks(y)
         ax.set_yticklabels([g['preset'] for g in grp], color=C_TEXT, fontsize=10.5)
         ax.set_xlim(0, 135)
-        ax.set_xlabel('종합 성능 점수  (요격률 60% + 함정 생존율 40%)',
+        _is_battle = bool(grp and grp[0].get('battle'))
+        ax.set_xlabel('종합 성능 점수  (승률 60% + 임무점수 40%)' if _is_battle
+                      else '종합 성능 점수  (요격률 60% + 함정 생존율 40%)',
                       color=C_SUBTEXT, fontsize=10)
         ax.set_title(title, color=C_TEXT, fontsize=12.5, pad=8, loc='left')
         ax.tick_params(colors=C_SUBTEXT, labelsize=10)

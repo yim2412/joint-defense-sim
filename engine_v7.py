@@ -6048,17 +6048,24 @@ def _fleet_reason(preset_name: str) -> str:
 
 
 def _fleet_metrics_worker(args):
-    """편대 1개의 단일 시뮬 평가 — (preset, 요격률, 생존율) 스칼라만 반환(피클 안전)."""
+    """편대 1개의 단일 시뮬 평가 — (preset, 1차지표, 생존율, 승리flag) 반환(피클 안전).
+    단발: 1차지표=요격률, 승리flag=None / 전장: 1차지표=임무점수, 승리flag=1.0(승)/0.0."""
     preset_name, cfg, seed = args
     run_cfg = {**cfg, 'fleet_preset': preset_name, 'mc_mode': True}
     if seed is not None:
         run_cfg['sim_seed'] = seed
+    if run_cfg.get('enable_battle_mode'):
+        r = run_battle_simulation(run_cfg)
+        ships   = r.get('friendly_ships', [])
+        n_ships = len(ships) if ships else 1
+        survival = max(0.0, 1.0 - r.get('friendly_ships_lost', 0) / n_ships)
+        win = 1.0 if r.get('outcome') == 'win' else 0.0
+        return (preset_name, r.get('friendly_score', 0.0), survival, win)
     r = run_v7_simulation(run_cfg)
     ships   = r.get('friendly_ships', [])
     n_ships = len(ships) if ships else 1
-    lost    = r.get('friendly_ships_lost', 0)
-    survival = max(0.0, 1.0 - lost / n_ships)
-    return (preset_name, r['intercept_rate'], survival)
+    survival = max(0.0, 1.0 - r.get('friendly_ships_lost', 0) / n_ships)
+    return (preset_name, r['intercept_rate'], survival, None)
 
 
 def recommend_fleet_v7(cfg: dict,
@@ -6070,11 +6077,16 @@ def recommend_fleet_v7(cfg: dict,
     후보 편대들을 동일 위협(현재 cfg)에 대해 MC 평가 → 성능·비용효과 순위.
 
     각 후보 × n 시뮬을 펼쳐 시뮬 단위로 병렬화(seed = base_seed + i 고정 → 결정론).
-    성능 점수 = 요격률 0.6 + 함정 생존율 0.4. 비용효과 = 성능 / 정규화 조달비용.
-    반환(성능순 정렬): [{preset, rate, std, survival, fleet_cost,
-                         perf_score, cost_eff, reason}, ...]
+    단발 성능 = 요격률 0.6 + 생존율 0.4 / 전장 성능 = 승률 0.6 + 임무점수 0.4.
+    비용효과 = 성능 / 정규화 조달비용.
+    반환(성능순 정렬): 단발 [{preset, rate, std, survival, fleet_cost, perf_score,
+                         cost_eff, reason}, ...] / 전장은 추가로 battle·win_rate·mission_score.
     """
     candidates = list(candidates)
+    battle = bool(cfg.get('enable_battle_mode'))
+    if battle:
+        # 전장 시뮬은 단발 대비 ~45배 무거움 → 후보 랭킹용 표본 축소(과도한 대기 방지)
+        n = min(n, 40)
     base_seed  = cfg.get('sim_seed', None)
     args = []
     for preset in candidates:
@@ -6091,21 +6103,36 @@ def recommend_fleet_v7(cfg: dict,
     out = []
     for ci, preset in enumerate(candidates):
         seg   = flat[ci * n:(ci + 1) * n]
-        rates = np.array([s[1] for s in seg])
+        prim  = np.array([s[1] for s in seg])   # 단발=요격률 / 전장=임무점수
         survs = np.array([s[2] for s in seg])
-        rate  = float(rates.mean())
         surv  = float(survs.mean())
         cost  = fleet_procurement_cost(preset)
-        perf  = rate * 0.6 + surv * 0.4
-        out.append({
-            'preset':     preset,
-            'rate':       rate,
-            'std':        float(rates.std()),
-            'survival':   surv,
-            'fleet_cost': cost,
-            'perf_score': perf,
-            'reason':     _fleet_reason(preset),
-        })
+        if battle:
+            wins     = np.array([s[3] for s in seg], dtype=float)
+            win_rate = float(wins.mean())
+            mission  = float(prim.mean())
+            out.append({
+                'preset':        preset,
+                'battle':        True,
+                'win_rate':      win_rate,
+                'mission_score': mission,
+                'survival':      surv,
+                'std':           float(prim.std()),
+                'fleet_cost':    cost,
+                'perf_score':    win_rate * 0.6 + mission * 0.4,
+                'reason':        _fleet_reason(preset),
+            })
+        else:
+            rate = float(prim.mean())
+            out.append({
+                'preset':     preset,
+                'rate':       rate,
+                'std':        float(prim.std()),
+                'survival':   surv,
+                'fleet_cost': cost,
+                'perf_score': rate * 0.6 + surv * 0.4,
+                'reason':     _fleet_reason(preset),
+            })
 
     # 비용효과: 그룹 내 최소 조달비용 기준 정규화 (같은 성능이면 싼 편대 우위)
     min_cost = min((o['fleet_cost'] for o in out if o['fleet_cost'] > 0), default=1.0)
