@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.13.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.13.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.13.03 — 전황 지표판 지속 전장 모드 비용효과 대응]                    ║
+║  NEW-A  지속 전장 모드에서 전황 지표판이 작전 승률·승리당 비용·평균 임무     ║
+║         점수·방어 포화도를 MC 집계로 표시. 단발 교전은 기존 4지표 유지       ║
 ║  [v15.13.02 — 실행 로그에 작전 결과(승/패·승률·임무점수) 기록]             ║
 ║  NEW-A  실행 로그 뷰어에 작전 결과·승률·임무 점수 열 추가 — 지속 전장 모드  ║
 ║         결과를 표에서 한눈에. 단발 교전 행은 기존 요격률 표시 유지          ║
@@ -991,7 +994,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.13.02"
+APP_VERSION = "v15.13.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7255,10 +7258,13 @@ class MainWindow(QMainWindow):
         grid.setSpacing(12)
         self._sb_cards: dict = {}
         self._sb_subs:  dict = {}
+        self._sb_boxes: dict = {}   # groupbox 참조 — 전장 모드 제목 동적 변경용
+        self._sb_card_tips = {key: tip for key, _, tip in self._SB_CARD_DEFS}
         for i, (key, title, tip) in enumerate(self._SB_CARD_DEFS):
             card = QGroupBox(title)
             card.setMinimumHeight(120)
             card.setToolTip(tip)
+            self._sb_boxes[key] = card
             card.setStyleSheet(
                 f"QGroupBox {{ background:{C_PANEL}; border:1px solid {C_BORDER};"
                 f" border-radius:8px; margin-top:8px; padding:10px;"
@@ -7298,7 +7304,26 @@ class MainWindow(QMainWindow):
         return w
 
     def _update_status_board(self, result: dict, mc: dict):
-        """전황 지표판 4개 카드 + 자동 해석 갱신 (대표 단일 시뮬 기준)."""
+        """전황 지표판 4개 카드 + 자동 해석 갱신.
+        단발: 대표 단일 시뮬 기준 / 지속 전장: MC 집계 기준(승률·임무점수·승리당 비용)."""
+        GOOD, WARN, BAD = '#2ecc71', '#f39c12', '#e74c3c'
+
+        def _set(key, text, color, sub):
+            self._sb_cards[key].setText(text)
+            self._sb_cards[key].setStyleSheet(f"color:{color};")
+            self._sb_subs[key].setText(sub)
+
+        def _retitle(key, title, tip):
+            self._sb_boxes[key].setTitle(title)
+            self._sb_boxes[key].setToolTip(tip)
+
+        if result.get('outcome'):   # ── 지속 전장 모드 — MC 집계 기준 ──
+            self._update_status_board_battle(result, mc, _set, _retitle, (GOOD, WARN, BAD))
+            return
+
+        # ── 단발 교전 모드 — 대표 단일 시뮬 기준 (카드 제목 원복) ──
+        for key, title, tip in self._SB_CARD_DEFS:
+            _retitle(key, title, tip)
         fired = result.get('total_missiles_fired', 0)
         intc  = result.get('intercepted_threats', 0)
         tot   = result.get('total_threats', 0)
@@ -7306,12 +7331,6 @@ class MainWindow(QMainWindow):
         fhit  = result.get('friendly_hits', 0)
         chan  = result.get('total_channels', 0)
         cost  = result.get('total_cost', 0.0)
-        GOOD, WARN, BAD = '#2ecc71', '#f39c12', '#e74c3c'
-
-        def _set(key, text, color, sub):
-            self._sb_cards[key].setText(text)
-            self._sb_cards[key].setStyleSheet(f"color:{color};")
-            self._sb_subs[key].setText(sub)
 
         # 1) 탄약 소모 효율 = 요격 / 발사
         if fired > 0:
@@ -7362,6 +7381,77 @@ class MainWindow(QMainWindow):
             msgs.append("⚠ 고비용 교전 — 요격당 비용이 높습니다. 저가 무기(ESSM·CIWS) 계층 활용을 검토하세요.")
         if not msgs:
             msgs.append("✅ 주요 지표 양호 — 채널 여유·교환비 우세·탄약 효율 정상 범위입니다.")
+        self._sb_interp.setText("\n".join(msgs))
+
+    def _update_status_board_battle(self, result: dict, mc: dict, _set, _retitle, colors):
+        """지속 전장 모드 전황 지표판 — MC 집계 기반 작전 지표.
+        단일 시뮬은 승/패 하나의 확률 결과라, 비용효과는 MC 집계로 평가."""
+        GOOD, WARN, BAD = colors
+        wr   = mc.get('win_rate')
+        dr   = mc.get('draw_rate', 0.0)
+        lr   = mc.get('loss_rate', 0.0)
+        mfs  = mc.get('mean_friendly_score')
+        costs = mc.get('total_costs', []) or []
+        mean_cost = (sum(costs) / len(costs)) if costs else result.get('total_cost', 0.0)
+        tot  = result.get('total_threats', 0)
+        chan = result.get('total_channels', 0)
+        n    = mc.get('n', 0)
+
+        # 카드 제목을 전장 의미로 교체 (기존 4칸 재활용)
+        _retitle('ammo_eff',     '🏆  작전 승률',
+                 'MC 반복에서 작전 승리(임무 달성) 비율. 높을수록 안정적으로 임무를 완수.')
+        _retitle('cost_per_kill','💵  승리당 비용',
+                 'MC 평균 교전 비용 ÷ 승률. 작전 1회 승리에 드는 기대 비용(낮을수록 경제적).')
+        _retitle('exchange',     '🎖  평균 임무 점수',
+                 'MC 평균 아군 임무 점수(0~100%). 자산 방어·해역 통제 등 작전 목표 종합 달성도.')
+        _retitle('saturation',   '📡  방어 포화도',
+                 '동시 위협 ÷ 총 교전 채널. 1 이상이면 채널 한계 초과 — 누수 위험 급증.')
+
+        # 1) 작전 승률
+        if wr is not None:
+            _set('ammo_eff', f"{wr:.0%}",
+                 GOOD if wr >= 0.5 else WARN if wr >= 0.2 else BAD,
+                 f"승 {wr:.0%} / 무 {dr:.0%} / 패 {lr:.0%}  (MC {n}회)")
+        else:
+            _set('ammo_eff', "—", C_SUBTEXT, "MC 집계 없음")
+
+        # 2) 승리당 비용 = MC 평균 비용 / 승률
+        if wr and wr > 0:
+            cpw = mean_cost / wr / 1_000_000
+            _set('cost_per_kill', f"${cpw:.1f}M",
+                 GOOD if cpw <= 30 else WARN if cpw <= 80 else BAD,
+                 f"평균 ${mean_cost/1_000_000:.1f}M / 승률 {wr:.0%}")
+        else:
+            _set('cost_per_kill', "승리 없음", BAD,
+                 f"평균 ${mean_cost/1_000_000:.1f}M / 승률 0%")
+
+        # 3) 평균 임무 점수
+        if mfs is not None:
+            _set('exchange', f"{mfs:.0%}",
+                 GOOD if mfs >= 0.5 else WARN if mfs >= 0.3 else BAD,
+                 f"MC {n}회 평균 작전 목표 달성도")
+        else:
+            _set('exchange', "—", C_SUBTEXT, "MC 집계 없음")
+
+        # 4) 방어 포화도 = 동시 위협 / 총 채널 (단일 시뮬 기준)
+        if chan > 0:
+            sat = tot / chan
+            _set('saturation', f"{sat:.2f}",
+                 GOOD if sat < 0.7 else WARN if sat < 1.0 else BAD,
+                 f"위협 {tot} / 채널 {chan}")
+        else:
+            _set('saturation', "—", C_SUBTEXT, "채널 정보 없음")
+
+        # 자동 해석 (전장 버전)
+        msgs = []
+        if wr is not None and wr < 0.5:
+            msgs.append("⚠ 작전 승률 미달 — 편대 보강·방어 전술 조정이 필요합니다. 시계열·목표 달성판에서 취약 국면을 확인하세요.")
+        if chan > 0 and tot / chan >= 1.0:
+            msgs.append("⚠ 채널 포화 — 동시 위협이 교전 채널 한계를 넘어섰습니다. 추가 함정 편입 또는 CEC 활성화로 채널을 분산하세요.")
+        if mfs is not None and mfs < 0.3:
+            msgs.append("⚠ 임무 점수 저조 — 핵심 작전 목표(자산 방어 등) 달성도가 낮습니다. 판정 탭에서 미달 목표를 점검하세요.")
+        if not msgs:
+            msgs.append("✅ 작전 지표 양호 — 승률·임무 점수·채널 여유가 정상 범위입니다.")
         self._sb_interp.setText("\n".join(msgs))
 
     def _build_log_tab(self) -> QWidget:
