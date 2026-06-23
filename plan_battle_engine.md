@@ -227,7 +227,25 @@ Phase 4  RL 통합
 
 **필요(prerequisite)**: ①`rl_env._finish` info 보강(현 4필드→objectives·핵심stats·enemy_score; info 추가일 뿐 RNG 불변=결정론·회귀 안전) ②레버 로깅(improve_report 측) ③Ollama 설치는 S3(사용자, qwen2.5-coder **7b** 권장—10GB) ④Tier1 탐색공간(shaping계수·ent_coef·lr·n_steps·시나리오비중).
 
-**S2 `auto_improve_loop.py`**: 리포트→Tier1 config 자동탐색→재학습→채택/롤백(초기 규칙기반, LLM 없이 검증). **S3 `llm_propose.py`**: Ollama HTTP 통합. **S4 Tier2**: 엔진코드 제안 큐+verify_regression 게이트+**사람 승인**(무인 코드수정 금지).
+**S2 `auto_improve_loop.py`**(✅완료): 리포트→Tier1 config 자동탐색→재학습→채택/롤백(규칙기반, LLM 없이 검증). **S3 `llm_propose.py`**(✅완료): Ollama(qwen2.5-coder:7b) HTTP 통합, `--llm` 토글, 규칙기반 fallback, 가드레일 클램프.
+
+**S4 — Tier2 엔진코드 제안 + 승인 게이트 (상세 설계, 2026-06-23)**
+
+> LLM이 엔진/RL 코드를 건드리는 **유일한 단계 = 안전 설계가 전부**. plan 10-B 원칙: 무인 코드수정 금지.
+
+**스코프 화이트리스트** — MVP는 `rl_env.py`의 `_shaping_reward`·`_featurize`만 패치 허용. **금지**: engine.py(DB·물리)·engine_v7 코어·BattleEngine 부모 물리·verify_regression.py·`regression_golden.json`·골든. 범위 밖 자동 거부. (보상/관측은 학습신호 조정이라 leverage 크고, 엔진 물리·DB는 안 건드려 회귀가 강하게 보호.)
+
+**6중 안전 게이트(순서대로, 하나라도 실패 시 중단)**:
+1. **화이트리스트** — 대상 파일·함수 범위 검사.
+2. **정적 안전 스캔** — 패치 토큰 검사: `os.system`·`subprocess`·`eval`·`exec`·`open(`·`socket`·`requests`·`urllib`·`__import__`·`while True` 등 발견 시 즉시 거부(함수 내부 악성·폭주 코드 차단 — 화이트리스트가 못 막는 층).
+3. **함수 단위 교체** — 라인 diff 금지(LLM 라인번호 불신). 함수를 이름으로 통째 교체(AST/정규식)해야 깨끗이 적용.
+4. **샌드박스** — git worktree 격리 사본에 적용(검증 전 실트리 무손상).
+5. **자동 게이트** — 샌드박스에서 `verify_regression.py` PASS(엔진 물리 불변) **+** 짧은 학습·평가 **Δ > 노이즈 임계(0.02, 고정 seed)** + **실행 타임아웃**(무한루프·급격 저하 방지). 평가는 shaped reward 아닌 **`friendly_score` vs baseline**로 측정 → **보상 해킹 자동 차단**(shaped↑인데 friendly_score 안 오르면 기각).
+6. **사람 승인** — 게이트 통과해도 review 파일(diff+LLM 가설+게이트결과)+콘솔 제시 → 명시적 approve에만 실트리 적용. 무인 적용 절대 없음.
+
+**부가**: ▸**프로비넌스 로그** `_improve_queue/`(gitignore) — 모든 제안의 프롬프트·가설·diff·게이트결과·사람결정 기록(추적+루프 개선 재료). ▸**루프 종료조건** — max iter·개선<임계 시 중단·**기각 패치 해시로 재제안 차단**. ▸**롤백 = 패치당 1커밋**(승인 시 개별 커밋, 나쁘면 git revert). ▸모델 **14b** 권장(코드 추론, S3는 7b). ▸파일 `llm_patch.py`(제안·스캔·샌드박스·게이트) + `_improve_queue/`.
+
+**열린 결정(스윕 결과 보고 확정)**: ①MVP 스코프 rl_env 보상/관측만 vs BattleEngine 전술훅 포함 ②샌드박스 git worktree vs 파일 백업 ③승인 UX review 파일 vs 콘솔 yes. (Claude 추천: ①보상/관측만 ②worktree ③review 파일)
 
 ## 11. 리스크 · 회귀 전략
 
