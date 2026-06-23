@@ -602,6 +602,31 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 
 **다음 = 5.5e 본학습 후보**: shaping ON·1M+ 스텝으로 밴드 돌파 시도(SubprocVecEnv 346 steps/s → 1M ~50분). 200k에서 +0.012가 학습량으로 더 오르는지. 안 오르면 RL 행동공간/보상 재설계 또는 한계 인정.
 
+## 12. Phase 5.6 — self-play (적 지휘 AI 동시 학습) [설계, 2026-06-23]
+
+**목표**: 규칙기반 적 전술(`_adaptive_tactic_update`: 요격률 보고 포화→분산→기만 전환)을
+**RL 적 정책으로 교체**해, 아군·적을 둘 다 학습시키는 self-play. 사용자 최종 목표.
+
+**학습 구조 = 교대(alternating)** (동시 학습 금지 — plan 9절 비정상성). 한쪽 정책을 numpy
+고정(rl_infer)하고 상대만 학습 → 교대 반복. "상대는 항상 고정, 자기만 학습"이라 환경이
+정적 = 안정적 학습. 아군 학습=BattleEnv(적=고정 numpy), 적 학습=EnemyEnv(아군=고정 numpy).
+
+**엔진 통합 = BattleEngine 3곳, 부모 무수정**(별도 yield 없이 기존 아군 결정 지점에 적 mode를
+함께 실음 → 부모 `_simulate`·`_adaptive_tactic_update` 무수정):
+- `__init__`: `ai_tactic=='rl'`이면 `_adaptive_ai=True`(부모 1307 속성 덮어쓰기)·`_enemy_rl=True`.
+- `_adaptive_tactic_update` 오버라이드: `_enemy_rl`이면 규칙 재평가 skip(mode는 정책 cb가 세팅),
+  아니면 `super()`.
+- `_apply_tactical_choice` 오버라이드(이미 존재): `choice.get('enemy_mode')` 있으면
+  `self._adaptive_mode` 세팅. 기본 None이면 단발 bit-identical(회귀 가드).
+
+**적 행동/관측/보상**: 행동 MVP=전술 모드 3종(saturation/dispersal/deception, `_adaptive_mode`가
+`_enemy_fire`서 살보·표적집중 결정). 관측=적 시점 집계(생존 위협·아군 추정피해·요격률·자원).
+보상=`enemy_score`(이미 `_compile`). 나중 살보·철수 타이밍 확장.
+
+**4단계**: 5.6.1 엔진 적 RL 훅+적 행동/관측/보상 정의 → 5.6.2 `EnemyEnv`(아군 고정, 적 학습)
+검증 → 5.6.3 교대 루프(`selfplay_loop.py`) → 5.6.4 평가(공진화 곡선: 학습된 적이 강해졌나·
+아군이 강한 적에 적응했나). 빌드제외 RL 인프라(엔진 부모 무수정·회귀 보존).
+
 ## 보류 메모
 
 - **보상 shaping**: rl_env `reward_shaping` 토글로 구현 완료, **현 짧은 전장에선 역효과(기본 OFF)**. 작전급 긴 전장(5.1+) 도입 후 재시도 후보 — 긴 에피소드에선 중간보상이 종료보상을 안 희석할 수 있음.

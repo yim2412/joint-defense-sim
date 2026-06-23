@@ -4921,6 +4921,13 @@ class BattleEngine(TimeStepEngine):
         # 손실이 임계를 넘으면 생존 세력 전면 철수. (구 battle_air_reattacks 임시 레버 폐지)
         self._enemy_withdrawing  = False
         self._enemy_withdraw_loss = float(cfg.get('battle_enemy_withdraw_loss', 0.5))
+        # Phase 5.6 self-play: ai_tactic='rl'이면 적 전술 모드(포화/분산/기만)를 RL 적 정책이
+        # 결정한다. 부모 _adaptive_ai(adaptive 전용)를 rl 모드에도 켜 _enemy_fire가 _adaptive_mode를
+        # 쓰게 하고, 규칙 재평가(_adaptive_tactic_update)는 skip(모드는 정책 cb가 세팅).
+        # 기본(rl 아님)은 _enemy_rl=False → 적 전술 동작 불변(회귀 보존).
+        self._enemy_rl = (cfg.get('ai_tactic') == 'rl')
+        if self._enemy_rl:
+            self._adaptive_ai = True   # 부모 속성 덮어쓰기(부모 코드 무수정)
         # 방어 자산 = 기함(primary). 시작 시점에 고정 식별(격침 판정용)
         self._asset        = self._primary()
         self._asset_max_hp = self._asset._max_hp
@@ -5082,6 +5089,18 @@ class BattleEngine(TimeStepEngine):
         elif ecm == 'normal':
             self.cfg['enable_ecm'] = True
             self.cfg['ecm_scale'] = 1.0
+        # Phase 5.6 self-play: 적 전술 모드 주입 — RL 적 정책(또는 고정 상대)이 고른 모드를
+        # _adaptive_mode에 세팅, _enemy_fire가 살보·표적집중에 반영. None이면 무영향(회귀 가드).
+        em = choice.get('enemy_mode')
+        if self._enemy_rl and em in ('saturation', 'dispersal', 'deception'):
+            self._adaptive_mode = em
+
+    def _adaptive_tactic_update(self):
+        """Phase 5.6 self-play: 적 RL 모드면 규칙 재평가를 건너뛴다(전술 모드는 RL 정책이
+        _apply_tactical_choice로 세팅). 그 외(adaptive)는 부모 규칙기반 전환 그대로."""
+        if self._enemy_rl:
+            return
+        super()._adaptive_tactic_update()
 
     def _make_tactical_state(self) -> 'TacticalState':
         """전장 모드 RL 보조 관측 — 부모 스냅샷에 위협 구성·자원 잔여를 extra로 추가.
