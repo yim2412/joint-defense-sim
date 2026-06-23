@@ -26,18 +26,12 @@ from improve_report import eval_baseline, eval_policy
 normalize_enemy_db()
 
 
-# ── Tier1 규칙 제안기 (S3에서 LLM이 대체) ──────────────────────────────────────
-def propose_candidates(report):
-    """S1 리포트 → config 후보 리스트. 규칙:
-      · 기준선 = 현 최고 설정(ent_coef 0.01, shaping ON)
-      · 지는 시나리오에 과수렴 플래그가 있으면 → 탐색 강화(ent_coef↑) 후보 추가
-      · 과수렴 없으면 → 탐색 약화(ent_coef↓, 수렴 가속) 후보 추가
-    각 후보에 '왜 제안했는지'(reason)를 달아 로그·후속 LLM 학습에 남긴다."""
+# ── Tier1 제안기 — 규칙(기본) 또는 로컬 LLM(S3) ────────────────────────────────
+def _rule_candidates(report):
+    """규칙 제안기(LLM 무응답 시 fallback). 과수렴 플래그→ent_coef↑."""
     cands = [{'ent_coef': 0.01, 'lr': 3e-4, 'reason': '현 최고 기준선(5.5g)'}]
-    over = []
-    if report:
-        over = [s['preset'] for s in report.get('scenarios', [])
-                if s.get('overconverged_levers')]
+    over = [s['preset'] for s in (report or {}).get('scenarios', [])
+            if s.get('overconverged_levers')]
     if over:
         cands.append({'ent_coef': 0.02, 'lr': 3e-4,
                       'reason': f'과수렴 시나리오 {over[:2]} → 탐색 강화(ent_coef 0.02)'})
@@ -45,6 +39,18 @@ def propose_candidates(report):
         cands.append({'ent_coef': 0.005, 'lr': 3e-4,
                       'reason': '과수렴 없음 → 수렴 가속(ent_coef 0.005)'})
     return cands
+
+
+def propose_candidates(report, use_llm=False, model='qwen2.5-coder:7b'):
+    """S1 리포트 → config 후보. use_llm이면 로컬 Ollama(S3), 실패 시 규칙기반 fallback.
+    어느 쪽이든 후보는 학습·평가 게이트(Δ)가 거르므로 잘못된 제안도 안전하다."""
+    if use_llm and report:
+        from llm_propose import llm_propose_candidates
+        cands = llm_propose_candidates(report, model)
+        if cands:
+            return cands
+        print('[제안] LLM 실패 → 규칙기반 fallback', flush=True)
+    return _rule_candidates(report)
 
 
 # ── 학습 + 평가 ────────────────────────────────────────────────────────────────
@@ -67,7 +73,7 @@ def train_and_eval(cfg, baseline, timesteps, n_envs, eval_seeds):
     return float(np.mean(deltas)), model, dt
 
 
-def main(timesteps, n_envs, eval_seeds, report_path):
+def main(timesteps, n_envs, eval_seeds, report_path, use_llm=False):
     report = None
     if os.path.exists(report_path):
         report = json.load(open(report_path, encoding='utf-8'))
@@ -76,7 +82,8 @@ def main(timesteps, n_envs, eval_seeds, report_path):
     else:
         print(f'[S1 리포트 없음] {report_path} — 기본 후보로 진행', flush=True)
 
-    cands = propose_candidates(report)
+    print(f'[제안기] {"로컬 LLM(Ollama)" if use_llm else "규칙기반"}', flush=True)
+    cands = propose_candidates(report, use_llm=use_llm)
     print(f'[제안] {len(cands)}개 후보:', flush=True)
     for c in cands:
         print(f"  ent_coef={c['ent_coef']} lr={c['lr']} — {c['reason']}", flush=True)
@@ -113,8 +120,10 @@ def main(timesteps, n_envs, eval_seeds, report_path):
 
 
 if __name__ == '__main__':
-    ts = int(sys.argv[1]) if len(sys.argv) > 1 else 8_000      # 기본 초소형(메커니즘 검증)
-    ne = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-    es = range(1, (int(sys.argv[3]) if len(sys.argv) > 3 else 2) + 1)
-    rp = sys.argv[4] if len(sys.argv) > 4 else '_improve_report.json'
-    main(ts, ne, list(es), rp)
+    args = [a for a in sys.argv[1:] if a != '--llm']
+    use_llm = '--llm' in sys.argv          # 로컬 LLM 제안기 사용(S3)
+    ts = int(args[0]) if len(args) > 0 else 8_000      # 기본 초소형(메커니즘 검증)
+    ne = int(args[1]) if len(args) > 1 else 4
+    es = range(1, (int(args[2]) if len(args) > 2 else 2) + 1)
+    rp = args[3] if len(args) > 3 else '_improve_report.json'
+    main(ts, ne, list(es), rp, use_llm=use_llm)
