@@ -2,8 +2,11 @@
 """
 _make_audit_pdf.py — 종합 감사 보고서를 PDF(보고서 형식)로 출력 (빌드 제외 도구)
 
-reportlab + 맑은 고딕. v15 블록 감사 결과를 군 보고서 양식으로 조판.
-사용: python _make_audit_pdf.py  →  감사보고서_v15.pdf
+reportlab + 맑은 고딕. 군 보고서 양식으로 조판.
+종합 감사를 할 때마다 이 스크립트의 BLOCK·내용을 그 블록에 맞게 갱신해
+실행하면, 블록별 PDF가 `감사보고서/` 폴더에 누적된다(블록당 1개).
+
+사용: python _make_audit_pdf.py  →  감사보고서/감사보고서_v15.pdf
 """
 import os
 from reportlab.lib.pagesizes import A4
@@ -17,7 +20,10 @@ from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
                                 TableStyle, HRFlowable)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(ROOT, '감사보고서_v15.pdf')
+BLOCK = 'v15'                                    # 감사 블록 — 매 감사마다 갱신
+REPORT_DIR = os.path.join(ROOT, '감사보고서')   # 블록별 PDF 누적 폴더
+os.makedirs(REPORT_DIR, exist_ok=True)
+OUT = os.path.join(REPORT_DIR, f'감사보고서_{BLOCK}.pdf')
 
 pdfmetrics.registerFont(TTFont('Malgun', r'C:/Windows/Fonts/malgun.ttf'))
 pdfmetrics.registerFont(TTFont('MalgunBd', r'C:/Windows/Fonts/malgunbd.ttf'))
