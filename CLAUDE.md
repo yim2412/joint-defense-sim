@@ -156,7 +156,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 > **스모크 실행** 정의: exe 실행 → 기본 시나리오 단일 시뮬 1회 → 결과 탭 정상 표시 확인. **exe는 `CloseMainWindow()`로 정상 종료** — `Stop-Process -Force` 금지(시작 시 워커 풀 예열 중 강제종료하면 멀티프로세싱 자식이 WinError 87 에러창을 띄움. 코드 버그 아닌 강제종료 아티팩트).
 >
-> **스모크 실행 대체 금지**: exe에서 시뮬레이션 버튼을 실제로 클릭하는 데 실패하면, 엔진 직접 호출(`run_v7_simulation()`)로 우회하지 않는다. 엔진 직접 호출은 GUI 워커 경로(step_cb, 시그널 emit 등)를 거치지 않아 exe 전용 버그를 놓친다. 자동화 실패 시 **BLOCKED로 보고하고 사용자에게 직접 시뮬 1회 실행을 요청**한다.
+> **스모크 실행 대체 금지**: exe에서 시뮬레이션 버튼을 실제로 클릭하는 데 실패하면, 엔진 직접 호출(`run_v7_simulation()`)로 우회하지 않는다. 엔진 직접 호출은 GUI 워커 경로(step_cb, 시그널 emit 등)를 거치지 않아 exe 전용 버그를 놓친다. **무인 감사에서는 GUI 자동화(pywinauto/UIA)로 버튼 클릭을 자동 수행**하고, 그 GUI 자동화마저 실패할 때만 **BLOCKED로 보고**한다(이때도 엔진 직접 호출 우회는 금지). 무인 모드가 아닌 일반 패치에서는 자동화 실패 시 사용자에게 직접 시뮬 1회 실행을 요청한다.
 
 > **회귀 검증(`verify_regression.py`) 정의**: 고정 8개 시나리오×고정 seed 결과를 `regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python verify_regression.py` / 의도된 변경 후 갱신 `python verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
 
@@ -167,6 +167,14 @@ v12.06.01: [변경 내용 한 줄 요약]
 ### 종합 감사 (메이저 블록 완료 시 — 코드·데이터·exe 한 번에)
 
 마이너 감사가 "변경 1건"을 보는 것과 달리, **종합 감사는 누적된 블록 전체를 통합 상태에서 한 번에 점검**한다(상호작용·하위호환·수치 안정성). 9개 영역을 점검하고 **사람이 읽는 감사 보고서 파일**을 남긴다.
+
+#### 0) 무인 모드 (기본 — 사용자 단계별 동의 없이 자동 수행)
+
+종합 감사는 **무인(autonomous)으로 수행**한다. 사용자가 감사를 승인(트리거)하면 그 승인이 **9영역 전체에 대한 포괄 동의**로 간주되어, 각 단계마다 다시 묻지 않는다 — 백그라운드 실행([[feedback-no-background-without-consent]]의 사전 동의는 감사 승인으로 충족), 빌드, 에이전트 spawn(`/code-review high`·Explore 팬아웃), 발견 항목 **그 자리 수정·커밋·푸시**까지 Claude가 끝까지 진행하고 **결과(감사보고서 + 발견·조치 요약)만 보고**한다.
+
+- **⑤ exe 스모크는 GUI 자동화로 무인 처리**: pywinauto/UIA 등으로 exe를 띄워 시뮬 버튼을 실제 클릭→결과 탭 표시까지 자동 검증한다. **엔진 직접 호출(`run_v7_simulation`) 우회는 여전히 금지**(GUI 워커 경로 전용 버그를 놓침). GUI 자동화 자체가 실패하면 **그 ⑤영역만 BLOCKED로 보고**하고 나머지 8영역은 무인으로 끝까지 완료한다(전체 중단 금지).
+- 무인 진행 중에도 [[feedback-verbose-background]]에 따라 **단계별로 투명하게 보고**한다(자동 진행 ≠ 침묵). 장시간 단계(code-review·빌드·전장 MC)는 약 1분 간격 박스 UI.
+- **사용자 판단이 갈리는 발견**(예: 의도된 변경인지 버그인지 모호, 비가역 삭제)은 무인으로 강행하지 않고 보고서에 '판단 필요'로 남겨 마지막에 함께 제시한다.
 
 #### 1) 트리거 — 아래 3경우 중 하나 (빌드·커밋 전 1회)
 
@@ -182,7 +190,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 | ② | **DB·수치** | 바뀐 DB 값을 공개 제원·교리와 대조 + **`spec_db` 항목수 = DB 항목수**(신규 DB 누락 시 스펙 빔) + `normalize_enemy_db` 누락 필드 + **DB 키 일관**(편대명·적명이 preset/`battle_surrogate` 키와 일치) | **Explore 에이전트 팬아웃** (또는 수동) |
 | ③ | **회귀** | 엔진 동작 무결성 + **결정론**(`sim_seed` 키 사용·신규 `random`/`numpy.random`이 RNG 순서 깨는지) + **골든 커버리지**(새 기능·새 `stats` 키가 8케이스·26지표에 실제 반영되는지 — 없으면 회귀 사각) | `python verify_regression.py` 전체 PASS (FAIL이면 의도 확인 → 갱신 또는 수정) |
 | ④ | **통합 MC + 성능** | 기준 시나리오 전체 회귀 MC의 수치 안정성 + **wall-time 회귀 가드**(단발 1회·전장 1회 실행시간 이전 블록 대비 급증 1.5배+면 원인 규명) | 기준값 메모리(`project-baseline-*`) 대조 + 시간 측정·기록 |
-| ⑤ | **exe·빌드** | 전체 빌드 성공 + **번들 무결성**(`spec datas`·`hiddenimports` 완전성, 데이터 파일 포함) + 스모크 + **MC 중단(abort) 후 워커 잔존·풀 정리** + **외부 의존**(Cesium CDN 끊겨도 graceful) + `_internal` 복사 누락 | 빌드 + 사용자 스모크 ([[feedback-smoke-run]]) + 중단 1회 테스트 |
+| ⑤ | **exe·빌드** | 전체 빌드 성공 + **번들 무결성**(`spec datas`·`hiddenimports` 완전성, 데이터 파일 포함) + 스모크 + **MC 중단(abort) 후 워커 잔존·풀 정리** + **외부 의존**(Cesium CDN 끊겨도 graceful) + `_internal` 복사 누락 | 빌드 + **GUI 자동화 스모크**(무인, pywinauto/UIA로 버튼 클릭; 자동화 실패 시 그 영역만 BLOCKED — 엔진 직접 호출 우회는 금지 [[feedback-smoke-run]]) + 중단 1회 테스트 |
 | ⑥ | **위생** | changelog·`_PLANS` 코드명/완료항목 잔류, 헤더·`APP_VERSION`·changelog 정합·연속성, **죽은 코드(호출처 0)**, **상수·임계값 교차 정합**(예: `MAX_SIM_TIME` vs `BATTLE_HORIZON_S`), **보안**(개인키 미커밋·`.gitignore` 커버리지: `dist`/`build`·모델 zip·로그·`_rl_*` 산출물), CLAUDE.md engine_v7 함수표 정합 | **Grep 자동 스캔** ([[feedback-plans-changelog-hygiene]]) |
 | ⑦ | **하위호환** | 저장된 **구버전 시나리오 cfg**(과거 `enable_xxx` 누락 dict)로 로드·실행 시 정상 동작 | 구버전 cfg dict로 `run_v7_simulation`/`run_battle_simulation` 1회 호출 |
 | ⑧ | **수치 안정성·단위** | **NaN/Inf 가드**(0 나눗셈·`log`/`sqrt` 음수·빈 리스트 평균) + **확률값 [0,1] clamp**(Pk·progress·win_rate) + **단위 혼동**(km↔m·ms↔s·USD raw↔`/1e6`) + Beta 분포 `pk_dist` 파라미터 유효성 | Grep(`/`·`np.log`·`sqrt`) + 경계값 수동 점검 |
