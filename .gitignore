@@ -23,3 +23,5 @@ _battle_surrogate_smoke.json
 _improve_report.json
 _improve_loop_log.json
 _rl_auto_best*
+_improve_queue/
+_patch_wt_*

@@ -99,11 +99,14 @@ def main(timesteps, n_envs, eval_seeds, report_path, use_llm=False):
         results.append({'cfg': c, 'mean_delta': round(mean_delta, 3),
                         'train_s': round(dt, 1), '_model': model})
 
-    # 채택 — Δ 최고. 단 기준선(첫 후보)보다 유의(>0.005) 높아야 교체, 아니면 기준선 유지.
+    # 채택 — Δ 최고. 단 기준선(첫 후보)보다 노이즈 임계 초과로 높아야 교체.
+    # 임계 0.02 — 200k 평가 노이즈(±0.03)를 감안. 0.005는 너무 헐거워 노이즈를 개선으로
+    # 오인했다(스윕 실증). 더 견고하려면 _ADOPT_MARGIN↑ 또는 같은 config 재학습 평균.
+    _ADOPT_MARGIN = 0.02
     results.sort(key=lambda r: r['mean_delta'], reverse=True)
     best = results[0]
     base_cand = next(r for r in results if r['cfg'] is cands[0])
-    adopt = best['cfg'] is cands[0] or (best['mean_delta'] - base_cand['mean_delta'] > 0.005)
+    adopt = best['cfg'] is cands[0] or (best['mean_delta'] - base_cand['mean_delta'] > _ADOPT_MARGIN)
     chosen = best if adopt else base_cand
     chosen['_model'].save('_rl_auto_best')
     print(f"\n[채택] ent_coef={chosen['cfg']['ent_coef']} (Δ{chosen['mean_delta']:+.3f})"
