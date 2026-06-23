@@ -62,9 +62,7 @@ flow = []
 flow += [P('종 합 감 사 보 고 서', st_title),
          Spacer(1, 3*mm),
          P('v15 블록 — 지속 전장 엔진 · 강화학습(RL) · 다운스트림 컷오버', st_sub),
-         Spacer(1, 2*mm),
-         P('문서번호 JDS-AUDIT-v15 · 분류 대외비 · 작성 Claude(자동) · 검토 임승준', st_foot),
-         Spacer(1, 3*mm),
+         Spacer(1, 4*mm),
          HRFlowable(width='100%', thickness=1.4, color=NAVY), Spacer(1, 5*mm)]
 
 # ── 개요(메타) 표 ──
@@ -74,7 +72,7 @@ meta_rows = [
     [P('변경 규모', st_cellb), P('engine_v7 +1004줄 · launcher 대규모 리팩터 · rl_env.py 신설 · engine +129줄', st_cell), P('트리거', st_cellb), P('① 큰 묶음 완료', st_cell)],
     [P('감사 방식', st_cellb), P('무인 모드 — 단계별 동의 없이 자동 수행. exe 스모크는 GUI 자동화(pywinauto)', st_cell), P('근거 규칙', st_cellb), P('CLAUDE.md 종합 감사 9영역', st_cell)],
     [P('소요 시간', st_cellb), P('빌드 ~4.1분 · GUI 스모크 ~35초 · MC 측정 ~15초 · 회귀 ~수초 (정밀 단계별 계측은 v16 감사부터 자동 기록)', st_cell), P('무인/수동', st_cellb), P('100% 무인 · 사용자 개입 0회', st_cell)],
-    [P('점검 규모', st_cellb), P('회귀 8케이스×26지표(208 대조) · audit_scan 11항목 · MC n=20(단발)/n=8(전장) · BattleEngine 25메서드 시그니처 · DB 8종+surrogate 345키', st_cell), P('수행 모델', st_cellb), P('Claude Opus 4.8', st_cell)],
+    [P('점검 규모', st_cellb), P('회귀 8케이스×26지표(208 대조) · audit_scan 11항목 · MC n=20(단발)/n=8(전장) · BattleEngine 25메서드 시그니처 · DB 8종+surrogate 345키', st_cell), P('재감사', st_cellb), P('0회 (발견 0)', st_cell)],
 ]
 mt = Table(meta_rows, colWidths=[22*mm, 78*mm, 20*mm, 54*mm])
 mt.setStyle(TableStyle([
@@ -167,23 +165,8 @@ et.setStyle(TableStyle([
 ]))
 flow += [et, Spacer(1, 6*mm)]
 
-# ── 승인란 + 차기 감사 ──
-flow += [P('6. 검토 · 승인', st_h2)]
-appr = Table([
-    [P('구분', st_cellb), P('수행', st_cellb), P('검토', st_cellb), P('승인', st_cellb)],
-    [P('담당', st_cell), P('Claude Opus 4.8 (자동)', st_cell), P('임승준', st_cell), P('임승준', st_cell)],
-    [P('일자 / 서명', st_cell), P('2026-06-23', st_cell), P(' ', st_cell), P(' ', st_cell)],
-], colWidths=[28*mm, 56*mm, 45*mm, 45*mm])
-appr.setStyle(TableStyle([
-    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#c2ccd8')),
-    ('BACKGROUND', (0,0), (-1,0), LIGHT),
-    ('BACKGROUND', (0,0), (0,-1), LIGHT),
-    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ('TOPPADDING', (0,0), (-1,-1), 6), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ('LEFTPADDING', (0,0), (-1,-1), 5),
-]))
-flow += [appr, Spacer(1, 4*mm),
-         P('차기 종합 감사 — 다음 큰 묶음 완료 시 또는 v16 major 전환 직전(트리거 ①/②). PDF는 감사보고서/감사보고서_v16.pdf로 누적.', st_meta),
+# ── 차기 감사 ──
+flow += [P('차기 종합 감사 — 다음 큰 묶음 완료 시 또는 v16 major 전환 직전(트리거 ①/②). PDF는 감사보고서/감사보고서_v16.pdf로 누적.', st_meta),
          Spacer(1, 6*mm),
          HRFlowable(width='100%', thickness=0.6, color=GREY), Spacer(1, 2*mm),
          P('합동 통합방어 시뮬레이터 · 종합 감사 보고서 · 자동 생성(_make_audit_pdf.py) · 2026-06-23', st_foot)]
