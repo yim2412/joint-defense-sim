@@ -31,8 +31,25 @@ import urllib.request
 OLLAMA_URL = 'http://localhost:11434/api/generate'
 DEFAULT_MODEL = 'qwen2.5-coder:14b'        # 코드 추론 — S3(7b)보다 큰 모델
 
-# ── 게이트 1: 화이트리스트 (허용 파일 → 함수) ─────────────────────────────────
-_ALLOWED = {'rl_env.py': ['_shaping_reward', '_featurize']}
+# ── 게이트 1: 화이트리스트 (허용 파일 → {클래스, 함수}) ───────────────────────
+# class=None: 모듈 전역 함수(rl_env 보상/관측). class='BattleEngine': 그 클래스 직속
+# 메서드만 교체 가능 — 부모(TimeStepEngine)에 동명 메서드가 있어도 절대 안 건드림
+# (engine_v7는 부모·자식에 _target_sort_key 등 동명 오버라이드가 공존하므로 필수).
+_ALLOWED = {
+    'rl_env.py':    {'class': None,            'funcs': ['_shaping_reward', '_featurize']},
+    'engine_v7.py': {'class': 'BattleEngine',  'funcs': ['_target_sort_key']},
+}
+
+
+def _allowed(file, func):
+    spec = _ALLOWED.get(file)
+    return bool(spec and func in spec['funcs'])
+
+
+def _class_of(file):
+    spec = _ALLOWED.get(file)
+    return spec['class'] if spec else None
+
 
 # ── 게이트 2: 정적 안전 스캔 (금지 토큰 — 명백히 위험한 것만) ──────────────────
 _FORBIDDEN = [
@@ -41,6 +58,10 @@ _FORBIDDEN = [
     r'\bopen\s*\(', r'\bsocket\b', r'\brequests\b', r'\burllib\b', r'\bhttplib\b',
     r'__import__', r'\bimportlib\b', r'\bwhile\s+True\b', r'\bglobals\s*\(',
     r'\bshutil\b', r'\bsys\s*\.\s*exit', r'\b__\w+__\s*=',  # dunder 재정의
+    # 엔진 전술훅 확장(engine_v7) 대비 — 전역 DB·물리 상태 오염 차단(전술훅은 읽기만):
+    r'\bENEMY_DB\b', r'\bFRIENDLY_DB\b', r'\bSHIP_DB\b', r'\bFRIENDLY_STRIKE_DB\b',
+    r'\bENEMY_PROCUREMENT_USD\b', r'\bSHIP_PROCUREMENT_USD\b',
+    r'self\s*\.\s*stats\s*\[[^\]]*\]\s*=',  # stats 직접대입(결과 오염·보상해킹)
 ]
 
 _ADOPT_MARGIN = 0.02   # Δ 임계(200k 노이즈 ±0.03 감안). S2와 동일 기준.
@@ -53,13 +74,33 @@ def _read(path):
 
 
 # ── 게이트 3: AST 함수 추출·교체 ──────────────────────────────────────────────
-def extract_function(src, name):
-    """함수/메서드 소스 추출(없으면 None)."""
-    tree = ast.parse(src)
+def _parse(src):
+    """ast.parse 래퍼 — UTF-8 BOM(engine_v7.py 등) 제거. BOM은 첫 문자라 라인 번호 불변,
+    원본 src의 라인 인덱싱은 그대로 유지된다(교체는 BOM 줄을 건드리지 않음)."""
+    return ast.parse(src.lstrip('﻿'))
+
+
+def _find_func_node(tree, name, class_name=None):
+    """class_name이 주어지면 그 클래스 **직속 body**에서만, 아니면 모듈 전역에서 함수 노드 검색.
+    클래스 한정은 부모/자식 동명 오버라이드 공존 시 자식만 정확히 잡기 위한 핵심 안전장치 —
+    ast.walk(전역)는 첫 매칭(부모)을 잡아 물리를 오염시킬 수 있다."""
+    if class_name:
+        for cls in ast.walk(tree):
+            if isinstance(cls, ast.ClassDef) and cls.name == class_name:
+                for node in cls.body:   # 직속 메서드만(부모·중첩 def 무관)
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+                        return node
+        return None
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            return ast.get_source_segment(src, node)
+            return node
     return None
+
+
+def extract_function(src, name, class_name=None):
+    """함수/메서드 소스 추출(없으면 None)."""
+    node = _find_func_node(_parse(src), name, class_name)
+    return ast.get_source_segment(src, node) if node else None
 
 
 def _reindent(func_src, indent):
@@ -77,16 +118,14 @@ def _reindent(func_src, indent):
     return '\n'.join(out)
 
 
-def replace_function(src, name, new_func_src):
-    """함수를 이름으로 통째 교체(라인 span 기반, 들여쓰기 보존). 실패 시 ValueError."""
-    tree = ast.parse(src)
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            target = node
-            break
+def replace_function(src, name, new_func_src, class_name=None):
+    """함수를 이름으로 통째 교체(라인 span 기반, 들여쓰기 보존). 실패 시 ValueError.
+    class_name 지정 시 그 클래스 직속 메서드만 — 부모 동명 메서드 오염 차단."""
+    tree = _parse(src)
+    target = _find_func_node(tree, name, class_name)
     if target is None:
-        raise ValueError(f'함수 {name} 미발견')
+        raise ValueError(f'함수 {name} 미발견'
+                         + (f' (class {class_name})' if class_name else ''))
     # 새 함수가 파싱되는지 + 같은 이름인지 검증
     nt = ast.parse(_reindent(new_func_src, 0))
     if not (nt.body and isinstance(nt.body[0], (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -124,8 +163,43 @@ def _summarize_report(report):
     return "\n".join(lines)
 
 
+# 함수별 역할·가용 컨텍스트 — 환각(없는 속성 사용) 방지의 핵심. 화이트리스트 함수마다 1개.
+_FUNC_CONTEXT = {
+    '_shaping_reward': (
+        "보상 shaping 함수",
+        """- 인자 prev, cur 는 state 객체. 속성: cur.intercepted(누적 요격수), cur.total_threats,
+  cur.shots_fired, cur.t(현재 시각), cur.threats(위협 리스트), cur.ships(함정 리스트),
+  cur.extra(dict: 'leaker_frac','ammo_frac','fuel_frac','asm_inflight','aircraft_frac').
+- self._fleet_hp(state) → 생존 함대 HP 합(float). self.reward_shaping(bool).
+- numpy는 모듈 상단에서 np로 이미 import됨. 새 import·새 self 속성 금지.""",
+        "- 보상을 인위적으로 부풀리지 마라(평가는 실제 임무점수로 하므로 무의미).",
+    ),
+    '_featurize': (
+        "관측(특징) 함수",
+        """- 인자 state(또는 cur). 속성은 _shaping_reward와 동일(intercepted·total_threats·
+  shots_fired·t·threats·ships·extra dict). 반환은 고정 길이 numpy 배열(차원 바꾸지 마라).
+- numpy는 np로 이미 import됨. 새 import·새 self 속성 금지.""",
+        "- 반환 배열의 길이(관측 차원)를 절대 바꾸지 마라 — 정책 신경망 입력과 어긋난다.",
+    ),
+    '_target_sort_key': (
+        "전장 모드 위협 교전 우선순위 정렬키 (BattleEngine 전술훅)",
+        """- 인자 obj(위협 객체), primary_pos(기함 위치). 반환은 float — sorted(reverse=True)에서
+  값이 클수록 먼저 교전한다.
+- obj 속성(읽기만): obj.pos.dist_to(primary_pos)(거리 m, float),
+  getattr(obj,'speed_ms',300.0)(속도 m/s), getattr(obj,'is_ballistic',False),
+  getattr(obj,'is_hgv',False), getattr(obj,'is_qbm',False).
+- self.cfg.get('_tactical_target_priority','auto') → RL이 고른 전술('auto'/'nearest'/
+  'fastest'/'leakers') 읽기. super()._target_sort_key(obj, primary_pos) → 부모 임박도 기본키.
+- 엔진 물리·함정 상태·self.stats·전역 DB는 절대 건드리지 마라(읽기만). 새 import·새 self 속성 금지.""",
+        "- 정렬 의미를 깨지 마라(반드시 float 반환, 클수록 우선). 부작용(상태 변경) 금지 — 순수 함수.",
+    ),
+}
+
+
 def _build_prompt(report, file, func, current_src):
-    return f"""너는 해군 방어 강화학습(PPO)의 보상/관측 함수를 개선하는 보조다.
+    role, context, extra_rule = _FUNC_CONTEXT.get(
+        func, ("함수", "- (컨텍스트 미정의 — 현재 코드의 인자·속성만 사용하라)", ""))
+    return f"""너는 해군 방어 강화학습(PPO) 시뮬레이터의 {role}를 개선하는 보조다.
 아래 약점 리포트를 보고 `{file}`의 `{func}` 함수를 개선하라.
 
 [약점 리포트]
@@ -137,17 +211,13 @@ def _build_prompt(report, file, func, current_src):
 ```
 
 [사용 가능한 것 — 이것만 써라. 다른 속성/메서드는 존재하지 않음(환각 금지)]
-- 인자 prev, cur 는 state 객체. 속성: cur.intercepted(누적 요격수), cur.total_threats,
-  cur.shots_fired, cur.t(현재 시각), cur.threats(위협 리스트), cur.ships(함정 리스트),
-  cur.extra(dict: 'leaker_frac','ammo_frac','fuel_frac','asm_inflight','aircraft_frac').
-- self._fleet_hp(state) → 생존 함대 HP 합(float). self.reward_shaping(bool).
-- numpy는 모듈 상단에서 np로 이미 import됨. 새 import·새 self 속성 금지.
+{context}
 
 [엄격한 제약 — 위반 시 자동 거부]
 - 오직 이 함수 하나만, 같은 이름·같은 시그니처로 반환하라.
 - 파일 입출력·네트워크·subprocess·exec/eval·while True·import 추가 금지.
-- 보상을 인위적으로 부풀리지 마라(평가는 실제 임무점수로 하므로 무의미).
-- 위 '사용 가능한 것'에 없는 속성(예: cur.defended_assets, self.env_config)은 절대 쓰지 마라.
+{extra_rule}
+- 위 '사용 가능한 것'에 없는 속성은 절대 쓰지 마라(없는 속성을 지어내면 게이트에서 기각된다).
 
 [출력 — 오직 아래 코드블록 하나, 다른 설명 금지]
 ```python
@@ -159,7 +229,7 @@ def _build_prompt(report, file, func, current_src):
 
 def propose_patch(report, file, func, model=DEFAULT_MODEL, timeout=180):
     """LLM에 함수 개선 제안 요청 → (새 함수 소스, 가설 텍스트). 실패 시 (None, err)."""
-    current = extract_function(_read(file), func)
+    current = extract_function(_read(file), func, _class_of(file))
     if current is None:
         return None, f'{func} 추출 실패'
     payload = json.dumps({'model': model, 'prompt': _build_prompt(report, file, func, current),
@@ -249,9 +319,11 @@ def write_review(file, func, new_func, hypo, gate, report):
     os.makedirs(qdir, exist_ok=True)
     h = hashlib.sha256(new_func.encode()).hexdigest()[:12]
     path = os.path.join(qdir, f'patch_{func}_{h}.md')
-    current = extract_function(_read(file), func)
+    current = extract_function(_read(file), func, _class_of(file))
+    cls = _class_of(file)
     with open(path, 'w', encoding='utf-8') as f:
-        f.write(f"# Tier2 패치 제안 — {file}:{func}\n\n")
+        f.write(f"# Tier2 패치 제안 — {file}:{func}"
+                + (f" (class {cls})" if cls else "") + "\n\n")
         f.write(f"- 패치 해시: `{h}`\n- 게이트: **{'통과' if gate['pass'] else '실패'}** "
                 f"({gate.get('stage')}, {gate.get('detail')})\n")
         f.write(f"- LLM 가설: {hypo}\n- 약점 입력: {_summarize_report(report)}\n\n")
@@ -271,12 +343,12 @@ def apply_patch(review_path):
         print('review 파일 파싱 실패'); return
     file, func, new_func = fm.group(1), fm.group(2), pm.group(1).strip()
     # 적용 직전 화이트리스트·안전스캔 재확인
-    if func not in _ALLOWED.get(file, []):
+    if not _allowed(file, func):
         print(f'거부: {file}:{func} 화이트리스트 밖'); return
     hits = static_safety_scan(new_func)
     if hits:
         print(f'거부: 금지 토큰 {hits}'); return
-    patched = replace_function(_read(file), func, new_func)
+    patched = replace_function(_read(file), func, new_func, _class_of(file))
     with open(file, 'w', encoding='utf-8') as f:
         f.write(patched)
     print(f'적용 완료: {file}:{func}. 검토 후 커밋하세요(패치당 1커밋 권장).')
@@ -299,10 +371,13 @@ def main():
         print(f'리포트 없음: {report_path}'); sys.exit(2)
     report = json.load(open(report_path, encoding='utf-8'))
 
-    # MVP: 보상 함수부터(가장 leverage 큰 단일 함수)
-    file, func = 'rl_env.py', '_shaping_reward'
-    print(f'[게이트 1] 화이트리스트: {file}:{func} — {"허용" if func in _ALLOWED.get(file, []) else "거부"}')
-    if func not in _ALLOWED.get(file, []):
+    # 대상 함수 — 기본 rl_env 보상(MVP), --file/--func로 전술훅 등 화이트리스트 내 다른 대상 선택.
+    file = _argval(args, '--file', 'rl_env.py')
+    func = _argval(args, '--func', '_shaping_reward')
+    cls = _class_of(file)
+    tgt = f'{file}:{func}' + (f' (class {cls})' if cls else '')
+    print(f'[게이트 1] 화이트리스트: {tgt} — {"허용" if _allowed(file, func) else "거부"}')
+    if not _allowed(file, func):
         sys.exit(1)
 
     print(f'[제안] {model}에 {func} 개선 요청...', flush=True)
@@ -319,7 +394,7 @@ def main():
 
     print('[게이트 3] 함수 단위 교체 검증...', flush=True)
     try:
-        patched = replace_function(_read(file), func, new_func)
+        patched = replace_function(_read(file), func, new_func, _class_of(file))
     except ValueError as e:
         print(f'  거부 — {e}'); sys.exit(1)
     print('  통과(AST 교체 성공)')

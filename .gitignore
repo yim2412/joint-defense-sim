@@ -22,6 +22,8 @@ _battle_surrogate_smoke.json
 # 자가개선 루프 산출물 (실행 시 생성)
 _improve_report.json
 _improve_loop_log.json
+_improve_*.log
 _rl_auto_best*
 _improve_queue/
 _patch_wt_*
+_tier2_*.log
