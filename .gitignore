@@ -30,3 +30,4 @@ _tier2_*.log
 _build_*.log
 _selfplay_*.zip
 _selfplay_*.log
+_selfplay_*.npz

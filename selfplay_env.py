@@ -19,9 +19,37 @@ from gymnasium import spaces
 
 import rl_infer
 from rl_env import BattleEnv, _BALANCED_PRESETS, _DEFAULT_CFG  # noqa: F401  (재export·동일 풀)
+from engine_v7 import run_battle_simulation, calculate_fleet_detect_ranges, BATTLE_HORIZON_S
 
 # 적 전술 모드 — 5.6.1 엔진 훅이 받는 enemy_mode 값과 일치해야 함.
 _ENEMY_MODES = ['saturation', 'dispersal', 'deception']
+
+
+# ── 정책 numpy 추출·추론(교대 학습용) — rl_infer 구조 재사용(nvec 일반) ────────
+def export_policy_npz(model, out_path):
+    """학습 모델(아군 7레버 또는 적 3모드)의 정책망을 npz로. nvec은 모델 action_space."""
+    import numpy as np
+    sd = model.policy.state_dict()
+    g = lambda k: sd[k].cpu().numpy().astype(np.float32)
+    np.savez(out_path,
+             w0=g('mlp_extractor.policy_net.0.weight'), b0=g('mlp_extractor.policy_net.0.bias'),
+             w2=g('mlp_extractor.policy_net.2.weight'), b2=g('mlp_extractor.policy_net.2.bias'),
+             wa=g('action_net.weight'),                 ba=g('action_net.bias'),
+             nvec=np.asarray(model.action_space.nvec, dtype=np.int64))
+    return out_path
+
+
+def make_enemy_cb(npz_path, horizon=BATTLE_HORIZON_S):
+    """적 정책 npz → enemy_mode 문자열을 내는 콜백(고정 상대용). 없으면 None."""
+    try:
+        npz = rl_infer.load_policy(npz_path)
+    except (FileNotFoundError, OSError, KeyError):
+        return None
+
+    def cb(state):
+        a = rl_infer.forward(npz, rl_infer.featurize(state, horizon))
+        return _ENEMY_MODES[int(np.asarray(a).ravel()[0])]
+    return cb
 
 
 class EnemyEnv(BattleEnv):
@@ -75,6 +103,67 @@ def make_enemy_env(cfg: dict | None = None, tactical_interval: int = 60,
     def _init():
         return EnemyEnv(cfg, tactical_interval, friendly_policy=friendly_policy)
     return _init
+
+
+class FriendlyEnv(BattleEnv):
+    """아군 학습 환경 — 적을 고정 정책(numpy)으로 두고 아군만 학습(교대 학습의 반대 면).
+    BattleEnv(아군 행동·friendly_score 보상)를 그대로 쓰되, 적 전술 모드를 고정 정책으로 주입."""
+
+    def __init__(self, cfg: dict | None = None, tactical_interval: int = 60,
+                 enemy_policy: str = '_selfplay_enemy_cur.npz'):
+        super().__init__(cfg, tactical_interval, reward_shaping=False)
+        self.base_cfg['ai_tactic'] = 'rl'                     # 5.6.1 enemy_mode 훅 활성
+        self._enemy_mode_cb = make_enemy_cb(enemy_policy, self._horizon)
+
+    def step(self, action):
+        if self._gen is None:
+            return self._finish()
+        choice = self._action_to_choice(action)               # 아군 7레버
+        if self._enemy_mode_cb:                                # 적은 고정 정책
+            choice['enemy_mode'] = self._enemy_mode_cb(self._last_state)
+        try:
+            nxt = self._gen.send(choice)
+        except StopIteration as e:
+            self._result = e.value or {}
+            self._gen = None
+            return self._finish()
+        shaped = self._shaping_reward(self._last_state, nxt)
+        self._last_state = nxt
+        return self._featurize(nxt), shaped, False, False, {}
+
+
+def make_friendly_env(cfg: dict | None = None, tactical_interval: int = 60,
+                      enemy_policy: str = '_selfplay_enemy_cur.npz'):
+    def _init():
+        return FriendlyEnv(cfg, tactical_interval, enemy_policy=enemy_policy)
+    return _init
+
+
+def eval_matchup(friendly_npz, enemy_npz, seeds, presets=None):
+    """양쪽 고정 정책 대결 → 시나리오 평균 (friendly_score, enemy_score).
+    교대 학습 라운드 평가용 — 현재 아군 npz vs 현재 적 npz."""
+    presets = presets or _BALANCED_PRESETS
+    fcb = rl_infer.make_policy_cb(friendly_npz, BATTLE_HORIZON_S)
+    ecb = make_enemy_cb(enemy_npz, BATTLE_HORIZON_S)
+
+    def cb(state):
+        c = dict(fcb(state)) if fcb else {}
+        if ecb:
+            c['enemy_mode'] = ecb(state)
+        return c
+
+    fs, es = [], []
+    for p in presets:
+        for sd in seeds:
+            cfg = dict(_DEFAULT_CFG, enemy_fleet_preset=p, ai_tactic='rl', sim_seed=sd,
+                       tactical_interval=60)
+            rr = calculate_fleet_detect_ranges(cfg['fleet_preset'], cfg['weather'])
+            cfg['detect_km'], cfg['surface_detect_km'], cfg['sub_detect_km'] = \
+                rr['대공'], rr['대함'], rr['대잠']
+            r = run_battle_simulation(cfg, tactical_cb=cb)
+            fs.append(float(r.get('friendly_score', 0.0)))
+            es.append(float(r.get('enemy_score', 0.0)))
+    return float(np.mean(fs)), float(np.mean(es))
 
 
 # ════════════════════════════════════════════════════════════════════════════
