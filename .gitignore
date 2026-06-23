@@ -27,3 +27,4 @@ _rl_auto_best*
 _improve_queue/
 _patch_wt_*
 _tier2_*.log
+_build_*.log

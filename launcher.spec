@@ -16,6 +16,7 @@ a = Analysis(
         ('spec_db.py',             '.'),
         ('changelog.json',         '.'),
         ('battle_surrogate.json',  '.'),
+        ('rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
         ('ocean_acoustic_db.py',   '.'),
         ('ocean_environment_db.py','.'),
@@ -25,6 +26,8 @@ a = Analysis(
         ('cesium_view.html',       '.'),
     ],
     hiddenimports=[
+        # RL 추론 모듈(launcher가 지연 import — 정적 분석 누락 방지). numpy만 의존.
+        'rl_infer',
         # PyQt6 core
         'PyQt6',
         'PyQt6.QtWidgets',

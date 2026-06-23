@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.13.05 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v15.14.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v15.14.01 — AI 전술 (강화학습 방어 정책)]                                ║
+║  NEW-A  지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 위협 상황을 보고  ║
+║         무기 우선순위·살보·레이더·표적·기동·CAP·ECM을 자동 전환 (실험적)     ║
 ║  [v15.13.05 — 실행 전 예상 전황 카드 (즉시 추정 룩업)]                     ║
 ║  NEW-A  설정 화면 적군 편대에 '예상 전황(참고)' 카드 — 편대·적·날씨 선택 시 ║
 ║         미리 계산한 룩업으로 예상 승률·임무점수·비용을 MC 없이 즉시 표시     ║
@@ -1000,7 +1003,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.13.05"
+APP_VERSION = "v15.14.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1556,7 +1559,7 @@ import numpy as np
 try:
     from engine_v7 import (
         run_v7_simulation, run_battle_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
-        build_czml,
+        build_czml, BATTLE_HORIZON_S,
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
         WEATHER_DB,
@@ -3108,7 +3111,19 @@ class SimWorker(QThread):
 
             # v10.7: 전술 모드 훅 주입
             _tactical_hook = None
-            if self.cfg.get('tactical_mode', False):
+            # 전장 모드 + AI 전술(학습된 정책) → numpy 추론 cb가 전술 자동 결정(사람 일시정지보다 우선).
+            if (self.cfg.get('enable_battle_mode', False)
+                    and self.cfg.get('enable_rl_policy', False)):
+                try:
+                    import rl_infer
+                    _tactical_hook = rl_infer.make_policy_cb(
+                        _res('rl_policy.npz'),
+                        self.cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
+                except Exception:
+                    _tactical_hook = None
+                if _tactical_hook is None:           # npz 없음·로드 실패 → 전술 auto 폴백
+                    self.progress.emit("AI 전술 정책 로드 실패 — 기본 전술로 진행")
+            elif self.cfg.get('tactical_mode', False):
                 _tactical_hook = self._tactical_pause_cb
 
             if self.cfg.get('enable_battle_mode', False):
@@ -5620,6 +5635,8 @@ class MainWindow(QMainWindow):
             self.chk_munition_limit.setChecked(cfg.get('enable_munition_limit', True))
         if hasattr(self, 'chk_battle'):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
+        if hasattr(self, 'chk_rl_policy'):
+            self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_weather_dyn'):
             self.chk_weather_dyn.setChecked(cfg.get('enable_weather_dynamics', False))
         if hasattr(self, 'cmb_weather_trend'):
@@ -6142,6 +6159,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_battle.setChecked(False)
 
+        self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
+        self.chk_rl_policy.setToolTip(
+            "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
+            "30초마다 위협 상황을 보고 무기 우선순위·살보·레이더·표적·기동·CAP·ECM을\n"
+            "국면에 맞게 전환합니다(개발 PC에서 학습한 정책 가중치를 내장, 실시간 추론).\n"
+            "지속 전장 모드와 함께 켜야 작동합니다(단발 모드엔 무관).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_rl_policy.setChecked(False)
+
         self.chk_weather_dyn = QCheckBox("동적 기상 변화")
         self.chk_weather_dyn.setToolTip(
             "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
@@ -6217,6 +6244,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_flooding)
         fl_env.addRow("",            self.chk_munition_limit)
         fl_env.addRow("",            self.chk_battle)
+        fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
         fl_env.addRow("",            self.chk_iff)
@@ -7842,6 +7870,7 @@ class MainWindow(QMainWindow):
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
             'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
+            'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
             'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
@@ -9711,8 +9740,10 @@ class SplashWindow(QWidget):
              "지속 전장에서 아군 방어 AI가 수많은 교전을 스스로 반복하며 최적 전술(요격 무기 "
              "선택·살보 배분·기동)을 강화학습으로 익힌다. 학습된 전술을 평가해 약점을 자동 분석하고, "
              "로컬 AI 코드 모델이 개선안을 제시 → 회귀 검증 통과·사람 승인 후 반영하는 자가개선 "
-             "루프로 확장. 전 과정 로컬 실행·무료. 현재: 학습 환경·행동·보상 연결과 첫 학습 배선 "
-             "검증 완료. 다음: 균형 잡힌 학습 시나리오·학습 가속·행동 확장 후 본학습, 이어 자가개선 루프."),
+             "루프로 확장. 전 과정 로컬 실행·무료. 현재: 균형 학습 시나리오·학습 가속·행동 확장·"
+             "본학습까지 마쳐 학습 정책이 기본 전술을 일관되게 능가. 약점을 자동 분석하고 로컬 AI가 "
+             "개선안을 제시·검증·반영하는 자가개선 루프도 구축. 학습된 전술을 'AI 전술' 옵션으로 실제 "
+             "지속 전장에 탑재. 다음: 자가개선 루프 실전 운영, 적 지휘 AI 동시 학습(self-play)."),
             ("보류", "보류", "기존 기능 로드맵 — 전장 엔진 전환까지 일시 보류",
              "아래 항목들(자율 교전 AI·무인기 군집·전자전·극초음속·작전급 캠페인 등)은 지속 전장 "
              "엔진 전환을 완료한 뒤 새 엔진 위에서 재개·통합한다. 교체될 모델 위에 기능을 더 쌓지 않기 위함. "
