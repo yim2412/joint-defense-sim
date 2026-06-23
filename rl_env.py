@@ -187,14 +187,31 @@ class BattleEnv(gym.Env):
 
     # ── gym API ──────────────────────────────────────────────────────────────
     def _finish(self):
-        """에피소드 종료 — friendly_score 종료 보상 + info. (제너레이터 StopIteration 후)"""
+        """에피소드 종료 — friendly_score 종료 보상 + info. (제너레이터 StopIteration 후)
+
+        info에 약점 분석(improve_report.py S1)용 분해를 함께 노출한다 — 목표별
+        progress·자원·누출. info 추가일 뿐 RNG·엔진을 건드리지 않아 결정론·회귀 안전."""
         r = self._result or {}
         fscore = float(r.get('friendly_score', 0.0))
         obs = self._featurize(self._last_state)
+        # 목표별 progress(어느 임무가 점수를 깎나) — 아군 목표만 {otype: progress}
+        objectives = {ob.get('type'): ob.get('progress')
+                      for ob in r.get('objectives', [])
+                      if ob.get('side') == 'friendly'}
+        st = self._last_state
+        ex = (getattr(st, 'extra', None) or {}) if st is not None else {}
+        tot = (st.total_threats if st is not None else 0) or 0
         info = {'outcome': r.get('outcome'),
                 'friendly_score': fscore,
                 'enemy_score': float(r.get('enemy_score', 0.0)),
-                'preset': self._ep_preset}
+                'preset': self._ep_preset,
+                # ── S1 약점 분석 분해 ──
+                'objectives': objectives,                       # 목표별 progress
+                'ammo_frac': float(ex.get('ammo_frac', 1.0)),   # 탄약 잔여비(0=소진)
+                'fuel_frac': float(ex.get('fuel_frac', 1.0)),   # 연료 잔여비
+                'leaker_frac': float(ex.get('leaker_frac', 0.0)),  # 탄도·HGV 비율
+                'intercept_rate': ((st.intercepted / tot) if (st is not None and tot) else 0.0),
+                'total_threats': tot}
         return obs, fscore, True, False, info
 
     def reset(self, *, seed=None, options=None):

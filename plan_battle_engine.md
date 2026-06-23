@@ -213,6 +213,22 @@ Phase 4  RL 통합
 - **Tier 2 (엔진 코드 변경 → 승인 게이트)**: 제안을 큐에 쌓고 `verify_regression.py` 자동 실행 → 통과해도 **사람 검토 후 적용**.
 - "자동 제시"의 실체 = 루프가 평가 체크포인트마다 로컬 Ollama에 HTTP 1회. **약점을 숫자로 정의하는 분석(②)이 LLM보다 더 중요·어려움.**
 
+### 10-C. 자가개선 루프 상세 설계 (S1~S4, 2026-06-23 합의)
+
+> **단계화 원칙**: LLM 의존성을 뒤로 — Ollama 미설치(현재)여도 S1~S2를 LLM 없이 완성·검증. plan 명제대로 *약점 분석이 LLM보다 중요·어려움* → 거기부터.
+
+**핵심 발견(2026-06-23 조사)**: `run_battle_simulation`의 `result`에 목표별 progress(`result['objectives']`)·자원·시계열이 다 있는데 `_rl_train_eval.eval_policy`는 `friendly_score` 하나만 남기고 버림. 약점 분석의 재료가 이미 존재 → 살리면 됨.
+
+**S1 — 약점 분석 리포트 (`improve_report.py`, 빌드제외, LLM 불요)**
+- 입력: 최고 체크포인트(`ppo_shaped_ent0.01_1000000`) 정책 + baseline, 균형 6시나리오 × **8 seed**(안정성 우선) 평가.
+- 에피소드별 포착(현재 버림→살림): 목표별 progress·outcome·friendly/enemy_score / 최종 ammo_frac·fuel_frac / leaker_frac·격침·요격률 / **레버 선택 히스토그램**(7레버, 평가 루프서 `model.predict` 기록).
+- 약점 지표 A~D: **A** 최악 시나리오 랭킹(Δ 최저) · **B** 원인 귀속(최저 progress 목표+자원소진율+누출률) · **C** 과수렴 플래그(지는 시나리오 레버 엔트로피≈0 → 5.5e 북한40발 붕괴 자동검출) · **D** 레버-승패 상관(개선 후보).
+- 출력: JSON(기계용, S2/LLM 입력) + 사람용 마크다운 요약.
+
+**필요(prerequisite)**: ①`rl_env._finish` info 보강(현 4필드→objectives·핵심stats·enemy_score; info 추가일 뿐 RNG 불변=결정론·회귀 안전) ②레버 로깅(improve_report 측) ③Ollama 설치는 S3(사용자, qwen2.5-coder **7b** 권장—10GB) ④Tier1 탐색공간(shaping계수·ent_coef·lr·n_steps·시나리오비중).
+
+**S2 `auto_improve_loop.py`**: 리포트→Tier1 config 자동탐색→재학습→채택/롤백(초기 규칙기반, LLM 없이 검증). **S3 `llm_propose.py`**: Ollama HTTP 통합. **S4 Tier2**: 엔진코드 제안 큐+verify_regression 게이트+**사람 승인**(무인 코드수정 금지).
+
 ## 11. 리스크 · 회귀 전략
 
 | 리스크 | 대응 |

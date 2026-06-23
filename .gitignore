@@ -19,3 +19,5 @@ _rl_ppo_model*
 _rl_ckpt/
 _rl_train_*.log
 _battle_surrogate_smoke.json
+# 자가개선 루프 산출물 (실행 시 생성)
+_improve_report.json
