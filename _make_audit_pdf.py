@@ -68,7 +68,7 @@ flow += [P('종 합 감 사 보 고 서', st_title),
 # ── 개요(메타) 표 ──
 meta_rows = [
     [P('감사 일자', st_cellb), P('2026-06-23', st_cell), P('판정', st_cellb), P('통과 (9영역 PASS)', st_pass)],
-    [P('대상 범위', st_cellb), P('v15.06.01 ~ v15.13.05 (60커밋)', st_cell), P('발견 항목', st_cellb), P('0 건', st_cellb)],
+    [P('대상 범위', st_cellb), P('v15.06.01 ~ v15.13.05 (감사 시점 60커밋, 전장 엔진 블록)', st_cell), P('발견 항목', st_cellb), P('0 건', st_cellb)],
     [P('변경 규모', st_cellb), P('engine_v7 +1004줄 · launcher 대규모 리팩터 · rl_env.py 신설 · engine +129줄', st_cell), P('트리거', st_cellb), P('① 큰 묶음 완료', st_cell)],
     [P('감사 방식', st_cellb), P('무인 모드 — 단계별 동의 없이 자동 수행. exe 스모크는 GUI 자동화(pywinauto)', st_cell), P('근거 규칙', st_cellb), P('CLAUDE.md 종합 감사 9영역', st_cell)],
     [P('소요 시간', st_cellb), P('빌드 ~4.1분 · GUI 스모크 ~35초 · MC 측정 ~15초 · 회귀 ~수초 (정밀 단계별 계측은 v16 감사부터 자동 기록)', st_cell), P('무인/수동', st_cellb), P('100% 무인 · 사용자 개입 0회', st_cell)],
@@ -115,6 +115,7 @@ t.setStyle(TableStyle([
 ]))
 flow += [t, Spacer(1, 1.5*mm),
          P('범례 — PASS: 점검 통과 · 해당없음: 블록과 무관해 생략 · 발견N: N건 발견(그 자리 수정·재감사). 9영역 전부 PASS/해당없음이어야 블록 종료 선언.', st_foot),
+         P('감사 범위 주석 — 「60커밋」은 ① 코드·로직(diff 상호작용 리뷰)에만 해당하는 블록 경계다. ②DB·③회귀·⑥위생·⑧수치·⑨누수는 현재 코드 전수를 보므로 v15.01~05(적응형 AI·위협방위 등)의 엔진 상태도 이미 포괄한다. v15.01~05는 각자 마이너 감사를 통과했고 전장 엔진이 그 위에 통합 구동된다.', st_foot),
          Spacer(1, 6*mm)]
 
 # ── 종합 판정 ──
