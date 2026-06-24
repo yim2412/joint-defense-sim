@@ -113,6 +113,45 @@ def chk_div_guards():
     check('⑧', '전장 progress/score 분모 0 가드', not miss,
           f"가드 미검출={miss}" if miss else '모든 분모 max(1.0,..)/or 1.0')
 
+# ── ⑥ 위생: _PLANS 완료분 반영(이미 구현된 항목이 미래형으로 잔류) ───────────
+def chk_plans_stale():
+    """changelog에 이미 구현된 minor 계열(v16.02.01 → v16.2)이 _PLANS에 '완료/잔여'
+    반영 없이 순수 미래형으로 남았는지, '보류' 라벨 항목이 잔존하는지 검사.
+    (v16.x 작업 항목만 보고 상위 '진행 중'·'보류' 완료분을 놓친 빈틈에서 굳힘.)"""
+    import json
+    lau = rd('launcher.py')
+    cl = json.load(open(os.path.join(ROOT, 'changelog.json'), encoding='utf-8'))
+    # 진행 중 블록(changelog 최신 major)만 검사 — v15 이전은 로드맵 재편으로
+    # changelog minor(전장 엔진)와 _PLANS 버전(미구현 AI 계획)이 번호만 같고 내용이
+    # 달라 오탐. 과거 major는 이미 완료·삭제됨.
+    majors = [int(re.match(r'v(\d+)', c['version']).group(1)) for c in cl
+              if re.match(r'v(\d+)', c['version'])]
+    latest_major = max(majors) if majors else 0
+    # changelog 버전(v16.02.01) → _PLANS 표기(v16.2)로 정규화, 최신 major만
+    cl_minors = set()
+    for c in cl:
+        m = re.match(r'v(\d+)\.(\d+)\.\d+', c['version'])
+        if m and int(m.group(1)) == latest_major:
+            cl_minors.add(f"v{m.group(1)}.{int(m.group(2))}")
+    pm = re.search(r'_PLANS\s*=\s*\[(.*?)\n        \]\s*\n', lau, re.S)
+    plans = pm.group(1) if pm else lau
+    stale = []
+    for ver in sorted(cl_minors):
+        m = re.search(rf'\(\s*["\']({re.escape(ver)})["\']\s*,', plans)
+        if not m:
+            continue   # _PLANS에 항목 없음(완전 완료돼 삭제) — 정상
+        rest = plans[m.end():]
+        nxt = re.search(r'\n\s*\(\s*["\'](?:v[\d.]+|📋|진행|보류)', rest)
+        block = rest[:nxt.start()] if nxt else rest[:1200]
+        if not re.search(r'완료|구현|잔여|남은', block):
+            stale.append(ver)   # 이미 구현 시작됐는데 미래형만 → stale 의심
+    boryu = bool(re.search(r'\(\s*["\']보류["\']', plans))
+    detail = ''
+    if stale: detail += f"완료분 미반영 의심={stale} "
+    if boryu: detail += "'보류' 라벨 항목 잔존(전장 엔진 완료 후 검토 필요)"
+    check('⑥', '_PLANS 완료분 반영(구현된 항목 stale 미래형·보류 잔존)',
+          not stale and not boryu, detail or 'OK')
+
 # ── ① 코드: MC 3경로 + 라우터/집계 존재 ──────────────────────────────────────
 def chk_mc_paths():
     ev = rd('engine_v7.py')
@@ -123,7 +162,8 @@ def chk_mc_paths():
 
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
-               chk_flag_triplet, chk_spec_count, chk_div_guards, chk_mc_paths):
+               chk_flag_triplet, chk_spec_count, chk_div_guards, chk_mc_paths,
+               chk_plans_stale):
         try:
             fn()
         except Exception as e:
