@@ -73,12 +73,19 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | 파일 | 역할 |
 |------|------|
 | `engine.py` | 핵심 DB(적/아군/함정), 물리 모델, 탐지·교전 로직 |
-| `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진 |
+| `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함) |
 | `launcher.py` | PyQt6 런처 — UI, 시뮬 워커, 결과·DB·계획 탭 등 전체 앱 |
 | `spec_db.py` | DB 탭 스펙시트용 상세 설명 |
+| `military_db.py` | 북 장사정포·해안포·비행장 등 지상 위협 DB |
+| `ocean_acoustic_db.py` | 수온·염분·음속층·해저 음향 DB (소나 방정식용) |
+| `ocean_environment_db.py` | 해역 환경(해류·기상 등) DB |
+| `terrain_db.py` | 수심·지형·해협 제원 DB |
 | `changelog.json` | 패치 이력 |
 | `launcher.spec` | PyInstaller 빌드 스펙 |
+| `verify_regression.py` | 회귀 검증 (엔진 동작 무결성 자동 점검) |
+| `audit_scan.py` | 정적 위생 감사 스캐너 |
 | `assets/images/` | DB 항목별 장비 사진 |
+| `_archive/plans/` | 구현 완료된 과거 설계 문서 보관 |
 
 ---
 
