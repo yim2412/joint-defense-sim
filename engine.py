@@ -537,7 +537,7 @@ ENEMY_DB = {
          'self_defense_pk':0.20,'enemy_ciws_pk':0.0},
 
     'J-10C (맹룡 개량)':
-        {'category':'대공','type':'전투기','speed_ms':540,'altitude_m':9000,
+        {'category':'대공','type':'전투기','speed_ms':700,'altitude_m':9000,  # 동일 기체군 J-10A(700)와 정합 — 기존 540은 과소
          'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':3.0,
          'missile_salvo_min':1,'missile_salvo_max':4,
@@ -558,18 +558,20 @@ ENEMY_DB = {
 
     '052C형 구축함 (HHQ-9)':
         {'category':'대함','type':'구축함','speed_ms':15.0,'altitude_m':30,
-         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
+         # 052C 실제 주력 대함은 YJ-62 아음속 순항(사거리 ~400km) — 기존 YJ-12 초음속은 오편성
+         'missile_name':'YJ-62 대함미사일','missile_speed_ms':250,'missile_range_km':400,
          'can_fire_missile':True,'rcs_m2':1600.0,
          'missile_salvo_min':4,'missile_salvo_max':8,
-         'missile_terminal_evasion':0.75,
+         'missile_terminal_evasion':0.88,
          'evasion_profile':{'speed_boost_min':0.04,'speed_boost_max':0.08,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.30,'enemy_ciws_pk':0.28},
 
     '071형 상륙함':
-        {'category':'대함','type':'구축함','speed_ms':12.0,'altitude_m':30,
-         'missile_name':'YJ-12 초음속 대함미사일','missile_speed_ms':1400,'missile_range_km':400,
-         'can_fire_missile':True,'rcs_m2':3500.0,
-         'missile_salvo_min':2,'missile_salvo_max':4,
+        {'category':'대함','type':'상륙함','speed_ms':12.0,'altitude_m':30,
+         # Type 071 LPD는 상륙수송함 — 대함미사일 미탑재(76mm 함포 + AK-630 CIWS 자체방어만)
+         'missile_name':'없음','missile_speed_ms':0,'missile_range_km':0,
+         'can_fire_missile':False,'rcs_m2':3500.0,
+         'missile_salvo_min':0,'missile_salvo_max':0,
          'missile_terminal_evasion':0.75,
          'evasion_profile':{'speed_boost_min':0.03,'speed_boost_max':0.06,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.18,'enemy_ciws_pk':0.20},
