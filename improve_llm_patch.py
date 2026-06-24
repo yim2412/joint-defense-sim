@@ -1,20 +1,20 @@
-"""llm_patch.py — 자가개선 루프 S4: Tier2 엔진코드 제안 + 6중 안전 게이트 (빌드 제외)
+"""improve_llm_patch.py — 자가개선 루프 S4: Tier2 엔진코드 제안 + 6중 안전 게이트 (빌드 제외)
 
 LLM이 *코드*를 제안하는 유일한 단계. plan 10-B/10-C 정본. **무인 코드수정 절대 금지.**
 
 6중 안전 게이트(순서, 하나라도 실패 시 중단):
-  1. 화이트리스트  — 허용 파일·함수만(rl_env.py 보상/관측)
+  1. 화이트리스트  — 허용 파일·함수만(ai_rl_env.py 보상/관측)
   2. 정적 안전스캔 — 금지 토큰(os.system·exec·socket·while True…) 발견 시 거부
   3. 함수단위 교체 — AST로 함수를 이름 통째 교체(라인 diff 금지)
   4. 샌드박스      — git worktree 격리 사본(실트리 무손상)
-  5. 자동 게이트   — import 스모크 + verify_regression PASS + 학습·평가 Δ>임계(고정seed) + 타임아웃
+  5. 자동 게이트   — import 스모크 + audit_verify_regression PASS + 학습·평가 Δ>임계(고정seed) + 타임아웃
                      평가는 friendly_score(보상해킹 차단)
   6. 사람 승인     — review 파일 제시 → 명시적 승인에만 실트리 적용
 
 평가가 shaped reward 아닌 friendly_score라, 보상만 부풀리는 해킹은 Δ로 자동 기각.
 
-  제안·게이트:  python llm_patch.py [report.json] [model] [--steps N] [--seeds N]
-  게이트 내부:  python llm_patch.py --gate <steps> <seeds>   (worktree서 호출)
+  제안·게이트:  python improve_llm_patch.py [report.json] [model] [--steps N] [--seeds N]
+  게이트 내부:  python improve_llm_patch.py --gate <steps> <seeds>   (worktree서 호출)
 """
 import ast
 import os
@@ -32,12 +32,12 @@ OLLAMA_URL = 'http://localhost:11434/api/generate'
 DEFAULT_MODEL = 'qwen2.5-coder:14b'        # 코드 추론 — S3(7b)보다 큰 모델
 
 # ── 게이트 1: 화이트리스트 (허용 파일 → {클래스, 함수}) ───────────────────────
-# class=None: 모듈 전역 함수(rl_env 보상/관측). class='BattleEngine': 그 클래스 직속
+# class=None: 모듈 전역 함수(ai_rl_env 보상/관측). class='BattleEngine': 그 클래스 직속
 # 메서드만 교체 가능 — 부모(TimeStepEngine)에 동명 메서드가 있어도 절대 안 건드림
-# (engine_v7는 부모·자식에 _target_sort_key 등 동명 오버라이드가 공존하므로 필수).
+# (engine_combat는 부모·자식에 _target_sort_key 등 동명 오버라이드가 공존하므로 필수).
 _ALLOWED = {
-    'rl_env.py':    {'class': None,            'funcs': ['_shaping_reward', '_featurize']},
-    'engine_v7.py': {'class': 'BattleEngine',  'funcs': ['_target_sort_key']},
+    'ai_rl_env.py':    {'class': None,            'funcs': ['_shaping_reward', '_featurize']},
+    'engine_combat.py': {'class': 'BattleEngine',  'funcs': ['_target_sort_key']},
 }
 
 
@@ -58,7 +58,7 @@ _FORBIDDEN = [
     r'\bopen\s*\(', r'\bsocket\b', r'\brequests\b', r'\burllib\b', r'\bhttplib\b',
     r'__import__', r'\bimportlib\b', r'\bwhile\s+True\b', r'\bglobals\s*\(',
     r'\bshutil\b', r'\bsys\s*\.\s*exit', r'\b__\w+__\s*=',  # dunder 재정의
-    # 엔진 전술훅 확장(engine_v7) 대비 — 전역 DB·물리 상태 오염 차단(전술훅은 읽기만):
+    # 엔진 전술훅 확장(engine_combat) 대비 — 전역 DB·물리 상태 오염 차단(전술훅은 읽기만):
     r'\bENEMY_DB\b', r'\bFRIENDLY_DB\b', r'\bSHIP_DB\b', r'\bFRIENDLY_STRIKE_DB\b',
     r'\bENEMY_PROCUREMENT_USD\b', r'\bSHIP_PROCUREMENT_USD\b',
     r'self\s*\.\s*stats\s*\[[^\]]*\]\s*=',  # stats 직접대입(결과 오염·보상해킹)
@@ -75,7 +75,7 @@ def _read(path):
 
 # ── 게이트 3: AST 함수 추출·교체 ──────────────────────────────────────────────
 def _parse(src):
-    """ast.parse 래퍼 — UTF-8 BOM(engine_v7.py 등) 제거. BOM은 첫 문자라 라인 번호 불변,
+    """ast.parse 래퍼 — UTF-8 BOM(engine_combat.py 등) 제거. BOM은 첫 문자라 라인 번호 불변,
     원본 src의 라인 인덱싱은 그대로 유지된다(교체는 BOM 줄을 건드리지 않음)."""
     return ast.parse(src.lstrip('﻿'))
 
@@ -266,18 +266,18 @@ def sandbox_gate(file, patched_src, steps, seeds):
         with open(os.path.join(wt, file), 'w', encoding='utf-8') as f:
             f.write(patched_src)
         # 미커밋 의존(이 스크립트 자신)을 worktree에 복사 — worktree는 HEAD만 체크아웃하므로.
-        shutil.copy(os.path.abspath(__file__), os.path.join(wt, 'llm_patch.py'))
+        shutil.copy(os.path.abspath(__file__), os.path.join(wt, 'improve_llm_patch.py'))
         # (a) import 스모크
         r = subprocess.run([sys.executable, '-c', f'import {file[:-3]}'],
                            cwd=wt, timeout=120, **_kw)
         if r.returncode:
             return {'pass': False, 'stage': 'import', 'detail': (r.stderr or '')[-400:]}
-        # (b) 회귀(엔진 물리 불변 — rl_env 패치엔 약 게이트지만 안전망)
-        r = subprocess.run([sys.executable, 'verify_regression.py'], cwd=wt, timeout=600, **_kw)
+        # (b) 회귀(엔진 물리 불변 — ai_rl_env 패치엔 약 게이트지만 안전망)
+        r = subprocess.run([sys.executable, 'audit_verify_regression.py'], cwd=wt, timeout=600, **_kw)
         if 'PASS' not in (r.stdout or ''):
             return {'pass': False, 'stage': 'regression', 'detail': (r.stdout or '')[-400:]}
         # (c) 학습·평가 Δ (진짜 게이트) — worktree서 --gate 모드
-        r = subprocess.run([sys.executable, 'llm_patch.py', '--gate', str(steps), str(seeds)],
+        r = subprocess.run([sys.executable, 'improve_llm_patch.py', '--gate', str(steps), str(seeds)],
                            cwd=wt, timeout=_GATE_TIMEOUT, **_kw)
         m = re.search(r'GATE_DELTA=([-\d.]+)', r.stdout or '')
         if not m:
@@ -291,10 +291,10 @@ def sandbox_gate(file, patched_src, steps, seeds):
 
 
 def _gate_eval(steps, seeds):
-    """worktree 안에서 호출 — 패치된 rl_env로 학습 후 friendly_score Δ 출력."""
-    from engine import normalize_enemy_db
-    from rl_env import make_env, _BALANCED_PRESETS
-    from improve_report import eval_baseline, eval_policy
+    """worktree 안에서 호출 — 패치된 ai_rl_env로 학습 후 friendly_score Δ 출력."""
+    from engine_core import normalize_enemy_db
+    from ai_rl_env import make_env, _BALANCED_PRESETS
+    from improve_weakness_report import eval_baseline, eval_policy
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
     import numpy as np
@@ -329,7 +329,7 @@ def write_review(file, func, new_func, hypo, gate, report):
         f.write(f"- LLM 가설: {hypo}\n- 약점 입력: {_summarize_report(report)}\n\n")
         f.write(f"## 현재\n```python\n{current}\n```\n\n## 제안\n```python\n{new_func}\n```\n\n")
         f.write("## 승인\n게이트 통과 + 사람 검토 후 적용하려면:\n"
-                "`python llm_patch.py --apply " + path + "`\n"
+                "`python improve_llm_patch.py --apply " + path + "`\n"
                 "(무인 적용 없음 — 이 명령을 사람이 실행해야 실트리에 반영)\n")
     return path, h
 
@@ -371,8 +371,8 @@ def main():
         print(f'리포트 없음: {report_path}'); sys.exit(2)
     report = json.load(open(report_path, encoding='utf-8'))
 
-    # 대상 함수 — 기본 rl_env 보상(MVP), --file/--func로 전술훅 등 화이트리스트 내 다른 대상 선택.
-    file = _argval(args, '--file', 'rl_env.py')
+    # 대상 함수 — 기본 ai_rl_env 보상(MVP), --file/--func로 전술훅 등 화이트리스트 내 다른 대상 선택.
+    file = _argval(args, '--file', 'ai_rl_env.py')
     func = _argval(args, '--func', '_shaping_reward')
     cls = _class_of(file)
     tgt = f'{file}:{func}' + (f' (class {cls})' if cls else '')

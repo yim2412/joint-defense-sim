@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-_audit_smoke.py — 종합 감사 ⑤ GUI 자동화 스모크 (빌드 제외 도구)
+_audit_gui_smoke.py — 종합 감사 ⑤ GUI 자동화 스모크 (빌드 제외 도구)
 
 exe를 실제로 띄워 '시뮬레이션 실행' 버튼을 클릭하고 결과가 뜨는지 확인한다.
 엔진 직접 호출 우회 금지([[feedback-smoke-run]]) — GUI 워커 경로(step_cb·시그널)를

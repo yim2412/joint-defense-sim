@@ -1,24 +1,24 @@
 """
 지속 전장 모드 surrogate 룩업 테이블 빌더 (빌드 제외 도구).
 
-(편대 × 적 편대 × 날씨) 프리셋 조합을 전장 MC로 미리 돌려 결과를 battle_surrogate.json에
+(편대 × 적 편대 × 날씨) 프리셋 조합을 전장 MC로 미리 돌려 결과를 forecast_surrogate.json에
 저장한다. GUI는 이 테이블을 조회해 "실행 전 예상 결과"를 즉시 표시(전장 MC ~45배 느림 회피).
 조합 단위로 ProcessPoolExecutor 병렬. monte_carlo_v7는 내부 직렬이라 중첩 풀 없음.
 
-사용: python _build_surrogate.py          (전체 수집)
-      python _build_surrogate.py --smoke  (2조합 스모크)
+사용: python _forecast_build_surrogate.py          (전체 수집)
+      python _forecast_build_surrogate.py --smoke  (2조합 스모크)
 """
 import json
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 
-from engine_v7 import monte_carlo_v7, FLEET_PRESETS
-from engine import ENEMY_FLEET_PRESETS
+from engine_combat import monte_carlo_v7, FLEET_PRESETS
+from engine_core import ENEMY_FLEET_PRESETS
 
 N_MC    = 15
 WEATHER = '맑음 (주간)'
-OUT     = 'battle_surrogate.json'
+OUT     = 'forecast_surrogate.json'
 
 
 def eval_combo(args):

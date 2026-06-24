@@ -1,10 +1,10 @@
-"""rl_infer.py — Phase 4 RL ⑥: 학습 정책 numpy 추론 (exe 번들, numpy만 의존).
+"""ai_policy_infer.py — Phase 4 RL ⑥: 학습 정책 numpy 추론 (exe 번들, numpy만 의존).
 
-torch·SB3·gymnasium 일절 불요 — `rl_policy.npz`(_export_policy.py 산출) 가중치로
-정책 forward만 수행한다. launcher가 전장 시뮬의 `sim._tactical_pause_cb`에 주입하면
+torch·SB3·gymnasium 일절 불요 — `ai_rl_policy.npz`(_ai_export_policy.py 산출) 가중치로
+정책 forward만 수행한다. app_main가 전장 시뮬의 `sim._tactical_pause_cb`에 주입하면
 학습된 정책이 30/60초마다 전술 choice를 결정한다.
 
-featurize·action 변환·상수는 rl_env.py(학습)와 **같은 로직을 복제**한다(학습 코드를
+featurize·action 변환·상수는 ai_rl_env.py(학습)와 **같은 로직을 복제**한다(학습 코드를
 import하면 gymnasium이 따라와 exe가 무거워짐). 대신 `_assert_parity_with_rl_env()`로
 개발 시 두 구현의 출력 일치를 검증해 drift를 막는다(exe 런타임엔 호출 안 됨).
 
@@ -12,7 +12,7 @@ import하면 gymnasium이 따라와 exe가 무거워짐). 대신 `_assert_parity
 """
 import numpy as np
 
-# ── rl_env와 동일해야 하는 상수(복제) — drift는 _assert_parity로 감시 ──────────
+# ── ai_rl_env와 동일해야 하는 상수(복제) — drift는 _assert_parity로 감시 ──────────
 _WPN_PRIORITY = [
     'auto', 'SM-3 Block IIA', 'SM-6', 'SM-2 Block IIIB', 'ESSM Block II',
     '해궁 (K-SAAM)', 'RIM-116 RAM', 'CIWS-II (Phalanx)',
@@ -24,11 +24,11 @@ _MANEUVER_OPTS = ['passive', 'normal', 'aggressive']
 _CAP_OPTS = ['forward', 'normal', 'defensive']
 _ECM_OPTS = ['off', 'normal', 'strong']
 _N_FEAT = 14
-_DEFAULT_HORIZON = 7200.0   # BATTLE_HORIZON_S (engine import 회피용 복제 상수)
+_DEFAULT_HORIZON = 7200.0   # BATTLE_HORIZON_S (engine_core import 회피용 복제 상수)
 
 
 def featurize(state, horizon: float = _DEFAULT_HORIZON) -> np.ndarray:
-    """전술 state → 14피처 관측(rl_env.BattleEnv._featurize와 동일 로직)."""
+    """전술 state → 14피처 관측(ai_rl_env.BattleEnv._featurize와 동일 로직)."""
     if state is None:
         return np.zeros(_N_FEAT, dtype=np.float32)
     threats = state.threats or []
@@ -61,7 +61,7 @@ def featurize(state, horizon: float = _DEFAULT_HORIZON) -> np.ndarray:
 
 
 def action_to_choice(action) -> dict:
-    """MultiDiscrete 행동 인덱스 → 엔진 전술 choice dict(rl_env._action_to_choice와 동일)."""
+    """MultiDiscrete 행동 인덱스 → 엔진 전술 choice dict(ai_rl_env._action_to_choice와 동일)."""
     a = np.asarray(action).ravel()
     wi, si, ri, ti, mi, ci, ei = (int(a[0]), int(a[1]), int(a[2]),
                                   int(a[3]), int(a[4]), int(a[5]), int(a[6]))
@@ -71,7 +71,7 @@ def action_to_choice(action) -> dict:
             'ecm': _ECM_OPTS[ei]}
 
 
-def load_policy(npz_path: str = 'rl_policy.npz') -> dict:
+def load_policy(npz_path: str = 'ai_rl_policy.npz') -> dict:
     """npz 가중치 로드 → forward용 dict. 파일 없으면 FileNotFoundError(호출부가 처리)."""
     z = np.load(npz_path)
     return {k: z[k] for k in z.files}
@@ -91,8 +91,8 @@ def forward(npz: dict, obs: np.ndarray) -> np.ndarray:
     return np.array(out, dtype=np.int64)
 
 
-def make_policy_cb(npz_path: str = 'rl_policy.npz', horizon: float = _DEFAULT_HORIZON):
-    """학습 정책을 엔진 전술 콜백으로 — launcher가 sim._tactical_pause_cb에 주입.
+def make_policy_cb(npz_path: str = 'ai_rl_policy.npz', horizon: float = _DEFAULT_HORIZON):
+    """학습 정책을 엔진 전술 콜백으로 — app_main가 sim._tactical_pause_cb에 주입.
     npz 로드 1회 후 매 결정 지점에서 featurize→forward→choice. 로드 실패 시 None 반환."""
     try:
         npz = load_policy(npz_path)
@@ -105,10 +105,10 @@ def make_policy_cb(npz_path: str = 'rl_policy.npz', horizon: float = _DEFAULT_HO
     return cb
 
 
-# ── 개발 검증: rl_env(학습)와 복제 로직 출력 일치 + npz forward == SB3 ─────────
-def _assert_parity_with_rl_env(npz_path='rl_policy.npz'):
-    """rl_env._featurize/_action_to_choice와 본 모듈 복제본이 같은 출력을 내는지(drift 감시)."""
-    from rl_env import BattleEnv, _BALANCED_PRESETS  # 테스트 전용 import(exe 런타임 무관)
+# ── 개발 검증: ai_rl_env(학습)와 복제 로직 출력 일치 + npz forward == SB3 ─────────
+def _assert_parity_with_rl_env(npz_path='ai_rl_policy.npz'):
+    """ai_rl_env._featurize/_action_to_choice와 본 모듈 복제본이 같은 출력을 내는지(drift 감시)."""
+    from ai_rl_env import BattleEnv, _BALANCED_PRESETS  # 테스트 전용 import(exe 런타임 무관)
     env = BattleEnv()
     npz = load_policy(npz_path)
     n_mismatch_feat = n_mismatch_act = 0
@@ -128,7 +128,7 @@ def _assert_parity_with_rl_env(npz_path='rl_policy.npz'):
     env.close()
     assert n_mismatch_feat == 0, f'featurize drift {n_mismatch_feat}'
     assert n_mismatch_act == 0, f'action_to_choice drift {n_mismatch_act}'
-    print(f'✅ parity OK — featurize·action_to_choice rl_env와 일치({len(_BALANCED_PRESETS)}케이스)')
+    print(f'✅ parity OK — featurize·action_to_choice ai_rl_env와 일치({len(_BALANCED_PRESETS)}케이스)')
 
 
 if __name__ == '__main__':

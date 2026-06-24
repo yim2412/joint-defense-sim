@@ -447,7 +447,7 @@
 ║  [v12.08.01 — 검증된 환경물리 기능 5종 기본 활성화]                         ║
 ║  수정  지형 음영·증발 덕팅·ISA 대기·소나 방정식·침수 모델 기본값 OFF→ON     ║
 ║  [v12.07.03 — 회귀 검증 스크립트 도입 + 향후 계획에 CI 추가]               ║
-║  NEW-A  verify_regression.py: 고정 8시나리오×seed 결과를 골든값과 대조해    ║
+║  NEW-A  audit_verify_regression.py: 고정 8시나리오×seed 결과를 골든값과 대조해    ║
 ║         엔진 동작 변화 자동 점검. CLAUDE.md 감사 정책 편입. CI는 v12.7 후    ║
 ║  [v12.07.02 — 적 위협 데이터 구조 SoA 배열화 (단계1, 동작 불변)]            ║
 ║  NEW-A  EnemyThreatObj를 엔진 컬럼(_et_*) + proxy 뷰로 전환. v12.7 numpy   ║
@@ -593,7 +593,7 @@
 ║  NEW-B  Vec2 → LatLon.from_xy() 11개소 전환, Vec2=LatLon 별칭 유지          ║
 ║  NEW-C  dist_to(): Haversine 거리 / move_toward(): lat·lon 갱신              ║
 ║  NEW-D  _set_region_ref(): 해역별 기준점 (동해·서해·대한해협) 자동 설정      ║
-║  NEW-E  해류 연동 (enable_current): ocean_environment_db 해류 벡터 적용      ║
+║  NEW-E  해류 연동 (enable_current): db_ocean_environment 해류 벡터 적용      ║
 ║  DEL-A  _PLANS v10.8(좌표계 전환) + v10.2(Phase A 잔여) 삭제 — 구현 완료   ║
 ║  [v10.11 — v10.7 전술 의사결정 모드: 30s 구간 일시정지 + 무기 선택]         ║
 ║  NEW-A  TacticalState 데이터클래스 + run() 루프 내 30s 구간 훅               ║
@@ -665,12 +665,12 @@
 ║  NEW-F  설정 패널 '해협 진입로' 콤보박스 — 대한해협 선택 시 자동 표시       ║
 ║  [v9.13 — 대기·해양 환경 센서 물리 모델: Beaufort 클러터 + 덕팅 + CEP 바람]  ║
 ║  NEW-A  WEATHER_BEAUFORT_MAP: 날씨 → Beaufort 매핑, radar/sonar_factor 물리화 ║
-║  NEW-B  _make_physics_wx(): ocean_environment_db 클러터·소음 데이터 자동 적용 ║
+║  NEW-B  _make_physics_wx(): db_ocean_environment 클러터·소음 데이터 자동 적용 ║
 ║  NEW-C  _evap_duct_factor(): 증발 덕팅 — 저고도 표적 탐지거리 증가           ║
 ║  NEW-D  _wind_cep_factor(): 고층 바람 CEP — 순항미사일 탄착 오차 증가        ║
 ║  NEW-E  설정 패널 '증발 덕팅 적용' 체크박스 추가                             ║
 ║  [v9.12 — 지형·해상 환경 반영: WOA18 수온약층 + 지형 레이더 음영]            ║
-║  NEW-A  ocean_acoustic_db WOA18 실측값 → _thermocline_factor() 해역·계절별  ║
+║  NEW-A  db_ocean_acoustic WOA18 실측값 → _thermocline_factor() 해역·계절별  ║
 ║  NEW-B  TERRAIN_RADAR_PENALTY — 태백(3.4°)·소백(0.9°)·낭림(0.4°) 음영각    ║
 ║  NEW-C  _terrain_penalty() 신규: 해역+고도 기반 레이더 탐지거리 보정        ║
 ║  NEW-D  설정 패널 — 작전 해역·계절 드롭다운 + 지형 음영 체크박스 추가       ║
@@ -680,7 +680,7 @@
 ║  NEW-C  _select_defense_wpn: 어쇼어 활성 시 함정 SM-3 최후 백업으로 하락    ║
 ║  NEW-D  취약점 진단: 지상 BMD 탄약 고갈 경고 추가                           ║
 ║  [v9.10 — 교전 후 브리핑 자동 생성: REQ 탭 하단 + Excel 브리핑 시트]        ║
-║  NEW-A  engine_v7: generate_briefing() — 서술형 군사 보고서 자동 생성       ║
+║  NEW-A  engine_combat: generate_briefing() — 서술형 군사 보고서 자동 생성       ║
 ║  NEW-B  REQ 판정 탭 하단 접이식 브리핑 패널 (복사·TXT 저장 버튼)            ║
 ║  NEW-C  Excel 보고서 Sheet4 '교전 후 브리핑' 자동 포함                      ║
 ║  [v9.9 — 전자전 강화: 적 ECM 에어리어 재밍 + 채프/플레어/DRFM 세분화]       ║
@@ -700,18 +700,18 @@
 ║  NEW-B  FloatingMonitor 전면 재설계 — 단일 시뮬: 진행 바+위협/VLS+로그 스트림║
 ║         MC 분석: 단계별 타이밍 바+수렴 감지+이전 실행 델타 비교             ║
 ║  NEW-C  중단 버튼 (■ 중단) → SimWorker.requestInterruption() 연결           ║
-║  NEW-D  engine_v7: 단계별 소요시간 측정(phase_times) + step_cb 콜백         ║
+║  NEW-D  engine_combat: 단계별 소요시간 측정(phase_times) + step_cb 콜백         ║
 ║  NEW-E  SimWorker: step_update·phase_update 시그널 추가                     ║
 ║  [v9.6 — 북한 잠수함 선제 기습: 은닉 → 어뢰+해성-3 동시 발사]               ║
-║  NEW-A  engine.py: 신포급 잠수함 (기습) DB — is_ambush·dual_weapon 필드     ║
-║  NEW-B  engine.py: 북한 잠수함 선제 기습·기습(소형) 프리셋 2종 추가         ║
-║  NEW-C  engine_v7: EnemyThreatObj hidden_until·ambush_revealed 속성          ║
-║  NEW-D  engine_v7: _build_enemies — 기습 잠수함 20km 스폰, hidden_until 설정║
-║  NEW-E  engine_v7: _enemy_fire — 은닉 중 발사 금지 + dual_weapon 동시 발사  ║
-║  NEW-F  engine_v7: ASW/_aircraft_asw — 은닉 중 탐지 불가                    ║
-║  NEW-G  engine_v7: _step — 은닉 해제 시 '기습 탐지!' 로그                   ║
+║  NEW-A  engine_core.py: 신포급 잠수함 (기습) DB — is_ambush·dual_weapon 필드     ║
+║  NEW-B  engine_core.py: 북한 잠수함 선제 기습·기습(소형) 프리셋 2종 추가         ║
+║  NEW-C  engine_combat: EnemyThreatObj hidden_until·ambush_revealed 속성          ║
+║  NEW-D  engine_combat: _build_enemies — 기습 잠수함 20km 스폰, hidden_until 설정║
+║  NEW-E  engine_combat: _enemy_fire — 은닉 중 발사 금지 + dual_weapon 동시 발사  ║
+║  NEW-F  engine_combat: ASW/_aircraft_asw — 은닉 중 탐지 불가                    ║
+║  NEW-G  engine_combat: _step — 은닉 해제 시 '기습 탐지!' 로그                   ║
 ║  [v8.25 patch — 코드 감사 + 패치 내역 버전 표기 개선]                        ║
-║  DEL-A  engine.py 데드코드 1,951줄 제거 (v6 시뮬 코드 — HeloEvent 등)       ║
+║  DEL-A  engine_core.py 데드코드 1,951줄 제거 (v6 시뮬 코드 — HeloEvent 등)       ║
 ║  DEL-B  낡은 메모리 파일 7개 삭제 (v7.x 계획 등 완료된 항목)                ║
 ║  NEW-A  패치 내역 탭: 버전 필드 숫자 → v7.xx/v8.xx 문자열로 변환            ║
 ║  NEW-B  CLAUDE.md 전면 갱신 (v8.25 현재 구조 반영)                          ║
@@ -726,13 +726,13 @@
 ║  NEW-B  v10.x: 완전 양방향 교전(40%구현)·항모 타격(20%)·의사결정 모드 상세화║
 ║                                                                              ║
 ║  [v8.23 — DB 설명 7종 추가 + v9.x/v10.x 장기 계획 수립]                    ║
-║  NEW-A  spec_db: 랴오닝·산둥·푸젠 항모 상세 스펙 추가                       ║
-║  NEW-B  spec_db: Kh-31P·LD-10·Kh-58U 대방사미사일 상세 스펙 추가            ║
-║  NEW-C  spec_db: 해궁(K-SAAM) 상세 스펙 추가                                ║
+║  NEW-A  db_specsheet: 랴오닝·산둥·푸젠 항모 상세 스펙 추가                       ║
+║  NEW-B  db_specsheet: Kh-31P·LD-10·Kh-58U 대방사미사일 상세 스펙 추가            ║
+║  NEW-C  db_specsheet: 해궁(K-SAAM) 상세 스펙 추가                                ║
 ║  NEW-D  향후 계획: v9.x 6개 + v10.x 3개 초안 수립                          ║
 ║                                                                              ║
 ║  [v8.22 — 교전 분석 탭 완전 동작 + Gantt 이름 잘림 수정]                     ║
-║  NEW-A  engine_v7 _build_active_events(): MissileObj→EngagementAnalysis 어댑터║
+║  NEW-A  engine_combat _build_active_events(): MissileObj→EngagementAnalysis 어댑터║
 ║  NEW-B  _compile()에 active_events 키 추가 — Funnel/테이블/Gantt 전부 표시   ║
 ║  BUG-1  Gantt xlim 동적 조정 — 위협 이름 잘림 해소                           ║
 ║                                                                              ║
@@ -817,7 +817,7 @@
 ║  NEW-B  FFX → Batch I (인천급) / Batch II (대구급, 해궁 추가) / Batch III    ║
 ║  NEW-C  FRIENDLY_DB: 해궁 (K-SAAM) 추가                                      ║
 ║  NEW-D  FLEET_PRESETS 전 프리셋 타입 키 갱신 + 전 이지스 기동전단 프리셋 추가║
-║  NEW-E  spec_db: KDX-III-B1/B2, FFX-I/II/III 상세 스펙 각각 분리             ║
+║  NEW-E  db_specsheet: KDX-III-B1/B2, FFX-I/II/III 상세 스펙 각각 분리             ║
 ║                                                                              ║
 ║  [v7.37 — 전체 차트 고화질 + 폰트 확대]                                      ║
 ║  NEW-A  CHART_DPI 자동 감지: 화면 크기 기반 min 150 ~ max 300 DPI 설정       ║
@@ -870,15 +870,15 @@
 ║  [v7.28 — 시스템 모니터 버그 수정 + 향후 계획·changelog 갱신]              ║
 ║  BUG-1  시뮬 실행 중 오버레이 미표시 수정 (_sim_start_idx→벽시계 기반)      ║
 ║  BUG-2  코어별 퍼센트 폰트 크기 10px→12px (가독성 개선)                    ║
-║  NEW-1  changelog.json v28 항목 추가                                        ║
+║  NEW-1  app_changelog.json v28 항목 추가                                        ║
 ║  NEW-2  향후 계획 탭 — 완료된 아군 잠수함 항목 제거 (v7.27 구현 완료)       ║
 ║                                                                              ║
 ║  [v7.27 — 아군 잠수함 추가 (KSS-I/II/III)]                                  ║
 ║  NEW-A  SHIP_DB: KSS-I 장보고급·KSS-II 류관순급·KSS-III 도산안창호급 추가  ║
-║  NEW-B  engine_v7: 아군 잠수함 공격 로직 (수상함·적잠수함 어뢰/미사일)      ║
+║  NEW-B  engine_combat: 아군 잠수함 공격 로직 (수상함·적잠수함 어뢰/미사일)      ║
 ║  NEW-C  FRIENDLY_STRIKE_DB: 현무-3C 순항미사일 추가 (KSS-III VLS 전용)      ║
 ║  NEW-D  FLEET_PRESETS: 대잠전단 프리셋 (KDX-III + FFX×2 + KSS-II×2) 추가  ║
-║  NEW-E  spec_db: KSS-I/II/III 상세 스펙 + 아군 DB 탭 사진 표시              ║
+║  NEW-E  db_specsheet: KSS-I/II/III 상세 스펙 + 아군 DB 탭 사진 표시              ║
 ║                                                                              ║
 ║  [v7.26 — DB 탭 스펙 설명창 폰트 크기 확대]                                 ║
 ║  NEW-A  카테고리 헤더·레이블·값 9px → 11px, 비고 10px → 12px               ║
@@ -898,26 +898,26 @@
 ║  NEW-B  DB 탭 좌우 분할 (230px 이름 목록 + 우측 스펙 패널)                 ║
 ║  NEW-C  SpecSheetPanel 가로 사진 (전폭 175px 고정 높이)                     ║
 ║                                                                              ║
-║  [v7.22 — spec_db 전 항목(85종) categories 구조 변환 완료]                  ║
+║  [v7.22 — db_specsheet 전 항목(85종) categories 구조 변환 완료]                  ║
 ║  NEW-A  아군 무기 13종: 5카테고리 (기본정보/물리적제원/성능/추진/유도·탄두) ║
 ║  NEW-B  아군 함정 15종: 6카테고리 (기본정보/제원/성능/추진/무장/센서)       ║
 ║  NEW-C  적군 전 항목 57종: 카테고리 구조 통일 (미사일·항공기·함정·잠수함)  ║
 ║                                                                              ║
 ║  [v7.21 — 아군 무기 스펙 상세화 + exe 이미지 번들 수정]                     ║
-║  BUG-1  exe 빌드 시 assets/images 미포함 → launcher.spec 수정               ║
+║  BUG-1  exe 빌드 시 assets/images 미포함 → app_main.spec 수정               ║
 ║  BUG-2  이미지 경로 _res() 함수 미사용 → exe 환경 경로 오류 수정            ║
-║  NEW-A  spec_db: 아군 무기 13종 필드 4→6개 확장 (교전고도·탄두중량 등)     ║
+║  NEW-A  db_specsheet: 아군 무기 13종 필드 4→6개 확장 (교전고도·탄두중량 등)     ║
 ║                                                                              ║
 ║  [v7.20 — 드론 DB 제거 + 창 레이아웃 개선 + normalize_enemy_db 연결 수정]  ║
-║  DEL-A  소형 자폭 드론·드론 떼 전 파일 제거 (engine/engine_v7/spec_db)      ║
-║  BUG-3  engine_v7: normalize_enemy_db import 누락 수정                      ║
+║  DEL-A  소형 자폭 드론·드론 떼 전 파일 제거 (engine_core/engine_combat/db_specsheet)      ║
+║  BUG-3  engine_combat: normalize_enemy_db import 누락 수정                      ║
 ║  BUG-4  설정 패널 수평 스크롤 제거 (430px 고정 + ScrollBarAlwaysOff)        ║
 ║                                                                              ║
 ║  [v7.18 — 미확인 전력 4종 DB 제거]                                          ║
 ║  DEL-A  095형·039C형 잠수함, CM-302, 수중자폭드론 — 실전 배치 미확인        ║
 ║                                                                              ║
 ║  [v7.17 — DB 탭 스펙시트 패널: 적군 63종·아군 15함정·13무기 상세 카드]     ║
-║  NEW-A  spec_db.py: 91개 유닛 상세 스펙 DB (제원·원산국·비고)              ║
+║  NEW-A  db_specsheet.py: 91개 유닛 상세 스펙 DB (제원·원산국·비고)              ║
 ║  NEW-B  SpecSheetPanel: 사진/아이콘 + 제원 그리드 (고정 172px 하단 패널)   ║
 ║  NEW-C  적군 DB 탭: QSplitter + SpecSheetPanel (유닛 선택 시 즉시 표시)    ║
 ║  NEW-D  아군 DB 탭: 무기·함정 서브탭 각각 SpecSheetPanel 적용              ║
@@ -947,7 +947,7 @@
 ║  [v7.12 — 혼합 공격 시나리오 7종 + 파도별 지연 스폰]                       ║
 ║  NEW-A  MIXED_ATTACK_SCENARIOS 7종: 순항+탄도+드론, 러시아 살라미, 북한 등 ║
 ║  NEW-B  파도 타이밍(wave_offset_s): 위협이 delay_s 시점에 순차 출현        ║
-║  NEW-C  launcher 혼합 시나리오 모드 UI: 드롭다운 + 파도 구성 미리보기      ║
+║  NEW-C  app_main 혼합 시나리오 모드 UI: 드롭다운 + 파도 구성 미리보기      ║
 ║                                                                              ║
 ║  [v7.11 — 한국 해군 함정 8종 추가 + 현실 기반 편대 프리셋 5종 신설]       ║
 ║                                                                              ║
@@ -1016,7 +1016,7 @@
 ║  NEW-J  포팅 B — 전술 옵션 토글 (ECM·회피·기만기·자체방어 QCheckBox)       ║
 ║  NEW-K  포팅 C — 항공 자산 토글 (AW-159·P-3C·P-8A QCheckBox, 대잠 전용)   ║
 ║                                                                              ║
-║  실행: python launcher.py                                                    ║
+║  실행: python app_main.py                                                    ║
 ║  패키지: pip install PyQt6 psutil matplotlib numpy openpyxl                 ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -1250,10 +1250,10 @@ def _token_path() -> str:
 
 
 def _load_surrogate() -> dict | None:
-    """실행 전 '예상 전황' 룩업 테이블(battle_surrogate.json) 로드.
+    """실행 전 '예상 전황' 룩업 테이블(forecast_surrogate.json) 로드.
     없거나 깨지면 None 반환 → 기능 자동 비활성(하위호환). 번들 리소스라 _res 경로."""
     try:
-        with open(_res('battle_surrogate.json'), encoding='utf-8') as f:
+        with open(_res('forecast_surrogate.json'), encoding='utf-8') as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get('table'), dict):
             return data
@@ -1464,10 +1464,10 @@ def _write_sim_db(cfg: dict, result: dict, mc: dict, sim_mode_idx: int = 1,
     req_pass = None
     try:
         if result.get('outcome'):   # 지속 전장 모드 — 목표 기반 REQ
-            from engine_v7 import evaluate_req_battle_v7
+            from engine_combat import evaluate_req_battle_v7
             _, verdicts, _ = evaluate_req_battle_v7(result, mc, cfg)
         else:
-            from engine_v7 import evaluate_req_v7
+            from engine_combat import evaluate_req_v7
             verdicts, _ = evaluate_req_v7(result, mc, cfg)
         req_pass = int(all(verdicts))
     except Exception:
@@ -1580,7 +1580,7 @@ import numpy as np
 
 # ── 엔진 import ──────────────────────────────────────────────────────────────
 try:
-    from engine_v7 import (
+    from engine_combat import (
         run_v7_simulation, run_battle_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
         build_czml, BATTLE_HORIZON_S,
         FLEET_PRESETS as V7_FLEET_PRESETS,
@@ -1616,7 +1616,7 @@ except ImportError as e:
 
 # ── 스펙 DB import ────────────────────────────────────────────────────────────
 try:
-    from spec_db import SPEC_DETAIL_DB as _SPEC_DETAIL_DB
+    from db_specsheet import SPEC_DETAIL_DB as _SPEC_DETAIL_DB
     _SPEC_DB_OK = True
 except ImportError:
     _SPEC_DETAIL_DB = {}
@@ -3138,9 +3138,9 @@ class SimWorker(QThread):
             if (self.cfg.get('enable_battle_mode', False)
                     and self.cfg.get('enable_rl_policy', False)):
                 try:
-                    import rl_infer
-                    _tactical_hook = rl_infer.make_policy_cb(
-                        _res('rl_policy.npz'),
+                    import ai_policy_infer
+                    _tactical_hook = ai_policy_infer.make_policy_cb(
+                        _res('ai_rl_policy.npz'),
                         self.cfg.get('battle_horizon_s', BATTLE_HORIZON_S))
                 except Exception:
                     _tactical_hook = None
@@ -3947,11 +3947,11 @@ class EngagementAnalysisTab(QWidget):
         except Exception:
             pass
         try:
-            with open(_res('cesium_view.html'), encoding='utf-8') as f:
+            with open(_res('view_cesium_3d.html'), encoding='utf-8') as f:
                 html = f.read().replace('__CESIUM_ION_TOKEN__', token)
         except Exception:
             html = ("<html><body style='background:#0b1a2b;color:#ddd;font-family:sans-serif'>"
-                    "cesium_view.html 로드 실패</body></html>")
+                    "view_cesium_3d.html 로드 실패</body></html>")
 
         self._web3d = QWebEngineView()
 
@@ -6093,15 +6093,15 @@ class MainWindow(QMainWindow):
         )
         self.chk_terrain.setChecked(True)
 
-        # v10.8: 해류 연동 (UI 미노출 — ocean_environment_db 필요)
-        self.chk_current = QCheckBox("해류 연동  (ocean_environment_db 해류 벡터 적용)")
+        # v10.8: 해류 연동 (UI 미노출 — db_ocean_environment 필요)
+        self.chk_current = QCheckBox("해류 연동  (db_ocean_environment 해류 벡터 적용)")
         self.chk_current.setChecked(False)
         self.chk_current.setToolTip(
             "v10.8 — 해역별 해류 벡터를 함정·잠수함 위치에 매 tick 누적.\n"
             "동해: 동한난류 북상 (여름 최강 50cm/s)\n"
             "서해: 황해 연안류 (여름 북향·겨울 남향)\n"
             "대한해협: 대마난류 북동향 (~35cm/s)\n"
-            "ocean_environment_db.py가 있어야 활성화됩니다."
+            "db_ocean_environment.py가 있어야 활성화됩니다."
         )
 
         self.chk_evap_duct = QCheckBox("증발 덕팅 적용")
@@ -6808,7 +6808,7 @@ class MainWindow(QMainWindow):
         bottom_layout.setSpacing(6)
 
         if not _V7_OK:
-            err_lbl = QLabel(f"⚠️ engine_v7 로드 실패\n{_V7_ERR}")
+            err_lbl = QLabel(f"⚠️ engine_combat 로드 실패\n{_V7_ERR}")
             err_lbl.setStyleSheet(f"color:{C_RED}; font-size:15px;")
             err_lbl.setWordWrap(True)
             bottom_layout.addWidget(err_lbl)
@@ -8922,7 +8922,7 @@ def _hl_clean(s):
 
 
 def _spec_pick(spec, keys, prefer=None):
-    """spec_db 카테고리에서 label에 keys 중 하나가 든 필드 검색.
+    """db_specsheet 카테고리에서 label에 keys 중 하나가 든 필드 검색.
     값이 'A / B'면 기본 첫 토막, prefer 지정 시 label 토막 순서로 해당 위치 토막 반환."""
     if isinstance(keys, str):
         keys = [keys]
@@ -9534,7 +9534,7 @@ class SplashWindow(QWidget):
              "격추율 또는 생존율이 요구조건 임계값 미만입니다.\n"
              "함정 수를 늘리거나 SM-6 등 장거리 무기 탑재 수를 늘려 보세요."),
             ("엑셀 보고서는 어디에 저장되나요?",
-             "실행 파일(또는 launcher.py)과 같은 폴더에 자동 저장됩니다.\n"
+             "실행 파일(또는 app_main.py)과 같은 폴더에 자동 저장됩니다.\n"
              "파일명에 날짜·시각이 포함되므로 여러 번 실행해도 덮어쓰이지 않습니다."),
             ("3D 전장은 어떻게 보나요?",
              "시뮬레이션을 한 번 실행한 뒤 '교전 분석' 탭에서 '🌐 3D 전장' 서브탭을 누르세요.\n"
@@ -9671,7 +9671,7 @@ class SplashWindow(QWidget):
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         changelog = []
-        cl_path = _res('changelog.json')
+        cl_path = _res('app_changelog.json')
         if os.path.exists(cl_path):
             try:
                 with open(cl_path, encoding='utf-8-sig') as f:
@@ -9679,9 +9679,9 @@ class SplashWindow(QWidget):
             except Exception:
                 pass
         if not changelog:
-            layout.addWidget(QLabel("changelog.json 없음"))
+            layout.addWidget(QLabel("app_changelog.json 없음"))
             return w
-        # 최신 버전이 위로 오도록 역순 표시(changelog.json은 오래된→최신 순 저장)
+        # 최신 버전이 위로 오도록 역순 표시(app_changelog.json은 오래된→최신 순 저장)
         latest_ver = changelog[-1].get('version', '') if changelog else ''
         changelog = list(reversed(changelog))
 

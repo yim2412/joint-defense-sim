@@ -1,15 +1,15 @@
-"""_selfplay_train.py — Phase 5.6.2 검증: 적만 학습이 enemy_score를 올리는지 (빌드 제외 도구).
+"""_ai_selfplay_train.py — Phase 5.6.2 검증: 적만 학습이 enemy_score를 올리는지 (빌드 제외 도구).
 
-아군=rl_policy.npz 고정. 적 PPO 학습 → 랜덤 적 baseline 대비 균형 6시나리오 enemy_score 비교.
+아군=ai_rl_policy.npz 고정. 적 PPO 학습 → 랜덤 적 baseline 대비 균형 6시나리오 enemy_score 비교.
 학습 적이 일관 상회하면 self-play의 한 면(적 학습) 성립.
 
-  python _selfplay_train.py [timesteps] [n_envs] [seeds]
+  python _ai_selfplay_train.py [timesteps] [n_envs] [seeds]
 """
 import sys
 import numpy as np
 
-from engine import normalize_enemy_db
-from selfplay_env import make_enemy_env, _eval_enemy, _BALANCED_PRESETS
+from engine_core import normalize_enemy_db
+from ai_selfplay_env import make_enemy_env, _eval_enemy, _BALANCED_PRESETS
 
 normalize_enemy_db()
 

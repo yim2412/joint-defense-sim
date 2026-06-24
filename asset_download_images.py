@@ -1,8 +1,8 @@
-# download_images.py
+# asset_download_images.py
 # 스펙시트 패널용 유닛 이미지 자동 다운로드
 # 방식: Wikimedia Commons 검색+imageinfo 복합 API → 정확한 썸네일 URL → 저장
 #
-# 실행: python download_images.py
+# 실행: python asset_download_images.py
 # 결과: assets/images/{유닛명}.jpg  (이미 존재하면 스킵)
 
 import os, sys, time, json
@@ -22,7 +22,7 @@ _COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
 THUMB_WIDTH = 320
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  유닛별 검색어  (키 = spec_db.py / ENEMY_DB 키와 정확히 일치)
+#  유닛별 검색어  (키 = db_specsheet.py / ENEMY_DB 키와 정확히 일치)
 #  전략: 서구 무기(미국/NATO)는 액션 쿼리, 비서구는 단순 명칭 쿼리
 # ══════════════════════════════════════════════════════════════════════════════
 SEARCH_QUERIES = {

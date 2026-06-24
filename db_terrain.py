@@ -1,5 +1,5 @@
 # =============================================================================
-#  terrain_db.py — 한반도 주변 지형·해양 데이터베이스
+#  db_terrain.py — 한반도 주변 지형·해양 데이터베이스
 #  출처: GEBCO_2023, NOAA, KHOA, SRTM, Wikipedia(한/영), 나무위키,
 #        한국민족문화대백과, GlobalSecurity, CSIS Beyond Parallel, FAS NTI
 #  수집일: 2026-06-01

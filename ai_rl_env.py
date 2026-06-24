@@ -1,7 +1,7 @@
 """
-rl_env.py — 지속 전장 엔진(BattleEngine)의 gymnasium 래퍼 (Phase 4 RL, 1단계).
+ai_rl_env.py — 지속 전장 엔진(BattleEngine)의 gymnasium 래퍼 (Phase 4 RL, 1단계).
 
-엔진(engine_v7.py)은 한 줄도 고치지 않는다. 엔진의 _tactical_pause_cb(원래 사람 GUI
+엔진(engine_combat.py)은 한 줄도 고치지 않는다. 엔진의 _tactical_pause_cb(원래 사람 GUI
 입력을 기다리며 블록되는 전술 의사결정 훅)에 RL 행동을 주입하는 방식.
   · 엔진을 백그라운드 스레드로 run_battle_simulation 실행
   · cb(엔진 스레드)는 관측(state)을 obs 큐에 넣고 action 큐를 블록 대기
@@ -17,8 +17,8 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from engine import normalize_enemy_db, FRIENDLY_DB  # noqa: F401
-from engine_v7 import BattleEngine, BATTLE_HORIZON_S, calculate_fleet_detect_ranges
+from engine_core import normalize_enemy_db, FRIENDLY_DB  # noqa: F401
+from engine_combat import BattleEngine, BATTLE_HORIZON_S, calculate_fleet_detect_ranges
 
 normalize_enemy_db()
 
@@ -189,7 +189,7 @@ class BattleEnv(gym.Env):
     def _finish(self):
         """에피소드 종료 — friendly_score 종료 보상 + info. (제너레이터 StopIteration 후)
 
-        info에 약점 분석(improve_report.py S1)용 분해를 함께 노출한다 — 목표별
+        info에 약점 분석(improve_weakness_report.py S1)용 분해를 함께 노출한다 — 목표별
         progress·자원·누출. info 추가일 뿐 RNG·엔진을 건드리지 않아 결정론·회귀 안전."""
         r = self._result or {}
         fscore = float(r.get('friendly_score', 0.0))
@@ -265,7 +265,7 @@ def make_env(cfg: dict | None = None, tactical_interval: int = 60,
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  스모크 / 속도 측정 (설치 후: python rl_env.py)
+#  스모크 / 속도 측정 (설치 후: python ai_rl_env.py)
 # ════════════════════════════════════════════════════════════════════════════
 def _smoke_random(episodes: int = 3):
     """랜덤 행동 롤아웃 — env가 obs/보상/done을 제대로 돌리는지 확인."""
@@ -327,4 +327,4 @@ if __name__ == '__main__':
         n = int(sys.argv[2]) if len(sys.argv) > 2 else 8
         _smoke_vec(n_envs=n)
     else:
-        print('usage: python rl_env.py [random|ppo|vec [n_envs]]')
+        print('usage: python ai_rl_env.py [random|ppo|vec [n_envs]]')

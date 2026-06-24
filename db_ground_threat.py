@@ -1,5 +1,5 @@
 # =============================================================================
-#  military_db.py — 한반도 군사 배치 데이터베이스 (공개 자료 기반)
+#  db_ground_threat.py — 한반도 군사 배치 데이터베이스 (공개 자료 기반)
 #  출처: GlobalSecurity, CSIS Missile Threat, FAS, Wikipedia, ArmyRecognition,
 #        MilitaryWatchMagazine, RAND RRA619-1, latitude.to, Wikimapia
 #  수집일: 2026-06-01
@@ -72,7 +72,7 @@ DPRK_ARTILLERY_DB = {
         "warhead_kg": 190,
         "cep_m": {"unguided": 100, "gnss_aided": 35},
         "guidance": "위성항법(GNSS) 유도",
-        "launcher": "6×6 트럭 TEL",
+        "app_main": "6×6 트럭 TEL",
         "deployment_note": "서울뿐 아니라 평택·오산 미군기지 타격 사거리",
         "sources": [
             "https://en.wikipedia.org/wiki/KN-09_(multiple_rocket_launcher)",
@@ -135,7 +135,7 @@ DPRK_COASTAL_DB = {
         "range_km": {"baseline": 85, "extended": 160, "turbojet_claim": 300},
         "warhead_kg": 500,
         "guidance": "능동 레이더 호밍 + 관성항법 추정",
-        "launcher": "도로이동형(TEL) + 해안 고정 발사대",
+        "app_main": "도로이동형(TEL) + 해안 고정 발사대",
         "deployment": {
             "west_sea": {
                 "areas": ["옹진반도", "초도", "남포 인근"],
@@ -160,7 +160,7 @@ DPRK_COASTAL_DB = {
         "type": "ASCM_COASTAL",
         "range_km": 250,
         "guidance": "능동 레이더 호밍 + 터미널 유도 추정",
-        "launcher": "도로이동형(TEL)",
+        "app_main": "도로이동형(TEL)",
         "test": {"date": "2017-06", "result": "4발 중 3발 명중 (원산→마양도)"},
         "deployment": {"areas": ["원산 일대", "동해안 기지 연계"]},
         "sources": [

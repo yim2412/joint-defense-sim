@@ -1,13 +1,13 @@
-"""llm_propose.py — 자가개선 루프 S3: 로컬 LLM(Ollama) config 제안기 (빌드 제외 도구)
+"""improve_llm_propose.py — 자가개선 루프 S3: 로컬 LLM(Ollama) config 제안기 (빌드 제외 도구)
 
-S2의 규칙 제안기(auto_improve_loop.propose_candidates)를 대체한다. S1 약점
+S2의 규칙 제안기(improve_auto_loop.propose_candidates)를 대체한다. S1 약점
 리포트를 프롬프트로 만들어 로컬 Ollama(qwen2.5-coder)에 1회 HTTP 호출 →
 Tier1 config 후보(ent_coef·lr)를 JSON으로 받아 파싱한다. plan 10-C 정본.
 
 **Tier1만** — config 숫자만 제안(엔진 코드 무수정). 잘못된 제안이어도 학습·평가
 게이트가 Δ로 거른다. Ollama 무응답·파싱 실패 시 규칙기반으로 graceful fallback.
 
-  python llm_propose.py [report.json] [model]
+  python improve_llm_propose.py [report.json] [model]
 """
 import sys
 import os
@@ -99,7 +99,7 @@ def llm_propose_candidates(report, model=DEFAULT_MODEL, timeout=120):
             data = json.loads(resp.read())
         return _parse_candidates(data.get('response', ''))
     except Exception as e:
-        print(f'[llm_propose] Ollama 실패 → 규칙기반 fallback: {e}', file=sys.stderr)
+        print(f'[improve_llm_propose] Ollama 실패 → 규칙기반 fallback: {e}', file=sys.stderr)
         return None
 
 
@@ -107,7 +107,7 @@ def main():
     report_path = sys.argv[1] if len(sys.argv) > 1 else '_improve_report.json'
     model = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL
     if not os.path.exists(report_path):
-        print(f'리포트 없음: {report_path} (먼저 improve_report.py 실행)')
+        print(f'리포트 없음: {report_path} (먼저 improve_weakness_report.py 실행)')
         sys.exit(2)
     report = json.load(open(report_path, encoding='utf-8'))
     print(f'[프롬프트 요약]\n{_summarize_report(report)}\n')

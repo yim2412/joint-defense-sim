@@ -1,5 +1,5 @@
 # =============================================================================
-#  ocean_acoustic_db.py — 한국 해역 해양 음향 환경 데이터베이스
+#  db_ocean_acoustic.py — 한국 해역 해양 음향 환경 데이터베이스
 #  출처: WOA18(NOAA/NCEI), ANAS23(KIOST), Kim2001(J.Phys.Oceanogr.),
 #        Teague2006(Oceanography), MDPI2024(JMSE), Mackenzie1981(JASA),
 #        YS_thermo(Zhou 2002), Ballard2017(Acoustics Today)

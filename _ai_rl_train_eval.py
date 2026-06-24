@@ -5,7 +5,7 @@
 판별한다: 학습 정책이 '전부 기본값 고정' baseline을 균형 시나리오에서
 유의미하게 이기는가?
 
-  python _rl_train_eval.py [timesteps] [n_envs] [shaping]
+  python _ai_rl_train_eval.py [timesteps] [n_envs] [shaping]
 
 체크포인트: 20만 글로벌 스텝마다 _rl_ckpt/에 저장(중단 복구 + 학습량-성능 곡선).
 학습 후 각 체크포인트를 baseline 대비 평가해 "스텝 늘리면 Δ가 오르나"를 정량화한다.
@@ -17,9 +17,9 @@ import os
 import re
 import numpy as np
 
-from engine import normalize_enemy_db
-from engine_v7 import run_battle_simulation
-from rl_env import BattleEnv, make_env, _BALANCED_PRESETS, _DEFAULT_CFG
+from engine_core import normalize_enemy_db
+from engine_combat import run_battle_simulation
+from ai_rl_env import BattleEnv, make_env, _BALANCED_PRESETS, _DEFAULT_CFG
 
 normalize_enemy_db()
 

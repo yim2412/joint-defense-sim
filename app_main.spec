@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# launcher.spec — 합동 통합방어 시뮬레이터 PyInstaller 빌드 설정
+# app_main.spec — 합동 통합방어 시뮬레이터 PyInstaller 빌드 설정
 # onedir 모드: subprocess 워커가 번들 재압축해제 없이 즉시 import 가능
 
 import os
@@ -7,27 +7,27 @@ import os
 block_cipher = None
 
 a = Analysis(
-    ['launcher.py'],
+    ['app_main.py'],
     pathex=['.'],
     binaries=[],
     datas=[
-        ('engine.py',              '.'),
-        ('engine_v7.py',           '.'),
-        ('spec_db.py',             '.'),
-        ('changelog.json',         '.'),
-        ('battle_surrogate.json',  '.'),
-        ('rl_policy.npz',          '.'),
+        ('engine_core.py',              '.'),
+        ('engine_combat.py',           '.'),
+        ('db_specsheet.py',             '.'),
+        ('app_changelog.json',         '.'),
+        ('forecast_surrogate.json',  '.'),
+        ('ai_rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
-        ('ocean_acoustic_db.py',   '.'),
-        ('ocean_environment_db.py','.'),
-        ('terrain_db.py',          '.'),
-        ('military_db.py',         '.'),
+        ('db_ocean_acoustic.py',   '.'),
+        ('db_ocean_environment.py','.'),
+        ('db_terrain.py',          '.'),
+        ('db_ground_threat.py',         '.'),
         ('assets/images',          'assets/images'),
-        ('cesium_view.html',       '.'),
+        ('view_cesium_3d.html',       '.'),
     ],
     hiddenimports=[
-        # RL 추론 모듈(launcher가 지연 import — 정적 분석 누락 방지). numpy만 의존.
-        'rl_infer',
+        # RL 추론 모듈(app_main가 지연 import — 정적 분석 누락 방지). numpy만 의존.
+        'ai_policy_infer',
         # PyQt6 core
         'PyQt6',
         'PyQt6.QtWidgets',

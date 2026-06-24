@@ -1,7 +1,7 @@
-"""selfplay_env.py — Phase 5.6.2: 적 지휘 RL 환경 (EnemyEnv). 빌드 제외 RL 인프라.
+"""ai_selfplay_env.py — Phase 5.6.2: 적 지휘 RL 환경 (EnemyEnv). 빌드 제외 RL 인프라.
 
-self-play 교대 학습의 한 면 — **아군 정책을 numpy 고정(rl_infer)하고 적만 학습**한다.
-한 번에 한 에이전트만 학습해 환경이 정적 = 안정적(plan 12절). rl_env.BattleEnv를 상속해
+self-play 교대 학습의 한 면 — **아군 정책을 numpy 고정(ai_policy_infer)하고 적만 학습**한다.
+한 번에 한 에이전트만 학습해 환경이 정적 = 안정적(plan 12절). ai_rl_env.BattleEnv를 상속해
 엔진 구동(_simulate 제너레이터 동기 send)·관측(featurize)을 재사용하고, 행동·보상만 적 측으로
 바꾼다.
 
@@ -9,7 +9,7 @@ self-play 교대 학습의 한 면 — **아군 정책을 numpy 고정(rl_infer)
     _enemy_fire 살보·표적집중 결정(5.6.1 엔진 훅 enable: ai_tactic='rl').
   · 관측: 전장 상태 14피처(아군과 동일 — 전장은 대칭 관측). 적 시점 해석.
   · 보상: 종료 시 enemy_score(적 임무 점수). 아군 friendly_score의 반대 목표.
-  · 아군: rl_policy.npz 고정 정책이 매 결정 7레버를 채움(choice에 enemy_mode와 합침).
+  · 아군: ai_rl_policy.npz 고정 정책이 매 결정 7레버를 채움(choice에 enemy_mode와 합침).
 """
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-import rl_infer
-from rl_env import BattleEnv, _BALANCED_PRESETS, _DEFAULT_CFG  # noqa: F401  (재export·동일 풀)
-from engine_v7 import run_battle_simulation, calculate_fleet_detect_ranges, BATTLE_HORIZON_S
+import ai_policy_infer
+from ai_rl_env import BattleEnv, _BALANCED_PRESETS, _DEFAULT_CFG  # noqa: F401  (재export·동일 풀)
+from engine_combat import run_battle_simulation, calculate_fleet_detect_ranges, BATTLE_HORIZON_S
 
 # 적 전술 모드 — 5.6.1 엔진 훅이 받는 enemy_mode 값과 일치해야 함.
 _ENEMY_MODES = ['saturation', 'dispersal', 'deception']
 
 
-# ── 정책 numpy 추출·추론(교대 학습용) — rl_infer 구조 재사용(nvec 일반) ────────
+# ── 정책 numpy 추출·추론(교대 학습용) — ai_policy_infer 구조 재사용(nvec 일반) ────────
 def export_policy_npz(model, out_path):
     """학습 모델(아군 7레버 또는 적 3모드)의 정책망을 npz로. nvec은 모델 action_space."""
     import numpy as np
@@ -42,12 +42,12 @@ def export_policy_npz(model, out_path):
 def make_enemy_cb(npz_path, horizon=BATTLE_HORIZON_S):
     """적 정책 npz → enemy_mode 문자열을 내는 콜백(고정 상대용). 없으면 None."""
     try:
-        npz = rl_infer.load_policy(npz_path)
+        npz = ai_policy_infer.load_policy(npz_path)
     except (FileNotFoundError, OSError, KeyError):
         return None
 
     def cb(state):
-        a = rl_infer.forward(npz, rl_infer.featurize(state, horizon))
+        a = ai_policy_infer.forward(npz, ai_policy_infer.featurize(state, horizon))
         return _ENEMY_MODES[int(np.asarray(a).ravel()[0])]
     return cb
 
@@ -56,14 +56,14 @@ class EnemyEnv(BattleEnv):
     """적 지휘 학습 환경. 아군=고정 numpy 정책, 적=학습. 보상=enemy_score."""
 
     def __init__(self, cfg: dict | None = None, tactical_interval: int = 60,
-                 friendly_policy: str = 'rl_policy.npz'):
+                 friendly_policy: str = 'ai_rl_policy.npz'):
         super().__init__(cfg, tactical_interval, reward_shaping=False)
         # 5.6.1 엔진 훅 활성 — 적 전술 모드를 외부(이 env)가 주입.
         self.base_cfg['ai_tactic'] = 'rl'
         # 적 행동공간 = 전술 모드 3종. 관측은 부모(전장 14피처) 그대로.
         self.action_space = spaces.MultiDiscrete([len(_ENEMY_MODES)])
         # 아군 고정 정책(numpy 추론). 없으면 None → 아군은 엔진 기본 전술(빈 choice).
-        self._friendly_cb = rl_infer.make_policy_cb(friendly_policy, self._horizon)
+        self._friendly_cb = ai_policy_infer.make_policy_cb(friendly_policy, self._horizon)
 
     def _enemy_choice(self, enemy_action, state) -> dict:
         """적 행동 + 아군 고정 정책을 한 choice dict로 합침(같은 결정 지점에 동승)."""
@@ -98,7 +98,7 @@ class EnemyEnv(BattleEnv):
 
 
 def make_enemy_env(cfg: dict | None = None, tactical_interval: int = 60,
-                   friendly_policy: str = 'rl_policy.npz'):
+                   friendly_policy: str = 'ai_rl_policy.npz'):
     """SubprocVecEnv용 팩토리(모듈 레벨 — Windows spawn picklable)."""
     def _init():
         return EnemyEnv(cfg, tactical_interval, friendly_policy=friendly_policy)
@@ -143,7 +143,7 @@ def eval_matchup(friendly_npz, enemy_npz, seeds, presets=None):
     """양쪽 고정 정책 대결 → 시나리오 평균 (friendly_score, enemy_score).
     교대 학습 라운드 평가용 — 현재 아군 npz vs 현재 적 npz."""
     presets = presets or _BALANCED_PRESETS
-    fcb = rl_infer.make_policy_cb(friendly_npz, BATTLE_HORIZON_S)
+    fcb = ai_policy_infer.make_policy_cb(friendly_npz, BATTLE_HORIZON_S)
     ecb = make_enemy_cb(enemy_npz, BATTLE_HORIZON_S)
 
     def cb(state):

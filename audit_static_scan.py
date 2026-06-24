@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-audit_scan.py — 종합 감사 정적 스캐너 (빌드 제외 도구)
+audit_static_scan.py — 종합 감사 정적 스캐너 (빌드 제외 도구)
 
 CLAUDE.md '종합 감사' 9영역 중 **정적 Grep으로 굳힐 수 있는 점검**을 자동화한다.
-verify_regression.py(엔진 동작 무결성)와 짝 — 이쪽은 코드를 실행하지 않고 소스만 본다.
+audit_verify_regression.py(엔진 동작 무결성)와 짝 — 이쪽은 코드를 실행하지 않고 소스만 본다.
 
 처음 v15 블록 종합 감사(2026-06-23) 실전에서 손으로 친 Grep을 추출해 제작.
-엔진/launcher 구조가 바뀌면 휴리스틱이 어긋날 수 있으니, FAIL은 항상 사람이 검토한다.
+엔진/app_main 구조가 바뀌면 휴리스틱이 어긋날 수 있으니, FAIL은 항상 사람이 검토한다.
 
-사용:  python audit_scan.py        # 전체 점검, 하나라도 FAIL이면 exit 1
+사용:  python audit_static_scan.py        # 전체 점검, 하나라도 FAIL이면 exit 1
 점검 영역(약칭): ⑥위생(버전정합·gitignore) ①코드(_log가드·_record_frame가드·enable 3종세트)
-              ②DB(spec_db 정합) ⑧수치(전장 분모 가드) MC 3경로 존재
+              ②DB(db_specsheet 정합) ⑧수치(전장 분모 가드) MC 3경로 존재
 """
 import os, re, sys, subprocess
 
@@ -26,13 +26,13 @@ def check(area, name, ok, detail=''):
 
 # ── ⑥ 위생: APP_VERSION == 헤더 버전 == changelog 마지막 ──────────────────────
 def chk_version():
-    lau = rd('launcher.py')
+    lau = rd('app_main.py')
     m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)', lau)
     appv = m.group(1) if m else None
     hm = re.search(r'시뮬레이터\s+(v[\d.]+)', lau[:3000])
     hdr = hm.group(1) if hm else None
     import json
-    cl = json.load(open(os.path.join(ROOT, 'changelog.json'), encoding='utf-8'))
+    cl = json.load(open(os.path.join(ROOT, 'app_changelog.json'), encoding='utf-8'))
     last = cl[-1]['version'] if cl else None
     ok = appv and appv == hdr == last
     check('⑥', '버전 정합(APP_VERSION=헤더=changelog 마지막)', ok,
@@ -54,7 +54,7 @@ def chk_gitignore():
 
 # ── ① 코드: self._log 내부 mc_mode 가드 ──────────────────────────────────────
 def chk_log_guard():
-    ev = rd('engine_v7.py')
+    ev = rd('engine_combat.py')
     m = re.search(r'def _log\(self[^)]*\):\s*\n((?:\s+.*\n){1,4})', ev)
     body = m.group(1) if m else ''
     ok = 'self._mc_mode' in body and 'return' in body
@@ -63,7 +63,7 @@ def chk_log_guard():
 
 # ── ① 코드: _record_frame 호출이 if not _mc_mode 가드 ─────────────────────────
 def chk_frame_guard():
-    ev = rd('engine_v7.py').split('\n')
+    ev = rd('engine_combat.py').split('\n')
     bad = []
     for i, l in enumerate(ev):
         if re.search(r'\bself\._record_frame\(\)', l):
@@ -76,7 +76,7 @@ def chk_frame_guard():
 
 # ── ① 코드: v15 신규 enable 플래그 3종 세트 ──────────────────────────────────
 def chk_flag_triplet():
-    lau = rd('launcher.py'); ev = rd('engine_v7.py')
+    lau = rd('app_main.py'); ev = rd('engine_combat.py')
     # 블록에서 추가된 핵심 전장 플래그(추가 시 이 목록에 1줄 더한다)
     v15_flags = ['enable_battle_mode', 'enable_munition_limit', 'enable_ship_evasion']
     for f in v15_flags:
@@ -85,23 +85,23 @@ def chk_flag_triplet():
         engread = f in ev
         ok = build and restore and engread
         check('①', f'3종세트 {f}', ok,
-              f"build={build} restore={restore} engine={engread}")
+              f"build={build} restore={restore} engine_core={engread}")
 
-# ── ② DB: spec_db 항목수 == 엔티티 DB 항목수 합 ──────────────────────────────
+# ── ② DB: db_specsheet 항목수 == 엔티티 DB 항목수 합 ──────────────────────────────
 def chk_spec_count():
-    eng = rd('engine.py'); spec = rd('spec_db.py')
+    eng = rd('engine_core.py'); spec = rd('db_specsheet.py')
     def topcount(src, name):
         mm = re.search(rf"^{name}\s*[:=].*?\{{(.*?)^\}}", src, re.S | re.M)
         return len(re.findall(r"^\s{4}['\"]", mm.group(1), re.M)) if mm else None
     entity = sum(topcount(eng, n) or 0 for n in
                  ['ENEMY_DB', 'FRIENDLY_DB', 'SHIP_DB', 'FRIENDLY_AIRCRAFT_DB'])
     sd = topcount(spec, 'SPEC_DETAIL_DB')
-    check('②', 'spec_db 항목수 = 엔티티 DB 합', sd == entity,
+    check('②', 'db_specsheet 항목수 = 엔티티 DB 합', sd == entity,
           f"SPEC_DETAIL_DB={sd} vs ENEMY+FRIENDLY+SHIP+AIRCRAFT={entity}")
 
 # ── ⑧ 수치: 전장 분모 변수 0 가드(max(1.0,..) / or 1.0) ──────────────────────
 def chk_div_guards():
-    ev = rd('engine_v7.py')
+    ev = rd('engine_combat.py')
     pats = {
         '_fr_value_init': r"_fr_value_init\s*=\s*max\(\s*1\.0",
         '_en_value_init': r"_en_value_init\s*=\s*max\(\s*1\.0",
@@ -119,8 +119,8 @@ def chk_plans_stale():
     반영 없이 순수 미래형으로 남았는지, '보류' 라벨 항목이 잔존하는지 검사.
     (v16.x 작업 항목만 보고 상위 '진행 중'·'보류' 완료분을 놓친 빈틈에서 굳힘.)"""
     import json
-    lau = rd('launcher.py')
-    cl = json.load(open(os.path.join(ROOT, 'changelog.json'), encoding='utf-8'))
+    lau = rd('app_main.py')
+    cl = json.load(open(os.path.join(ROOT, 'app_changelog.json'), encoding='utf-8'))
     # 진행 중 블록(changelog 최신 major)만 검사 — v15 이전은 로드맵 재편으로
     # changelog minor(전장 엔진)와 _PLANS 버전(미구현 AI 계획)이 번호만 같고 내용이
     # 달라 오탐. 과거 major는 이미 완료·삭제됨.
@@ -154,7 +154,7 @@ def chk_plans_stale():
 
 # ── ① 코드: MC 3경로 + 라우터/집계 존재 ──────────────────────────────────────
 def chk_mc_paths():
-    ev = rd('engine_v7.py')
+    ev = rd('engine_combat.py')
     need = ['monte_carlo_v7', '_mc_batch_worker', 'monte_carlo_lhs', '_mc_run_one', '_battle_agg']
     miss = [n for n in need if not re.search(rf'def {n}\b', ev)]
     check('①', 'MC 3경로+라우터+집계 존재', not miss, f"누락={miss}" if miss else 'OK')
@@ -172,7 +172,7 @@ def main():
     npass = sum(1 for *_, ok, _ in [(0, 0, r[2], r[3]) for r in results] if ok)
     nfail = len(results) - sum(1 for r in results if r[2])
     print("=" * 64)
-    print("audit_scan.py — 종합 감사 정적 스캔")
+    print("audit_static_scan.py — 종합 감사 정적 스캔")
     print("=" * 64)
     for area, name, ok, detail in results:
         mark = 'PASS' if ok else 'FAIL'

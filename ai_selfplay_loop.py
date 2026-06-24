@@ -1,19 +1,19 @@
-"""selfplay_loop.py — Phase 5.6.3: 교대 공진화 학습 루프 (빌드 제외 도구).
+"""ai_selfplay_loop.py — Phase 5.6.3: 교대 공진화 학습 루프 (빌드 제외 도구).
 
 한 번에 한 쪽만 학습(상대 고정) → 교대 반복. 환경이 정적이라 안정적(plan 12절).
   라운드마다: ① 적 학습(아군 고정) → 적 npz ② 아군 학습(적 고정) → 아군 npz
              ③ 양쪽 고정 대결 평가(friendly_score·enemy_score)
 공진화 = 라운드가 진행되며 양측이 번갈아 상대를 압박하며 강해지는 곡선.
 
-  python selfplay_loop.py [rounds] [steps] [n_envs] [seeds]
+  python ai_selfplay_loop.py [rounds] [steps] [n_envs] [seeds]
 산출: 라운드별 _selfplay_friendly_cur.npz·_selfplay_enemy_cur.npz + 공진화 곡선 출력.
 """
 import sys
 import shutil
 import numpy as np
 
-from engine import normalize_enemy_db
-from selfplay_env import (make_enemy_env, make_friendly_env, export_policy_npz,
+from engine_core import normalize_enemy_db
+from ai_selfplay_env import (make_enemy_env, make_friendly_env, export_policy_npz,
                           eval_matchup, _BALANCED_PRESETS)
 
 normalize_enemy_db()
@@ -33,8 +33,8 @@ def _train(factory, steps, n_envs):
 
 
 def main(rounds, steps, n_envs, seeds):
-    # 시작 아군 = 기존 학습 정책(rl_policy.npz). 적은 첫 라운드 학습이 생성.
-    shutil.copy('rl_policy.npz', F_NPZ)
+    # 시작 아군 = 기존 학습 정책(ai_rl_policy.npz). 적은 첫 라운드 학습이 생성.
+    shutil.copy('ai_rl_policy.npz', F_NPZ)
     curve = []
     for rd in range(1, rounds + 1):
         print(f'\n========== 라운드 {rd}/{rounds} ==========', flush=True)

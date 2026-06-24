@@ -1,4 +1,4 @@
-"""improve_report.py — 자가개선 루프 S1: 약점 분석 리포트 (빌드 제외 도구)
+"""improve_weakness_report.py — 자가개선 루프 S1: 약점 분석 리포트 (빌드 제외 도구)
 
 학습된 RL 정책을 균형 6시나리오 × N seed로 평가하고, baseline 대비 *어디서·왜
 지는지*를 숫자로 구조화한다. plan 10-C 정본. **LLM 불요** — 약점을 숫자로 정의하는
@@ -10,7 +10,7 @@
   C. 과수렴 플래그          — 지는 시나리오의 레버 분포 엔트로피≈0 (5.5e 붕괴 검출)
   D. 레버-승패 상관         — 시나리오별 어떤 레버값이 승/패와 묶이나
 
-사용:  python improve_report.py [model.zip] [seeds]
+사용:  python improve_weakness_report.py [model.zip] [seeds]
        기본 모델 = 최고 체크포인트(_rl_ckpt/ppo_shaped_ent0.01_1000000_steps.zip)
 출력:  _improve_report.json (기계용) + 콘솔 사람용 요약
 """
@@ -23,9 +23,9 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from engine import normalize_enemy_db
-from engine_v7 import run_battle_simulation
-from rl_env import (BattleEnv, _BALANCED_PRESETS, _DEFAULT_CFG,
+from engine_core import normalize_enemy_db
+from engine_combat import run_battle_simulation
+from ai_rl_env import (BattleEnv, _BALANCED_PRESETS, _DEFAULT_CFG,
                     _WPN_PRIORITY, _SALVO_OPTS, _RADAR_OPTS, _TARGET_OPTS,
                     _MANEUVER_OPTS, _CAP_OPTS, _ECM_OPTS)
 
@@ -93,7 +93,7 @@ def eval_baseline(seeds):
 
 def eval_policy(model, seeds):
     """학습 정책 — 에피소드별 full 분해(info 보강) + 레버 선택 히스토그램 포착."""
-    from rl_env import BattleEnv  # 지연 import (SB3 의존 격리)
+    from ai_rl_env import BattleEnv  # 지연 import (SB3 의존 격리)
     per_preset = {}
     for p in _BALANCED_PRESETS:
         eps = []
@@ -230,8 +230,8 @@ def main():
     model_path = sys.argv[1] if len(sys.argv) > 1 else _default_model_path()
     seeds = range(1, int(sys.argv[2]) + 1) if len(sys.argv) > 2 else range(1, 9)
     if not model_path or not os.path.exists(model_path):
-        print('학습된 모델을 찾을 수 없음. 사용: python improve_report.py [model.zip] [seeds]')
-        print('  (먼저 _rl_train_eval.py로 학습하거나 _rl_ckpt/의 체크포인트 필요)')
+        print('학습된 모델을 찾을 수 없음. 사용: python improve_weakness_report.py [model.zip] [seeds]')
+        print('  (먼저 _ai_rl_train_eval.py로 학습하거나 _rl_ckpt/의 체크포인트 필요)')
         sys.exit(2)
     rep = build_report(model_path, list(seeds))
     with open('_improve_report.json', 'w', encoding='utf-8') as f:

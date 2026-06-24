@@ -8,22 +8,22 @@
 
 | 파일 | 역할 |
 |------|------|
-| `engine.py` | 핵심 DB (ENEMY_DB·FRIENDLY_DB·SHIP_DB 등), 물리모델, 탐지·교전 로직 |
-| `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진. engine.py DB를 import해서 사용 |
-| `launcher.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
-| `spec_db.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
-| `changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
-| `launcher.spec` | PyInstaller 빌드 스펙 |
-| `_make_bg.py` | 홈 배경 이미지 생성 스크립트 (src_kf21_source.jpg → home_bg.jpg). 빌드 제외, 수동 실행용 |
+| `engine_core.py` | 핵심 DB (ENEMY_DB·FRIENDLY_DB·SHIP_DB 등), 물리모델, 탐지·교전 로직 |
+| `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진. engine_core.py DB를 import해서 사용 |
+| `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
+| `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
+| `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
+| `app_main.spec` | PyInstaller 빌드 스펙 |
+| `_asset_make_bg.py` | 홈 배경 이미지 생성 스크립트 (src_kf21_source.jpg → home_bg.jpg). 빌드 제외, 수동 실행용 |
 
 ### 실행 방법
 
 ```powershell
 # 런처 실행 (개발 중)
-python launcher.py
+python app_main.py
 
 # exe 빌드
-python -m PyInstaller launcher.spec --noconfirm
+python -m PyInstaller app_main.spec --noconfirm
 ```
 
 ### 필수 패키지
@@ -54,11 +54,11 @@ seq   : 같은 minor 계열 안에서 변경 1건마다 붙는 일련번호 (.01
 
 ### 버전 번호 갱신 규칙
 
-`launcher.py` 최상단 헤더와 `APP_VERSION` 상수를 **패치 완료 시 수동으로 직접 수정**한다.
+`app_main.py` 최상단 헤더와 `APP_VERSION` 상수를 **패치 완료 시 수동으로 직접 수정**한다.
 
 ### 헤더 주석 규칙
 
-`launcher.py` 최상단 헤더에 현재 버전과 최근 변경 내용을 기록한다.
+`app_main.py` 최상단 헤더에 현재 버전과 최근 변경 내용을 기록한다.
 
 ```python
 """
@@ -84,7 +84,7 @@ INTERCEPT_DIST_M = 200
 ### 용어 작성 규칙 (exe 표시 텍스트 전용)
 
 **앱 화면(exe)에 보이는 텍스트는 군사용어로 쓰되, 코드 명칭은 절대 쓰지 않는다.**
-대상: `changelog.json`(패치 내역 탭), `_PLANS`(향후 계획 탭).
+대상: `app_changelog.json`(패치 내역 탭), `_PLANS`(향후 계획 탭).
 
 | 쓴다 ✅ | 안 쓴다 ❌ |
 |---------|-----------|
@@ -101,7 +101,7 @@ INTERCEPT_DIST_M = 200
 ✅ "한국 공군 CAP 전투기가 적 항공기를 BVR 교전으로 요격"
 ```
 
-함수명·클래스명 등 코드 명칭이 꼭 필요하면 **git 커밋 메시지·launcher.py 헤더 주석·개발 문서(로드맵_상세*.md)**에 적는다. 이들은 exe에 안 보이므로 제약 없음.
+함수명·클래스명 등 코드 명칭이 꼭 필요하면 **git 커밋 메시지·app_main.py 헤더 주석·개발 문서(로드맵_상세*.md)**에 적는다. 이들은 exe에 안 보이므로 제약 없음.
 
 `_PLANS`의 구현 세부(클래스 구조·함수명)는 설명에 넣지 말고 `로드맵_상세_v11-v20.md`로 보낸다.
 
@@ -146,10 +146,10 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 | 변경 유형 | 감사 종류 | 방법 |
 |-----------|-----------|------|
-| 엔진 로직·새 클래스·교전 흐름 변경 | **회귀 검증 + 코드/로직 감사** | `python verify_regression.py` (PASS 필수) + `/code-review medium` (난이도 높음↑이면 high) |
-| DB 수치·물리 파라미터 변경 | **회귀 검증 + 현실성 수치 감사** | `python verify_regression.py` + 공개 제원·교리와 대조 (수동 또는 Explore 에이전트) |
+| 엔진 로직·새 클래스·교전 흐름 변경 | **회귀 검증 + 코드/로직 감사** | `python audit_verify_regression.py` (PASS 필수) + `/code-review medium` (난이도 높음↑이면 high) |
+| DB 수치·물리 파라미터 변경 | **회귀 검증 + 현실성 수치 감사** | `python audit_verify_regression.py` + 공개 제원·교리와 대조 (수동 또는 Explore 에이전트) |
 | UI·시각화·문서만 변경 | **회귀 확인** | 빌드 성공 + 스모크 실행만 (엔진 미변경 시 회귀 스크립트 생략 가능) |
-| 아키텍처 전환(난이도 매우 높음) | **회귀 검증 + 코드 감사 + 로직 트레이스** | `python verify_regression.py` + `/code-review high` + 핵심 경로 수동 추적 |
+| 아키텍처 전환(난이도 매우 높음) | **회귀 검증 + 코드 감사 + 로직 트레이스** | `python audit_verify_regression.py` + `/code-review high` + 핵심 경로 수동 추적 |
 | **신기능(`추가`) 포함** | **용어 확인** | 새 군사용어가 생겼는지 changelog·_PLANS 검토 |
 
 신기능이 없는 버그·수치·UI 변경은 용어 확인 생략. `추가` 항목이 하나라도 있을 때만 확인.
@@ -158,7 +158,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 >
 > **스모크 실행 대체 금지**: exe에서 시뮬레이션 버튼을 실제로 클릭하는 데 실패하면, 엔진 직접 호출(`run_v7_simulation()`)로 우회하지 않는다. 엔진 직접 호출은 GUI 워커 경로(step_cb, 시그널 emit 등)를 거치지 않아 exe 전용 버그를 놓친다. **무인 감사에서는 GUI 자동화(pywinauto/UIA)로 버튼 클릭을 자동 수행**하고, 그 GUI 자동화마저 실패할 때만 **BLOCKED로 보고**한다(이때도 엔진 직접 호출 우회는 금지). 무인 모드가 아닌 일반 패치에서는 자동화 실패 시 사용자에게 직접 시뮬 1회 실행을 요청한다.
 
-> **회귀 검증(`verify_regression.py`) 정의**: 고정 8개 시나리오×고정 seed 결과를 `regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python verify_regression.py` / 의도된 변경 후 갱신 `python verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
+> **회귀 검증(`audit_verify_regression.py`) 정의**: 고정 8개 시나리오×고정 seed 결과를 `audit_regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python audit_verify_regression.py` / 의도된 변경 후 갱신 `python audit_verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
 
 감사에서 발견한 항목은 **그 자리에서 수정 후 커밋**한다(다음 일련번호 부여). 감사 결과는 커밋 메시지에 1줄 요약.
 
@@ -187,11 +187,11 @@ v12.06.01: [변경 내용 한 줄 요약]
 | # | 영역 | 무엇을 | 방법 (에이전트 적극 활용) |
 |---|------|--------|------|
 | ① | **코드·로직** | 블록 누적 diff의 상호작용·하위호환 버그(플래그 OFF 시 기존 결과 동일) + **신기능 체크리스트 8항목 재검증**(아래) + **전역 상태 오염**(전역 DB `ENEMY_DB`/`FRIENDLY_DB`/`SHIP_DB`를 `.copy()` 없이 참조 후 mutate / `cfg = dict(cfg)` 미복사) + **부모 무수정**(`BattleEngine` 상속이 `TimeStepEngine` 시그니처 변경 안 함·훅 기본인자 동작보존) + **cfg 키 오타**(`enable_xxx` 문자열 오타가 조용히 무시) + **UI 인덱스 정합**(탭·스택·색상 컬럼 밀림, `NoScrollComboBox` 준수) + `FriendlyAircraftObj` 비활성화 시 payload 양쪽 0 | `/code-review high` + Grep 스캔 |
-| ② | **DB·수치** | 바뀐 DB 값을 공개 제원·교리와 대조 + **`spec_db` 항목수 = DB 항목수**(신규 DB 누락 시 스펙 빔) + `normalize_enemy_db` 누락 필드 + **DB 키 일관**(편대명·적명이 preset/`battle_surrogate` 키와 일치) | **Explore 에이전트 팬아웃** (또는 수동) |
-| ③ | **회귀** | 엔진 동작 무결성 + **결정론**(`sim_seed` 키 사용·신규 `random`/`numpy.random`이 RNG 순서 깨는지) + **골든 커버리지**(새 기능·새 `stats` 키가 8케이스·26지표에 실제 반영되는지 — 없으면 회귀 사각) | `python verify_regression.py` 전체 PASS (FAIL이면 의도 확인 → 갱신 또는 수정) |
+| ② | **DB·수치** | 바뀐 DB 값을 공개 제원·교리와 대조 + **`db_specsheet` 항목수 = DB 항목수**(신규 DB 누락 시 스펙 빔) + `normalize_enemy_db` 누락 필드 + **DB 키 일관**(편대명·적명이 preset/`battle_surrogate` 키와 일치) | **Explore 에이전트 팬아웃** (또는 수동) |
+| ③ | **회귀** | 엔진 동작 무결성 + **결정론**(`sim_seed` 키 사용·신규 `random`/`numpy.random`이 RNG 순서 깨는지) + **골든 커버리지**(새 기능·새 `stats` 키가 8케이스·26지표에 실제 반영되는지 — 없으면 회귀 사각) | `python audit_verify_regression.py` 전체 PASS (FAIL이면 의도 확인 → 갱신 또는 수정) |
 | ④ | **통합 MC + 성능** | 기준 시나리오 전체 회귀 MC의 수치 안정성 + **wall-time 회귀 가드**(단발 1회·전장 1회 실행시간 이전 블록 대비 급증 1.5배+면 원인 규명) | 기준값 메모리(`project-baseline-*`) 대조 + 시간 측정·기록 |
 | ⑤ | **exe·빌드** | 전체 빌드 성공 + **번들 무결성**(`spec datas`·`hiddenimports` 완전성, 데이터 파일 포함) + 스모크 + **MC 중단(abort) 후 워커 잔존·풀 정리** + **외부 의존**(Cesium CDN 끊겨도 graceful) + `_internal` 복사 누락 | 빌드 + **GUI 자동화 스모크**(무인, pywinauto/UIA로 버튼 클릭; 자동화 실패 시 그 영역만 BLOCKED — 엔진 직접 호출 우회는 금지 [[feedback-smoke-run]]) + 중단 1회 테스트 |
-| ⑥ | **위생** | changelog·`_PLANS` 코드명/완료항목 잔류, **`_PLANS` 완료분 반영**(현재 작업한 항목뿐 아니라 **상위 '진행 중'·'보류' 메이저 항목**도 — 완료된 작업이 '다음/예정/보류 중'으로 잔류하는지. 예: 전장 엔진·self-play 완료 후 '보류' 라벨·'다음: self-play' stale), 헤더·`APP_VERSION`·changelog 정합·연속성, **죽은 코드(호출처 0)**, **상수·임계값 교차 정합**(예: `MAX_SIM_TIME` vs `BATTLE_HORIZON_S`), **보안**(개인키 미커밋·`.gitignore` 커버리지: `dist`/`build`·모델 zip·로그·`_rl_*` 산출물), CLAUDE.md engine_v7 함수표 정합 | **Grep + `audit_scan.py`**(`chk_plans_stale`: changelog 구현된 minor의 _PLANS stale 미래형·'보류' 라벨 자동 검출) ([[feedback-plans-changelog-hygiene]]) |
+| ⑥ | **위생** | changelog·`_PLANS` 코드명/완료항목 잔류, **`_PLANS` 완료분 반영**(현재 작업한 항목뿐 아니라 **상위 '진행 중'·'보류' 메이저 항목**도 — 완료된 작업이 '다음/예정/보류 중'으로 잔류하는지. 예: 전장 엔진·self-play 완료 후 '보류' 라벨·'다음: self-play' stale), 헤더·`APP_VERSION`·changelog 정합·연속성, **죽은 코드(호출처 0)**, **상수·임계값 교차 정합**(예: `MAX_SIM_TIME` vs `BATTLE_HORIZON_S`), **보안**(개인키 미커밋·`.gitignore` 커버리지: `dist`/`build`·모델 zip·로그·`_rl_*` 산출물), CLAUDE.md engine_combat 함수표 정합 | **Grep + `audit_static_scan.py`**(`chk_plans_stale`: changelog 구현된 minor의 _PLANS stale 미래형·'보류' 라벨 자동 검출) ([[feedback-plans-changelog-hygiene]]) |
 | ⑦ | **하위호환** | 저장된 **구버전 시나리오 cfg**(과거 `enable_xxx` 누락 dict)로 로드·실행 시 정상 동작 | 구버전 cfg dict로 `run_v7_simulation`/`run_battle_simulation` 1회 호출 |
 | ⑧ | **수치 안정성·단위** | **NaN/Inf 가드**(0 나눗셈·`log`/`sqrt` 음수·빈 리스트 평균) + **확률값 [0,1] clamp**(Pk·progress·win_rate) + **단위 혼동**(km↔m·ms↔s·USD raw↔`/1e6`) + Beta 분포 `pk_dist` 파라미터 유효성 | Grep(`/`·`np.log`·`sqrt`) + 경계값 수동 점검 |
 | ⑨ | **리소스 누수** | **`frames` 누적 `if not _mc_mode` 가드**(MC 1000회 메모리 폭발) + **matplotlib figure close**(탭 재렌더 누수) + **`self._log` mc_mode 가드**(MC 과출력) + 결과 히스토리 상한(5개) + QWebEngine 정리 | Grep 스캔 + MC 장시간 1회 메모리 관찰 |
@@ -201,8 +201,8 @@ v12.06.01: [변경 내용 한 줄 요약]
 **①의 '신기능 체크리스트 8항목 블록 재검증'** — 마이너마다 빠뜨린 게 누적되므로 블록 단위로 한 번 훑는다 (정본은 '신기능 추가 시 체크리스트'):
 1. `enable_xxx` **3종 세트** 무결성 — 블록에서 추가된 모든 플래그가 체크박스 + cfg 빌드(`isChecked()`) + cfg 로드(`hasattr`)를 갖췄는지
 2. 신규 `stats` 키가 **MC 3경로**(`monte_carlo_v7`·`_mc_batch_worker`·`monte_carlo_lhs`)에 모두 있는지
-3. engine_v7 신규 심볼이 launcher import 목록에 있는지 + 신규 PyQt6 위젯 import 누락(→exe NameError 창 소실) 없는지
-4. 새 클래스 `_id_counter` 리셋, `normalize_enemy_db()` 보완, spec_db 동기화(새 DB 항목·수치 변경)
+3. engine_combat 신규 심볼이 app_main import 목록에 있는지 + 신규 PyQt6 위젯 import 누락(→exe NameError 창 소실) 없는지
+4. 새 클래스 `_id_counter` 리셋, `normalize_enemy_db()` 보완, db_specsheet 동기화(새 DB 항목·수치 변경)
 5. 죽은 코드(④위생과 교차) — 블록에서 추가했으나 호출처 없는 함수
 
 #### 3) 발견 항목 처리
@@ -213,7 +213,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 두 형태로 남긴다:
 - **`감사보고서.md`** (repo 루트) — 모든 블록 감사를 **최신순 텍스트로 누적**(단일 파일, 메모장 열람용). 아래 형식.
-- **블록별 PDF** — **감사를 할 때마다 새로 생성**해 `감사보고서/감사보고서_{BLOCK}.pdf`로 저장(블록당 1개 누적). 생성기 `_make_audit_pdf.py`의 `BLOCK` 상수와 본문을 그 블록에 맞게 갱신 후 `python _make_audit_pdf.py` 실행(reportlab + 맑은 고딕, 군 보고서 양식). 텍스트 .md가 정본이고 PDF는 그 블록 결과의 보기 좋은 사본이다.
+- **블록별 PDF** — **감사를 할 때마다 새로 생성**해 `감사보고서/감사보고서_{BLOCK}.pdf`로 저장(블록당 1개 누적). 생성기 `_audit_make_pdf.py`의 `BLOCK` 상수와 본문을 그 블록에 맞게 갱신 후 `python _audit_make_pdf.py` 실행(reportlab + 맑은 고딕, 군 보고서 양식). 텍스트 .md가 정본이고 PDF는 그 블록 결과의 보기 좋은 사본이다.
 
 
 블록마다 **최신이 위로 오도록** 섹션을 누적한다(단일 파일, 텍스트 에디터·메모장으로 바로 열람 가능). 각 섹션은:
@@ -246,11 +246,11 @@ v12.06.01: [변경 내용 한 줄 요약]
 종합 감사를 마치면 **감사 과정 자체의 약점**을 회고해 다음 감사가 더 촘촘해지게 만든다 (코드가 아니라 *감사 절차*를 점검하는 단계). 각 감사 끝에:
 
 1. **약점 식별**: 이번에 ▸돌리지 못한/대체한 점검(예: 병합된 블록이라 `/code-review` 타깃 diff 부재) ▸헛돈 수동 추측(키 구조 오가정 등) ▸생략한 케이스(abort 클릭 등) ▸시간 과다 단계를 적는다.
-2. **개선 귀속**: 약점마다 **어디로 굳힐지** 정한다 — 반복 정적 점검이면 `audit_scan.py`에 함수 추가, GUI 시나리오면 `_audit_smoke.py`에 추가, 절차/판단 규칙이면 이 CLAUDE.md 또는 [[feedback-audit-self-improve]] 메모리에.
+2. **개선 귀속**: 약점마다 **어디로 굳힐지** 정한다 — 반복 정적 점검이면 `audit_static_scan.py`에 함수 추가, GUI 시나리오면 `_audit_gui_smoke.py`에 추가, 절차/판단 규칙이면 이 CLAUDE.md 또는 [[feedback-audit-self-improve]] 메모리에.
 3. **즉시 반영**: 가능한 개선은 그 자리에서 도구·규칙에 반영하고 커밋. 다음 블록까지 미룰 건 [[patch-queue]]에 '감사 개선' 항목으로 남긴다.
 4. **보고서에 기록**: 감사보고서 해당 섹션 끝에 `메타 회고:` 한 줄로 이번에 무엇을 개선했는지/다음 숙제가 무엇인지 남긴다.
 
-> 핵심: 감사는 **고정 체크리스트가 아니라 매번 자라는 도구**다. 같은 약점을 두 번 겪지 않도록, 발견한 빈틈을 사람 기억이 아니라 `audit_scan.py`·`_audit_smoke.py`·규칙·메모리에 박는다. 알려진 빈틈(상시 갱신): ▸병합 후 감사는 `/code-review`가 빈 diff → 누적 diff(`첫커밋^..HEAD`)를 에이전트에 직접 먹이거나 **마이너마다 병합 전 리뷰를 미리** 돌려 둔다(shift-left).
+> 핵심: 감사는 **고정 체크리스트가 아니라 매번 자라는 도구**다. 같은 약점을 두 번 겪지 않도록, 발견한 빈틈을 사람 기억이 아니라 `audit_static_scan.py`·`_audit_gui_smoke.py`·규칙·메모리에 박는다. 알려진 빈틈(상시 갱신): ▸병합 후 감사는 `/code-review`가 빈 diff → 누적 diff(`첫커밋^..HEAD`)를 에이전트에 직접 먹이거나 **마이너마다 병합 전 리뷰를 미리** 돌려 둔다(shift-left).
 
 ### 실험적 기능 → 정규 기능 승격 기준
 
@@ -260,7 +260,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 신기능은 항상 이 형태로 들어온다.
 
-- `enable_xxx` 플래그 **3종 세트** 필수: launcher 체크박스 + cfg 빌드(`isChecked()`) + cfg 로드(`hasattr` 패턴). 플래그명은 한 번 정하면 변경 금지(저장된 시나리오 파일 호환).
+- `enable_xxx` 플래그 **3종 세트** 필수: app_main 체크박스 + cfg 빌드(`isChecked()`) + cfg 로드(`hasattr` 패턴). 플래그명은 한 번 정하면 변경 금지(저장된 시나리오 파일 호환).
 - 기본값 **OFF** (하위 호환 — 기존 결과와 동일).
 - UI에 `(실험적)` 레이블 표기: 체크박스 텍스트 `"기능명 (실험적)"` + 툴팁 끝줄 `"기본값 OFF — 기존 결과와 동일 (실험적 기능)"`.
 
@@ -293,9 +293,9 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 0. **감사 수행** (위 '감사 정책' 표 — 변경 유형에 맞는 감사를 빌드 전에)
 
-1. **launcher.py 헤더 버전 번호 갱신** + **`APP_VERSION` 상수 갱신** (현재 버전으로)
+1. **app_main.py 헤더 버전 번호 갱신** + **`APP_VERSION` 상수 갱신** (현재 버전으로)
 
-2. **changelog.json 갱신**: 새 항목을 배열 마지막에 추가
+2. **app_changelog.json 갱신**: 새 항목을 배열 마지막에 추가
    ```json
    {
      "version": "vX.YY.ZZ",
@@ -306,7 +306,7 @@ v12.06.01: [변경 내용 한 줄 요약]
    ```
    `version` 필드는 변경 1건마다 `vX.YY.ZZ` 3단계 번호를 사용한다. 'patch' 표기 금지.
 
-3. **향후 계획 탭 갱신** (`launcher.py` → `_build_plan_tab()` 내 `_PLANS`):
+3. **향후 계획 탭 갱신** (`app_main.py` → `_build_plan_tab()` 내 `_PLANS`):
    - 구현 완료된 항목은 **즉시 삭제**한다.
    - 새 계획 생기면 추가한다.
    - **`_PLANS` 변경(추가·삭제 모두) 후에는 반드시 전체 빌드**한다. `_PLANS`는 `.py` 코드이므로 빌드 없이는 exe에 반영되지 않는다.
@@ -315,18 +315,18 @@ v12.06.01: [변경 내용 한 줄 요약]
 
    | 변경 파일 | 처리 |
    |-----------|------|
-   | `.py` 파일 변경 | **전체 빌드** `python -m PyInstaller launcher.spec --noconfirm` |
-   | `changelog.json`만 변경 | `_internal` 폴더에 복사만 |
-   | `spec_db.py`만 변경 | `_internal` 폴더에 복사만 |
+   | `.py` 파일 변경 | **전체 빌드** `python -m PyInstaller app_main.spec --noconfirm` |
+   | `app_changelog.json`만 변경 | `_internal` 폴더에 복사만 |
+   | `db_specsheet.py`만 변경 | `_internal` 폴더에 복사만 |
    | `.py` + json 동시 변경 | **전체 빌드** 후 복사 불필요 (빌드 시 자동 포함) |
 
    ```powershell
    # .py 변경 시 — 전체 빌드
-   python -m PyInstaller launcher.spec --noconfirm
+   python -m PyInstaller app_main.spec --noconfirm
 
-   # json/spec_db만 변경 시 — 복사만
-   Copy-Item changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
-   Copy-Item spec_db.py "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
+   # json/db_specsheet만 변경 시 — 복사만
+   Copy-Item app_changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
+   Copy-Item db_specsheet.py "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
    ```
 
 4-b. **UI·시각화 변경 시**: 빌드 후 커밋 전 exe 동작 확인 (스모크 실행).
@@ -371,13 +371,13 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 ### DB 구조 원칙
 
-- `ENEMY_DB` (engine.py): 적군 위협. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.
-- `FRIENDLY_DB` (engine.py): 아군 방어 무기. `pk_dist`는 Beta 분포 파라미터.
-- `FRIENDLY_STRIKE_DB` (engine_v7.py): 아군 공격 무기 (해성·하푼·현무-3C 등).
-- `SHIP_DB` / `FLEET_PRESETS` (engine.py): 아군 함정·편대 프리셋.
-- `ENEMY_FLEET_PRESETS` (engine.py): 적군 편대 프리셋.
-- `FRIENDLY_AIRCRAFT_DB` (engine.py): CAP 전투기·함재 헬기·해상초계기.
-- `SPEC_DETAIL_DB` (spec_db.py): DB 탭 스펙시트 표시용 상세 설명.
+- `ENEMY_DB` (engine_core.py): 적군 위협. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.
+- `FRIENDLY_DB` (engine_core.py): 아군 방어 무기. `pk_dist`는 Beta 분포 파라미터.
+- `FRIENDLY_STRIKE_DB` (engine_combat.py): 아군 공격 무기 (해성·하푼·현무-3C 등).
+- `SHIP_DB` / `FLEET_PRESETS` (engine_core.py): 아군 함정·편대 프리셋.
+- `ENEMY_FLEET_PRESETS` (engine_core.py): 적군 편대 프리셋.
+- `FRIENDLY_AIRCRAFT_DB` (engine_core.py): CAP 전투기·함재 헬기·해상초계기.
+- `SPEC_DETAIL_DB` (db_specsheet.py): DB 탭 스펙시트 표시용 상세 설명.
 
 > 각 DB의 정확한 항목 수는 코드에서 직접 확인한다.
 
@@ -386,11 +386,11 @@ v12.06.01: [변경 내용 한 줄 요약]
 1. `ENEMY_DB` / `FRIENDLY_DB` 등 DB 수정 시 `normalize_enemy_db()` 확인
 2. 새 클래스 추가 시 `_id_counter` 리셋 로직 필수 (`run_v7_simulation` 진입부)
 3. 신기능은 `enable_xxx` 플래그로 ON/OFF 가능하게 만든다 (하위 호환 유지)
-4. engine_v7.py 새 심볼은 launcher.py import 목록에 추가
-5. spec_db.py에 없는 신규 DB 항목은 동시에 스펙 설명 추가. 기존 항목 수치 변경 시 해당 설명도 갱신.
-6. `enable_xxx` 신규 추가 시 **3종 세트** 필수: launcher 체크박스 + cfg 빌드(`isChecked()`) + cfg 로드(`hasattr` 패턴)
+4. engine_combat.py 새 심볼은 app_main.py import 목록에 추가
+5. db_specsheet.py에 없는 신규 DB 항목은 동시에 스펙 설명 추가. 기존 항목 수치 변경 시 해당 설명도 갱신.
+6. `enable_xxx` 신규 추가 시 **3종 세트** 필수: app_main 체크박스 + cfg 빌드(`isChecked()`) + cfg 로드(`hasattr` 패턴)
 7. 신규 `stats` 키 추가 시 **MC 3개 경로에 동시 추가**: `monte_carlo_v7` · `_mc_batch_worker` · `monte_carlo_lhs` (누락 시 MC 모드에서 해당 통계 완전 소실)
-8. 신규 PyQt6 위젯 클래스 사용 시 `launcher.py` 상단 import 목록 확인 (누락 시 exe 실행 즉시 NameError로 창 소실)
+8. 신규 PyQt6 위젯 클래스 사용 시 `app_main.py` 상단 import 목록 확인 (누락 시 exe 실행 즉시 NameError로 창 소실)
 
 ### 하위 호환 원칙
 
@@ -408,10 +408,10 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 ### CLAUDE.md 유지보수 원칙
 
-- engine_v7.py 주요 클래스·함수 테이블은 클래스명·함수명 추가/변경 시 즉시 갱신한다.
-- 헤더·changelog 예시의 버전 번호(`vX.YY.ZZ`)는 형식 설명용이므로 업데이트하지 않는다. 실제 현재 버전은 `launcher.py` 헤더와 `APP_VERSION`에서 확인한다.
+- engine_combat.py 주요 클래스·함수 테이블은 클래스명·함수명 추가/변경 시 즉시 갱신한다.
+- 헤더·changelog 예시의 버전 번호(`vX.YY.ZZ`)는 형식 설명용이므로 업데이트하지 않는다. 실제 현재 버전은 `app_main.py` 헤더와 `APP_VERSION`에서 확인한다.
 
-### engine.py 주요 유틸 함수 (v7에서 import해서 사용)
+### engine_core.py 주요 유틸 함수 (v7에서 import해서 사용)
 
 | 함수 | 역할 |
 |------|------|
@@ -419,7 +419,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 | `calculate_detect_range_by_rcs()` | RCS 기반 탐지거리 계산 |
 | `generate_random_enemy_fleet()` | 랜덤 적군 편대 생성 |
 
-### engine_v7.py 주요 클래스·함수
+### engine_combat.py 주요 클래스·함수
 
 | 항목 | 역할 |
 |------|------|

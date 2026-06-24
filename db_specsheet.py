@@ -1,4 +1,4 @@
-# spec_db.py  — 유닛 상세 스펙시트 DB (스펙시트 패널 표시용)
+# db_specsheet.py  — 유닛 상세 스펙시트 DB (스펙시트 패널 표시용)
 # 각 항목: origin, type_desc, fields[(label, value)], note
 
 SPEC_DETAIL_DB = {

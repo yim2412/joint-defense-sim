@@ -8,7 +8,7 @@
 
 ## 1. 목적 · 배경
 
-현재 엔진(`TimeStepEngine`)은 **단발 살보 전술 교전 해결기**다. 적은 접근→발사→`is_retreating`→재공격 한도 소진 시 `et.alive=False`("전장 이탈")로 사라진다(`engine_v7.py:2256-2267`). 적에게 "쏘고 빠진다" 외의 목표가 없고, `_is_over`가 위협 소진 시 조기 종료한다(`:4119`). 그래서 "요격하고 도망"처럼 느껴진다.
+현재 엔진(`TimeStepEngine`)은 **단발 살보 전술 교전 해결기**다. 적은 접근→발사→`is_retreating`→재공격 한도 소진 시 `et.alive=False`("전장 이탈")로 사라진다(`engine_combat.py:2256-2267`). 적에게 "쏘고 빠진다" 외의 목표가 없고, `_is_over`가 위협 소진 시 조기 종료한다(`:4119`). 그래서 "요격하고 도망"처럼 느껴진다.
 
 빠진 것은 화력(양방향 화력은 `_friendly_strike`·`_aircraft_aas`로 이미 존재)이 아니라 **① 양측의 목표·승리조건 ② 시간에 걸친 기동·자원 관리 ③ 적의 목표지향 의사결정**이다.
 
@@ -120,7 +120,7 @@ outcome:
 
 ## 7. 컷오버 전략 (다운스트림 영향)
 
-`intercept_rate`를 소비하는 곳이 `launcher.py` 18곳 + MC 3경로. 컷오버는 **다운스트림별로 새 지표 매핑**이 필요하다.
+`intercept_rate`를 소비하는 곳이 `app_main.py` 18곳 + MC 3경로. 컷오버는 **다운스트림별로 새 지표 매핑**이 필요하다.
 
 | 다운스트림 | 현재 | 교체 후 |
 |---|---|---|
@@ -129,7 +129,7 @@ outcome:
 | MC (`monte_carlo_v7`·`_mc_batch_worker`·`monte_carlo_lhs`) | 요격률 분포 | **승률·목표 달성률·교환비 분포** (3경로 동시 갱신 — CLAUDE.md 체크리스트 7) |
 | 비용효과 | 요격당 비용 | **승리당 비용 / 목표 달성당 비용** |
 | 편대 추천 (`recommend_fleet_v7`) | 요격률+생존 점수 | **승률+목표 점수** (5절 점수식 재사용) |
-| 회귀 (`verify_regression.py`) | 요격률 골든 | **새 모델 골든 전면 재생성** (`--update`) |
+| 회귀 (`audit_verify_regression.py`) | 요격률 골든 | **새 모델 골든 전면 재생성** (`--update`) |
 | 기준값 메모리 | `baseline_v11/png/sonar/flooding/v12_combined` | **새 엔진 기준값 재측정** |
 
 **컷오버 순서**: 새 엔진 + 결과 탭(승/패 표시) 먼저 → MC 3경로 → 판정/비용/편대 → 골든·기준값 재생성 → **옛 단발 모델·요격률 중심 코드 삭제**.
@@ -180,13 +180,13 @@ Phase 4  RL 통합
 > 학습 속도는 병목 아님(초기 "며칠" 우려 철회). 무료 스택: Ollama(qwen2.5-coder:14b, 로컬)+SB3+torch CUDA(RTX 3080).
 > **방식: 작게 시작(기존 레버) → 파이프라인 검증 → 행동공간 확장.** 전체 행동공간은 아래 박아둠.
 
-**환경 아키텍처 (엔진 무변경 — 새 파일 `rl_env.py` 격리)**:
+**환경 아키텍처 (엔진 무변경 — 새 파일 `ai_rl_env.py` 격리)**:
 - `BattleEnv(gym.Env)` = **스레드 기반 cb-주도** 래퍼. `run_battle_simulation`을 백그라운드 스레드로 돌리고,
   엔진의 `_tactical_pause_cb`(원래 사람 GUI 입력 대기용 블로킹 훅)에 **RL 행동 주입**.
   `reset()`→첫 결정 지점 obs / `step(action)`→action 큐 put→cb 언블록→다음 결정까지 진행→obs·보상·done.
-- 결정 빈도 = `_tactical_interval`초(현재 cb 호출 주기). 에피소드=1 전장. **engine_v7.py 한 줄도 안 고침.**
+- 결정 빈도 = `_tactical_interval`초(현재 cb 호출 주기). 에피소드=1 전장. **engine_combat.py 한 줄도 안 고침.**
 
-**관측(obs)** — `_make_tactical_state`(engine_v7:4195) → 고정 크기 숫자 벡터:
+**관측(obs)** — `_make_tactical_state`(engine_combat:4195) → 고정 크기 숫자 벡터:
 - 1단계(집계, ~15피처): 생존 위협 수·최근접/평균 거리·위협 총HP·생존 함정 수·함대 HP비·요격률·발사 수·목표 4종 진행도·t/horizon.
 - 확장: 위협별 패딩 행렬(거리/HP/방위/유형), 자원(탄약·연료), 채널 포화.
 
@@ -201,51 +201,51 @@ Phase 4  RL 통합
 
 **학습/추론 분리**: 학습 torch(개발 PC), exe는 `policy_weights.npz` numpy 추론만. v15.2 즉시예측과 동일 패턴.
 
-**마일스톤**: ✅**①rl_env.py+랜덤롤아웃+PPO 학습배선 검증 완료(2026-06-20, 53스텝/s CPU, 커밋 af1555d)** → ②**균형 학습 시나리오**(현 이지스vs랴오닝 전패→학습신호 약함, 이기고 지는 게 갈리는 매치업 필요) → ③**벡터 env 가속**(SubprocVecEnv 8코어, ~6배) → ④행동공간 확장(위 레버) → ⑤본학습+강건화 → ⑥exe numpy 추론 통합 → ⑦LLM 자가개선 루프(10-B). **사용자 합의: ②③④ 순서 권장, 그 후 본학습.** 갈래 B(컷오버 판정·비용·편대)는 보류—RL 일단락 후 복귀 가능.
+**마일스톤**: ✅**①ai_rl_env.py+랜덤롤아웃+PPO 학습배선 검증 완료(2026-06-20, 53스텝/s CPU, 커밋 af1555d)** → ②**균형 학습 시나리오**(현 이지스vs랴오닝 전패→학습신호 약함, 이기고 지는 게 갈리는 매치업 필요) → ③**벡터 env 가속**(SubprocVecEnv 8코어, ~6배) → ④행동공간 확장(위 레버) → ⑤본학습+강건화 → ⑥exe numpy 추론 통합 → ⑦LLM 자가개선 루프(10-B). **사용자 합의: ②③④ 순서 권장, 그 후 본학습.** 갈래 B(컷오버 판정·비용·편대)는 보류—RL 일단락 후 복귀 가능.
 
 ### 10-B. LLM 자가개선 루프 (Ollama qwen2.5-coder:14b — 사람 승인 게이트)
 
 > **핵심 결정(2026-06-20)**: **무인 코드 자가수정 금지.** 검증 없는 엔진 자동수정은 회귀·골든·"부모 무수정"으로
 > 막아온 조용한 손상을 AI가 스스로 주입 → 십중팔구 엔진 파손·보상 해킹. **제안 경로를 2단계로 가른다.**
 
-오케스트레이터 루프(`auto_improve_loop.py`): `학습 → 약점 분석(구조화 리포트) → Ollama 호출(HTTP localhost:11434) → 게이트 적용 → 반복`.
+오케스트레이터 루프(`improve_auto_loop.py`): `학습 → 약점 분석(구조화 리포트) → Ollama 호출(HTTP localhost:11434) → 게이트 적용 → 반복`.
 - **Tier 1 (설정값 변경 → 완전 자동, 밤새 무인 OK)**: 보상 가중치·하이퍼파라미터·학습 시나리오 선택. config 숫자만 바뀜, 엔진 코드 무수정, 되돌리기 쉬움 = LLM 안내 보상·하이퍼파라미터 탐색.
-- **Tier 2 (엔진 코드 변경 → 승인 게이트)**: 제안을 큐에 쌓고 `verify_regression.py` 자동 실행 → 통과해도 **사람 검토 후 적용**.
+- **Tier 2 (엔진 코드 변경 → 승인 게이트)**: 제안을 큐에 쌓고 `audit_verify_regression.py` 자동 실행 → 통과해도 **사람 검토 후 적용**.
 - "자동 제시"의 실체 = 루프가 평가 체크포인트마다 로컬 Ollama에 HTTP 1회. **약점을 숫자로 정의하는 분석(②)이 LLM보다 더 중요·어려움.**
 
 ### 10-C. 자가개선 루프 상세 설계 (S1~S4, 2026-06-23 합의)
 
 > **단계화 원칙**: LLM 의존성을 뒤로 — Ollama 미설치(현재)여도 S1~S2를 LLM 없이 완성·검증. plan 명제대로 *약점 분석이 LLM보다 중요·어려움* → 거기부터.
 
-**핵심 발견(2026-06-23 조사)**: `run_battle_simulation`의 `result`에 목표별 progress(`result['objectives']`)·자원·시계열이 다 있는데 `_rl_train_eval.eval_policy`는 `friendly_score` 하나만 남기고 버림. 약점 분석의 재료가 이미 존재 → 살리면 됨.
+**핵심 발견(2026-06-23 조사)**: `run_battle_simulation`의 `result`에 목표별 progress(`result['objectives']`)·자원·시계열이 다 있는데 `_ai_rl_train_eval.eval_policy`는 `friendly_score` 하나만 남기고 버림. 약점 분석의 재료가 이미 존재 → 살리면 됨.
 
-**S1 — 약점 분석 리포트 (`improve_report.py`, 빌드제외, LLM 불요)**
+**S1 — 약점 분석 리포트 (`improve_weakness_report.py`, 빌드제외, LLM 불요)**
 - 입력: 최고 체크포인트(`ppo_shaped_ent0.01_1000000`) 정책 + baseline, 균형 6시나리오 × **8 seed**(안정성 우선) 평가.
 - 에피소드별 포착(현재 버림→살림): 목표별 progress·outcome·friendly/enemy_score / 최종 ammo_frac·fuel_frac / leaker_frac·격침·요격률 / **레버 선택 히스토그램**(7레버, 평가 루프서 `model.predict` 기록).
 - 약점 지표 A~D: **A** 최악 시나리오 랭킹(Δ 최저) · **B** 원인 귀속(최저 progress 목표+자원소진율+누출률) · **C** 과수렴 플래그(지는 시나리오 레버 엔트로피≈0 → 5.5e 북한40발 붕괴 자동검출) · **D** 레버-승패 상관(개선 후보).
 - 출력: JSON(기계용, S2/LLM 입력) + 사람용 마크다운 요약.
 
-**필요(prerequisite)**: ①`rl_env._finish` info 보강(현 4필드→objectives·핵심stats·enemy_score; info 추가일 뿐 RNG 불변=결정론·회귀 안전) ②레버 로깅(improve_report 측) ③Ollama 설치는 S3(사용자, qwen2.5-coder **7b** 권장—10GB) ④Tier1 탐색공간(shaping계수·ent_coef·lr·n_steps·시나리오비중).
+**필요(prerequisite)**: ①`ai_rl_env._finish` info 보강(현 4필드→objectives·핵심stats·enemy_score; info 추가일 뿐 RNG 불변=결정론·회귀 안전) ②레버 로깅(improve_weakness_report 측) ③Ollama 설치는 S3(사용자, qwen2.5-coder **7b** 권장—10GB) ④Tier1 탐색공간(shaping계수·ent_coef·lr·n_steps·시나리오비중).
 
-**S2 `auto_improve_loop.py`**(✅완료): 리포트→Tier1 config 자동탐색→재학습→채택/롤백(규칙기반, LLM 없이 검증). **S3 `llm_propose.py`**(✅완료): Ollama(qwen2.5-coder:7b) HTTP 통합, `--llm` 토글, 규칙기반 fallback, 가드레일 클램프.
+**S2 `improve_auto_loop.py`**(✅완료): 리포트→Tier1 config 자동탐색→재학습→채택/롤백(규칙기반, LLM 없이 검증). **S3 `improve_llm_propose.py`**(✅완료): Ollama(qwen2.5-coder:7b) HTTP 통합, `--llm` 토글, 규칙기반 fallback, 가드레일 클램프.
 
 **S4 — Tier2 엔진코드 제안 + 승인 게이트 (상세 설계, 2026-06-23)**
 
 > LLM이 엔진/RL 코드를 건드리는 **유일한 단계 = 안전 설계가 전부**. plan 10-B 원칙: 무인 코드수정 금지.
 
-**스코프 화이트리스트** — MVP는 `rl_env.py`의 `_shaping_reward`·`_featurize`만 패치 허용. **금지**: engine.py(DB·물리)·engine_v7 코어·BattleEngine 부모 물리·verify_regression.py·`regression_golden.json`·골든. 범위 밖 자동 거부. (보상/관측은 학습신호 조정이라 leverage 크고, 엔진 물리·DB는 안 건드려 회귀가 강하게 보호.)
+**스코프 화이트리스트** — MVP는 `ai_rl_env.py`의 `_shaping_reward`·`_featurize`만 패치 허용. **금지**: engine_core.py(DB·물리)·engine_combat 코어·BattleEngine 부모 물리·audit_verify_regression.py·`audit_regression_golden.json`·골든. 범위 밖 자동 거부. (보상/관측은 학습신호 조정이라 leverage 크고, 엔진 물리·DB는 안 건드려 회귀가 강하게 보호.)
 
 **6중 안전 게이트(순서대로, 하나라도 실패 시 중단)**:
 1. **화이트리스트** — 대상 파일·함수 범위 검사.
 2. **정적 안전 스캔** — 패치 토큰 검사: `os.system`·`subprocess`·`eval`·`exec`·`open(`·`socket`·`requests`·`urllib`·`__import__`·`while True` 등 발견 시 즉시 거부(함수 내부 악성·폭주 코드 차단 — 화이트리스트가 못 막는 층).
 3. **함수 단위 교체** — 라인 diff 금지(LLM 라인번호 불신). 함수를 이름으로 통째 교체(AST/정규식)해야 깨끗이 적용.
 4. **샌드박스** — git worktree 격리 사본에 적용(검증 전 실트리 무손상).
-5. **자동 게이트** — 샌드박스에서 `verify_regression.py` PASS(엔진 물리 불변) **+** 짧은 학습·평가 **Δ > 노이즈 임계(0.02, 고정 seed)** + **실행 타임아웃**(무한루프·급격 저하 방지). 평가는 shaped reward 아닌 **`friendly_score` vs baseline**로 측정 → **보상 해킹 자동 차단**(shaped↑인데 friendly_score 안 오르면 기각).
+5. **자동 게이트** — 샌드박스에서 `audit_verify_regression.py` PASS(엔진 물리 불변) **+** 짧은 학습·평가 **Δ > 노이즈 임계(0.02, 고정 seed)** + **실행 타임아웃**(무한루프·급격 저하 방지). 평가는 shaped reward 아닌 **`friendly_score` vs baseline**로 측정 → **보상 해킹 자동 차단**(shaped↑인데 friendly_score 안 오르면 기각).
 6. **사람 승인** — 게이트 통과해도 review 파일(diff+LLM 가설+게이트결과)+콘솔 제시 → 명시적 approve에만 실트리 적용. 무인 적용 절대 없음.
 
-**부가**: ▸**프로비넌스 로그** `_improve_queue/`(gitignore) — 모든 제안의 프롬프트·가설·diff·게이트결과·사람결정 기록(추적+루프 개선 재료). ▸**루프 종료조건** — max iter·개선<임계 시 중단·**기각 패치 해시로 재제안 차단**. ▸**롤백 = 패치당 1커밋**(승인 시 개별 커밋, 나쁘면 git revert). ▸모델 **14b** 권장(코드 추론, S3는 7b). ▸파일 `llm_patch.py`(제안·스캔·샌드박스·게이트) + `_improve_queue/`.
+**부가**: ▸**프로비넌스 로그** `_improve_queue/`(gitignore) — 모든 제안의 프롬프트·가설·diff·게이트결과·사람결정 기록(추적+루프 개선 재료). ▸**루프 종료조건** — max iter·개선<임계 시 중단·**기각 패치 해시로 재제안 차단**. ▸**롤백 = 패치당 1커밋**(승인 시 개별 커밋, 나쁘면 git revert). ▸모델 **14b** 권장(코드 추론, S3는 7b). ▸파일 `improve_llm_patch.py`(제안·스캔·샌드박스·게이트) + `_improve_queue/`.
 
-**열린 결정(스윕 결과 보고 확정)**: ①MVP 스코프 rl_env 보상/관측만 vs BattleEngine 전술훅 포함 ②샌드박스 git worktree vs 파일 백업 ③승인 UX review 파일 vs 콘솔 yes. (Claude 추천: ①보상/관측만 ②worktree ③review 파일)
+**열린 결정(스윕 결과 보고 확정)**: ①MVP 스코프 ai_rl_env 보상/관측만 vs BattleEngine 전술훅 포함 ②샌드박스 git worktree vs 파일 백업 ③승인 UX review 파일 vs 콘솔 yes. (Claude 추천: ①보상/관측만 ②worktree ③review 파일)
 
 ## 11. 리스크 · 회귀 전략
 
@@ -257,7 +257,7 @@ Phase 4  RL 통합
 | 적 AI·승패식 밸런스 붕괴 | 규칙기반 우선, 다수 시나리오 스모크로 "말이 되는지" 검증 후 RL |
 | MVP 과욕(4목표 동시) | Phase 1 = defend/destroy 1쌍만 |
 
-**감사**: 아키텍처 전환(난이도 매우 높음) → Phase별 `verify_regression.py`(새 골든) + `/code-review high` + 핵심 경로 로직 트레이스. 모델 Opus.
+**감사**: 아키텍처 전환(난이도 매우 높음) → Phase별 `audit_verify_regression.py`(새 골든) + `/code-review high` + 핵심 경로 로직 트레이스. 모델 Opus.
 
 ## 12. 합의된 결정 기록
 
@@ -277,13 +277,13 @@ Phase 4  RL 통합
 
 ## Phase 1 진행 현황
 
-- ✅ **코어 골격 완료** (engine_v7.py): `Objective` + `BattleEngine` + `run_battle_simulation`.
+- ✅ **코어 골격 완료** (engine_combat.py): `Objective` + `BattleEngine` + `run_battle_simulation`.
   - `_is_over` 오버라이드 — 위협 소진 종료 → **목표 기반 종료**(자산 격침=적승 / 시간 지평·적 격멸=방어성공 / 아군 전멸=적승).
   - `_compile` 오버라이드 — `outcome(win/loss/draw)`·`friendly_score`·`enemy_score`·`objectives` 추가. `intercept_rate`는 보조 지표로 유지.
   - 적 지속 압박 — 항공 위협 `max_reattacks` 상향(임시 레버, Phase 2서 목표지향 AI로 교체).
   - **회귀 PASS**(부모 무변경) + 스모크 실행(기준 시나리오 3시드 outcome 산출 확인).
-- ✅ **UI 통합 완료** (launcher.py, v15.06.01): `enable_battle_mode` 토글 3종 세트(환경 묶음 체크박스 + cfg 빌드 + cfg 로드) + 워커 단일 시뮬 라우팅(`run_battle_simulation`) + 결과 상태줄 승/패 표시(⚔ 전장 결과) + `run_battle_simulation`에서 진행바 총량을 horizon으로 보고(step_cb 래핑). 회귀 PASS·빌드 성공.
-- ✅ **MC 전장 승률 집계 완료** (engine_v7+launcher, v15.06.02): `_mc_run_one`(전장/단발 라우팅) + `_battle_agg`(승/패/무 승률·평균 임무점수). 4개 시뮬 호출부(`monte_carlo_v7`·`_mc_batch_worker`·`_mc_lhs_batch_worker`·`monte_carlo_lhs` 폴백) + 병렬 조립부는 `extra_stats` 경유(튜플 인덱스 무변경). 상태줄 'MC 승률' 표시. 회귀 PASS(단발 무영향)·전장 MC 집계 검증(기동전단 vs 랴오닝 승률 0%/패 100%).
+- ✅ **UI 통합 완료** (app_main.py, v15.06.01): `enable_battle_mode` 토글 3종 세트(환경 묶음 체크박스 + cfg 빌드 + cfg 로드) + 워커 단일 시뮬 라우팅(`run_battle_simulation`) + 결과 상태줄 승/패 표시(⚔ 전장 결과) + `run_battle_simulation`에서 진행바 총량을 horizon으로 보고(step_cb 래핑). 회귀 PASS·빌드 성공.
+- ✅ **MC 전장 승률 집계 완료** (engine_combat+app_main, v15.06.02): `_mc_run_one`(전장/단발 라우팅) + `_battle_agg`(승/패/무 승률·평균 임무점수). 4개 시뮬 호출부(`monte_carlo_v7`·`_mc_batch_worker`·`_mc_lhs_batch_worker`·`monte_carlo_lhs` 폴백) + 병렬 조립부는 `extra_stats` 경유(튜플 인덱스 무변경). 상태줄 'MC 승률' 표시. 회귀 PASS(단발 무영향)·전장 MC 집계 검증(기동전단 vs 랴오닝 승률 0%/패 100%).
 - ✅ **결과 탭 목표 달성판 완료** (v15.06.03): 교전 분석 탭 상단 작전 결과 배너(승/패/무·아군·적 임무 점수·작전 시간·목표별 달성도). `EngagementAnalysisTab._fill_battle_panel`, 전장 모드만 표시·단발은 숨김. 회귀 PASS·빌드.
 - ✅ **적 항공 재접근 검증 완료 → Phase 1 종료** (2026-06-16): 항공 위협 중심(A2/AD 항공 포화) vs 강한 편대(이지스/전 이지스 기동전단)에서 적기가 발사→이탈→재접근을 반복(`[재공격] J-16 재접근 개시 1/3`, 회당 8회), **작전 시간 1800s 풀 지평까지 지속 후 승리**(자산 방어 성공). 옛 단발(~40s 쏘고 도망)과 명확히 대비. 압도적 입체 포화(최강)는 기함 격침으로 패배(325~402s) — 시나리오 강도별 판별력 확인.
 
@@ -373,7 +373,7 @@ result['timeline'] = {
 
 ## Phase 2 감사
 
-각 마이너 빌드 전 `verify_regression.py`(단발 모드 무영향 확인) + v15.07은 /code-review medium,
+각 마이너 빌드 전 `audit_verify_regression.py`(단발 모드 무영향 확인) + v15.07은 /code-review medium,
 v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로 영향 없음(스키마 키 추가만).
 
 ---
@@ -400,7 +400,7 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 | **5.1 작전급 시간** | MAX_SIM_TIME·horizon 상향, 재무장 사이클 실효화, 진행/MC 시간축 적응 | 중 | 전장이 길어짐 |
 | **5.2 화력 동역학(웨이브)** | 적이 한 번에 쏟지 않고 **파상공격**으로 분할(Phase 3에서 이관). 항모 항공단 재출격(v15.09.02)을 웨이브로 발현 | 큰 | 전술 여지·지속성 생김 |
 | **5.3 공간 확장** | 다축 동시 위협·전선/종심 개념(현재 함대1 vs 적1군 → 작전구역). sea_control 돌파선 지향 기동 | 큰 | "전장다움" |
-| **5.4 DB 표적 확장** | 위 공간을 채울 OOB 확충 — 적/아군 함정·항공기·미사일·잠수함. **실측 제원만**, spec_db 동시 갱신, normalize_enemy_db 확인 | 중 | 진짜 편제 |
+| **5.4 DB 표적 확장** | 위 공간을 채울 OOB 확충 — 적/아군 함정·항공기·미사일·잠수함. **실측 제원만**, db_specsheet 동시 갱신, normalize_enemy_db 확인 | 중 | 진짜 편제 |
 | **5.5 RL 재투입** | 깊어진 전장 위에서 재학습 — 긴 에피소드·웨이브로 전술 여지↑ → +0.02 밴드 돌파 시도. shaping(현 OFF)·관측·학습량 재평가 | — | 천장 돌파 |
 
 ## 즉시 시작점 — 5.0 horizon 테스트
@@ -432,7 +432,7 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 2. **horizon 기본값 상향** — `BATTLE_HORIZON_S` 1800 → **7200** (cfg `battle_horizon_s` 조정 유지). 짧은 시나리오는 자연종료라 무영향, 긴 시나리오만 자연 결판까지.
 3. **종료 의미 정정** (동작 변경 아님) — 5253 메시지 "자산 방어 성공" → "작전 시간 종료 — 목표 기반 판정". 실제 승패는 `_score_outcome`이 판정(시간만료 draw = 양측 결판 안 남).
 
-**영향·주의:** 회귀=단발 bit-identical 예상(`verify_regression` 재확인). 감사=엔진 변경이라 `verify_regression`+`/code-review medium`. RL 비용=균형풀 6개 중 4개(전면전·중국3축·러시아·쓰시마) 에피소드 최대 4배 → **`tactical_interval` 조정은 5.1 범위 밖, 5.5에서**. launcher 전장 horizon UI 없음(코드 기본값만 반영).
+**영향·주의:** 회귀=단발 bit-identical 예상(`audit_verify_regression` 재확인). 감사=엔진 변경이라 `audit_verify_regression`+`/code-review medium`. RL 비용=균형풀 6개 중 4개(전면전·중국3축·러시아·쓰시마) 에피소드 최대 4배 → **`tactical_interval` 조정은 5.1 범위 밖, 5.5에서**. app_main 전장 horizon UI 없음(코드 기본값만 반영).
 
 **구현 결과 (2026-06-21 완료):** 변경 ①②③ + 코드리뷰 발견 1건 수정. 회귀 PASS(단발 bit-identical).
 - **④ 연료 horizon 연동** (`/code-review medium` 발견) — `_FUEL_STD_BURN_1800`(0.40)이 1800s 앵커라 horizon 7200s에서 비원자력함 연료가 종료 전 0 포화 → 지속성 목표가 상수화돼 friendly_score 왜곡. `_fuel_update`의 순항 소모분에 `1800/horizon` 스케일 적용(회피 추가분은 누적 상한 있어 미스케일, horizon=1800이면 scale=1.0 동작 보존).
@@ -526,7 +526,7 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 
 ### 5.5 RL 재투입 ① 빠른 측정 — 밴드 돌파 실패 (2026-06-21)
 
-**정합(코드 수정)**: ①관측 진행도 horizon 연동(`rl_env.py:167` `/1800`→`/self._horizon`) — 5.1 horizon 7200에서 진행도 피처가 0~4로 치솟던 스케일 버그 수정. ②`tactical_interval` 30→60(horizon 4배 비용 완화, 120결정/ep). ③`_rl_scenario_probe.py` seed 키 `sim_seed` 정정.
+**정합(코드 수정)**: ①관측 진행도 horizon 연동(`ai_rl_env.py:167` `/1800`→`/self._horizon`) — 5.1 horizon 7200에서 진행도 피처가 0~4로 치솟던 스케일 버그 수정. ②`tactical_interval` 30→60(horizon 4배 비용 완화, 120결정/ep). ③`_rl_scenario_probe.py` seed 키 `sim_seed` 정정.
 
 **인프라 이슈(중대)**:
 - **SubprocVecEnv worker 크래시**(`EOFError`, 현 Python 3.14 환경) → 학습 49152에서 멈춤. `DummyVecEnv`(단일 프로세스 순차)로 폴백 — 안정적이나 병렬 가속 상실(fps~69, 200k당 ~47분). 가속 복구는 5.5b 과제.
@@ -554,23 +554,23 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 
 ### 5.5b 교란 제거 시도 — 데드락 부분 수리, 근본은 스레드 재설계 필요 (2026-06-21)
 
-**데드락 근본 진단(faulthandler 스택 덤프)**: hang 14건 전부 수상함 편대전(짧은 전장 5~8결정, reset 빈번). 스택 — 엔진 스레드들이 `act_q.get()`(rl_env.py `_make_cb`)에서 **누적 블록**(engine_v7:4382 run→cb). 원인 = **BattleEnv 스레드 구조 자체** — 다중 env에서 이전 ep 엔진 스레드가 `_stop_thread` join(3s) 내 정리 안 되고 누적 → 스레드 경합으로 새 ep `step`의 `obs_q.get`가 타임아웃.
+**데드락 근본 진단(faulthandler 스택 덤프)**: hang 14건 전부 수상함 편대전(짧은 전장 5~8결정, reset 빈번). 스택 — 엔진 스레드들이 `act_q.get()`(ai_rl_env.py `_make_cb`)에서 **누적 블록**(engine_combat:4382 run→cb). 원인 = **BattleEnv 스레드 구조 자체** — 다중 env에서 이전 ep 엔진 스레드가 `_stop_thread` join(3s) 내 정리 안 되고 누적 → 스레드 경합으로 새 ep `step`의 `obs_q.get`가 타임아웃.
 
 **수리(부분)**: `self._obs_q/_act_q` 공유 → **스레드별 큐 캡처**(`_make_cb(obs_q,act_q)` 클로저, `_run_engine`에 인자 전달, reset 지역 큐). 레이스 잠재 제거(안전 개선)이나 **hang 완전 제거 못 함**(수상함 집중 부하 760 env-step 중 7건). `step` obs_q.get(timeout=20)+센티넬 보장으로 방어해 학습은 완주(~1% ep 오염).
 
 **미해결 → 5.5c**: 완전 해결 = **BattleEnv 스레드+큐 제거, 엔진 직접 동기 step API 재설계**(엔진 run 루프를 제너레이터/단계 호출로 — 큰 작업). SubprocVecEnv 가속 복구(Python 3.14 worker EOFError)도 스레드 안정화 후. **데드락이 수상함(균형풀 민감도 최대)에 집중돼 5.5 측정 신뢰도를 직접 훼손 → 재측정은 5.5c 후.**
 
-### 5.5c 스레드 제거 — run() 제너레이터화 + rl_env 동기 구동 (2026-06-21 완료)
+### 5.5c 스레드 제거 — run() 제너레이터화 + ai_rl_env 동기 구동 (2026-06-21 완료)
 
 **구현**: 데드락 근본 원인(BattleEnv 스레드+큐)을 제거.
-- **engine_v7.py**: `run()` 본문을 `_simulate()` 제너레이터로 추출 — cb 지점을 `choice = yield state`로(조건 `if self._tactical_pause_cb` 유지 → 단발 yield 스킵 → **bit-identical**). `run()`은 `_simulate`를 cb로 구동하는 얇은 래퍼(GUI 동작 보존).
-- **rl_env.py**: 스레드/큐(`_run_engine`·`_make_cb`·`_stop_thread`·`_obs_q`/`_act_q`/`_thread`·`_EnvAbort`·타임아웃 방어·hang 로깅) **전면 삭제**. reset이 `_build_engine()`+`engine._simulate()` 제너레이터 생성, step이 `gen.send(choice)`, close가 `gen.close()`. sentinel `_TACTICAL_SENTINEL`로 yield 유발(호출 안 됨).
+- **engine_combat.py**: `run()` 본문을 `_simulate()` 제너레이터로 추출 — cb 지점을 `choice = yield state`로(조건 `if self._tactical_pause_cb` 유지 → 단발 yield 스킵 → **bit-identical**). `run()`은 `_simulate`를 cb로 구동하는 얇은 래퍼(GUI 동작 보존).
+- **ai_rl_env.py**: 스레드/큐(`_run_engine`·`_make_cb`·`_stop_thread`·`_obs_q`/`_act_q`/`_thread`·`_EnvAbort`·타임아웃 방어·hang 로깅) **전면 삭제**. reset이 `_build_engine()`+`engine_core._simulate()` 제너레이터 생성, step이 `gen.send(choice)`, close가 `gen.close()`. sentinel `_TACTICAL_SENTINEL`로 yield 유발(호출 안 됨).
 
 **검증**:
-- **회귀 bit-identical**(부모 run 재구성 핵심 게이트) — `verify_regression` 8케이스 PASS.
+- **회귀 bit-identical**(부모 run 재구성 핵심 게이트) — `audit_verify_regression` 8케이스 PASS.
 - **데드락 원천 해결**: 수상함 집중 부하(5.5b hang 다발 조건) **0 hang / 4,648 env-step**(5.5b: 7/760).
 - **속도 향상**: DummyVecEnv 4.6→31 env-step/s(~6.7배, 스레드 오버헤드 제거).
-- **SubprocVecEnv 가속 복구**: 20k 58s·**346 steps/s 크래시 없이 완주**(스레드+멀티프로세싱 중첩이 worker EOFError 원인이었음 → 해소). `_rl_train_eval` DummyVecEnv 폴백 → SubprocVecEnv 복원.
+- **SubprocVecEnv 가속 복구**: 20k 58s·**346 steps/s 크래시 없이 완주**(스레드+멀티프로세싱 중첩이 worker EOFError 원인이었음 → 해소). `_ai_rl_train_eval` DummyVecEnv 폴백 → SubprocVecEnv 복원.
 - **감사**: 변경이 작고 회귀가 부모 동작 보존을 강하게 실증 → 회귀+스모크+핵심경로 자체 트레이스로 갈음(아키텍처 정책상 /code-review high 권고이나 회귀 게이트가 결정적).
 
 **다음 = 5.5d 재측정**: 깨끗한 환경(스레드 0·hang 0·SubprocVecEnv 가속)에서 OFF/ON 재측정 → 신뢰도 있는 밴드 판정. interval 30 복원 검토(Phase 4 비교용).
@@ -608,7 +608,7 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 **RL 적 정책으로 교체**해, 아군·적을 둘 다 학습시키는 self-play. 사용자 최종 목표.
 
 **학습 구조 = 교대(alternating)** (동시 학습 금지 — plan 9절 비정상성). 한쪽 정책을 numpy
-고정(rl_infer)하고 상대만 학습 → 교대 반복. "상대는 항상 고정, 자기만 학습"이라 환경이
+고정(ai_policy_infer)하고 상대만 학습 → 교대 반복. "상대는 항상 고정, 자기만 학습"이라 환경이
 정적 = 안정적 학습. 아군 학습=BattleEnv(적=고정 numpy), 적 학습=EnemyEnv(아군=고정 numpy).
 
 **엔진 통합 = BattleEngine 3곳, 부모 무수정**(별도 yield 없이 기존 아군 결정 지점에 적 mode를
@@ -624,10 +624,10 @@ v15.08(엔진 물리)은 high. timeline은 단일 시뮬 전용이라 MC 3경로
 보상=`enemy_score`(이미 `_compile`). 나중 살보·철수 타이밍 확장.
 
 **4단계**: 5.6.1 엔진 적 RL 훅+적 행동/관측/보상 정의 → 5.6.2 `EnemyEnv`(아군 고정, 적 학습)
-검증 → 5.6.3 교대 루프(`selfplay_loop.py`) → 5.6.4 평가(공진화 곡선: 학습된 적이 강해졌나·
+검증 → 5.6.3 교대 루프(`ai_selfplay_loop.py`) → 5.6.4 평가(공진화 곡선: 학습된 적이 강해졌나·
 아군이 강한 적에 적응했나). 빌드제외 RL 인프라(엔진 부모 무수정·회귀 보존).
 
 ## 보류 메모
 
-- **보상 shaping**: rl_env `reward_shaping` 토글로 구현 완료, **현 짧은 전장에선 역효과(기본 OFF)**. 작전급 긴 전장(5.1+) 도입 후 재시도 후보 — 긴 에피소드에선 중간보상이 종료보상을 안 희석할 수 있음.
+- **보상 shaping**: ai_rl_env `reward_shaping` 토글로 구현 완료, **현 짧은 전장에선 역효과(기본 OFF)**. 작전급 긴 전장(5.1+) 도입 후 재시도 후보 — 긴 에피소드에선 중간보상이 종료보상을 안 희석할 수 있음.
 - **Phase 4 RL**: 행동공간 7레버·관측 14피처·SubprocVecEnv 가속·균형풀까지 인프라 완비. Phase 5로 깊어진 전장에 그대로 재투입 가능(5.5).

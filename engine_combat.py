@@ -1,5 +1,5 @@
 ﻿"""
-engine_v7.py — 이지스 기동전단 통합 방어 시뮬레이터 v7.0
+engine_combat.py — 이지스 기동전단 통합 방어 시뮬레이터 v7.0
 시간 스텝 기반 양방향 교전 엔진
 
 v7.0 핵심 변경:
@@ -28,7 +28,7 @@ v7.0 패치 이력:
     - monte_carlo_v7(): N회 반복 통계 집계 (요격률/피격/격침/비용)
     - plot_v7(): 6개 서브플롯 PNG 차트 (히스토그램·무기소모·수치요약)
     - save_excel_report_v7(): 4시트 Excel 보고서 (MC요약/무기소모/교전로그/차트)
-    - __main__ 인수: python engine_v7.py [시나리오] [MC횟수]
+    - __main__ 인수: python engine_combat.py [시나리오] [MC횟수]
   · 포팅 A: 방어 무기 재고 수동 설정 + 적군 편대 모드
     - _build_friendly(): sm3/sm6/sm2/ram/홍상어/청상어/mk46 수동 재고 지원 (cfg 키로 설정)
     - _build_enemies(): enemy_fleet_mode 4종 지원 (single/preset/custom/random)
@@ -77,7 +77,7 @@ for _fp in ['C:/Windows/Fonts/malgun.ttf', 'C:/Windows/Fonts/malgunbd.ttf']:
 matplotlib.rcParams['font.family'] = 'Malgun Gothic'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
-from engine import (
+from engine_core import (
     ENEMY_DB, FRIENDLY_DB, FRIENDLY_AIRCRAFT_DB, WEATHER_DB,
     SHIP_DB, FLEET_PRESETS, SHIP_PROCUREMENT_USD, ENEMY_PROCUREMENT_USD, SHIP_ENDURANCE,
     ENEMY_MUNITION,
@@ -88,7 +88,7 @@ from engine import (
     SHIP_SURVIVABILITY, FLOOD_WARHEAD_FACTOR, FLOOD_BELOW_WL_PROB, FLOOD_INFLOW_K,
 )
 try:
-    from ocean_acoustic_db import (
+    from db_ocean_acoustic import (
         get_sonar_depth_factor,
         SUBMARINE_ACOUSTIC, SONAR_PLATFORM, WATER_DEPTH_M,
         sonar_detection_range, sonar_detection_prob,
@@ -99,7 +99,7 @@ except ImportError:
     _OCEAN_ACOUSTIC_OK = False
 
 try:
-    from ocean_environment_db import (
+    from db_ocean_environment import (
         RADAR_CLUTTER, SONAR_AMBIENT_NOISE, get_current_vector as _get_current_vector
     )
     _RADAR_BF_FACTOR = RADAR_CLUTTER['detection_range_factor']
@@ -112,7 +112,7 @@ except ImportError:
     _OCEAN_ENV_OK = False
 
 try:
-    from terrain_db import STRAITS_DB
+    from db_terrain import STRAITS_DB
     _TERRAIN_DB_OK = True
 except ImportError:
     STRAITS_DB = {}
@@ -381,7 +381,7 @@ _SAM_RCS: dict[str, float] = {
 }
 
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
-# fleet_region UI 문자열 → ocean_acoustic_db 키
+# fleet_region UI 문자열 → db_ocean_acoustic 키
 REGION_TO_ACOUSTIC_KEY: dict[str, str] = {
     '동해 북부': 'EAST_SEA',
     '동해 중부': 'EAST_SEA',
@@ -394,7 +394,7 @@ _RADAR_ANT_H_M = 25.0    # 이지스 SPY급 안테나 해발 고도
 _SEA_SKIM_H_M  = 10.0    # 해면 밀착 대함미사일 비행 고도
 
 # v14.3 지형 차폐 시각화 — 해역별 (육지 방위 rad: 동=0·북=π/2, 대표 음영각 deg)
-# 출처: terrain_db.radar_shadow_reference (동해 태백 3.4°·설악 8.1° → 대표 6°)
+# 출처: db_terrain.radar_shadow_reference (동해 태백 3.4°·설악 8.1° → 대표 6°)
 _TERRAIN_SHADOW: dict[str, tuple] = {
     'EAST_SEA':     (math.pi,        6.0),   # 한반도 육지 서쪽 — 태백·설악산맥
     'YELLOW_SEA':   (0.0,            0.4),   # 육지 동쪽 — 낭림산맥 원거리(영향 미약)
@@ -402,7 +402,7 @@ _TERRAIN_SHADOW: dict[str, tuple] = {
 }
 
 # 해역별 저고도 레이더 음영 배율 (altitude_m → factor)
-# 출처: terrain_db.TERRAIN_DB['radar_shadow_reference'] 음영각 기반
+# 출처: db_terrain.TERRAIN_DB['radar_shadow_reference'] 음영각 기반
 # 동해 3.4~8.1° (태백·설악), 서해 0.4° (낭림 원거리), 대한해협 0.9° (소백)
 TERRAIN_RADAR_PENALTY: dict[str, list] = {
     'EAST_SEA': [
@@ -447,7 +447,7 @@ SHIP_LAYER_PRI = {t: i for i, t in enumerate(LAYER_ORDER)}
 def _make_physics_wx(weather: str) -> dict:
     """
     v9.13: 날씨 문자열 → Beaufort 물리 기반 wx dict.
-    ocean_environment_db 없으면 WEATHER_DB 원본 그대로 반환.
+    db_ocean_environment 없으면 WEATHER_DB 원본 그대로 반환.
     """
     wx = dict(WEATHER_DB.get(weather, WEATHER_DB['맑음 (주간)']))
     if _OCEAN_ENV_OK:
@@ -1249,7 +1249,7 @@ class FriendlyAircraftObj:
         self.name              = name
         self.info              = FRIENDLY_AIRCRAFT_DB[name]
         self.home_pos          = home_pos.copy()
-        # BUG-7: v7 시뮬(700초)에 맞는 전시 긴급 출격 시간 적용 (engine.py 평시값 무시)
+        # BUG-7: v7 시뮬(700초)에 맞는 전시 긴급 출격 시간 적용 (engine_core.py 평시값 무시)
         self.t_available       = float(_AIRCRAFT_V7_SORTIE.get(name, self.info['sortie_time_s']))
         self.payload_remaining = self.info['payload_cnt']
         # v10.6: 공대함 strike payload (KF-21 해성-II 등)
@@ -2004,7 +2004,7 @@ class TimeStepEngine:
         수온약층(thermocline) 소나 탐지 보정.
         altitude_m < 0 = 잠항 수심 (음수).
 
-        v9.12: ocean_acoustic_db WOA18 실측값 사용.
+        v9.12: db_ocean_acoustic WOA18 실측값 사용.
         해역(fleet_region)·계절(season) 조합으로 수심별 배율 조회.
         """
         if not et.is_sub:
@@ -2020,7 +2020,7 @@ class TimeStepEngine:
             )
             season = self.cfg.get('season', 'summer')
             factor = get_sonar_depth_factor(region_key, season, depth)
-        # fallback: 기존 하드코딩 (ocean_acoustic_db 없을 때)
+        # fallback: 기존 하드코딩 (db_ocean_acoustic 없을 때)
         elif depth < 100:
             factor = 1.0
         elif depth < 300:
@@ -2057,7 +2057,7 @@ class TimeStepEngine:
         """잠수함·센서 조합의 50% 탐지거리(m). 데이터/모듈 없으면 -1.0(레거시 폴백).
         active=True면 능동 소나 R50(왕복 TL+TS+잔향), False면 수동 R50."""
         if not _OCEAN_ACOUSTIC_OK:
-            return -1.0   # ocean_acoustic_db 미탑재 — 레거시 경로로 폴백
+            return -1.0   # db_ocean_acoustic 미탑재 — 레거시 경로로 폴백
         region, season, water_depth, ambient = self._sonar_env()
         depth = abs(et.altitude_m)
         key = (sensor_key, active, round(depth / 10.0) * 10, round(ambient), region, season)
@@ -5895,7 +5895,7 @@ def stress_test_grid(cfg: dict, n_per_cell: int = 500,
     2D 스트레스 테스트: 채널 감소(%) × 레이더 성능 감소(%) 그리드 요격률 매트릭스.
 
     n_per_cell: 셀당 시뮬 횟수 (빠름=300, 표준=500, 정밀=3000)
-    map_fn: (fn, iterable) → results. 기본 직렬(map). launcher가 풀 기반 병렬 map 주입 시
+    map_fn: (fn, iterable) → results. 기본 직렬(map). app_main가 풀 기반 병렬 map 주입 시
             8코어 병렬 실행. 각 시뮬은 seed가 고정된 독립 작업이라 결과는 직렬과 동일.
     """
     ch_vals  = STRESS_DIMS['channel_degrade']['values']   # [0, 25, 50, 75]
@@ -6048,7 +6048,7 @@ def optimize_weapon_loadout_v7(cfg: dict,
     1단계: 모든 조합을 coarse_n 회 MC로 빠르게 평가 (조합 단위 병렬 — 조합 수가 코어보다 많음)
     2단계: 상위 top_k 조합을 fine_n 회 MC로 정밀 검증 (시뮬 단위 병렬 — top_k가 코어보다 적어
            조합 단위로는 코어가 남으므로, 전 시뮬을 펼쳐 분산)
-    map_fn: 평가를 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시 8코어 병렬.
+    map_fn: 평가를 분산할 map (기본 직렬). app_main가 풀 기반 병렬 map 주입 시 8코어 병렬.
             각 평가는 독립이고 seed가 고정이라 결과(요격률·순위)는 직렬과 동일.
     반환: [{'combo': dict, 'rate': float, 'std': float, 'total': int}, ...]
     """
@@ -6342,7 +6342,7 @@ def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
     return verdicts, details
 
 
-# 지속 전장 모드 목표 → 표시 명칭 (launcher _otype과 일치)
+# 지속 전장 모드 목표 → 표시 명칭 (app_main _otype과 일치)
 _BATTLE_OBJ_NAME = {
     'defend_asset': '자산 방어', 'destroy_asset': '자산 격침',
     'sea_control': '해역 통제', 'attrition': '소모전', 'sustainment': '작전 지속성',
@@ -6484,7 +6484,7 @@ def find_all_min_stocks_v7(
 ) -> dict:
     """
     주요 무기 6종의 최소 함정당 재고를 탐색 (무기 단위 병렬).
-    map_fn: 무기별 탐색을 분산할 map (기본 직렬). launcher가 풀 기반 병렬 map 주입 시
+    map_fn: 무기별 탐색을 분산할 map (기본 직렬). app_main가 풀 기반 병렬 map 주입 시
             무기 6종을 동시 탐색. 무기끼리 독립이라 결과는 직렬과 동일.
     반환: {weapon_name: {'min_stock': int, 'current_stock': int, 'achievable': bool}}
     """
@@ -6806,7 +6806,7 @@ def _heatmap_cell_worker(args):
 def compare_ab_v7(cfg_a: dict, cfg_b: dict, n: int = 200, map_fn=map) -> dict:
     """
     두 cfg로 MC를 각각 실행해 비교 dict를 반환.
-    map_fn: 두 MC를 분산 (기본 직렬). launcher가 풀 병렬 map 주입 시 A·B 동시 실행.
+    map_fn: 두 MC를 분산 (기본 직렬). app_main가 풀 병렬 map 주입 시 A·B 동시 실행.
     반환: {'a': mc_dict, 'b': mc_dict, 'delta_intercept': float, 'delta_cost': float}
     """
     mc_a, mc_b = list(map_fn(_ab_mc_worker, [(cfg_a, n), (cfg_b, n)]))
@@ -7344,7 +7344,7 @@ if __name__ == '__main__':
                          img_path=img_path, xlsx_path=xlsx_path)
 
     print("\n  ※ 실행 방법:")
-    print(f"     python engine_v7.py [시나리오] [MC횟수]")
-    print(f"     예) python engine_v7.py mixed 500")
+    print(f"     python engine_combat.py [시나리오] [MC횟수]")
+    print(f"     예) python engine_combat.py mixed 500")
     print("=" * 66)
 

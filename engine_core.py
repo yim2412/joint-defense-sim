@@ -1258,7 +1258,7 @@ SHIP_PROCUREMENT_USD = {
 # 함정 항속거리·순항속도 (실측 공개 제원) — 자원 지속성(연료) 모델용.
 # 값 = (range_nm 항속거리[해리], cruise_kt 순항속도[노트]). 작전가능시간 T = range/cruise.
 # 원자력 추진(CVN·SSN)은 None = 사실상 무제한(연료 평가 제외).
-# 절대 시간이 아니라 1800s 표준 작전을 기준으로 정규화해 쓴다(engine_v7 연료 모델 참조).
+# 절대 시간이 아니라 1800s 표준 작전을 기준으로 정규화해 쓴다(engine_combat 연료 모델 참조).
 SHIP_ENDURANCE = {
     # ── 한국 해군 ──────────────────────────────────────────────────────────
     'KDX-III-B1': (5500, 18),   # 세종대왕급
@@ -2933,5 +2933,5 @@ def generate_random_enemy_fleet(difficulty='보통', seed=None):
 # ════════════════════════════════════════════════════════════════════════════
 #  v6 시뮬레이션 코드 (build_enemy_threat_list, HeloEvent, ThreatEvent,
 #  run_single_sim, monte_carlo, save_excel 등) 제거됨
-#  engine_v7.py 가 이 파일의 DB/유틸만 import해서 사용함
+#  engine_combat.py 가 이 파일의 DB/유틸만 import해서 사용함
 # ════════════════════════════════════════════════════════════════════════════

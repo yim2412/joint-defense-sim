@@ -45,13 +45,13 @@
 ### 개발 환경에서 실행
 
 ```powershell
-python launcher.py
+python app_main.py
 ```
 
 ### 실행 파일(exe) 빌드
 
 ```powershell
-python -m PyInstaller launcher.spec --noconfirm
+python -m PyInstaller app_main.spec --noconfirm
 ```
 
 빌드 결과물은 `dist/이지스_기동전단_시뮬레이터/` 폴더에 생성됩니다.
@@ -75,60 +75,60 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 ### 핵심 앱·엔진 (exe 번들)
 | 파일 | 역할 |
 |------|------|
-| `launcher.py` | PyQt6 런처 — UI, 시뮬 워커, 결과·DB·계획 탭 등 전체 앱 |
-| `engine.py` | 핵심 DB(적/아군/함정), 물리 모델, 탐지·교전 로직 |
-| `engine_v7.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
-| `spec_db.py` | DB 탭 스펙시트용 상세 설명 |
-| `rl_infer.py` | 학습된 AI 전술 정책을 numpy만으로 추론 (exe 탑재) |
-| `cesium_view.html` | 3D 전장 탭 — CesiumJS 위성 지구본 뷰 |
+| `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과·DB·계획 탭 등 전체 앱 |
+| `engine_core.py` | 핵심 DB(적/아군/함정), 물리 모델, 탐지·교전 로직 |
+| `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
+| `db_specsheet.py` | DB 탭 스펙시트용 상세 설명 |
+| `ai_policy_infer.py` | 학습된 AI 전술 정책을 numpy만으로 추론 (exe 탑재) |
+| `view_cesium_3d.html` | 3D 전장 탭 — CesiumJS 위성 지구본 뷰 |
 
 ### DB 데이터 모듈 (exe 번들)
 | 파일 | 역할 |
 |------|------|
-| `military_db.py` | 북 장사정포·해안포·비행장 등 지상 위협 DB |
-| `ocean_acoustic_db.py` | 수온·염분·음속층·해저 음향 DB (소나 방정식용) |
-| `ocean_environment_db.py` | 해역 환경(해류·기상 등) DB |
-| `terrain_db.py` | 수심·지형·해협 제원 DB |
+| `db_ground_threat.py` | 북 장사정포·해안포·비행장 등 지상 위협 DB |
+| `db_ocean_acoustic.py` | 수온·염분·음속층·해저 음향 DB (소나 방정식용) |
+| `db_ocean_environment.py` | 해역 환경(해류·기상 등) DB |
+| `db_terrain.py` | 수심·지형·해협 제원 DB |
 
 ### 데이터·설정 파일
 | 파일 | 역할 |
 |------|------|
-| `changelog.json` | 패치 이력 |
-| `regression_golden.json` | 회귀 검증 기준값 (고정 시나리오 결과) |
-| `battle_surrogate.json` | 실행 전 예상 전황 룩업 테이블 |
-| `rl_policy.npz` | 학습된 AI 전술 정책 가중치 |
-| `launcher.spec` | PyInstaller 빌드 스펙 |
+| `app_changelog.json` | 패치 이력 |
+| `audit_regression_golden.json` | 회귀 검증 기준값 (고정 시나리오 결과) |
+| `forecast_surrogate.json` | 실행 전 예상 전황 룩업 테이블 |
+| `ai_rl_policy.npz` | 학습된 AI 전술 정책 가중치 |
+| `app_main.spec` | PyInstaller 빌드 스펙 |
 
 ### 회귀·감사 도구 (수동 실행)
 | 파일 | 역할 |
 |------|------|
-| `verify_regression.py` | 회귀 검증 (엔진 동작 무결성 자동 점검) |
-| `audit_scan.py` | 정적 위생 감사 스캐너 |
-| `_audit_smoke.py` | exe GUI 스모크 자동화 (감사용) |
-| `_make_audit_pdf.py` | 감사 보고서 PDF 생성기 |
+| `audit_verify_regression.py` | 회귀 검증 (엔진 동작 무결성 자동 점검) |
+| `audit_static_scan.py` | 정적 위생 감사 스캐너 |
+| `_audit_gui_smoke.py` | exe GUI 스모크 자동화 (감사용) |
+| `_audit_make_pdf.py` | 감사 보고서 PDF 생성기 |
 
 ### 강화학습(RL)·self-play (수동 실행)
 | 파일 | 역할 |
 |------|------|
-| `rl_env.py` | 지속 전장 RL 학습 환경 |
-| `selfplay_env.py` · `selfplay_loop.py` | 적 지휘 AI 동시 학습(self-play) 환경·루프 |
-| `_selfplay_train.py` · `_rl_train_eval.py` | self-play·RL 학습/평가 스크립트 |
-| `_export_policy.py` | 학습 정책 → `rl_policy.npz` 변환 |
-| `_smoke_rl.py` | RL 토글 GUI 스모크 |
+| `ai_rl_env.py` | 지속 전장 RL 학습 환경 |
+| `ai_selfplay_env.py` · `ai_selfplay_loop.py` | 적 지휘 AI 동시 학습(self-play) 환경·루프 |
+| `_ai_selfplay_train.py` · `_ai_rl_train_eval.py` | self-play·RL 학습/평가 스크립트 |
+| `_ai_export_policy.py` | 학습 정책 → `ai_rl_policy.npz` 변환 |
+| `_ai_smoke_rl.py` | RL 토글 GUI 스모크 |
 
 ### LLM 자가개선 루프 (수동 실행)
 | 파일 | 역할 |
 |------|------|
-| `auto_improve_loop.py` | 약점 분석→제안→검증 자동 루프 |
-| `llm_propose.py` · `llm_patch.py` | LLM 전술 제안기·코드 패치기 |
-| `improve_report.py` | 개선 약점 리포트 생성 |
-| `_build_surrogate.py` | 예상 전황 룩업(`battle_surrogate.json`) 빌더 |
+| `improve_auto_loop.py` | 약점 분석→제안→검증 자동 루프 |
+| `improve_llm_propose.py` · `improve_llm_patch.py` | LLM 전술 제안기·코드 패치기 |
+| `improve_weakness_report.py` | 개선 약점 리포트 생성 |
+| `_forecast_build_surrogate.py` | 예상 전황 룩업(`forecast_surrogate.json`) 빌더 |
 
 ### 개발 유틸 (수동 실행, 빌드 제외)
 | 파일 | 역할 |
 |------|------|
-| `_make_bg.py` | 홈 배경 이미지 생성 |
-| `download_images.py` | DB 장비 사진 일괄 수집 |
+| `_asset_make_bg.py` | 홈 배경 이미지 생성 |
+| `asset_download_images.py` | DB 장비 사진 일괄 수집 |
 
 ### 디렉터리
 | 경로 | 역할 |
@@ -207,10 +207,10 @@ expand to other force domains step by step.
 
 ```powershell
 # Run in a development environment
-python launcher.py
+python app_main.py
 
 # Build the executable (exe)
-python -m PyInstaller launcher.spec --noconfirm
+python -m PyInstaller app_main.spec --noconfirm
 ```
 
 Build output is generated under `dist/이지스_기동전단_시뮬레이터/`.
@@ -227,12 +227,12 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 
 | File | Role |
 |------|------|
-| `engine.py` | Core DBs (enemy/friendly/ships), physics models, detection & engagement logic |
-| `engine_v7.py` | Time-step bidirectional engagement engine |
-| `launcher.py` | PyQt6 launcher — UI, sim workers, result/DB/plan tabs, the whole app |
-| `spec_db.py` | Detailed spec-sheet descriptions for the DB tab |
-| `changelog.json` | Patch history |
-| `launcher.spec` | PyInstaller build spec |
+| `engine_core.py` | Core DBs (enemy/friendly/ships), physics models, detection & engagement logic |
+| `engine_combat.py` | Time-step bidirectional engagement engine_core |
+| `app_main.py` | PyQt6 app_main — UI, sim workers, result/DB/plan tabs, the whole app |
+| `db_specsheet.py` | Detailed spec-sheet descriptions for the DB tab |
+| `app_changelog.json` | Patch history |
+| `app_main.spec` | PyInstaller build spec |
 | `assets/images/` | Equipment photos per DB entry |
 
 ### Usage Flow

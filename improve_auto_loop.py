@@ -1,13 +1,13 @@
-"""auto_improve_loop.py — 자가개선 루프 S2: Tier1 오케스트레이터 (빌드 제외 도구)
+"""improve_auto_loop.py — 자가개선 루프 S2: Tier1 오케스트레이터 (빌드 제외 도구)
 
-S1 약점 리포트(improve_report.py)를 읽고 **규칙기반으로 config 후보를 제안 →
+S1 약점 리포트(improve_weakness_report.py)를 읽고 **규칙기반으로 config 후보를 제안 →
 학습 → 평가 → Δ 최고 채택/롤백**한다. plan 10-C 정본.
 
 Tier1 = 엔진 코드 무수정, config(PPO 하이퍼파라미터)만 바꿈 → 완전 자동·되돌리기 쉬움.
 규칙 제안기는 S3에서 로컬 LLM(Ollama)이 대체한다 — 지금은 LLM 없이 루프 배선·채택
 로직을 검증한다.
 
-  python auto_improve_loop.py [timesteps] [n_envs] [eval_seeds] [report.json]
+  python improve_auto_loop.py [timesteps] [n_envs] [eval_seeds] [report.json]
   (기본 초소형 — 루프 메커니즘 검증용. 실제 스윕은 timesteps↑·백그라운드)
 
 산출: _improve_loop_log.json (후보별 config·Δ·채택 여부) + 채택 모델 _rl_auto_best.zip
@@ -19,9 +19,9 @@ import time
 
 import numpy as np
 
-from engine import normalize_enemy_db
-from rl_env import make_env, _BALANCED_PRESETS
-from improve_report import eval_baseline, eval_policy
+from engine_core import normalize_enemy_db
+from ai_rl_env import make_env, _BALANCED_PRESETS
+from improve_weakness_report import eval_baseline, eval_policy
 
 normalize_enemy_db()
 
@@ -45,7 +45,7 @@ def propose_candidates(report, use_llm=False, model='qwen2.5-coder:7b'):
     """S1 리포트 → config 후보. use_llm이면 로컬 Ollama(S3), 실패 시 규칙기반 fallback.
     어느 쪽이든 후보는 학습·평가 게이트(Δ)가 거르므로 잘못된 제안도 안전하다."""
     if use_llm and report:
-        from llm_propose import llm_propose_candidates
+        from improve_llm_propose import llm_propose_candidates
         cands = llm_propose_candidates(report, model)
         if cands:
             return cands

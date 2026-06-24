@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-_smoke_rl.py — ④ RL 정책 exe 스모크 (빌드 제외 도구)
+_ai_smoke_rl.py — ④ RL 정책 exe 스모크 (빌드 제외 도구)
 
-_audit_smoke.py 기반 + '지속 전장 모드' & 'AI 전술 (학습된 정책)' 체크박스를 켠 뒤
+_audit_gui_smoke.py 기반 + '지속 전장 모드' & 'AI 전술 (학습된 정책)' 체크박스를 켠 뒤
 단일 시뮬을 실행해 작전 결과(승/패·임무점수)가 뜨는지 확인한다. GUI 워커 경로를
 실제로 태운다(엔진 직접호출 우회 금지 [[feedback-smoke-run]]). 실패 시 exit 2(BLOCKED).
 """

@@ -1,20 +1,20 @@
-"""_export_policy.py — Phase 4 RL ⑥: 학습 정책(torch) → numpy 가중치(npz) 추출 (빌드 제외 도구)
+"""_ai_export_policy.py — Phase 4 RL ⑥: 학습 정책(torch) → numpy 가중치(npz) 추출 (빌드 제외 도구)
 
-학습은 개발 PC(torch·SB3), exe는 `rl_policy.npz` + numpy 추론만(rl_infer.py). plan 10절 정본.
+학습은 개발 PC(torch·SB3), exe는 `ai_rl_policy.npz` + numpy 추론만(ai_policy_infer.py). plan 10절 정본.
 SB3 PPO MlpPolicy 구조(고정): obs(14) → Linear(14→64) → tanh → Linear(64→64) → tanh
 → action_net Linear(64→27). 27 = sum(MultiDiscrete nvec [8,4,2,4,3,3,3]).
 
 추출 후 numpy forward가 SB3 deterministic predict와 **동일 action**을 내는지 1000개 랜덤
 obs로 자동 검증(불일치 0이어야 통과). 통과 시에만 npz 저장.
 
-  python _export_policy.py [model.zip] [out.npz]
+  python _ai_export_policy.py [model.zip] [out.npz]
 """
 import sys
 import numpy as np
 
 
 def _np_forward(npz, obs):
-    """numpy 전용 정책 forward (rl_infer와 동일 식) → MultiDiscrete action(인덱스 배열)."""
+    """numpy 전용 정책 forward (ai_policy_infer와 동일 식) → MultiDiscrete action(인덱스 배열)."""
     h = np.tanh(obs @ npz['w0'].T + npz['b0'])
     h = np.tanh(h @ npz['w2'].T + npz['b2'])
     logits = h @ npz['wa'].T + npz['ba']          # (27,)
@@ -59,5 +59,5 @@ def export(model_path, out_path):
 
 if __name__ == '__main__':
     model = sys.argv[1] if len(sys.argv) > 1 else '_rl_ckpt/ppo_shaped_ent0.01_1000000_steps.zip'
-    out = sys.argv[2] if len(sys.argv) > 2 else 'rl_policy.npz'
+    out = sys.argv[2] if len(sys.argv) > 2 else 'ai_rl_policy.npz'
     export(model, out)

@@ -3,15 +3,15 @@
 """
 회귀 검증 스크립트 — 엔진 동작이 의도치 않게 바뀌었는지 자동 점검.
 
-고정 시나리오 × 고정 seed의 결과를 골든값(regression_golden.json)과 대조한다.
+고정 시나리오 × 고정 seed의 결과를 골든값(audit_regression_golden.json)과 대조한다.
 같은 seed면 엔진은 결정론적이므로, 결과가 한 지표라도 다르면 동작이 바뀐 것.
 
 사용법:
-    python verify_regression.py            # 골든값과 비교 (PASS/FAIL)
-    python verify_regression.py --update   # 현재 결과를 새 골든값으로 저장 (의도된 변경 후)
+    python audit_verify_regression.py            # 골든값과 비교 (PASS/FAIL)
+    python audit_verify_regression.py --update   # 현재 결과를 새 골든값으로 저장 (의도된 변경 후)
 
 언제 쓰나 (CLAUDE.md 감사 정책):
-    engine.py / engine_v7.py 의 교전·물리·로직 변경 시 빌드·커밋 전에 실행.
+    engine_core.py / engine_combat.py 의 교전·물리·로직 변경 시 빌드·커밋 전에 실행.
     - PASS  → 동작 보존됨, 안전.
     - FAIL  → 의도한 변경이면 --update로 골든 갱신, 아니면 버그(원인 추적).
 
@@ -28,10 +28,10 @@ import os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine_v7 import run_v7_simulation  # noqa: E402
+from engine_combat import run_v7_simulation  # noqa: E402
 
 GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           'regression_golden.json')
+                           'audit_regression_golden.json')
 
 # 모든 신모델 ON + 날짜 의존(해류) 제외 → 결정론 보장
 _BASE = dict(
@@ -83,7 +83,7 @@ def do_update():
     snap = snapshot()
     with open(GOLDEN_PATH, 'w', encoding='utf-8') as f:
         json.dump(snap, f, ensure_ascii=False, indent=2)
-    print(f'✅ 골든값 갱신: {len(snap)}개 케이스 → regression_golden.json')
+    print(f'✅ 골든값 갱신: {len(snap)}개 케이스 → audit_regression_golden.json')
     for k, v in snap.items():
         print(f'  {k}: 요격={v["intercepted_threats"]}/{v["total_threats"]}, '
               f'아군손실={v["friendly_ships_lost"]}, 비용=${v["total_cost"]/1e6:.2f}M')
@@ -91,7 +91,7 @@ def do_update():
 
 def do_check() -> int:
     if not os.path.exists(GOLDEN_PATH):
-        print('❌ regression_golden.json 없음 — 먼저 `python verify_regression.py --update` 실행')
+        print('❌ audit_regression_golden.json 없음 — 먼저 `python audit_verify_regression.py --update` 실행')
         return 2
     with open(GOLDEN_PATH, encoding='utf-8') as f:
         golden = json.load(f)
@@ -117,7 +117,7 @@ def do_check() -> int:
         print(f'✅ PASS — {len(golden)}개 케이스 × {n_metrics}개 지표 모두 골든값과 일치 (동작 보존)')
         return 0
     print(f'❌ FAIL — {diffs}건 불일치.')
-    print('   의도한 변경이면: python verify_regression.py --update')
+    print('   의도한 변경이면: python audit_verify_regression.py --update')
     print('   의도치 않았으면: 동작이 바뀐 버그 — 원인 추적 필요')
     return 1
 
@@ -126,7 +126,7 @@ def do_smoke() -> int:
     """엔진 레벨 빠른 동작 확인 — MC 10회·LHS 10회·스트레스 셀당 3회.
     GUI 워커 경로는 검증하지 않음 (exe 테스트 모드와 역할 분리).
     """
-    from engine_v7 import monte_carlo_v7, monte_carlo_lhs, stress_test_grid
+    from engine_combat import monte_carlo_v7, monte_carlo_lhs, stress_test_grid
     cfg = dict(_BASE, fleet_preset='기동전단 기본',
                enemy_fleet_preset='랴오닝 항모전단', sim_seed=1)
     errors = []
