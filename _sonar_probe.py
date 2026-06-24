@@ -34,5 +34,24 @@ for enemy in ['북한 잠수함 선제 기습', '대잠 복합']:
         sk, sh, sc, rev = measure(em, enemy)
         tail = f" · 역탐지 발동 {rev}회" if em else ""
         print(f"  {enemy} 역탐지 {label}: 잠격침 {sk:.2f} · 아군피격 {sh:.2f} · 임무 {sc:.3f}{tail}")
-print("  ※ 역탐지는 정상 발동하나 현 대잠전 밸런스(잠수함 교전 미결판)로 결과 효과는 미미.")
-print("    실효는 대잠전 균형 실효화(_PLANS v16.1) 후 발현 — ARM 실효화와 동일 패턴.")
+print("  ※ enable_asw_forward OFF 기준 — ASW 항공이 함대 수동 대기라 교전 늦어 효과 묻힘.")
+
+# ── v16.01.04 ASW 전진 초계 효과 (대잠전 균형 실효화) ──
+print("\n=== v16.01.04 ASW 전진 초계 ON/OFF (능동소나 역탐지 ON 전제) ===")
+def measure_fwd(fwd, enemy):
+    sk, sc, asw = [], [], 0
+    for s in range(1, 13):
+        cfg = dict(enable_battle_mode=True, fleet_preset='대잠전단', enemy_fleet_mode='preset',
+                   enemy_fleet_preset=enemy, weather='맑음 (주간)', battle_horizon_s=1800, sim_seed=s,
+                   enable_sonar_equation=True, enable_sonar_emcon=True, enable_asw_forward=fwd,
+                   enable_helo=True, enable_p3c=True, enable_p8a=True)
+        r = run_battle_simulation(cfg)
+        sk.append(r.get('enemy_ships_destroyed', 0)); sc.append(r.get('friendly_score', 0.0))
+        asw += sum(('대잠 탐지 성공' in str(l) or '적 피격' in str(l)) for l in (r.get('log') or []))
+    return np.mean(sk), np.mean(sc), asw
+for enemy in ['대잠 복합', '잠수함 복합 포화']:
+    for label, fwd in [('OFF', False), ('ON ', True)]:
+        sk, sc, asw = measure_fwd(fwd, enemy)
+        print(f"  {enemy} 전진초계 {label}: 잠격침 {sk:.2f} · 임무 {sc:.3f} · ASW교전 {asw}")
+print("  → 전진 초계로 잠수함 격침 0→0.5~0.67·ASW 교전 3~4배·임무 +0.02~0.04 (대잠 균형 실효화).")
+print("  ※ 능동소나 역탐지 자체는 발동 늘어도(전진초계로 3~4배) 결과 효과는 기습 잠수함 등 좁은 조건 한정.")

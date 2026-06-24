@@ -1315,6 +1315,9 @@ class TimeStepEngine:
         # v16.01.03 능동 소나 핑 역탐지: 능동 소나로 적 잠수함을 탐지하면 잠수함도 핑을 역탐지해
         # 은닉 해제·어뢰 반격 앞당김 + 회피 기동(접촉 급감). 기본 OFF면 기존 동작 보존.
         self._sonar_emcon      = bool(cfg.get('enable_sonar_emcon', False))
+        # v16.1 ASW 전진 초계: 대잠 항공기가 함대 수동 대기 대신 전개 사거리 안의 잠수함으로
+        # 전진(transit) → 탐지권 도착 후 교전. 기본 OFF면 기존(기함 기준 탐지) 보존.
+        self._asw_forward      = bool(cfg.get('enable_asw_forward', False))
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -3491,6 +3494,23 @@ class TimeStepEngine:
                     self._asw_detect_check(ac, et, primary)
                 continue
 
+            # ── 전진(transit) 단계 — 잠수함으로 이동 중 (v16.1 ASW 전진 초계) ──
+            if ac._asw_phase == 'transit':
+                if self.t < ac._dip_until:
+                    continue   # 아직 전진 비행 중
+                et = ac._search_target
+                if et is None or not et.alive:
+                    ac._asw_phase = 'idle'; ac._search_target = None; continue
+                # 탐지권 가장자리 도착 → 탐지 단계 진입(전진 완료, 재확인 없이 교전)
+                if asw_mode == 'dipping':
+                    ac._asw_phase = 'hovering'
+                    ac._dip_until = self.t + ac.info.get('dip_hover_s', 60)
+                else:
+                    self._asw_detect_check(ac, et, primary)
+                    if ac._asw_phase == 'transit':   # detect_check가 phase 미변경 시 idle 복귀
+                        ac._asw_phase = 'idle'
+                continue
+
             # ── idle 단계 — 새 표적 탐색 ─────────────────────────────────────
             for et in self.enemy_threats:
                 if not et.alive or not et.is_sub:
@@ -3514,6 +3534,17 @@ class TimeStepEngine:
                 detect_m = self._asw_detect_range(ac, primary, et)
                 bonus_m  = ac.info.get('sonobuoy_detect_bonus_km', 0) * 1000
                 if dist_to_sub > detect_m + bonus_m:
+                    # v16.1 ASW 전진 초계: 탐지권 밖이지만 전개 사거리 안 → 잠수함 방위로 전진
+                    if self._asw_forward:
+                        transit_s = (dist_to_sub - (detect_m + bonus_m)) / max(ac.info.get('speed_ms', 200), 1)
+                        ac._search_target = et
+                        ac._detect_fails  = 0
+                        ac._asw_phase     = 'transit'
+                        ac._dip_until     = self.t + transit_s
+                        if not self._mc_mode:
+                            self._log(f"[대잠 전진] {ac.name} → {et.preset_name} 잠수함 방위로 전진 "
+                                      f"({dist_to_sub/1000:.0f}km, {transit_s:.0f}초 비행)…")
+                        break
                     continue
 
                 # 표적 포착 → 탐지 단계 진입

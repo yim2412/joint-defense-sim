@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.01.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.01.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.01.04 — 대잠 항공 전진 초계 (대잠전 균형 실효화)]                    ║
+║  NEW-A  대잠 헬기·초계기가 함대 수동 대기 대신 적 잠수함 방위로 전진해 조기  ║
+║         교전 — 잠수함 격침·대잠 교전 대폭 증가 (실험적)                      ║
 ║  [v16.01.03 — 능동 소나 핑 역탐지 (대잠 EMCON 딜레마)]                     ║
 ║  NEW-A  능동 소나로 적 잠수함 탐지 시 잠수함이 핑을 역포착 — 은닉 해제·어뢰  ║
 ║         반격 앞당김·회피 기동(능동=탐지 우위지만 위치 노출) (실험적)         ║
@@ -1012,7 +1015,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.01.03"
+APP_VERSION = "v16.01.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5650,6 +5653,8 @@ class MainWindow(QMainWindow):
             self.chk_esm_arm.setChecked(cfg.get('enable_esm_arm', False))
         if hasattr(self, 'chk_sonar_emcon'):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
+        if hasattr(self, 'chk_asw_forward'):
+            self.chk_asw_forward.setChecked(cfg.get('enable_asw_forward', False))
         if hasattr(self, 'chk_weather_dyn'):
             self.chk_weather_dyn.setChecked(cfg.get('enable_weather_dynamics', False))
         if hasattr(self, 'cmb_weather_trend'):
@@ -6200,6 +6205,15 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_emcon.setChecked(False)
 
+        self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계 (실험적)")
+        self.chk_asw_forward.setToolTip(
+            "대잠 헬기·초계기가 함대에 수동 대기하지 않고 전개 사거리 안의 적 잠수함 방위로\n"
+            "전진해 탐지·교전합니다. 끄면 잠수함이 함대 근처(약 20km)로 접근할 때까지 기다려\n"
+            "교전이 늦고 이탈 잠수함은 놓치지만, 켜면 잠수함을 일찍 적극 추적합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_asw_forward.setChecked(False)
+
         self.chk_weather_dyn = QCheckBox("동적 기상 변화")
         self.chk_weather_dyn.setToolTip(
             "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
@@ -6278,6 +6292,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
+        fl_env.addRow("",            self.chk_asw_forward)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
         fl_env.addRow("",            self.chk_iff)
@@ -7906,6 +7921,7 @@ class MainWindow(QMainWindow):
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
+            'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(실험적)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
             'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
@@ -9805,11 +9821,12 @@ class SplashWindow(QWidget):
              "유인 함정과 협동 운용(MUM-T), 통신 두절 시 자율 모드 전환. "
              "v15.4가 적 무인군집이라면 이쪽은 아군 무인 자산 — 후속 기뢰전·항만 방어의 기반."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
-            ("v16.1", "중간", "대잠전 균형 (잠수함 위협 실효화)",
-             "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)는 v16.01.01~03에서 구현 완료. "
-             "남은 과제: 대잠 교전이 1800초 안에 결판나도록 균형 조정 — 현재 함재 헬기 어뢰가 잠수함을 "
-             "잘 잡지 못하고 잠수함 공격도 명중이 드물어, 능동 소나 역탐지의 효과(어뢰 반격·회피)가 "
-             "결과에 잘 드러나지 않는다. 잠수함 위협을 실효화해 EMCON 딜레마가 임무 결과로 체감되게 한다."),
+            ("v16.1", "중간", "대잠전 균형 (잔여 조정)",
+             "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)와 대잠 항공 전진 초계는 "
+             "v16.01.01~04에서 구현 완료 — 전진 초계로 잠수함 격침·대잠 교전이 크게 늘었다. "
+             "남은 잔여 과제: 능동 소나 역탐지의 효과(어뢰 반격·회피)는 아직 기습 잠수함 등 좁은 조건에서만 "
+             "결과에 드러난다. 어뢰 명중·격침 판정과 잠수함 위협 강도를 추가 조정해 대잠 EMCON 딜레마가 "
+             "더 폭넓게 임무 결과로 체감되게 한다."),
             ("v16.2", "매우 높음", "극초음속 위협 & 글라이드 페이즈 요격",
              "극초음속 활공체(HGV·DF-17/DF-27)와 극초음속 순항미사일이 마하 5+ 저고도로 활공·기동 접근 → "
              "탄도 예측 불가·짧은 교전창으로 기존 함대공 요격이 곤란. 글라이드 페이즈 요격(SM-6 Block IB)·"
