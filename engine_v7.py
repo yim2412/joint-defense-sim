@@ -857,12 +857,17 @@ class MissileObj:
         self.min_miss_m:  float = float('inf')   # substep 최근접 통과 거리 (miss distance)
         self.jink_phase:  float = 0.0            # 표적 횡기동 위상 (적 대함미사일용)
         self._jink_t:     float = -1.0           # 표적 jink 전진이 적용된 마지막 틱 (다중 SAM 중복 방지)
+        # v16.1 ESM→ARM: stale 조준 좌표(레이더 OFF 시 마지막 포착 위치). None이면 실시간 표적 추적.
+        self.arm_aim_pos = None
 
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
         if not self.alive:
             return False
-        arrived = self.pos.move_toward(self.target.pos, self.speed_ms, dt)
+        # v16.1 ESM→ARM: arm_aim_pos(stale 조준 좌표)가 있으면 그쪽으로 유도(레이더 OFF 시
+        # 마지막 포착 위치). None이면 기존 실시간 표적 추적(bit-identical).
+        _aim = self.arm_aim_pos if self.arm_aim_pos is not None else self.target.pos
+        arrived = self.pos.move_toward(_aim, self.speed_ms, dt)
         if arrived:
             self.hit = True
         return arrived
@@ -1303,6 +1308,9 @@ class TimeStepEngine:
 
         # v15.1: 적응형 전술 AI — ai_tactic='adaptive'일 때만 동작
         self._munition_limit   = bool(cfg.get('enable_munition_limit', True))  # 적 공격 무장 유한화
+        # v16.1 ESM→ARM 역탐지: 아군 레이더 방사 중일 때만 적 ESM이 포착 → ARM 실시간 유도.
+        # 레이더 OFF면 마지막 포착 위치(stale)로 유도돼 명중 급감. 기본 OFF면 기존 동작 보존.
+        self._emcon_arm        = bool(cfg.get('enable_esm_arm', False))
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -2305,6 +2313,7 @@ class TimeStepEngine:
 
     def _update_positions(self):
         self._apply_ship_evasion()
+        self._arm_esm_update()   # v16.1: ARM 유도를 아군 레이더 방사 상태에 연동(미사일 이동 전)
 
         primary_pos = self._primary().pos
         for et in self.enemy_threats:
@@ -2728,6 +2737,27 @@ class TimeStepEngine:
         """VLS 연속 발사 간격 2.5s 체크."""
         last = self._vls_last_fire.get(id(ship), -999.0)
         return (self.t - last) >= 2.5
+
+    def _arm_esm_update(self):
+        """v16.1 ESM→ARM 역탐지: 아군 레이더 방사 상태로 ARM 조준 좌표를 갱신한다.
+        레이더 ON(방사 중)이면 적 ESM이 신호를 실시간 포착 → 조준 좌표를 표적 현재 위치로
+        갱신. 레이더 OFF면 ESM 미포착 → 마지막 포착 좌표(stale) 유지 → 표적이 떠난 만큼
+        명중 급감(_check_hits에서 판정). enable_esm_arm OFF면 무동작(회귀 bit-identical)."""
+        if not self._emcon_arm:
+            return
+        for m in self.missiles:
+            if not (m.alive and m.is_arm):
+                continue
+            tgt = m.target
+            if not isinstance(tgt, FriendlyShipObj):
+                continue
+            if self.t >= tgt.radar_off_until:
+                # 레이더 ON → ESM 실시간 포착, 조준 좌표 갱신
+                m.arm_aim_pos = LatLon.from_xy(tgt.pos.x, tgt.pos.y)
+            elif m.arm_aim_pos is None:
+                # 발사부터 레이더 OFF → 현 위치를 '마지막 포착'으로 1회 고정(이후 stale 유지)
+                m.arm_aim_pos = LatLon.from_xy(tgt.pos.x, tgt.pos.y)
+            # else: 레이더 OFF 지속 → 기존 stale 좌표 유지(갱신 안 함)
 
     def _arm_radar_off_check(self):
         """ARM 탐지 시 표적 함정 레이더 일시 차단 (ARM 회피 전술, 8초).
@@ -3995,7 +4025,28 @@ class TimeStepEngine:
                 if isinstance(tgt, FriendlyShipObj) and tgt.alive:
                     # ARM: ECM 무효 (레이더 전파 역추적 — 재밍이 오히려 표적이 됨)
                     if m.is_arm:
-                        # 레이더 OFF 시 유도 신호 소실 → ARM 빗나감
+                        # v16.1 EMCON ON: stale 조준 좌표로 유도된 ARM은 표적 이격만큼 명중 급감.
+                        if self._emcon_arm and m.arm_aim_pos is not None:
+                            _STALE_SCALE_M = 150.0   # 이격 150m마다 명중률 e^-1 감쇠
+                            miss_d = m.arm_aim_pos.dist_to(tgt.pos)
+                            if self.t < tgt.radar_off_until and miss_d > 200.0:
+                                # 레이더 OFF + 큰 이격 → 명백히 빗나감(stale 유도)
+                                self._log(
+                                    f"[ARM 회피] {tgt.name} 레이더 OFF — {m.name} "
+                                    f"{miss_d:.0f}m 빗나감(stale 유도)")
+                                continue
+                            pk_eff = m.pk_base * math.exp(-miss_d / _STALE_SCALE_M)
+                            if random.random() < pk_eff:
+                                tgt.take_arm_hit(self.t)
+                                self.stats['friendly_hits'] += 1
+                                self._log(
+                                    f"[ARM 피격] {tgt.name} 레이더 직격! "
+                                    f"(이격 {miss_d:.0f}m, Pk {pk_eff:.0%}, HP {tgt.hp})")
+                            else:
+                                self._log(f"[ARM 실패] {m.name} -> {tgt.name} "
+                                          f"불발(이격 {miss_d:.0f}m)")
+                            continue
+                        # EMCON OFF(기본): 기존 로직 — 명중 순간 레이더 OFF면 빗나감
                         if self.t < tgt.radar_off_until:
                             self._log(
                                 f"[ARM 회피] {tgt.name} 레이더 OFF — "

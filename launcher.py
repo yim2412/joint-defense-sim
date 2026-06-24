@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v15.14.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.01.01 — 전자전: ESM 역탐지 (레이더 방사 ↔ 대방사미사일 유도)]        ║
+║  NEW-A  EMCON 딜레마 — 아군 레이더 방사 중일 때만 적 ESM이 포착해 ARM을      ║
+║         실시간 유도. 레이더 OFF 시 마지막 위치로만 유도돼 명중 급감 (실험적) ║
 ║  [v15.14.01 — AI 전술 (강화학습 방어 정책)]                                ║
 ║  NEW-A  지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 위협 상황을 보고  ║
 ║         무기 우선순위·살보·레이더·표적·기동·CAP·ECM을 자동 전환 (실험적)     ║
@@ -1003,7 +1006,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v15.14.01"
+APP_VERSION = "v16.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5637,6 +5640,8 @@ class MainWindow(QMainWindow):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
+        if hasattr(self, 'chk_esm_arm'):
+            self.chk_esm_arm.setChecked(cfg.get('enable_esm_arm', False))
         if hasattr(self, 'chk_weather_dyn'):
             self.chk_weather_dyn.setChecked(cfg.get('enable_weather_dynamics', False))
         if hasattr(self, 'cmb_weather_trend'):
@@ -6169,6 +6174,15 @@ class MainWindow(QMainWindow):
         )
         self.chk_rl_policy.setChecked(False)
 
+        self.chk_esm_arm = QCheckBox("ESM 역탐지 — 레이더 방사 시 대방사미사일 유도 (실험적)")
+        self.chk_esm_arm.setToolTip(
+            "전자전 EMCON 딜레마: 아군 레이더가 켜져 방사 중일 때만 적 전자지원(ESM)이 신호를\n"
+            "포착해 대방사미사일(ARM)을 실시간 유도합니다. 레이더를 끄면 적은 마지막 포착 위치로만\n"
+            "ARM을 유도해 명중률이 급감합니다(레이더 끄면 ARM 회피, 대신 대공 탐지·교전은 손실).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_esm_arm.setChecked(False)
+
         self.chk_weather_dyn = QCheckBox("동적 기상 변화")
         self.chk_weather_dyn.setToolTip(
             "v12.5 — 교전 중 날씨가 확률적으로 변화합니다.\n"
@@ -6245,6 +6259,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_munition_limit)
         fl_env.addRow("",            self.chk_battle)
         fl_env.addRow("",            self.chk_rl_policy)
+        fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
         fl_env.addRow("",            self.chk_iff)
@@ -7871,6 +7886,7 @@ class MainWindow(QMainWindow):
             'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
+            'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
             'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
@@ -9770,11 +9786,11 @@ class SplashWindow(QWidget):
              "유인 함정과 협동 운용(MUM-T), 통신 두절 시 자율 모드 전환. "
              "v15.4가 적 무인군집이라면 이쪽은 아군 무인 자산 — 후속 기뢰전·항만 방어의 기반."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
-            ("v16.1", "높음", "전자전·능동 방사 역탐지",
-             "ECM 재밍은 구현됨. 미구현 구간만 추가: "
-             "전자지원(ESM) 역탐지 — 적이 아군 레이더 신호를 수집해 대방사미사일(ARM) 역방향 발사. "
+            ("v16.1", "높음", "능동 소나 핑 역탐지",
+             "ESM 역탐지(레이더 방사 시 적이 신호 포착→대방사미사일 실시간 유도, 레이더 끄면 명중 급감)는 "
+             "v16.01.01에서 구현 완료. 남은 구간: "
              "능동 소나 핑 역탐지 — 적 잠수함이 아군 능동 핑을 포착해 회피 기동·어뢰 반격(쏘면 잡지만 나도 들킴). "
-             "주파수 대역별 전자방해·기만기 연동. "
+             "능동/수동 운용 선택(EMCON). "
              "【현실성】레이더·소나 방사 = 위치 노출이 현대 해전 핵심 딜레마."),
             ("v16.2", "매우 높음", "극초음속 위협 & 글라이드 페이즈 요격",
              "극초음속 활공체(HGV·DF-17/DF-27)와 극초음속 순항미사일이 마하 5+ 저고도로 활공·기동 접근 → "
