@@ -1016,6 +1016,7 @@ class EnemyThreatObj:
     ecm_power             = _et_col('_et_ecm_power')
     hidden_until          = _et_col('_et_hidden_until')
     ambush_revealed       = _et_col('_et_ambush_revealed')
+    counter_evade_until   = _et_col('_et_counter_evade_until')  # v16.01.03: 능동 핑 역탐지 회피 만기
 
     # ── 메서드 ────────────────────────────────────────────────────────────────
     def take_hit(self, weapon_name: str, t: float):
@@ -1311,6 +1312,9 @@ class TimeStepEngine:
         # v16.1 ESM→ARM 역탐지: 아군 레이더 방사 중일 때만 적 ESM이 포착 → ARM 실시간 유도.
         # 레이더 OFF면 마지막 포착 위치(stale)로 유도돼 명중 급감. 기본 OFF면 기존 동작 보존.
         self._emcon_arm        = bool(cfg.get('enable_esm_arm', False))
+        # v16.01.03 능동 소나 핑 역탐지: 능동 소나로 적 잠수함을 탐지하면 잠수함도 핑을 역탐지해
+        # 은닉 해제·어뢰 반격 앞당김 + 회피 기동(접촉 급감). 기본 OFF면 기존 동작 보존.
+        self._sonar_emcon      = bool(cfg.get('enable_sonar_emcon', False))
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -1510,6 +1514,7 @@ class TimeStepEngine:
         self._et_ecm_power: list            = []
         self._et_hidden_until: list         = []
         self._et_ambush_revealed: list      = []
+        self._et_counter_evade_until: list  = []   # v16.01.03: 능동 핑 역탐지 시 회피 기동 만기 시각
 
     def _new_threat(self, preset_name: str, pos: 'LatLon') -> EnemyThreatObj:
         """적 플랫폼 위협 1기 생성 — ENEMY_DB 파생값 계산 후 _et_* 컬럼에 행 추가, proxy 반환.
@@ -1569,6 +1574,7 @@ class TimeStepEngine:
         self._et_ecm_power.append(info.get('ecm_power', 0.0))
         self._et_hidden_until.append(0.0)
         self._et_ambush_revealed.append(False)
+        self._et_counter_evade_until.append(0.0)
 
         return EnemyThreatObj(self, len(self._et_uid) - 1)
 
@@ -2073,7 +2079,9 @@ class TimeStepEngine:
             have = True
             if r50 == 0:
                 continue
-            r50_eff = r50 * 0.30 if et.is_retreating else r50   # 고속 이탈 — 접촉 급감
+            # 고속 이탈 또는 v16.01.03 능동 핑 역탐지 회피 기동 시 접촉 급감
+            _evading = et.is_retreating or (self._sonar_emcon and self.t < et.counter_evade_until)
+            r50_eff = r50 * 0.30 if _evading else r50
             best_r50 = max(best_r50, r50_eff)
             pd = sonar_detection_prob(
                 dist_m, r50_eff, water_depth, f, region, season, depth,
@@ -3565,6 +3573,14 @@ class TimeStepEngine:
             prob = min(base_prob * thermo * wx_factor, 0.97)
 
         if random.random() < prob:
+            # v16.01.03 능동 핑 역탐지: 능동 소나(디핑/소노부이)로 탐지된 잠수함은 그 핑을
+            # 역포착 → 은닉 해제 + 어뢰 반격 앞당김 + 회피 기동(접촉 급감). 기본 OFF면 무동작.
+            if self._sonar_emcon and et.is_sub:
+                et.hidden_until      = min(et.hidden_until, self.t)   # 은닉 해제(발각됨)
+                et.next_fire_t       = min(et.next_fire_t, self.t)    # 즉시 어뢰 반격 가능
+                et.counter_evade_until = self.t + 90.0               # 90초 회피 기동(재탐지 급감)
+                if not self._mc_mode:
+                    self._log(f"[역탐지] {et.name} 능동 핑 포착 — 은닉 해제·어뢰 반격·회피 기동")
             # ── 탐지 성공 → 어뢰 투하 ────────────────────────────────────────
             wpn_name = ac.info['payload_wpn']
             wpn_info = FRIENDLY_DB[wpn_name]
