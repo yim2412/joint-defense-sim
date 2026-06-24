@@ -633,7 +633,7 @@ ENEMY_DB = {
     # 오스카-II: P-700 그라니트 24발 포화 공격 특화 SSGN
     '오스카-II급 SSGN':
         {'category':'대잠','type':'잠수함','speed_ms':13.0,'altitude_m':-400,
-         'missile_name':'P-700 그라니트','missile_speed_ms':2500,'missile_range_km':550,
+         'missile_name':'P-700 그라니트','missile_speed_ms':850,'missile_range_km':550,  # 종말 Mach 2.5 (~850 m/s, P-800 오닉스급) — 기존 2500은 Mach 7.3 비현실
          'can_fire_missile':True,'rcs_m2':None,
          'missile_salvo_min':8,'missile_salvo_max':24,
          'missile_terminal_evasion':0.82,
