@@ -3165,13 +3165,20 @@ class TimeStepEngine:
 
         # HGV / 고고도 탄도 중간단계 → SM-3
         # 어쇼어 활성·잔여 있으면 함정 SM-3 생략 (지상 자산이 우선 교전)
-        if (is_hgv or (is_ballistic and alt >= 40_000)) and dist_m <= 500_000:
+        # 고고도(≥40km) 탄도·HGV 중간단계 = 외기권 → SM-3 (어쇼어 잔여 시 함정 SM-3 생략)
+        if ((is_hgv or is_ballistic) and alt >= 40_000) and dist_m <= 500_000:
             ashore_covers = (
                 self.cfg.get('enable_ashore', False)
                 and self.ground_inv.get('SM-3 (어쇼어)', 0) > 0
             )
             if not ashore_covers and ok('SM-3 Block IIA'):
                 return 'SM-3 Block IIA'
+
+        # v16.2: HGV 저고도(<40km) 글라이드/종말 페이즈 → SM-6 Block IB (대기권 내 기동 요격).
+        # SM-3(외기권 탄도 요격)는 저고도 활공 HGV에 부적합 — 킨잘·지르콘 등은 이 층이 주력.
+        # 고고도 HGV도 SM-3 소진·누출 시 이 층으로 폴백(370km 이내).
+        if is_hgv and dist_m <= 370_000 and ok('SM-6 Block IB'):
+            return 'SM-6 Block IB'
 
         # QBM (저고도 기동탄도) → SM-6 우선 (SM-3 무효)
         if is_qbm and dist_m <= 240_000:
