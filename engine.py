@@ -1810,6 +1810,14 @@ ENEMY_FLEET_PRESETS = {
         {'preset': 'J-16 (플랭커-D)',  'count': 4},
         {'preset': 'H-6 (폭격기)',     'count': 2},
     ],
+    # 전자전 SEAD 제압 — 대방사미사일(ARM) 포화로 함대 레이더 무력화 시도.
+    # 레이더를 켜면 ESM이 ARM을 정확 유도(EMCON 딜레마), 끄면 ARM 회피하나 대공 탐지 손실.
+    '전자전 SEAD 제압': [
+        {'preset': 'Kh-31P 대방사미사일', 'count': 6},
+        {'preset': 'LD-10 대방사미사일',  'count': 4},
+        {'preset': 'Kh-58U 대방사미사일', 'count': 2},
+        {'preset': 'J-16 (플랭커-D)',      'count': 3},
+    ],
     # 항모 킬 체인 — 탄도+HGV+스텔스 복합
     '항모 킬 체인': [
         {'preset': 'DF-21D (대함 탄도)',    'count': 2},

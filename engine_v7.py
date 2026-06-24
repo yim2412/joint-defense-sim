@@ -1713,6 +1713,10 @@ class TimeStepEngine:
                     start_m = sub_det_km * 1000
                 elif info.get('category') == '대함':
                     start_m = surface_det_km * 1000
+                elif info.get('is_arm'):
+                    # v16.01.02: ARM은 발사 항공기의 SEAD 발사점(사거리 근처)에서 출발.
+                    # 대공 탐지거리(~880km) 스폰은 비현실(요격 시간 8배) → 사거리 90%에서 스폰.
+                    start_m = info.get('missile_range_km', 110) * 1000 * 0.9
                 else:
                     start_m = detect_km * 1000
 
