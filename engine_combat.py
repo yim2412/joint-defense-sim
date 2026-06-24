@@ -1257,7 +1257,7 @@ class FriendlyAircraftObj:
         self.sorties           = 0
         self.total_cost        = 0.0
         # v9.8: 탐지 상태 머신
-        self._asw_phase:    str   = 'idle'  # idle | hovering | cooldown
+        self._asw_phase:    str   = 'idle'  # idle | transit | hovering | cooldown
         self._dip_until:    float = 0.0     # 호버링 종료 시각 (dipping 전용)
         self._next_attempt: float = 0.0     # 다음 탐지 시도 가능 시각
         self._detect_fails: int   = 0       # 현재 표적 누적 탐지 실패 수
