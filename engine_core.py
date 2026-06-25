@@ -1098,11 +1098,13 @@ SHIP_DB = {
         'eccm_factor':  0.75,  # AN/SLQ-32E SEWIP Block 3 (최신)
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
+        # 실제 Mk.41 96셀. 장거리 SAM(SM류)은 1셀 1발, ESSM은 quad-pack(1셀 4발).
+        # SM류 72(72셀)+ESSM 32(8셀)+토마호크 8(8셀)=88셀(96 내). 과거 SM류 112는 셀 초과.
         'default_inventory': {
-            'SM-3 Block IIA':    32,
-            'SM-6 Block IB':     32,
-            'SM-2 Block IIIB':   48,
-            'ESSM Block II':     32,
+            'SM-3 Block IIA':    24,
+            'SM-6 Block IB':     16,
+            'SM-2 Block IIIB':   32,   # SM류 계 72 = 96셀 중 72
+            'ESSM Block II':     32,   # quad-pack 8셀
             'RIM-116 RAM':       21,
             'Mk.46 경어뢰':       8,
             'CIWS-II (Phalanx)': 9999,
@@ -1117,11 +1119,13 @@ SHIP_DB = {
         'eccm_factor':  0.70,
         'role':         ['대공', '대함', '대잠', 'BMD'],
         'nation':       'USA',
+        # 실제 Mk.41 122셀. SM류 104(104셀)+ESSM 24(6셀)+토마호크 16(16셀)=126셀급 →
+        # SM류 104로 현실화(과거 140은 셀 초과). ESSM quad-pack(1셀 4발).
         'default_inventory': {
-            'SM-3 Block IIA':    40,
-            'SM-6 Block IB':     40,
-            'SM-2 Block IIIB':   60,
-            'ESSM Block II':     24,
+            'SM-3 Block IIA':    32,
+            'SM-6 Block IB':     24,
+            'SM-2 Block IIIB':   48,   # SM류 계 104 = 122셀 중 104
+            'ESSM Block II':     24,   # quad-pack 6셀
             'RIM-116 RAM':       21,
             'Mk.46 경어뢰':       8,
             'CIWS-II (Phalanx)': 9999,
