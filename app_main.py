@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.02.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.03.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.03.01 — 사이버전 모듈: 데이터링크 변조·전투정보실 마비·레이더 교란]   ║
+║  NEW-A  적 사이버 공격(아군 요격 명중·탐지 저하)과 아군 반격(적 발사 명중    ║
+║         저하)을 확률적 침투로 모델링 — 경고 없이 은밀하게 발현·해제          ║
+║         (실험적, 기본 OFF — 기존 결과와 동일)                                ║
 ║  [v16.02.04 — 대잠 항공 전진 초계를 정규 기능으로 승격]                    ║
 ║  MOD-A  효과 입증된 대잠 전진 초계의 '실험적' 표기 제거 (기본값 OFF 유지)    ║
 ║  [v16.02.03 — DB 수치 검증 2차: 적 함정·전투기 무장 현실화]                ║
@@ -1028,7 +1032,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.02.04"
+APP_VERSION = "v16.03.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5666,6 +5670,8 @@ class MainWindow(QMainWindow):
             self.chk_esm_arm.setChecked(cfg.get('enable_esm_arm', False))
         if hasattr(self, 'chk_sonar_emcon'):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
+        if hasattr(self, 'chk_cyber'):
+            self.chk_cyber.setChecked(cfg.get('enable_cyber_warfare', False))
         if hasattr(self, 'chk_asw_forward'):
             self.chk_asw_forward.setChecked(cfg.get('enable_asw_forward', False))
         if hasattr(self, 'chk_weather_dyn'):
@@ -6218,6 +6224,17 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_emcon.setChecked(False)
 
+        self.chk_cyber = QCheckBox("사이버전 — 데이터링크 변조·전투정보실 마비·레이더 교란 반격 (실험적)")
+        self.chk_cyber.setToolTip(
+            "적 사이버 공격과 아군 반격을 모델링합니다. 일정 주기마다 침투를 시도해 성공하면\n"
+            "한동안 효과가 지속되며, 전자전과 달리 경고 없이 은밀하게 발현·해제됩니다.\n"
+            "  · 데이터링크 변조 → 표적 데이터 오염으로 아군 요격 명중률 저하\n"
+            "  · 전투정보실 마비 → 처리 지연으로 아군 탐지거리 일시 저하\n"
+            "  · 레이더 교란 반격 → 적 사격통제 교란으로 적 발사 명중률 저하\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_cyber.setChecked(False)
+
         self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계")
         self.chk_asw_forward.setToolTip(
             "대잠 헬기·초계기가 함대에 수동 대기하지 않고 전개 사거리 안의 적 잠수함 방위로\n"
@@ -6305,6 +6322,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
+        fl_env.addRow("",            self.chk_cyber)
         fl_env.addRow("",            self.chk_asw_forward)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
@@ -7934,6 +7952,7 @@ class MainWindow(QMainWindow):
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
+            'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
             'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(정규)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
@@ -9843,10 +9862,6 @@ class SplashWindow(QWidget):
              "남은 고도화 과제: 현재 극초음속 활공체는 고정 고도로 비행하나, 실제로는 마하 5+로 활공하며 "
              "고도를 낮추고 횡기동한다. 비행 중 고도 변화(상승→활공→종말 강하)와 기동 회피를 모델링해 "
              "교전창과 요격 단계가 비행 단계별로 달라지게 한다. 적 탄도탄과 별개로 기동성·저고도가 핵심 차별점."),
-            ("v16.3", "중간", "사이버전 모듈",
-             "적 사이버 공격으로 데이터링크 변조→함정 오발사, 전투정보실 마비→탐지 지연. "
-             "아군 반격으로 적 레이더 교란. "
-             "기존 전자전·협동 교전 두절과 차별점은 지속성·은밀성."),
             ("v16.4", "높음", "분산 해양작전 (DMO)",
              "소형 함정 분산 배치 + 개별 타격으로 집중 방어 회피(미 해군 분산치사 교리). "
              "【현실성】미 해군 원형 ≠ 한국 소형함 위주 → 한국형으로 재해석 필요."),

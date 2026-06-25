@@ -79,7 +79,8 @@ def chk_flag_triplet():
     lau = rd('app_main.py'); ev = rd('engine_combat.py')
     # 블록에서 추가된 핵심 전장/전자전 플래그(추가 시 이 목록에 1줄 더한다)
     flags = ['enable_battle_mode', 'enable_munition_limit', 'enable_ship_evasion',
-             'enable_esm_arm', 'enable_sonar_emcon', 'enable_asw_forward']  # v16.1 EMCON 3종
+             'enable_esm_arm', 'enable_sonar_emcon', 'enable_asw_forward',  # v16.1 EMCON 3종
+             'enable_cyber_warfare']  # v16.3 사이버전
     for f in flags:
         build   = bool(re.search(rf"['\"]{f}['\"]\s*:\s*[^\n,}}]*isChecked", lau))
         restore = bool(re.search(rf"setChecked\(\s*cfg\.get\(['\"]{f}", lau))
