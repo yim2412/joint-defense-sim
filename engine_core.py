@@ -895,14 +895,17 @@ SHIP_DB = {
         'max_channels': 24,
         'eccm_factor':  0.70,  # AN/SLQ-32E SEWIP Block 3 (최신)
         'role':         ['대공', '대함', '대잠', 'BMD'],
+        # 실제 VLS 88셀 = Mk.41 48(SM-2/3/6) + KVLS-I 16(해궁·홍상어·현무) + KVLS-II 24(현무 탄도/순항).
+        # 장거리 SAM(SM-2/3/6)은 Mk.41 48셀에만 탑재 → 합 48 준수. 과거 112발은 셀의 2.3배 비현실
+        # (어떤 포화도 압도). 대잠·순항은 KVLS 자리 → 홍상어 KVLS-I.
         'default_inventory': {
-            'SM-3 Block IIA':    32,   # Batch II: 전방 VLS 32셀 SM-3 전담
-            'SM-6':              32,
-            'SM-2 Block IIIB':   48,
-            'RIM-116 RAM':       21,
-            '홍상어 (대잠)':     16,
-            '청상어 (경어뢰)':   12,
-            'Mk.46 경어뢰':       8,
+            'SM-3 Block IIA':    16,   # Mk.41 48셀: BMD 16
+            'SM-6':              12,   # Mk.41: 장거리 방공·대함 12
+            'SM-2 Block IIIB':   20,   # Mk.41: 중거리 방공 20 (계 48 = Mk.41 전량)
+            'RIM-116 RAM':       21,   # 별도 21셀 RAM 발사대
+            '홍상어 (대잠)':      8,   # KVLS-I
+            '청상어 (경어뢰)':   12,   # 어뢰발사관
+            'Mk.46 경어뢰':       8,   # 어뢰발사관
             'CIWS-II (Phalanx)': 9999,
         },
     },
