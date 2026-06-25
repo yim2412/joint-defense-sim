@@ -2843,7 +2843,10 @@ class TimeStepEngine:
             return peak * (1.0 - _HGV_GLIDE_DESCENT * f)
         f = (p - _HGV_GLIDE_END) / (1.0 - _HGV_GLIDE_END)
         start = peak * (1.0 - _HGV_GLIDE_DESCENT)
-        return max(_HGV_TERMINAL_ALT_M, start + (_HGV_TERMINAL_ALT_M - start) * f)
+        # 종말 목표 고도는 활공 끝 고도(start) 이하로 클램프 — 정점이 2km 미만인 초저고도
+        # 활공체가 종말에 오히려 상승하는 비물리 역전 방지(감사 발견, 현 DB는 미발현)
+        term = min(_HGV_TERMINAL_ALT_M, start)
+        return max(term, start + (term - start) * f)
 
     def _hgv_glide_update(self):
         """v16.2: 활공 HGV의 교전 고도를 비행 진행도에 따라 갱신한다. 이로써
