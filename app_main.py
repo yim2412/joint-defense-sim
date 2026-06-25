@@ -1,7 +1,9 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.02.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.02.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.02.04 — 대잠 항공 전진 초계를 정규 기능으로 승격]                    ║
+║  MOD-A  효과 입증된 대잠 전진 초계의 '실험적' 표기 제거 (기본값 OFF 유지)    ║
 ║  [v16.02.03 — DB 수치 검증 2차: 적 함정·전투기 무장 현실화]                ║
 ║  BUG-1  052C형 구축함의 대함미사일을 실제 탑재인 YJ-62 아음속으로 정정       ║
 ║         (기존 YJ-12 초음속 오편성)                                           ║
@@ -1026,7 +1028,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.02.03"
+APP_VERSION = "v16.02.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6216,12 +6218,12 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_emcon.setChecked(False)
 
-        self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계 (실험적)")
+        self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계")
         self.chk_asw_forward.setToolTip(
             "대잠 헬기·초계기가 함대에 수동 대기하지 않고 전개 사거리 안의 적 잠수함 방위로\n"
             "전진해 탐지·교전합니다. 끄면 잠수함이 함대 근처(약 20km)로 접근할 때까지 기다려\n"
             "교전이 늦고 이탈 잠수함은 놓치지만, 켜면 잠수함을 일찍 적극 추적합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_asw_forward.setChecked(False)
 
@@ -7932,7 +7934,7 @@ class MainWindow(QMainWindow):
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
-            'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(실험적)
+            'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(정규)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
             'enable_iff':        self.chk_iff.isChecked(),  # v12.6: 피아식별 오류
