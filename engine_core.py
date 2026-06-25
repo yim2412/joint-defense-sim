@@ -925,7 +925,7 @@ SHIP_DB = {
         },
     },
     # ── 호위함 Batch I (FFX-I 인천급: 인천·전북·강원·경기·부산·서울) ─────────
-    # SPS-520K 레이더 / Mk.41 VLS 16셀 / SM-2 × 16 + RAM × 21
+    # SPS-520K 레이더 / 함대공 VLS 미탑재 — RAM 점방어만 (실제 Batch-I은 SM-2 등 함대공 미사일 없음)
     'FFX-I': {
         'display':      '호위함 FFX Batch I (인천급)',
         'sensor_km':    {'대공': 100, '대함': 35, '대잠': 45},
@@ -933,15 +933,14 @@ SHIP_DB = {
         'eccm_factor':  0.40,
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
-            'SM-2 Block IIIB':   16,
-            'RIM-116 RAM':       21,
+            'RIM-116 RAM':       21,   # 함대공은 RAM 점방어 전용(VLS 미탑재)
             '청상어 (경어뢰)':    8,
             'Mk.46 경어뢰':       4,
             'CIWS-II (Phalanx)': 9999,
         },
     },
     # ── 호위함 Batch II (FFX-II 대구급: 대구·경남·전남·광주·진주 등) ─────────
-    # SPS-550K AESA 레이더 / KVLS 32셀 해궁 추가 / 채널 개선
+    # SPS-550K AESA 레이더 / KVLS-I 16셀 — 해궁 quad-pack(SM-2·ESSM 미탑재, KVLS만 보유)
     'FFX-II': {
         'display':      '호위함 FFX Batch II (대구급)',
         'sensor_km':    {'대공': 100, '대함': 38, '대잠': 48},
@@ -949,8 +948,7 @@ SHIP_DB = {
         'eccm_factor':  0.45,  # SPS-550K AESA + EW
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
-            'SM-2 Block IIIB':   16,
-            '해궁 (K-SAAM)':     32,   # KVLS 32셀 국산 단거리 함대공
+            '해궁 (K-SAAM)':     32,   # KVLS-I quad-pack(국산 단거리 함대공) — 장거리 SAM 없음
             'RIM-116 RAM':       21,
             '청상어 (경어뢰)':    8,
             'Mk.46 경어뢰':       4,
@@ -966,8 +964,7 @@ SHIP_DB = {
         'eccm_factor':  0.50,  # 개량형 AESA
         'role':         ['대공', '대함', '대잠'],
         'default_inventory': {
-            'SM-2 Block IIIB':   16,
-            '해궁 (K-SAAM)':     48,   # 확장 KVLS 48셀
+            '해궁 (K-SAAM)':     48,   # 확장 KVLS quad-pack(장거리 SAM 미탑재)
             'RIM-116 RAM':       21,
             '청상어 (경어뢰)':   12,
             'Mk.46 경어뢰':       4,
@@ -1815,17 +1812,20 @@ FRIENDLY_AIRCRAFT_DB = {
 # PLA 해군·공군 교리 기반 5종 프리셋
 ENEMY_FLEET_PRESETS = {
     # A2/AD 항공 포화 공격 — 전투기+폭격기 장거리 타격
+    # 항공 대함 포화 — 단일 기동전단 돌파엔 25~40발 동시 포화 교리. 과거 6기(대함 8~12발)는 과소.
     'A2/AD 항공 포화': [
-        {'preset': 'J-16 (플랭커-D)',  'count': 4},
-        {'preset': 'H-6 (폭격기)',     'count': 2},
+        {'preset': 'J-16 (플랭커-D)',  'count': 6},
+        {'preset': 'H-6 (폭격기)',     'count': 4},
     ],
     # 전자전 SEAD 제압 — 대방사미사일(ARM) 포화로 함대 레이더 무력화 시도.
     # 레이더를 켜면 ESM이 ARM을 정확 유도(EMCON 딜레마), 끄면 ARM 회피하나 대공 탐지 손실.
+    # ARM 24발 포화 — 실제 SEAD는 아군 레이더(SPY·SPS 등) 5~6개에 각 3~4발 할당.
+    # 과거 12발은 표적당 2발 미만으로 과소(포화 불가).
     '전자전 SEAD 제압': [
-        {'preset': 'Kh-31P 대방사미사일', 'count': 6},
-        {'preset': 'LD-10 대방사미사일',  'count': 4},
-        {'preset': 'Kh-58U 대방사미사일', 'count': 2},
-        {'preset': 'J-16 (플랭커-D)',      'count': 3},
+        {'preset': 'Kh-31P 대방사미사일', 'count': 10},
+        {'preset': 'LD-10 대방사미사일',  'count': 6},
+        {'preset': 'Kh-58U 대방사미사일', 'count': 4},
+        {'preset': 'J-16 (플랭커-D)',      'count': 4},
     ],
     # 항모 킬 체인 — 탄도+HGV+스텔스 복합
     '항모 킬 체인': [
