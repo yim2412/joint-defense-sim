@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.03.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.04.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.04.01 — 극초음속 활공 궤적 고도화: 비행 단계별 다층 요격 전환]        ║
+║  NEW-A  극초음속 활공체가 활공하며 고도를 낮추고 종말에 급강하 — 고고도는    ║
+║         외기권 SM-3로 먼저 교전, 누출 시 강하 중 SM-6 Block IB로 재교전.     ║
+║         활공·종말 횡기동으로 요격 명중률 소폭 저하 (실험적, 기본 OFF)        ║
 ║  [v16.03.01 — 사이버전 모듈: 데이터링크 변조·전투정보실 마비·레이더 교란]   ║
 ║  NEW-A  적 사이버 공격(아군 요격 명중·탐지 저하)과 아군 반격(적 발사 명중    ║
 ║         저하)을 확률적 침투로 모델링 — 경고 없이 은밀하게 발현·해제          ║
@@ -1032,7 +1036,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.03.01"
+APP_VERSION = "v16.04.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5672,6 +5676,8 @@ class MainWindow(QMainWindow):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
         if hasattr(self, 'chk_cyber'):
             self.chk_cyber.setChecked(cfg.get('enable_cyber_warfare', False))
+        if hasattr(self, 'chk_hgv_glide'):
+            self.chk_hgv_glide.setChecked(cfg.get('enable_hgv_glide', False))
         if hasattr(self, 'chk_asw_forward'):
             self.chk_asw_forward.setChecked(cfg.get('enable_asw_forward', False))
         if hasattr(self, 'chk_weather_dyn'):
@@ -6235,6 +6241,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_cyber.setChecked(False)
 
+        self.chk_hgv_glide = QCheckBox("극초음속 활공 궤적 — 단계별 고도 변화·다층 요격 전환 (실험적)")
+        self.chk_hgv_glide.setToolTip(
+            "극초음속 활공체(HGV)가 고정 고도가 아니라 마하 5+로 활공하며 고도를 낮추고\n"
+            "종말에 급강하합니다. 비행 단계에 따라 요격 층이 전환돼, 고고도(DF-17 등)는 먼저\n"
+            "외기권 SM-3로 교전하고 누출되면 강하 중 대기권 내 SM-6 Block IB로 재교전합니다.\n"
+            "활공·종말 횡기동으로 요격 명중률도 소폭 낮아집니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_hgv_glide.setChecked(False)
+
         self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계")
         self.chk_asw_forward.setToolTip(
             "대잠 헬기·초계기가 함대에 수동 대기하지 않고 전개 사거리 안의 적 잠수함 방위로\n"
@@ -6323,6 +6339,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
         fl_env.addRow("",            self.chk_cyber)
+        fl_env.addRow("",            self.chk_hgv_glide)
         fl_env.addRow("",            self.chk_asw_forward)
         fl_env.addRow("",            self.chk_weather_dyn)
         fl_env.addRow("기상 추세",   self.cmb_weather_trend)
@@ -7953,6 +7970,7 @@ class MainWindow(QMainWindow):
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
             'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
+            'enable_hgv_glide': self.chk_hgv_glide.isChecked(),  # v16.2: 극초음속 활공 궤적(실험적)
             'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(정규)
             'enable_weather_dynamics': self.chk_weather_dyn.isChecked(),  # v12.5: 동적 기상 변화
             'weather_trend':     self.cmb_weather_trend.currentText(),
@@ -9857,11 +9875,6 @@ class SplashWindow(QWidget):
              "불가 — 대잠 항공기가 시간 내내 재탐색을 반복해 사실상 탐지가 보장되고, 위협 잠수함은 원거리에서 발사 후 "
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
-            ("v16.2", "높음", "극초음속 위협 — 활공 궤적 고도화",
-             "글라이드 페이즈 다층 요격(저고도 활공 SM-6 Block IB·고고도 SM-3)은 v16.02.01에서 구현 완료. "
-             "남은 고도화 과제: 현재 극초음속 활공체는 고정 고도로 비행하나, 실제로는 마하 5+로 활공하며 "
-             "고도를 낮추고 횡기동한다. 비행 중 고도 변화(상승→활공→종말 강하)와 기동 회피를 모델링해 "
-             "교전창과 요격 단계가 비행 단계별로 달라지게 한다. 적 탄도탄과 별개로 기동성·저고도가 핵심 차별점."),
             ("v16.4", "높음", "분산 해양작전 (DMO)",
              "소형 함정 분산 배치 + 개별 타격으로 집중 방어 회피(미 해군 분산치사 교리). "
              "【현실성】미 해군 원형 ≠ 한국 소형함 위주 → 한국형으로 재해석 필요."),

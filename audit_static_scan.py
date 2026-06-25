@@ -80,7 +80,8 @@ def chk_flag_triplet():
     # 블록에서 추가된 핵심 전장/전자전 플래그(추가 시 이 목록에 1줄 더한다)
     flags = ['enable_battle_mode', 'enable_munition_limit', 'enable_ship_evasion',
              'enable_esm_arm', 'enable_sonar_emcon', 'enable_asw_forward',  # v16.1 EMCON 3종
-             'enable_cyber_warfare']  # v16.3 사이버전
+             'enable_cyber_warfare',  # v16.3 사이버전
+             'enable_hgv_glide']  # v16.2 극초음속 활공 궤적
     for f in flags:
         build   = bool(re.search(rf"['\"]{f}['\"]\s*:\s*[^\n,}}]*isChecked", lau))
         restore = bool(re.search(rf"setChecked\(\s*cfg\.get\(['\"]{f}", lau))
@@ -129,19 +130,37 @@ def chk_plans_stale():
     majors = [int(re.match(r'v(\d+)', c['version']).group(1)) for c in cl
               if re.match(r'v(\d+)', c['version'])]
     latest_major = max(majors) if majors else 0
-    # changelog 버전(v16.02.01) → _PLANS 표기(v16.2)로 정규화, 최신 major만
+    # changelog 버전(v16.02.01) → _PLANS 표기(v16.2)로 정규화, 최신 major만.
+    # minor별 changelog 제목도 모은다(번호만 같고 내용 다른 로드맵 항목 오탐 차단용).
     cl_minors = set()
+    cl_titles: dict = {}
     for c in cl:
         m = re.match(r'v(\d+)\.(\d+)\.\d+', c['version'])
         if m and int(m.group(1)) == latest_major:
-            cl_minors.add(f"v{m.group(1)}.{int(m.group(2))}")
+            key = f"v{m.group(1)}.{int(m.group(2))}"
+            cl_minors.add(key)
+            cl_titles.setdefault(key, []).append(c.get('title', ''))
     pm = re.search(r'_PLANS\s*=\s*\[(.*?)\n        \]\s*\n', lau, re.S)
     plans = pm.group(1) if pm else lau
+    def _toks(s):
+        return set(re.findall(r'[가-힣A-Za-z0-9]{2,}', s))
     stale = []
     for ver in sorted(cl_minors):
         m = re.search(rf'\(\s*["\']({re.escape(ver)})["\']\s*,', plans)
         if not m:
             continue   # _PLANS에 항목 없음(완전 완료돼 삭제) — 정상
+        # _PLANS 항목 제목(3번째 요소)이 그 minor의 changelog 제목과 핵심어를 공유하는지
+        # 확인. 안 겹치면 APP_VERSION seq와 로드맵 번호가 번호만 충돌한 것(예: changelog
+        # v16.04=극초음속 활공 vs _PLANS v16.4=분산 해양작전) → 오탐, 건너뜀.
+        thdr = re.match(
+            r'\s*\(\s*["\'][^"\']*["\']\s*,\s*["\'][^"\']*["\']\s*,\s*["\']([^"\']*)["\']',
+            plans[m.start():])
+        plan_title = thdr.group(1) if thdr else ''
+        ctoks = set()
+        for t in cl_titles.get(ver, []):
+            ctoks |= _toks(t)
+        if plan_title and not (_toks(plan_title) & ctoks):
+            continue   # 번호만 충돌, 내용 무관 — 미래 로드맵 항목(정상)
         rest = plans[m.end():]
         nxt = re.search(r'\n\s*\(\s*["\'](?:v[\d.]+|📋|진행|보류)', rest)
         block = rest[:nxt.start()] if nxt else rest[:1200]
