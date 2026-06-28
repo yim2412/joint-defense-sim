@@ -15,6 +15,7 @@
 | `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
 | `app_main.spec` | PyInstaller 빌드 스펙 |
 | `_asset_make_bg.py` | 홈 배경 이미지 생성 스크립트 (src_kf21_source.jpg → home_bg.jpg). 빌드 제외, 수동 실행용 |
+| `_changelog_export.py` | app_changelog.json → `변경이력/` 유형별 정리 문서 생성기. 빌드 제외, changelog 갱신 시 재실행 |
 
 ### 실행 방법
 
@@ -323,6 +324,9 @@ v12.06.01: [변경 내용 한 줄 요약]
    }
    ```
    `version` 필드는 변경 1건마다 `vX.YY.ZZ` 3단계 번호를 사용한다. 'patch' 표기 금지.
+
+2-b. **변경이력 문서 재생성**: changelog를 갱신했으면 `python _changelog_export.py`를 실행해
+   `변경이력/` 폴더(유형별 정리 + 전체 연표)를 최신화한다. (json만 바뀌어도 재실행 — 안 하면 stale.)
 
 3. **향후 계획 탭 갱신** (`app_main.py` → `_build_plan_tab()` 내 `_PLANS`):
    - 구현 완료된 항목은 **즉시 삭제**한다.
