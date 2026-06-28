@@ -1490,10 +1490,18 @@ class TimeStepEngine:
             if 'decoy_stock' in self.cfg:
                 s.decoy_stock = self.cfg['decoy_stock']
             # NEW-AW: 함정별 위치 분산 (KDX-III 중심, KDX-II 3km, FFX 5km 기준 반경)
-            radius = self._FORMATION_RADIUS.get(spec['type'], 3_000)
-            if radius > 0:
+            if self.cfg.get('enable_dmo', False):
+                # DMO: 전 함정을 광역 분산 링에 결정적 배치 — 적 집중 포화 회피(이득) +
+                # CEC 상호 엄호 약화(대가, 기존 _friendly_defense 거리 판정이 자동 발현).
+                # 기함도 중심에서 이탈시켜 표적 분산. 결정론 보존(각도 결정적, random 미소비).
+                spread_m = self.cfg.get('dmo_spread_km', 80.0) * 1000.0
                 angle = math.radians(len(ships) * (360.0 / max(len(preset), 1)))
-                s.pos = LatLon.from_xy(math.cos(angle) * radius, math.sin(angle) * radius)
+                s.pos = LatLon.from_xy(math.cos(angle) * spread_m, math.sin(angle) * spread_m)
+            else:
+                radius = self._FORMATION_RADIUS.get(spec['type'], 3_000)
+                if radius > 0:
+                    angle = math.radians(len(ships) * (360.0 / max(len(preset), 1)))
+                    s.pos = LatLon.from_xy(math.cos(angle) * radius, math.sin(angle) * radius)
             # NEW-XX: 랜덤 배치 옵션 — 각 함정에 임의 오프셋 추가
             if self.cfg.get('enable_random_placement', False):
                 spread_m = self.cfg.get('random_spread_km', 5.0) * 1000.0
@@ -1769,7 +1777,7 @@ class TimeStepEngine:
 
                 if ttype in _STANDALONE_MISSILE_TYPES:
                     # 독립 미사일 위협: MissileObj로 직접 생성
-                    _tgt = self._pick_target(is_torpedo=False)
+                    _tgt = self._pick_target(is_torpedo=False, threat_pos=pos)
                     m = MissileObj(
                         mtype    = 'enemy_strike',
                         name     = name,
@@ -1866,14 +1874,23 @@ class TimeStepEngine:
             raise RuntimeError("friendly_ships 비어있음 — 편대 프리셋을 확인하세요")
         return next((s for s in self.friendly_ships if s.alive), self.friendly_ships[0])
 
-    def _pick_target(self, is_torpedo: bool = False) -> FriendlyShipObj:
+    def _pick_target(self, is_torpedo: bool = False,
+                     threat_pos: Optional['LatLon'] = None) -> FriendlyShipObj:
         """적 미사일 타겟 선택 — 전단 내 생존 함정 분산 공격.
-        어뢰: 이지스 기함(primary) 우선. 대함미사일: max_hp 가중 랜덤."""
+        어뢰: 이지스 기함(primary) 우선. 대함미사일: max_hp 가중 랜덤.
+        DMO ON + threat_pos: 위협 접근축 거리 기반 가중 — 광역 분산 시 원거리
+        함정은 표적 확률이 급감(적 집중 포화 회피). OFF면 기존 경로 그대로(회귀 보존)."""
         alive = [s for s in self.friendly_ships if s.alive]
         if len(alive) <= 1:
             return alive[0] if alive else (self.friendly_ships[0] if self.friendly_ships else self._primary())
         if is_torpedo:
             return self._primary()
+        # DMO: 위협 위치에서 가까운(접근축 상) 함정에 가중 집중 → 멀리 분산된 함정은 안전
+        if self.cfg.get('enable_dmo', False) and threat_pos is not None:
+            _D = self.cfg.get('dmo_spread_km', 80.0) * 1000.0 * 0.75  # 특성 감쇠거리
+            w = [s._max_hp * math.exp(-threat_pos.dist_to(s.pos) / _D) for s in alive]
+            if sum(w) > 0:
+                return random.choices(alive, weights=w, k=1)[0]
         weights = [s._max_hp for s in alive]
         return random.choices(alive, weights=weights, k=1)[0]
 
@@ -1901,7 +1918,7 @@ class TimeStepEngine:
             pos = LatLon.from_xy(math.cos(bearing_rad) * start_m, math.sin(bearing_rad) * start_m)
 
             if ttype in _STANDALONE_MISSILE_TYPES:
-                _tgt = self._pick_target(is_torpedo=False)
+                _tgt = self._pick_target(is_torpedo=False, threat_pos=pos)
                 m = MissileObj(
                     mtype='enemy_strike', name=name, pos=pos,
                     target=_tgt,
@@ -2674,7 +2691,7 @@ class TimeStepEngine:
                 if self._adaptive_ai and self._adaptive_mode == 'saturation' and not _is_torp:
                     _tgt = primary
                 else:
-                    _tgt = self._pick_target(is_torpedo=_is_torp)
+                    _tgt = self._pick_target(is_torpedo=_is_torp, threat_pos=et.pos)
                 _m = MissileObj(
                     mtype    = 'enemy_strike',
                     name     = m_name,
@@ -2729,7 +2746,7 @@ class TimeStepEngine:
                             name     = d_name,
                             pos      = LatLon.from_xy(et.pos.x + random.uniform(-300, 300),
                                                       et.pos.y + random.uniform(-300, 300)),
-                            target   = self._pick_target(is_torpedo=False),
+                            target   = self._pick_target(is_torpedo=False, threat_pos=et.pos),
                             speed_ms = d_spd,
                             pk_base  = _MISSILE_PK_MAP.get(d_name, _MISSILE_PK_DEFAULT),
                             owner_id = id(et),

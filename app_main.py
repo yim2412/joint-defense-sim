@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.06.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.07.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.07.01 — 분산해양작전(DMO) 양날 트레이드오프]                          ║
+║  NEW-A  함대 광역 분산(약 80km)으로 적 집중 포화 회피. 이득(접근축 밖 함정  ║
+║         표적 제외) ↔ 대가(CEC 상호 엄호 약화)의 양날 트레이드오프. 대량     ║
+║         포화엔 유리·소수 정밀위협엔 불리한 시나리오 의존. 실험적·기본 OFF   ║
 ║  [v16.06.02 — 전면전 포화 전 도메인 총동원 규모화]                          ║
 ║  MOD-A  전면전 포화 시나리오를 표적당 1발 미만 소규모에서 공중·탄도·극초     ║
 ║         음속·수상·수중 전 도메인 총동원 포화로 증강 — 스텔스기 4·플랭커 4·  ║
@@ -1071,7 +1075,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.06.02"
+APP_VERSION = "v16.07.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5759,6 +5763,8 @@ class MainWindow(QMainWindow):
             self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
         if hasattr(self, 'chk_radar_off'):
             self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
+        if hasattr(self, 'chk_dmo'):
+            self.chk_dmo.setChecked(cfg.get('enable_dmo', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -6605,6 +6611,17 @@ class MainWindow(QMainWindow):
             "OFF하지 않으면 ARM이 레이더를 직격할 수 있습니다."
         )
 
+        # v16.4: 분산해양작전(DMO)
+        self.chk_dmo = QCheckBox("분산해양작전 DMO (실험적)")
+        self.chk_dmo.setChecked(False)
+        self.chk_dmo.setToolTip(
+            "함대를 광역 분산 배치(약 80km 반경)해 적의 집중 포화 표적화를 회피합니다.\n"
+            "  · 이득: 적 대함미사일이 접근축 상 일부 함정에만 집중 → 멀리 분산된 함정은 안전\n"
+            "  · 대가: 함정 간 거리가 멀어져 협동방어(CEC) 상호 엄호 약화 — 개별 함정 피격 위험↑\n"
+            "대량 포화에는 유리하나 소수 정밀위협에는 불리한 시나리오 의존 전술입니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         # v10.7: 전술 의사결정 모드
         self.chk_tactical = QCheckBox("전술 의사결정 모드")
         self.chk_tactical.setChecked(False)
@@ -6649,7 +6666,7 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
-                    self.chk_tactical]:
+                    self.chk_dmo, self.chk_tactical]:
             _wire_chk_color(chk, 13)
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -8044,6 +8061,8 @@ class MainWindow(QMainWindow):
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
             'enable_radar_off':          self.chk_radar_off.isChecked(),
+            'enable_dmo':                self.chk_dmo.isChecked(),
+            'dmo_spread_km':             80.0,
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -9910,9 +9929,6 @@ class SplashWindow(QWidget):
              "불가 — 대잠 항공기가 시간 내내 재탐색을 반복해 사실상 탐지가 보장되고, 위협 잠수함은 원거리에서 발사 후 "
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
-            ("v16.4", "높음", "분산 해양작전 (DMO)",
-             "소형 함정 분산 배치 + 개별 타격으로 집중 방어 회피(미 해군 분산치사 교리). "
-             "【현실성】미 해군 원형 ≠ 한국 소형함 위주 → 한국형으로 재해석 필요."),
             ("v16.5", "높음", "해안 방어 시설 통합 (C-RAM)",
              "육상 근접방어무기·해안 미사일 포대 고정 배치. 연안 접근 미사일·드론 대응. "
              "기뢰 차단 구역 설정. 인천·부산·동해 항만 방어. 지형(v14.1) 연동 시 가치 배가."),
