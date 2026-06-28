@@ -1822,8 +1822,8 @@ ENEMY_FLEET_PRESETS = {
     # ARM 24발 포화 — 실제 SEAD는 아군 레이더(SPY·SPS 등) 5~6개에 각 3~4발 할당.
     # 과거 12발은 표적당 2발 미만으로 과소(포화 불가).
     '전자전 SEAD 제압': [
-        {'preset': 'Kh-31P 대방사미사일', 'count': 10},
-        {'preset': 'LD-10 대방사미사일',  'count': 6},
+        {'preset': 'Kh-31P 대방사미사일', 'count': 12},
+        {'preset': 'LD-10 대방사미사일',  'count': 8},
         {'preset': 'Kh-58U 대방사미사일', 'count': 4},
         {'preset': 'J-16 (플랭커-D)',      'count': 4},
     ],
