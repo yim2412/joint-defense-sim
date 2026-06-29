@@ -149,8 +149,12 @@ def chk_plans_stale():
             cl_titles.setdefault(key, []).append(c.get('title', ''))
     pm = re.search(r'_PLANS\s*=\s*\[(.*?)\n        \]\s*\n', lau, re.S)
     plans = pm.group(1) if pm else lau
+    # 흔한 도메인 불용어 — 우연히 1개 겹쳐 번호충돌 오탐 차단이 뚫리는 것 방지
+    # (예: changelog v16.8 'C-RAM 방어 포대' vs _PLANS v16.8 '항만 방어 시나리오'의 '방어')
+    _STOP = {'방어', '시나리오', '공격', '작전', '전술', '모드', '통합', '강화',
+             '기능', '체계', '지원', '대응', '시스템', '도입', '확장'}
     def _toks(s):
-        return set(re.findall(r'[가-힣A-Za-z0-9]{2,}', s))
+        return set(re.findall(r'[가-힣A-Za-z0-9]{2,}', s)) - _STOP
     stale = []
     for ver in sorted(cl_minors):
         m = re.search(rf'\(\s*["\']({re.escape(ver)})["\']\s*,', plans)
@@ -166,8 +170,8 @@ def chk_plans_stale():
         ctoks = set()
         for t in cl_titles.get(ver, []):
             ctoks |= _toks(t)
-        if plan_title and not (_toks(plan_title) & ctoks):
-            continue   # 번호만 충돌, 내용 무관 — 미래 로드맵 항목(정상)
+        if plan_title and len(_toks(plan_title) & ctoks) < 2:
+            continue   # 핵심어 2개 미만 겹침 → 번호만 충돌, 내용 무관(미래 로드맵, 정상)
         rest = plans[m.end():]
         nxt = re.search(r'\n\s*\(\s*["\'](?:v[\d.]+|📋|진행|보류)', rest)
         block = rest[:nxt.start()] if nxt else rest[:1200]

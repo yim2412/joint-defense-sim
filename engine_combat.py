@@ -151,6 +151,7 @@ class TacticalState:
 INTERCEPT_DIST_M = 200    # BUG-5: SAM 근접 신관 범위 (m). 기존 2000m 과대, 실제 50-200m
 ECM_REF_RANGE_M  = 25_000 # MED-9: ECM 재밍 기준 거리 25km (기존 50km 과대)
 DECOY_PK         = 0.50   # LOW-7: 0.60→0.50 (AN/SLQ-25 실전 기만 성공률)
+_DECEPTION_SCALE_M = 150.0  # v16.6 전자 좌표 기만 Pk 감쇠 스케일 (이격 150m마다 e^-1, ARM stale과 동형)
 SHIP_EVASION_PK  = 0.20   # LOW-8: 0.30→0.20 (회피 기동 성공률 현실화)
 # v16.3 사이버전 효과 계수 (침투 지속 중 곱셈 페널티). 확률·주기·지속은 cfg로 튜닝.
 _CYBER_DL_PK   = 0.70     # 데이터링크 변조 시 아군 요격 Pk 배율
@@ -874,6 +875,9 @@ class MissileObj:
         self._jink_t:     float = -1.0           # 표적 jink 전진이 적용된 마지막 틱 (다중 SAM 중복 방지)
         # v16.1 ESM→ARM: stale 조준 좌표(레이더 OFF 시 마지막 포착 위치). None이면 실시간 표적 추적.
         self.arm_aim_pos = None
+        # v16.6 전자 좌표 기만: 가짜 조준 좌표(아군 ECM 교란). None이면 미기만. 종말권 1회 판정.
+        self.decoy_aim_pos = None
+        self.decoy_aim_checked = False
 
     def update(self, dt: float) -> bool:
         """1 tick 이동. alive=False 설정 금지 — 요격/피격 판정은 엔진이 담당."""
@@ -881,7 +885,13 @@ class MissileObj:
             return False
         # v16.1 ESM→ARM: arm_aim_pos(stale 조준 좌표)가 있으면 그쪽으로 유도(레이더 OFF 시
         # 마지막 포착 위치). None이면 기존 실시간 표적 추적(bit-identical).
-        _aim = self.arm_aim_pos if self.arm_aim_pos is not None else self.target.pos
+        # 유도 좌표 우선순위: ARM stale > 전자 좌표 기만 > 실시간 표적
+        if self.arm_aim_pos is not None:
+            _aim = self.arm_aim_pos
+        elif self.decoy_aim_pos is not None:
+            _aim = self.decoy_aim_pos
+        else:
+            _aim = self.target.pos
         arrived = self.pos.move_toward(_aim, self.speed_ms, dt)
         if arrived:
             self.hit = True
@@ -1347,6 +1357,12 @@ class TimeStepEngine:
         self._dl_corrupt_until = -1.0     # 데이터링크 변조(아군 요격 Pk↓) 만기
         self._cic_blind_until  = -1.0     # CIC 마비(아군 탐지거리↓) 만기
         self._enemy_jam_until  = -1.0     # 레이더 교란 반격(적 발사 Pk↓) 만기
+        # v16.6 전자 좌표 기만: 아군 ECM이 적 레이더 표시 위치를 교란 → 적 대함미사일이 종말권
+        # 진입 시 확률적으로 가짜 좌표로 유도(명중 급감). 기본 OFF면 무동작·random 미소비.
+        self._coord_deception      = bool(cfg.get('enable_coord_deception', False))
+        self._coord_decep_range_m  = float(cfg.get('coord_deception_range_km', 15.0)) * 1000.0
+        self._coord_decep_rate     = float(cfg.get('coord_deception_rate', 0.5))     # 종말 기만 성공 확률
+        self._coord_decep_offset_m = float(cfg.get('coord_deception_offset_m', 250.0))  # 가짜 좌표 이격
         # v16.2 극초음속 활공 궤적: HGV가 고정 고도가 아니라 활공(완만 하강)→종말 급강하로
         # 고도가 변해, 같은 HGV가 비행 단계별로 다른 요격 층(외기권 SM-3 → 대기권 내
         # SM-6 Block IB)으로 전환된다. 기본 OFF면 altitude_m 고정 → 회귀 bit-identical.
@@ -2385,6 +2401,7 @@ class TimeStepEngine:
         self._apply_ship_evasion()
         self._arm_esm_update()   # v16.1: ARM 유도를 아군 레이더 방사 상태에 연동(미사일 이동 전)
         self._cyber_update()     # v16.3: 사이버전 침투 굴림(주기적, OFF면 무동작)
+        self._coord_deception_update()  # v16.6: 종말권 진입 대함미사일 좌표 기만(미사일 이동 전)
 
         primary_pos = self._primary().pos
         for et in self.enemy_threats:
@@ -2834,6 +2851,32 @@ class TimeStepEngine:
                 # 발사부터 레이더 OFF → 현 위치를 '마지막 포착'으로 1회 고정(이후 stale 유지)
                 m.arm_aim_pos = LatLon.from_xy(tgt.pos.x, tgt.pos.y)
             # else: 레이더 OFF 지속 → 기존 stale 좌표 유지(갱신 안 함)
+
+    def _coord_deception_update(self):
+        """v16.6 전자 좌표 기만: 아군 ECM이 적 레이더 화면상 함정 표시 위치를 교란 →
+        적 대함미사일이 종말권 진입 시 확률적으로 가짜 좌표(decoy_aim_pos)로 유도된다.
+        _check_hits에서 실제 표적과의 이격만큼 명중 급감. 레이더 유도 대함만(탄도·HGV·
+        ARM·어뢰는 레이더 유도가 아니라 무효 — 기존 ECM 무효 항목과 동일).
+        enable_coord_deception OFF면 무동작·random 미소비(회귀 bit-identical)."""
+        if not self._coord_deception:
+            return
+        for m in self.missiles:
+            if not (m.alive and m.mtype == 'enemy_strike') or m.decoy_aim_checked:
+                continue
+            if m.is_ballistic or m.is_hgv or m.is_arm or m.is_torpedo:
+                continue
+            tgt = m.target
+            if not isinstance(tgt, FriendlyShipObj) or not tgt.alive:
+                continue
+            if m.pos.dist_to(tgt.pos) > self._coord_decep_range_m:
+                continue  # 종말권 밖 — 유도 안정, 기만 미적용
+            m.decoy_aim_checked = True   # 종말 진입 1회만 판정(매틱 재시도 방지)
+            if random.random() < self._coord_decep_rate:
+                ang = random.uniform(0, 2 * math.pi)
+                off = self._coord_decep_offset_m
+                m.decoy_aim_pos = LatLon.from_xy(
+                    tgt.pos.x + math.cos(ang) * off,
+                    tgt.pos.y + math.sin(ang) * off)
 
     def _cyber_update(self):
         """v16.3 사이버전: 주기적으로 3개 채널의 침투를 독립 시도한다. 데이터링크 변조·CIC
@@ -4287,6 +4330,11 @@ class TimeStepEngine:
                     if self.cfg.get('enable_ecm', True) and not m.is_ballistic and not m.is_hgv:
                         ecm_red = 0.30 * self.cfg.get('ecm_scale', 1.0)
                         m.pk_base = max(0.0, m.pk_base * (1.0 - ecm_red))
+                    # v16.6 전자 좌표 기만: 가짜 좌표로 유도된 미사일은 실제 표적 이격만큼 명중 급감
+                    # (ARM stale 유도와 동형). 기존 ECM Pk 감소와 별개인 위치 기만 레이어.
+                    if m.decoy_aim_pos is not None:
+                        miss_d = m.decoy_aim_pos.dist_to(tgt.pos)
+                        m.pk_base = m.pk_base * math.exp(-miss_d / _DECEPTION_SCALE_M)
                     # v16.3 사이버전 레이더 교란 반격(아군→적): 침투 지속 중 적 사격통제 교란 →
                     # 적 발사 미사일 Pk 저하. 레이더 유도가 아닌 탄도/HGV는 무효(ECM과 동형).
                     if (self._cyber and self.t < self._enemy_jam_until

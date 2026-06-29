@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.08.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.09.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.09.01 — 전자 좌표 기만: 적 대함미사일 가짜 좌표 유도]                 ║
+║  NEW-A  함정 ECM이 적 레이더 표시 위치 교란 → 적 대함미사일이 종말에 가짜  ║
+║         좌표로 유도돼 빗나감. 레이더 유도 대함만(탄도·HGV·ARM·어뢰 무효).  ║
+║         기존 ECM과 별개인 위치 기만 레이어. 실험적·기본 OFF                 ║
 ║  [v16.08.01 — 연안 작전: 해안 C-RAM·SAM 방어 포대]                          ║
 ║  NEW-A  해안 고정 방어 자산 2종(C-RAM 근접방어·해안 SAM 포대) — 불침·고정  ║
 ║         함대+해안 협동 다층방어. 연안 자폭 드론 스웜·유도로켓 위협 신설 +   ║
@@ -1079,7 +1083,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.08.01"
+APP_VERSION = "v16.09.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5769,6 +5773,8 @@ class MainWindow(QMainWindow):
             self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
         if hasattr(self, 'chk_dmo'):
             self.chk_dmo.setChecked(cfg.get('enable_dmo', False))
+        if hasattr(self, 'chk_coord_decep'):
+            self.chk_coord_decep.setChecked(cfg.get('enable_coord_deception', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -6626,6 +6632,17 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
         )
 
+        # v16.6: 전자 좌표 기만
+        self.chk_coord_decep = QCheckBox("전자 좌표 기만 (실험적)")
+        self.chk_coord_decep.setChecked(False)
+        self.chk_coord_decep.setToolTip(
+            "함정 전자방해(ECM)로 적 레이더 화면상 함정 표시 위치를 교란합니다.\n"
+            "적 대함미사일이 종말 단계에서 가짜 좌표로 유도돼 실제 함정과 빗나가며 명중률이 떨어집니다.\n"
+            "기존 전자방해(탐지거리·Pk 감소)와 별개인 위치 기만 수단입니다.\n"
+            "레이더 유도 대함미사일에만 적용(탄도·극초음속·대방사·어뢰는 무효).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         # v10.7: 전술 의사결정 모드
         self.chk_tactical = QCheckBox("전술 의사결정 모드")
         self.chk_tactical.setChecked(False)
@@ -6670,7 +6687,7 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
-                    self.chk_dmo, self.chk_tactical]:
+                    self.chk_dmo, self.chk_coord_decep, self.chk_tactical]:
             _wire_chk_color(chk, 13)
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -8067,6 +8084,7 @@ class MainWindow(QMainWindow):
             'enable_radar_off':          self.chk_radar_off.isChecked(),
             'enable_dmo':                self.chk_dmo.isChecked(),
             'dmo_spread_km':             80.0,
+            'enable_coord_deception':    self.chk_coord_decep.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -9933,10 +9951,6 @@ class SplashWindow(QWidget):
              "불가 — 대잠 항공기가 시간 내내 재탐색을 반복해 사실상 탐지가 보장되고, 위협 잠수함은 원거리에서 발사 후 "
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
-            ("v16.6", "중간", "전자 좌표 기만",
-             "함정 전자방해 강화 시 적 레이더 화면상 표시 위치가 실제와 어긋남. "
-             "적 미사일이 가짜 좌표로 유도 → 명중률 저하. "
-             "기존 탐지거리 감소 전자방해와 별개인 위치 기만 수단."),
             ("v16.7", "높음", "기뢰전 (MIW)",
              "기뢰 부설·소해 작전 모델. 계류기뢰·해저기뢰·자항기뢰 3종, 소해함·UUV 소해 운용. "
              "협수로·항만 입구 기뢰원 설정과 안전 항로 개척. "
