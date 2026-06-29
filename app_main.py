@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.09.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.10.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.10.01 — 기뢰전(MIW): 작전 해역 기뢰 노출·소해]                       ║
+║  NEW-A  함대 진입 시 함정별 확률적 기뢰 접촉(계류·해저감응·자항 3종 차등).  ║
+║         대형함=감응 취약·소형함=회피 유리. 소해 지원 시 접촉 약 60% 경감.   ║
+║         실험적·기본 OFF                                                     ║
 ║  [v16.09.01 — 전자 좌표 기만: 적 대함미사일 가짜 좌표 유도]                 ║
 ║  NEW-A  함정 ECM이 적 레이더 표시 위치 교란 → 적 대함미사일이 종말에 가짜  ║
 ║         좌표로 유도돼 빗나감. 레이더 유도 대함만(탄도·HGV·ARM·어뢰 무효).  ║
@@ -1083,7 +1087,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.09.01"
+APP_VERSION = "v16.10.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5775,6 +5779,10 @@ class MainWindow(QMainWindow):
             self.chk_dmo.setChecked(cfg.get('enable_dmo', False))
         if hasattr(self, 'chk_coord_decep'):
             self.chk_coord_decep.setChecked(cfg.get('enable_coord_deception', False))
+        if hasattr(self, 'chk_mine_threat'):
+            self.chk_mine_threat.setChecked(cfg.get('enable_mine_threat', False))
+        if hasattr(self, 'chk_minesweeping'):
+            self.chk_minesweeping.setChecked(cfg.get('enable_minesweeping', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -6643,6 +6651,22 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
         )
 
+        # v16.7: 기뢰전(MIW)
+        self.chk_mine_threat = QCheckBox("기뢰전 위협 (실험적)")
+        self.chk_mine_threat.setChecked(False)
+        self.chk_mine_threat.setToolTip(
+            "작전 해역(협수로·항만 입구)의 기뢰 위협에 함정이 노출됩니다.\n"
+            "진입 시 함정별로 확률적 기뢰 접촉을 판정 — 계류·해저감응·자항 3종이 차등 피해를 줍니다.\n"
+            "배수량 큰 함정일수록 감응 기뢰에 취약하고, 소형함은 회피가 유리합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_minesweeping = QCheckBox("소해 지원 (기뢰 접촉 경감)")
+        self.chk_minesweeping.setChecked(False)
+        self.chk_minesweeping.setToolTip(
+            "소해함·무인 소해정(UUV)의 소해 지원으로 안전 항로를 개척해 기뢰 접촉 확률을 약 60% 낮춥니다.\n"
+            "기뢰전 위협이 켜져 있을 때만 효과가 있습니다."
+        )
+
         # v10.7: 전술 의사결정 모드
         self.chk_tactical = QCheckBox("전술 의사결정 모드")
         self.chk_tactical.setChecked(False)
@@ -6687,7 +6711,8 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
-                    self.chk_dmo, self.chk_coord_decep, self.chk_tactical]:
+                    self.chk_dmo, self.chk_coord_decep, self.chk_mine_threat,
+                    self.chk_minesweeping, self.chk_tactical]:
             _wire_chk_color(chk, 13)
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -8085,6 +8110,9 @@ class MainWindow(QMainWindow):
             'enable_dmo':                self.chk_dmo.isChecked(),
             'dmo_spread_km':             80.0,
             'enable_coord_deception':    self.chk_coord_decep.isChecked(),
+            'enable_mine_threat':        self.chk_mine_threat.isChecked(),
+            'mine_density':              0.3,
+            'enable_minesweeping':       self.chk_minesweeping.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -9951,10 +9979,6 @@ class SplashWindow(QWidget):
              "불가 — 대잠 항공기가 시간 내내 재탐색을 반복해 사실상 탐지가 보장되고, 위협 잠수함은 원거리에서 발사 후 "
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
-            ("v16.7", "높음", "기뢰전 (MIW)",
-             "기뢰 부설·소해 작전 모델. 계류기뢰·해저기뢰·자항기뢰 3종, 소해함·UUV 소해 운용. "
-             "협수로·항만 입구 기뢰원 설정과 안전 항로 개척. "
-             "v16.5의 '기뢰 차단 구역'을 정식 기뢰 모델로 구체화 — 적 기뢰 위협이 기동을 제약."),
             ("v16.8", "중간", "항만·기지 방어 시나리오",
              "해군기지·항만 거점 방어. 적 침투정·자폭 보트(USV)·기뢰 복합 위협에 대응. "
              "기지별 고정 방어 자산·근접 방어망·경계 운용. "
