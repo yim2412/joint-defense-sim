@@ -1104,6 +1104,8 @@ class FriendlyShipObj:
         self.radar_off_until: float = 0.0  # ARM 회피 전술: 이 시각까지 레이더 OFF
         self.eccm_factor: float = spec.get('eccm_factor', 0.40)  # v8.26: 재밍 상쇄 능력
 
+        # v16.5: 해안 고정 방어 포대 — 육상이라 침몰·회피 없음(HP 누적 시 무력화).
+        self.is_shore_battery = ship_type in ('CRAM', 'CSAM')
         # v12.4: 동적 침수·복원력 모델 (enable_flooding ON 경로). 잠수함은 제외.
         self._surv = SHIP_SURVIVABILITY.get(ship_type)
         self.is_sub_hull = self.is_submarine or ship_type in ('SSN', 'KSS-I', 'KSS-II', 'KSS-III')
@@ -1195,7 +1197,7 @@ class FriendlyShipObj:
     def add_flooding(self, breach: float):
         """v12.4: 수선하 피격 → 격실 침수 누적 (enable_flooding ON 경로).
         breach: 즉시 침수율 증가량(0~1). 잠수함·생존성 데이터 없으면 무시."""
-        if self._surv is None or self.is_sub_hull:
+        if self._surv is None or self.is_sub_hull or self.is_shore_battery:
             return
         self.flood      += breach
         self.flood_rate += breach * FLOOD_INFLOW_K   # 파공 유입 속도 가산
@@ -2360,8 +2362,8 @@ class TimeStepEngine:
             _w  = STRAITS_DB.get(_sk, {}).get('width_km', _STRAIT_OPEN_SEA_KM)
             _evade_r = int(_evade_r * min(1.0, _w / _STRAIT_OPEN_SEA_KM))
         for ship in self.friendly_ships:
-            if not ship.alive:
-                continue
+            if not ship.alive or ship.is_shore_battery:
+                continue   # 해안 고정 포대는 회피 기동 없음
             close = any(
                 m.alive and m.mtype == 'enemy_strike'
                 and m.pos.dist_to(ship.pos) < _evade_r

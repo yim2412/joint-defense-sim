@@ -128,6 +128,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | 파일 | 역할 |
 |------|------|
 | `_asset_make_bg.py` | 홈 배경 이미지 생성 |
+| `_changelog_export.py` | app_changelog.json → `변경이력/` 유형별 정리 문서 생성 |
 | `asset_download_images.py` | DB 장비 사진 일괄 수집 |
 
 ### 디렉터리

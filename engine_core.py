@@ -367,6 +367,23 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.10,'speed_boost_max':0.22,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.15,'enemy_ciws_pk':0.12},  # NEW-F
 
+    # ── 연안 자폭 드론 스웜 (항만 근접 자폭 무인기) ──────────────────────────
+    # 다수 소형 자폭 드론. 미사일 미발사·저속 저고도로 표적에 직접 돌진 자폭(200m 도달).
+    # 소형 RCS로 원거리 탐지 어려움 → C-RAM/CIWS 근접 종말 요격 대상.
+    '연안 자폭 드론':
+        {'category':'대함','type':'전투기','speed_ms':28,'altitude_m':150,
+         'can_fire_missile':False,'rcs_m2':0.3,
+         'self_defense_pk':0.05,'enemy_ciws_pk':0.0,
+         'hp':None,'high_value_target':False},
+
+    # ── 연안 공격 로켓 (단거리 유도로켓 포화) ─────────────────────────────────
+    # 방사포급 단거리 유도로켓. 저고도 다발 포화 → 해안 SAM·CIWS 종말 요격.
+    '연안 공격 로켓':
+        {'category':'대함','type':'순항미사일','speed_ms':250,'altitude_m':50,
+         'missile_range_km':80,'rcs_m2':0.5,
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'hp':None,'high_value_target':False},
+
     '056형 초계함':
         {'category':'대함','type':'초계함','speed_ms':14.0,'altitude_m':15,
          'missile_name':'YJ-83 대함미사일','missile_speed_ms':300,'missile_range_km':180,
@@ -1012,6 +1029,34 @@ SHIP_DB = {
             'CIWS-II (Phalanx)': 9999,
         },
     },
+    # ── 해안 C-RAM 근접방어 포대 (고정·불침, 연안 작전) ──────────────────────
+    # 항만·해안 고정 배치. 연안 드론 스웜·로켓·박격포 종말 요격 특화 (팰렁스 + RAM).
+    # 침몰 없음(육상) — HP 누적 시 무력화. 회피 기동 없음(고정).
+    'CRAM': {
+        'display':      '해안 C-RAM 근접방어 포대',
+        'sensor_km':    {'대공': 40, '대함': 20, '대잠': 0},
+        'max_channels': 4,
+        'eccm_factor':  0.30,
+        'role':         ['대공'],
+        'default_inventory': {
+            'CIWS-II (Phalanx)': 9999,
+            'RIM-116 RAM':       21,
+        },
+    },
+    # ── 해안 SAM 방공 포대 (고정·불침, 연안 작전) ─────────────────────────────
+    # 항만·해안 고정 배치. 연안 접근 대함미사일·항공 중거리 요격 (ESSM·SM-2).
+    'CSAM': {
+        'display':      '해안 SAM 방공 포대',
+        'sensor_km':    {'대공': 150, '대함': 60, '대잠': 0},
+        'max_channels': 6,
+        'eccm_factor':  0.35,
+        'role':         ['대공', '대함'],
+        'default_inventory': {
+            'ESSM Block II':   32,
+            'SM-2 Block IIIB': 16,
+            'RIM-116 RAM':     21,
+        },
+    },
     # ── 강습상륙함 (LPH 독도함급 / 마라도함) ─────────────────────────────────
     # 14,500톤 / 22노트 / 헬기 모함·지휘함 — RAM × 42, CIWS × 2, 헬기 15대
     'LPH': {
@@ -1244,6 +1289,8 @@ SHIP_PROCUREMENT_USD = {
     'PKG':        42_000_000,     # 윤영하급 ~570억원
     'PCC':        60_000_000,     # 포항급 (현가 근사) ~800억원
     'PKX-B':      22_000_000,     # 참수리-II ~300억원
+    'CRAM':       40_000_000,     # 해안 C-RAM 근접방어 포대 (팰렁스+RAM 1포대 근사) ~550억원
+    'CSAM':       180_000_000,    # 해안 SAM 방공 포대 (천궁/패트리어트급 1포대 근사) ~2,400억원
     'LPH':        300_000_000,    # 독도함급 ~4,000억원
     'AOE':        356_000_000,    # 소양함 ~4,800억원
     'LST':        111_000_000,    # 천왕봉급 ~1,500억원
@@ -1538,6 +1585,15 @@ FLEET_PRESETS = {
         {'name': '정조대왕함',        'type': 'KDX-III-B2'},
         {'name': '충무공이순신함',    'type': 'KDX-II'},
         {'name': '문무대왕함',        'type': 'KDX-II'},
+    ],
+    # 연안 방어 전대 (v16.5 — 항만 방어: 함정 + 해안 고정 방어 포대)
+    # 연안 작전 시 함대에 해안 C-RAM·SAM 포대가 가세하는 함대+해안 협동 다층방어.
+    '연안 방어 전대': [
+        {'name': '대구함',          'type': 'FFX-II'},
+        {'name': '참수리-211',      'type': 'PKX-B'},
+        {'name': '인천 C-RAM 포대', 'type': 'CRAM'},
+        {'name': '부산 C-RAM 포대', 'type': 'CRAM'},
+        {'name': '동해 SAM 포대',   'type': 'CSAM'},
     ],
 }
 
@@ -1836,6 +1892,13 @@ ENEMY_FLEET_PRESETS = {
         {'preset': 'DF-17 (극초음속 활공)', 'count': 4},
         {'preset': 'YJ-21 (극초음속 대함)', 'count': 4},
         {'preset': 'J-20 (위룡)',           'count': 3},
+    ],
+    # 연안 포화 공격 (v16.5 — 항만 근접: 자폭 드론 스웜 + 단거리 로켓 + 고속정)
+    # 소형 자폭 드론·저고도 로켓이 다발로 항만에 접근 → C-RAM 근접방어·해안 SAM 시험.
+    '연안 포화 공격': [
+        {'preset': '연안 자폭 드론',      'count': 30},
+        {'preset': '연안 공격 로켓',      'count': 20},
+        {'preset': '022형 미사일 고속정', 'count': 4},
     ],
     # 수상함 편대전 — 함포·미사일 집중
     '수상함 편대전': [
