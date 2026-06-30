@@ -2424,9 +2424,12 @@ class TimeStepEngine:
                 et.pos.move_toward(self._threat_move_target(et, primary_pos), et.speed_ms, DT)
 
         # NEW-B: 드론/스웜 자폭 — 200m 이내 도달 시 피격 처리
+        # v16.8: 공중 자폭 드론(is_aircraft) + 수상 자폭정(is_suicide) 공통 처리.
         primary = self._primary()
         for et in self.enemy_threats:
-            if not et.alive or not et.is_aircraft or et.is_retreating:
+            if not et.alive or et.is_retreating:
+                continue
+            if not (et.is_aircraft or et.info.get('is_suicide')):
                 continue
             if et.info.get('can_fire_missile', True):
                 continue  # 일반 전투기는 미사일 발사 후 이탈 — 자폭 없음
@@ -3534,7 +3537,13 @@ class TimeStepEngine:
                             f"(거리 {dist_m/1000:.0f}km)"
                         )
                     else:
-                        wpn = self._select_strike_wpn(ship, dist_m)
+                        # v16.8: 소형 자폭정(USV)엔 고가 대함미사일 낭비 방지 —
+                        # Mk.45 5인치 함포 근접 격퇴만 (재고 무한·근거리 최후 레이어)
+                        if et.info.get('is_suicide'):
+                            _gun_rng = FRIENDLY_STRIKE_DB['Mk.45 5인치 함포']['range_km'] * 1000
+                            wpn = 'Mk.45 5인치 함포' if dist_m <= _gun_rng else None
+                        else:
+                            wpn = self._select_strike_wpn(ship, dist_m)
                         if not wpn:
                             continue
                         wpn_info = FRIENDLY_STRIKE_DB[wpn]

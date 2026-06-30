@@ -376,6 +376,16 @@ ENEMY_DB = {
          'self_defense_pk':0.05,'enemy_ciws_pk':0.0,
          'hp':None,'high_value_target':False},
 
+    # ── 자폭 무인수상정 (USV — 항만 근접 수상 자폭 보트) ──────────────────────
+    # 소형 무인 고속보트가 수상으로 표적에 직접 돌진해 자폭(200m 도달). 미사일 미발사.
+    # 공중 자폭 드론(연안 자폭 드론)의 수상 대응물 — is_suicide로 수상 자폭 처리.
+    # 소형 RCS·저속, hp 1(함포 1발 격침) → Mk.45 5인치 함포 근접 격퇴 대상.
+    '자폭 무인수상정(USV)':
+        {'category':'대함','type':'고속정','speed_ms':14,'altitude_m':5,
+         'can_fire_missile':False,'is_suicide':True,'rcs_m2':5.0,
+         'self_defense_pk':0.0,'enemy_ciws_pk':0.0,
+         'hp':1,'high_value_target':False},
+
     # ── 연안 공격 로켓 (단거리 유도로켓 포화) ─────────────────────────────────
     # 방사포급 단거리 유도로켓. 저고도 다발 포화 → 해안 SAM·CIWS 종말 요격.
     '연안 공격 로켓':
@@ -1631,6 +1641,7 @@ def normalize_enemy_db():
         e.setdefault('is_hgv', False)
         e.setdefault('is_qbm', False)
         e.setdefault('is_arm', False)
+        e.setdefault('is_suicide', False)   # v16.8: 수상 자폭정(USV) — 200m 도달 직접 자폭
         e.setdefault('terminal_evasion_factor', TYPE_TEV.get(et, 1.0))
         e.setdefault('ecm_power',               TYPE_ECM.get(et, 0.0))
         e.setdefault('self_defense_pk',      0.0)
@@ -1899,6 +1910,14 @@ ENEMY_FLEET_PRESETS = {
         {'preset': '연안 자폭 드론',      'count': 30},
         {'preset': '연안 공격 로켓',      'count': 20},
         {'preset': '022형 미사일 고속정', 'count': 4},
+    ],
+    # 항만 침투 복합 (v16.8 — 거점 방어: 무인 수상정 + 침투 고속정 + 공중 자폭드론)
+    # 수상 자폭 USV가 근접 돌진(함포 격퇴), 침투 고속정이 대함미사일 살보, 공중 드론 가세.
+    # 기뢰(enable_mine_threat)와 조합해 항만 거점 방어 시나리오를 구성.
+    '항만 침투 복합': [
+        {'preset': '자폭 무인수상정(USV)', 'count': 12},
+        {'preset': '022형 미사일 고속정',  'count': 4},
+        {'preset': '연안 자폭 드론',       'count': 8},
     ],
     # 수상함 편대전 — 함포·미사일 집중
     '수상함 편대전': [
