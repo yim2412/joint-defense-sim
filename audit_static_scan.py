@@ -215,10 +215,22 @@ def chk_stale_filename():
           f"stale 명칭={stale}" if stale else 'OK')
 
 
+def chk_completed_plans():
+    # ⑥ 위생: 구현완료 설계문서(plan_v<N>_<M>_*.md)가 루트에 잔존 — _archive/plans/로 가야 함.
+    # 숫자 마이너를 가진 plan은 특정 마이너 구현 설계문서 → 구현되면 아카이브 대상.
+    # 진행 중 메이저 plan(plan_battle_engine.md 등 숫자 마이너 없는 것)은 자동 제외.
+    # (v16 종합감사 메타회고: plan_v16_4~8 루트 잔존을 수동 발견 → 자동검사로 굳힘)
+    root_plans = [f for f in _tracked()
+                  if '/' not in f and re.match(r'plan_v\d+_\d+.*\.md$', f)]
+    check('⑥', '구현완료 plan_v<N>_<M> 루트 잔존 없음(→ _archive/plans/)', not root_plans,
+          f"루트 잔존(아카이브 필요)={root_plans}" if root_plans else 'OK')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_spec_count, chk_div_guards, chk_mc_paths,
-               chk_plans_stale, chk_readme_coverage, chk_stale_filename):
+               chk_plans_stale, chk_readme_coverage, chk_stale_filename,
+               chk_completed_plans):
         try:
             fn()
         except Exception as e:
