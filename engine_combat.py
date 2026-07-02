@@ -1092,6 +1092,7 @@ class FriendlyShipObj:
         self.strike_inventory: dict = {}
 
         self.is_submarine  = spec.get('is_submarine', False)
+        self.is_unmanned   = spec.get('is_unmanned', False)  # v16.12: 무인정(인명손실 0·저생존)
         self.nation        = spec.get('nation', 'KOR')  # v8.16: 한미 연합 작전
 
         # LOW-9: 함정 유형별 HP (함종별 내탄성 차등. 기존 고정값 5 → 실제 격침 내성 반영)
@@ -1101,6 +1102,7 @@ class FriendlyShipObj:
             'DDG-51': 5, 'CG-47': 5, 'CVN': 8,
             'LPD': 3, 'SSN': 3, 'LST': 3, 'AO': 2,
             'KSS-I': 2, 'KSS-II': 2, 'KSS-III': 3,
+            'USV': 2, 'UUV': 1,   # v16.12 무인정: 저생존(소형·경장갑)
         }
         self.hp            = _hp_map.get(ship_type, 4)
         self._max_hp       = self.hp
@@ -1385,6 +1387,12 @@ class TimeStepEngine:
         # 기본 OFF면 recon 역할 드론이 편성 안 돼 _recon_bonus_km=0 유지 → 회귀 bit-identical.
         self._recon_drone      = bool(cfg.get('enable_recon_drone', False))
         self._recon_bonus_km   = 0.0     # 매 tick _aircraft_recon()이 갱신하는 유효 탐지 확장량
+        # v16.12 무인 함정(A-2): USV·UUV를 함대에 편성. UUV=소해(기뢰 접촉 경감)+대잠 피켓,
+        # USV=대함 피켓+RAM 점방어. 무인이라 손실 시 인명피해 0(friendly_ships_lost 제외).
+        # 기본 OFF면 무인정 미편성 → 피켓 보너스 0·소해 무영향 → 회귀 bit-identical.
+        self._unmanned_assets  = bool(cfg.get('enable_unmanned_assets', False))
+        self._usv_surf_bonus_km = 0.0    # 매 tick USV 생존 시 대함 탐지 확장량
+        self._uuv_asw_bonus_km  = 0.0    # 매 tick UUV 생존 시 대잠 탐지 확장량
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -1455,6 +1463,8 @@ class TimeStepEngine:
             'ships_lost_to_mine':      0,
             # v16.12: 정찰 드론 격추 손실
             'recon_losses':            0,
+            # v16.12: 무인 함정(USV·UUV) 손실 (인명피해 0 — friendly_ships_lost와 분리)
+            'unmanned_lost':           0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
@@ -1553,6 +1563,19 @@ class TimeStepEngine:
                     s.pos.y + math.sin(rnd_angle) * rnd_r,
                 )
             ships.append(s)
+
+        # v16.12: 무인 함정(USV·UUV) 편성 — 토글 ON일 때만 함대 전방 피켓으로 추가.
+        # OFF면 이 블록 전체를 건너뜀 → 함대 구성 불변·RNG 미소비(회귀 bit-identical).
+        if self.cfg.get('enable_unmanned_assets', False):
+            _picket_m = 12_000.0   # 함대 전방 12km 피켓선(결정적 배치 — random 미소비)
+            for _uidx, _utype in enumerate(('USV', 'UUV')):
+                if _utype not in SHIP_DB:
+                    continue
+                u = FriendlyShipObj(self.cfg.get(f'{_utype.lower()}_name', _utype), _utype)
+                u.strike_inventory = {}
+                # 전방(적 접근축 방향 근사 +x)에 좌우로 벌려 배치
+                u.pos = LatLon.from_xy(_picket_m, (_uidx - 0.5) * 6_000.0)
+                ships.append(u)
         return ships
 
     def _init_threat_columns(self):
@@ -2066,6 +2089,8 @@ class TimeStepEngine:
                         alt_m: Optional[float] = None) -> float:
         if category == '대잠':
             base_km = ship.sensor_km.get('대잠', 50)
+            # v16.12: 무인 잠수정(UUV) 전방 수중 피켓 — 대잠 탐지거리 확장(생존 UUV 있을 때만>0)
+            base_km += self._uuv_asw_bonus_km
             factor  = self.wx.get('sonar_factor', self.wx.get('detect_range_factor', 1.0))
         else:
             # 대공: 이지스 데이터링크(Link-16) — 편대 최고 성능 레이더 공유
@@ -2073,6 +2098,8 @@ class TimeStepEngine:
             if category == '대함':
                 base_km = max(ship.sensor_km.get('대함', 45),
                               self.cfg.get('surface_detect_km', 45))
+                # v16.12: 무인 수상정(USV) 전방 피켓 — 대함 탐지거리 확장(생존 USV 있을 때만>0)
+                base_km += self._usv_surf_bonus_km
             else:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
             # v16.12: 정찰 드론 OTH 중계 — 대공·대함 레이더 탐지거리 확장(생존 드론 있을 때만>0)
@@ -2916,9 +2943,15 @@ class TimeStepEngine:
         잠수함·해안 포대는 제외. enable_mine_threat OFF면 무동작·random 미소비(회귀 보존)."""
         if not self._mine_threat:
             return
-        sweep = _MINE_SWEEP_FACTOR if self._minesweeping else 1.0
+        # v16.12: 무인 소해정(UUV) 편성 시에도 소해 활성화 — 기존 enable_minesweeping과 OR.
+        _uuv_sweep = any(s.alive and s.is_unmanned
+                         and SHIP_DB[s.ship_type].get('is_minesweeper')
+                         for s in self.friendly_ships)
+        sweep = _MINE_SWEEP_FACTOR if (self._minesweeping or _uuv_sweep) else 1.0
         for ship in self.friendly_ships:
-            if not ship.alive or ship.is_submarine or ship.is_shore_battery:
+            # 무인정(USV·UUV)은 소해·정찰 자산이라 기뢰 접촉 판정에서 제외(expendable 피켓)
+            if (not ship.alive or ship.is_submarine or ship.is_shore_battery
+                    or ship.is_unmanned):
                 continue
             disp = (ship._surv or {}).get('displacement_t', 4000)
             suscept = min(1.0, 0.5 + disp / 20000.0)   # 소형~대형 취약도 0.5~1.0
@@ -3980,6 +4013,23 @@ class TimeStepEngine:
             if bonus > self._recon_bonus_km:
                 self._recon_bonus_km = bonus
 
+    def _unmanned_picket_update(self):
+        """v16.12: 무인 함정 전방 피켓 — 생존 USV는 대함, UUV는 대잠 탐지거리를 확장한다.
+        _detect_range_m이 category별로 이 보너스를 가산(대함=USV·대잠=UUV). 무인정이 없으면
+        (기본 OFF) 보너스 0·상태 무변 → 회귀 bit-identical. 파괴되면 다음 틱부터 보너스 소멸."""
+        self._usv_surf_bonus_km = 0.0
+        self._uuv_asw_bonus_km  = 0.0
+        for s in self.friendly_ships:
+            if not s.alive or not s.is_unmanned:
+                continue
+            spec = SHIP_DB[s.ship_type]
+            sb = spec.get('picket_surface_bonus_km', 0)
+            ab = spec.get('picket_asw_bonus_km', 0)
+            if sb > self._usv_surf_bonus_km:
+                self._usv_surf_bonus_km = sb
+            if ab > self._uuv_asw_bonus_km:
+                self._uuv_asw_bonus_km = ab
+
     def _cap_posture_factors(self):
         """CAP 전개 자세 → (패트롤 반경 배율, 교전 후 쿨다운 초). 부모는 현행 고정값."""
         return (1.0, 60.0)
@@ -4765,6 +4815,7 @@ class TimeStepEngine:
             self._n_alive_threats: int = sum(1 for et in self.enemy_threats if et.alive)
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
             self._aircraft_recon()   # v16.12: 정찰 드론 OTH 탐지 확장(탐지·로깅 전 갱신)
+            self._unmanned_picket_update()  # v16.12: 무인 USV·UUV 피켓 탐지 확장
             self._log_detections()   # 첫 탐지 시점 로깅 (위치 갱신 후, 적 발사 전)
             if self._adaptive_ai:    # v15.1: 적응형 전술 재평가 (발사 직전)
                 self._adaptive_tactic_update()
@@ -4841,7 +4892,12 @@ class TimeStepEngine:
             return e.value
 
     def _compile(self) -> dict:
-        self.stats['friendly_ships_lost']   = sum(1 for s in self.friendly_ships if not s.alive)
+        # v16.12: 무인정(USV·UUV) 손실은 인명피해 0 → friendly_ships_lost에서 분리 집계.
+        # 무인정 미편성(기본 OFF) 시 is_unmanned 함정이 없어 기존과 동일(회귀 보존).
+        self.stats['friendly_ships_lost']   = sum(1 for s in self.friendly_ships
+                                                  if not s.alive and not s.is_unmanned)
+        self.stats['unmanned_lost']         = sum(1 for s in self.friendly_ships
+                                                  if not s.alive and s.is_unmanned)
         # v12.4: 침수로 침몰한 함정 수 + 생존 함정 중 침수 진행 중인 수
         self.stats['ships_sunk_by_flood']   = sum(1 for s in self.friendly_ships if getattr(s, 'sunk_by_flood', False))
         self.stats['ships_flooding']        = sum(1 for s in self.friendly_ships if s.alive and getattr(s, 'flood', 0.0) > 0.0)
@@ -5893,6 +5949,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
     recon_loss:  list = []
+    unmanned_lost: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
 
     step = max(1, n // 5)
@@ -5918,6 +5975,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
         recon_loss.append(r.get('recon_losses', 0))
+        unmanned_lost.append(r.get('unmanned_lost', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -5984,6 +6042,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_mines_struck':        float(np.mean(mine_struck)),
         'mean_ships_lost_to_mine':  float(np.mean(mine_lost)),
         'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
+        'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -6000,6 +6059,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
     recon_loss:  list = []
+    unmanned_lost: list = []
     outcomes: list = []; fscores: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -6019,6 +6079,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
         recon_loss.append(r.get('recon_losses', 0))
+        unmanned_lost.append(r.get('unmanned_lost', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6040,6 +6101,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
                    'recon_losses': recon_loss,
+                   'unmanned_lost': unmanned_lost,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
@@ -6054,6 +6116,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
     recon_loss:  list = []
+    unmanned_lost: list = []
     outcomes: list = []; fscores: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
@@ -6072,6 +6135,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
         recon_loss.append(r.get('recon_losses', 0))
+        unmanned_lost.append(r.get('unmanned_lost', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6083,6 +6147,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
                    'recon_losses': recon_loss,
+                   'unmanned_lost': unmanned_lost,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
@@ -6149,6 +6214,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
     recon_loss:  list = []
+    unmanned_lost: list = []
     outcomes: list = []; fscores: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
@@ -6171,6 +6237,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 mine_struck.extend(bxs['mines_struck'])
                 mine_lost.extend(bxs['ships_lost_to_mine'])
                 recon_loss.extend(bxs.get('recon_losses', []))
+                unmanned_lost.extend(bxs.get('unmanned_lost', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
@@ -6196,6 +6263,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             mine_struck.append(r.get('mines_struck', 0))
             mine_lost.append(r.get('ships_lost_to_mine', 0))
             recon_loss.append(r.get('recon_losses', 0))
+            unmanned_lost.append(r.get('unmanned_lost', 0))
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6230,6 +6298,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_mines_struck':        float(np.mean(mine_struck)) if mine_struck else 0.0,
         'mean_ships_lost_to_mine':  float(np.mean(mine_lost)) if mine_lost else 0.0,
         'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
+        'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 

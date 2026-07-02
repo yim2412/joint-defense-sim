@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.12.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.12.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.12.02 — 아군 무인 함정(USV·UUV): 소해·전방 피켓·무인 점방어]          ║
+║  NEW-A  아군 무인 수상정(USV)·무인 잠수정(UUV) 편성 옵션 — UUV는 소해(기뢰  ║
+║         접촉 경감)+대잠 피켓, USV는 RAM 근접 점방어+대함 피켓. 무인이라      ║
+║         손실 시 인명피해 0(아군 손실과 분리 집계). enable_unmanned_assets   ║
+║         3종세트·기본 OFF·실험적. 단발+전장 공통.                            ║
 ║  [v16.12.01 — 아군 무인 정찰 드론(ISR): 수평선 너머 표적 탐지 확장]         ║
 ║  NEW-A  아군 무인 정찰 드론 2종(RQ-101 송골매·MQ-9B 시가디언) 추가 —        ║
 ║         무장 없이 수평선 너머(OTH) 표적을 함대 데이터링크로 중계해 함대     ║
@@ -1099,7 +1104,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.12.01"
+APP_VERSION = "v16.12.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5810,6 +5815,8 @@ class MainWindow(QMainWindow):
             self.chk_mine_threat.setChecked(cfg.get('enable_mine_threat', False))
         if hasattr(self, 'chk_minesweeping'):
             self.chk_minesweeping.setChecked(cfg.get('enable_minesweeping', False))
+        if hasattr(self, 'chk_unmanned'):
+            self.chk_unmanned.setChecked(cfg.get('enable_unmanned_assets', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -6699,6 +6706,17 @@ class MainWindow(QMainWindow):
             "기뢰전 위협이 켜져 있을 때만 효과가 있습니다."
         )
 
+        # v16.12: 무인 함정(USV·UUV) 편성
+        self.chk_unmanned = QCheckBox("무인 함정 USV·UUV (실험적)")
+        self.chk_unmanned.setChecked(False)
+        self.chk_unmanned.setToolTip(
+            "아군 함대에 무인 수상정(USV)·무인 잠수정(UUV)을 전방 피켓으로 편성합니다.\n"
+            "  · UUV: 소해(기뢰 접촉 경감) + 전방 대잠 탐지 확장\n"
+            "  · USV: RAM 근접 점방어 + 전방 대함 탐지 확장\n"
+            "  · 무인이라 손실 시 인명피해 0 (아군 손실과 분리 집계)\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         # v10.7: 전술 의사결정 모드
         self.chk_tactical = QCheckBox("전술 의사결정 모드")
         self.chk_tactical.setChecked(False)
@@ -6744,7 +6762,7 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_dmo, self.chk_coord_decep, self.chk_mine_threat,
-                    self.chk_minesweeping, self.chk_tactical]:
+                    self.chk_minesweeping, self.chk_unmanned, self.chk_tactical]:
             _wire_chk_color(chk, 13)
             defl.addWidget(chk)
         defl.addLayout(tactics_row)
@@ -8147,6 +8165,7 @@ class MainWindow(QMainWindow):
             'enable_mine_threat':        self.chk_mine_threat.isChecked(),
             'mine_density':              0.3,
             'enable_minesweeping':       self.chk_minesweeping.isChecked(),
+            'enable_unmanned_assets':    self.chk_unmanned.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -9998,10 +10017,6 @@ class SplashWindow(QWidget):
              "무인기·무인수상정·무인잠수정 수십~수백 대가 분산 경로로 동시 접근. "
              "개별 요격 필요 → 탄약 급소모. 군집 비행 알고리즘 기반. "
              "최소 적용은 수십 대부터. 레이저 방어와 짝."),
-            ("v15.6", "높음", "무인 수상/수중정 (USV·UUV)",
-             "무인 수상정(USV)·무인 잠수정(UUV)을 정찰·기뢰 탐색·자율 교전에 투입. "
-             "유인 함정과 협동 운용(MUM-T), 통신 두절 시 자율 모드 전환. "
-             "v15.4가 적 무인군집이라면 이쪽은 아군 무인 자산 — 후속 기뢰전·항만 방어의 기반."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
             ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — 구조 개선 필요)",
              "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)와 대잠 항공 전진 초계는 "
