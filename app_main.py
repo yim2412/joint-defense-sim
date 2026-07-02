@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.11.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.12.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.12.01 — 아군 무인 정찰 드론(ISR): 수평선 너머 표적 탐지 확장]         ║
+║  NEW-A  아군 무인 정찰 드론 2종(RQ-101 송골매·MQ-9B 시가디언) 추가 —        ║
+║         무장 없이 수평선 너머(OTH) 표적을 함대 데이터링크로 중계해 함대     ║
+║         실효 레이더 탐지거리를 확장. 적 항공위협 존재 시 확률적 격추(저생존)║
+║         enable_recon_drone 3종세트·기본 OFF·실험적. 단발+전장 공통.         ║
 ║  [v16.11.02 — DMO·전자 좌표 기만 정규 기능 승격 (v16 종합 감사)]            ║
 ║  수정   분산해양작전(DMO)·전자 좌표 기만 '실험적' 표기 제거(검증 완료).     ║
 ║         기본 OFF 유지. v16 블록 종합 9영역 감사 통과·완료 plan 아카이브     ║
@@ -1094,7 +1099,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.11.02"
+APP_VERSION = "v16.12.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5808,7 +5813,8 @@ class MainWindow(QMainWindow):
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
-                          ('chk_kf21','enable_kf21'),('chk_fa50','enable_fa50')]:
+                          ('chk_kf21','enable_kf21'),('chk_fa50','enable_fa50'),
+                          ('chk_recon','enable_recon_drone')]:
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, False))
         self._lbl_status.setText("✅ 설정 복원 완료")
@@ -6592,6 +6598,10 @@ class MainWindow(QMainWindow):
             ("chk_f35a",  "F-35A 라이트닝 II",  "청주기지 · AIM-120D×4 · CAP 600km"),
             ("chk_kf21",  "KF-21 보라매",       "대구기지 · IRIS-T/AIM-120C×6 · CAP 500km"),
             ("chk_fa50",  "FA-50 파이팅이글",   "원주기지 · AIM-9X×4 · CAP 400km"),
+            ("chk_recon", "정찰 드론 MQ-9B (실험적)",
+             "군산기지 · 무장 없음 · 수평선 너머(OTH) 표적 탐지 중계로 함대 탐지거리 +120km\n"
+             "저생존 — 적 항공위협 존재 시 확률적 격추.\n"
+             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"),
         ]
         for _i, (_attr, _label, _tip) in enumerate(_ac_items):
             chk = QCheckBox(_label)
@@ -8120,6 +8130,8 @@ class MainWindow(QMainWindow):
             'enable_f35a':  self.chk_f35a.isChecked(),
             'enable_kf21':  self.chk_kf21.isChecked(),
             'enable_fa50':  self.chk_fa50.isChecked(),
+            'enable_recon_drone': self.chk_recon.isChecked(),
+            'recon_preset':       'MQ-9B 시가디언',
             # 방어 전술 — UI 체크박스 읽기
             'enable_layered_defense': True,
             'enable_cec':             self.chk_cec.isChecked(),
@@ -9986,9 +9998,6 @@ class SplashWindow(QWidget):
              "무인기·무인수상정·무인잠수정 수십~수백 대가 분산 경로로 동시 접근. "
              "개별 요격 필요 → 탄약 급소모. 군집 비행 알고리즘 기반. "
              "최소 적용은 수십 대부터. 레이저 방어와 짝."),
-            ("v15.5", "매우 높음", "아군 정찰 드론 편대",
-             "고정익 무인정찰기 편대 배치. 탐지 범위 확장 + 수평선 너머 표적 유도 정보 제공. "
-             "드론 개별 피격·격추. 배치 비용 vs 탐지 이득 트레이드오프."),
             ("v15.6", "높음", "무인 수상/수중정 (USV·UUV)",
              "무인 수상정(USV)·무인 잠수정(UUV)을 정찰·기뢰 탐색·자율 교전에 투입. "
              "유인 함정과 협동 운용(MUM-T), 통신 두절 시 자율 모드 전환. "

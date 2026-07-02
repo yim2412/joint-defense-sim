@@ -485,6 +485,10 @@ _AIRCRAFT_V7_SORTIE = {
     'AW-159 와일드캣': 300,   # 5분 (평시 동일)
     'P-3C 오라이온':   600,   # 10분 (평시 40분 → 전시 긴급 출격)
     'P-8A 포세이돈':   480,   # 8분 (평시 30분 → 전시 긴급 출격)
+    # v16.12: 정찰 드론은 교전 개시 전 이미 전개(사전 배치 ISR) — 조기탐지가 존재 이유라
+    # 전개 대기시간을 짧게 둬 교전 초반부터 함대 탐지를 확장한다(장기체공 UAV 특성).
+    'RQ-101 송골매':   60,    # 근접 전방기지 발진, 1분
+    'MQ-9B 시가디언':  0,     # 장기체공 — 교전 개시 시점에 이미 초계 중
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1291,6 +1295,9 @@ class FriendlyAircraftObj:
         self._detect_fails: int   = 0       # 현재 표적 누적 탐지 실패 수
         self._search_target = None          # 현재 수색 중인 표적 (EnemyThreatObj)
         self._strike_cooldown_until: float = 0.0  # v10.6: AAS 교전 쿨다운
+        # v16.12: 정찰 드론(aircraft_role='recon') 전용 상태
+        self._recon_lost:      bool  = False  # 격추되면 True → 탐지 중계 중단
+        self._recon_next_roll: float = 0.0    # 다음 격추 판정 가능 시각
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1373,6 +1380,11 @@ class TimeStepEngine:
         # 고도가 변해, 같은 HGV가 비행 단계별로 다른 요격 층(외기권 SM-3 → 대기권 내
         # SM-6 Block IB)으로 전환된다. 기본 OFF면 altitude_m 고정 → 회귀 bit-identical.
         self._hgv_glide        = bool(cfg.get('enable_hgv_glide', False))
+        # v16.12 정찰 드론(A-1): 무인 ISR 드론이 수평선 너머(OTH) 표적을 함대 데이터링크로
+        # 중계 → 생존 중 함대 실효 레이더 탐지거리에 recon_detect_bonus_km 가산.
+        # 기본 OFF면 recon 역할 드론이 편성 안 돼 _recon_bonus_km=0 유지 → 회귀 bit-identical.
+        self._recon_drone      = bool(cfg.get('enable_recon_drone', False))
+        self._recon_bonus_km   = 0.0     # 매 tick _aircraft_recon()이 갱신하는 유효 탐지 확장량
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -1441,6 +1453,8 @@ class TimeStepEngine:
             # v16.7: 기뢰전
             'mines_struck':            0,
             'ships_lost_to_mine':      0,
+            # v16.12: 정찰 드론 격추 손실
+            'recon_losses':            0,
         }
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
@@ -1881,6 +1895,8 @@ class TimeStepEngine:
             ('enable_f35a',  'f35a_preset',  'F-35A 라이트닝 II'),
             ('enable_kf21',  'kf21_preset',  'KF-21 보라매'),
             ('enable_fa50',  'fa50_preset',  'FA-50 파이팅이글'),
+            # v16.12: 아군 무인 정찰 드론 (ISR 전용)
+            ('enable_recon_drone', 'recon_preset', 'MQ-9B 시가디언'),
         ]:
             if not self.cfg.get(en_key, False):
                 continue
@@ -2010,8 +2026,9 @@ class TimeStepEngine:
         ships = [s for s in self.friendly_ships if s.alive]
         if not ships:
             return
-        air_km  = self.cfg.get('detect_km', 200)
-        surf_km = self.cfg.get('surface_detect_km', air_km)
+        # v16.12: 정찰 드론 OTH 중계 — 대공·대함 탐지거리 확장(교전 판정과 동일 기준)
+        air_km  = self.cfg.get('detect_km', 200) + self._recon_bonus_km
+        surf_km = self.cfg.get('surface_detect_km', self.cfg.get('detect_km', 200)) + self._recon_bonus_km
         sub_km  = self.cfg.get('sub_detect_km', 50)
 
         # 함정·항공기·잠수함 위협 — 개체별 최초 탐지
@@ -2058,6 +2075,8 @@ class TimeStepEngine:
                               self.cfg.get('surface_detect_km', 45))
             else:
                 base_km = ship.sensor_km.get(category, self.cfg.get('detect_km', 200))
+            # v16.12: 정찰 드론 OTH 중계 — 대공·대함 레이더 탐지거리 확장(생존 드론 있을 때만>0)
+            base_km += self._recon_bonus_km
             factor = self.wx.get('radar_factor', self.wx.get('detect_range_factor', 1.0))
         # 함정 부분 피해: 레이더 성능 저하 반영
         detect_m = base_km * 1000 * factor * ship.radar_factor * self.cfg.get('detect_scale', 1.0)
@@ -3926,6 +3945,41 @@ class TimeStepEngine:
                     f"— {retry_s}초 후 재시도 ({ac._detect_fails}/{max_att})"
                 )
 
+    def _aircraft_recon(self):
+        """v16.12: 아군 무인 정찰 드론 — OTH 표적 탐지 중계로 함대 실효 탐지거리 확장.
+        생존 중인 recon 드론의 recon_detect_bonus_km 중 최댓값을 self._recon_bonus_km에 실어
+        _detect_range_m·_log_detections가 대공·대함 레이더 탐지거리에 가산한다(무장 없음).
+        적 항공위협 존재 시 recon_roll_s 주기로 survive_prob 격추 판정 — 실패 시 중계 중단.
+        recon 역할 드론이 없으면(기본 OFF) _recon_bonus_km=0·RNG 미소비 → 회귀 bit-identical."""
+        self._recon_bonus_km = 0.0
+        weather = self.cfg.get('weather', '맑음 (주간)')
+        # 격추 노출 판정용 — 생존 적 항공위협 존재 여부(퇴각기 제외)
+        air_threat = any(et.alive and et.is_aircraft and not et.is_retreating
+                         for et in self.enemy_threats)
+        for ac in self.aircraft:
+            if ac.info.get('aircraft_role') != 'recon':
+                continue
+            if ac._recon_lost:
+                continue
+            if self.t < ac.t_available:
+                continue
+            if not ac.info.get('weather_limits', {}).get(weather, True):
+                continue
+            # 격추 판정: 적 항공위협에 노출된 동안 주기적으로 생존 굴림
+            if air_threat and self.t >= ac._recon_next_roll:
+                ac._recon_next_roll = self.t + ac.info.get('recon_roll_s', 300)
+                if random.random() >= ac.info.get('survive_prob', 0.9):
+                    ac._recon_lost = True
+                    self.stats['recon_losses'] += 1
+                    self._log(f"[정찰 드론] {ac.name} 피격 격추 — OTH 탐지 중계 중단 "
+                              f"({self.t:.0f}s)")
+                    continue
+            ac.sorties = max(ac.sorties, 1)   # 전개 1회 계상(비용 집계용)
+            ac.total_cost = ac.info['cost_usd']
+            bonus = ac.info.get('recon_detect_bonus_km', 0)
+            if bonus > self._recon_bonus_km:
+                self._recon_bonus_km = bonus
+
     def _cap_posture_factors(self):
         """CAP 전개 자세 → (패트롤 반경 배율, 교전 후 쿨다운 초). 부모는 현행 고정값."""
         return (1.0, 60.0)
@@ -4710,6 +4764,7 @@ class TimeStepEngine:
             # v12.6: IFF p_fail 계산용 생존 위협 수 캐싱 (틱당 1회)
             self._n_alive_threats: int = sum(1 for et in self.enemy_threats if et.alive)
             _t0 = _pc(); self._update_positions(); pt['위치갱신'] += _pc() - _t0
+            self._aircraft_recon()   # v16.12: 정찰 드론 OTH 탐지 확장(탐지·로깅 전 갱신)
             self._log_detections()   # 첫 탐지 시점 로깅 (위치 갱신 후, 적 발사 전)
             if self._adaptive_ai:    # v15.1: 적응형 전술 재평가 (발사 직전)
                 self._adaptive_tactic_update()
@@ -5837,6 +5892,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     # v12.4·v12.6: 침수·IFF 통계
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
+    recon_loss:  list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
 
     step = max(1, n // 5)
@@ -5861,6 +5917,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         iff_frat.append(r.get('iff_fratricide', 0))
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
+        recon_loss.append(r.get('recon_losses', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -5926,6 +5983,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_iff_fratricide':      float(np.mean(iff_frat)),
         'mean_mines_struck':        float(np.mean(mine_struck)),
         'mean_ships_lost_to_mine':  float(np.mean(mine_lost)),
+        'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -5941,6 +5999,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     phase_times_acc: dict = {}   # v8.26: 배치 내 단계별 시간 누적
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
+    recon_loss:  list = []
     outcomes: list = []; fscores: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -5959,6 +6018,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
         iff_frat.append(r.get('iff_fratricide', 0))
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
+        recon_loss.append(r.get('recon_losses', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -5979,6 +6039,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
+                   'recon_losses': recon_loss,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
@@ -5992,6 +6053,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     ship_hits_mc: dict = {}
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
+    recon_loss:  list = []
     outcomes: list = []; fscores: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
@@ -6009,6 +6071,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         iff_frat.append(r.get('iff_fratricide', 0))
         mine_struck.append(r.get('mines_struck', 0))
         mine_lost.append(r.get('ships_lost_to_mine', 0))
+        recon_loss.append(r.get('recon_losses', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6019,6 +6082,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
+                   'recon_losses': recon_loss,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
@@ -6084,6 +6148,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     ship_hits_mc: dict = {}
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
     mine_struck: list = []; mine_lost: list = []
+    recon_loss:  list = []
     outcomes: list = []; fscores: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
@@ -6105,6 +6170,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 iff_frat.extend(bxs['iff_fratricide'])
                 mine_struck.extend(bxs['mines_struck'])
                 mine_lost.extend(bxs['ships_lost_to_mine'])
+                recon_loss.extend(bxs.get('recon_losses', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
@@ -6129,6 +6195,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             iff_frat.append(r.get('iff_fratricide', 0))
             mine_struck.append(r.get('mines_struck', 0))
             mine_lost.append(r.get('ships_lost_to_mine', 0))
+            recon_loss.append(r.get('recon_losses', 0))
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6162,6 +6229,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_iff_fratricide':      float(np.mean(iff_frat)) if iff_frat else 0.0,
         'mean_mines_struck':        float(np.mean(mine_struck)) if mine_struck else 0.0,
         'mean_ships_lost_to_mine':  float(np.mean(mine_lost)) if mine_lost else 0.0,
+        'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 

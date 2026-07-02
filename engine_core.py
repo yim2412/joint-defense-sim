@@ -1871,6 +1871,44 @@ FRIENDLY_AIRCRAFT_DB = {
         'cap_patrol_radius_km': 400,  # 항속거리 제한으로 패트롤 반경 좁음
         'weather_limits': _CAP_WX,
     },
+    # ── v16.12: 아군 무인 정찰 드론 (ISR 전용, 무장 없음) ──────────────────────
+    # aircraft_role='recon': 수평선 너머(OTH) 표적 탐지·유도 정보를 함대 데이터링크로
+    # 중계 → 함대 실효 탐지거리 확장(recon_detect_bonus_km). 무장 없음.
+    # 저생존성 — 적 항공위협 존재 시 확률적 격추(survive_prob, recon_roll_s 주기).
+    'RQ-101 송골매': {
+        'speed_ms':     42,           # 순항 ~150 km/h 전술 UAV
+        'range_km':     100,          # 전술 작전반경
+        'sortie_time_s':600,          # 전개 준비 10분
+        'payload_wpn':  '(무장 없음)',
+        'payload_cnt':  0,
+        'cost_usd':     40000,        # 출격 비용 (저가 전술 UAV)
+        'on_deck':      True,
+        'base_type':    'land',
+        'base_name':    '전방기지',
+        'base_dist_km': 150,
+        'aircraft_role':'recon',
+        'recon_detect_bonus_km': 40,  # 저고도 전술 UAV OTH 중계 (수평선 확장 제한적)
+        'survive_prob':          0.88, # 저고도·비스텔스 → 피격 취약
+        'recon_roll_s':          300,  # 격추 판정 주기(초)
+        'weather_limits': _CAP_WX,
+    },
+    'MQ-9B 시가디언': {
+        'speed_ms':     90,           # 순항 ~325 km/h MALE UAV
+        'range_km':     2000,         # 장기체공 광역 작전반경
+        'sortie_time_s':1200,         # 전개 준비 20분
+        'payload_wpn':  '(무장 없음)',
+        'payload_cnt':  0,
+        'cost_usd':     250000,       # 출격 비용 (MALE급 해상초계 UAV)
+        'on_deck':      True,
+        'base_type':    'land',
+        'base_name':    '군산기지',
+        'base_dist_km': 300,
+        'aircraft_role':'recon',
+        'recon_detect_bonus_km': 120, # 고고도 MALE 해상 레이더 광역 OTH 중계
+        'survive_prob':          0.96, # 고고도 체공 — 장거리 SAM엔 취약하나 상대적 우수
+        'recon_roll_s':          300,
+        'weather_limits': _P3C_WX,    # 태풍만 불가
+    },
 }
 
 # ════════════════════════════════════════════════════════════════════════════
