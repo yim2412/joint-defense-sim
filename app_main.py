@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.12.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.12.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.12.03 — 적 무인기 군집(Swarm): 자폭 드론 다축 포화 소모전]            ║
+║  NEW-A  적 자폭 드론 군집 위협 신설 — 저가·저RCS 무인기 수십 대가 다축      ║
+║         동시 접근, 개별 요격 강제로 함대 SAM·CIWS 채널·요격탄 급소모.       ║
+║         「무인기 군집 포화」 적 편대 + enable_drone_swarm 토글(편대에 드론   ║
+║         추가). 3종세트·기본 OFF·실험적. 단발+전장 공통.                     ║
 ║  [v16.12.02 — 아군 무인 함정(USV·UUV): 소해·전방 피켓·무인 점방어]          ║
 ║  NEW-A  아군 무인 수상정(USV)·무인 잠수정(UUV) 편성 옵션 — UUV는 소해(기뢰  ║
 ║         접촉 경감)+대잠 피켓, USV는 RAM 근접 점방어+대함 피켓. 무인이라      ║
@@ -1104,7 +1109,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.12.02"
+APP_VERSION = "v16.12.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5817,6 +5822,8 @@ class MainWindow(QMainWindow):
             self.chk_minesweeping.setChecked(cfg.get('enable_minesweeping', False))
         if hasattr(self, 'chk_unmanned'):
             self.chk_unmanned.setChecked(cfg.get('enable_unmanned_assets', False))
+        if hasattr(self, 'chk_drone_swarm'):
+            self.chk_drone_swarm.setChecked(cfg.get('enable_drone_swarm', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -6690,6 +6697,18 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일 (선택 전술 옵션)"
         )
 
+        # v16.12: 적 무인기 군집(Swarm) 위협
+        self.chk_drone_swarm = QCheckBox("무인기 군집 포화 (실험적)")
+        self.chk_drone_swarm.setChecked(False)
+        self.chk_drone_swarm.setToolTip(
+            "적이 저가 자폭 드론 수십 대를 다축으로 동시 투입합니다.\n"
+            "  · 개별 요격 강제 → 함대 SAM·CIWS 교전 채널·요격탄 급소모(비대칭 소모전)\n"
+            "  · 요격 못한 드론은 기함으로 돌진 자폭\n"
+            "  · '다방위 공격'과 병용 시 360° 포화로 효과가 극대화됩니다\n"
+            "현재 적 편대에 자폭 드론 군집 약 40대를 추가합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         # v16.7: 기뢰전(MIW)
         self.chk_mine_threat = QCheckBox("기뢰전 위협 (실험적)")
         self.chk_mine_threat.setChecked(False)
@@ -6761,7 +6780,8 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
-                    self.chk_dmo, self.chk_coord_decep, self.chk_mine_threat,
+                    self.chk_dmo, self.chk_coord_decep, self.chk_drone_swarm,
+                    self.chk_mine_threat,
                     self.chk_minesweeping, self.chk_unmanned, self.chk_tactical]:
             _wire_chk_color(chk, 13)
             defl.addWidget(chk)
@@ -8166,6 +8186,7 @@ class MainWindow(QMainWindow):
             'mine_density':              0.3,
             'enable_minesweeping':       self.chk_minesweeping.isChecked(),
             'enable_unmanned_assets':    self.chk_unmanned.isChecked(),
+            'enable_drone_swarm':        self.chk_drone_swarm.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -10013,10 +10034,6 @@ class SplashWindow(QWidget):
             ("v15.3", "높음", "함정별 자율 교전 AI",
              "각 함정이 독립 판단하는 AI. 협동 교전망·지령 없이도 자율 탐지·사격. "
              "기함 격침 시 차순위 함정이 지휘권 인수. 자율화 수준(반자동~완전자율) 조정."),
-            ("v15.4", "매우 높음", "적 무인기 군집 (Swarm)",
-             "무인기·무인수상정·무인잠수정 수십~수백 대가 분산 경로로 동시 접근. "
-             "개별 요격 필요 → 탄약 급소모. 군집 비행 알고리즘 기반. "
-             "최소 적용은 수십 대부터. 레이저 방어와 짝."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
             ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — 구조 개선 필요)",
              "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)와 대잠 항공 전진 초계는 "
@@ -10032,7 +10049,7 @@ class SplashWindow(QWidget):
             ("v17.2", "높음", "지향성 에너지 무기 (레이저)",
              "함정 레이저(60kW급)·고출력 마이크로파. 전력 한도 내에서만 연속 발사. "
              "【현실성】60kW는 드론·소형보트 한정. 초음속 탄두(현무-4급) 무력화는 메가와트급 필요 → 대상 제한 필수. "
-             "적 무인기 군집(v15.4) 대응이 주 용도."),
+             "적 무인기 군집 포화(자폭 드론 스웜) 대응이 주 용도."),
             # ── v18.x — 작전급 시뮬레이터 ─────────────────────────────────────
             # 선행 필수: v11.4(분석속도) · v15.2(즉시예측)
             ("v18.1", "매우 높음", "캠페인 엔진 기반 설계",

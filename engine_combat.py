@@ -1393,6 +1393,10 @@ class TimeStepEngine:
         self._unmanned_assets  = bool(cfg.get('enable_unmanned_assets', False))
         self._usv_surf_bonus_km = 0.0    # 매 tick USV 생존 시 대함 탐지 확장량
         self._uuv_asw_bonus_km  = 0.0    # 매 tick UUV 생존 시 대잠 탐지 확장량
+        # v16.12 적 무인기 군집(트랙 B): ON 시 적 편대에 자폭 드론 군집을 추가 편성해
+        # 함대 SAM·CIWS 채널을 포화시킨다(비대칭 소모). 기본 OFF면 편대 불변 → 회귀 bit-identical.
+        self._drone_swarm      = bool(cfg.get('enable_drone_swarm', False))
+        self._drone_swarm_size = int(cfg.get('drone_swarm_size', 40))
         self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
@@ -1754,6 +1758,13 @@ class TimeStepEngine:
         elif _ai_tactic == 'exploit_weakness':
             # 약점 공략: 단일 방향 집중 (다방위 억제)
             self.cfg['enable_multibearing'] = False
+
+        # v16.12 무인기 군집(트랙 B): 자폭 드론 군집을 편대 말미에 추가(기존 위협 스폰 순서·
+        # RNG 보존 — 드론은 뒤에 붙어 idx가 이어짐). OFF면 미추가 → 회귀 bit-identical.
+        # 다방위(multibearing) 병용 시 드론이 여러 섹터로 분산돼 360° 포화가 된다.
+        if self._drone_swarm and self._drone_swarm_size > 0 and '자폭 드론 군집' in ENEMY_DB:
+            fleet_cfg = list(fleet_cfg) + [
+                {'preset': '자폭 드론 군집', 'count': self._drone_swarm_size}]
 
         threats: List[EnemyThreatObj] = []
         total = sum(s.get('count', 1) for s in fleet_cfg)
