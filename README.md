@@ -1,5 +1,12 @@
 # Joint Defense Simulator — 육해공 통합 방어 시뮬레이터
 
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)
+![Python](https://img.shields.io/badge/Python-3-3776AB?logo=python&logoColor=white)
+![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52)
+![CesiumJS](https://img.shields.io/badge/3D-CesiumJS-6CADDF)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
+![Status](https://img.shields.io/badge/status-in%20development-yellow)
+
 🇰🇷 한국어 (기본) · [🇺🇸 English](#-english)
 
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
@@ -8,6 +15,20 @@
 > **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.12)
 > **진행 중:** 단발 살보 교전 → **지속 전장 엔진**으로 아키텍처 전환 (양측 작전 목표·승패 판정·강화학습 기반 자가 대전 지향)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
+
+---
+
+## 목차
+
+- [비전 — 육해공 통합](#비전--육해공-통합)
+- [주요 기능 (현재 해군 단계)](#주요-기능-현재-해군-단계)
+- [실행 방법](#실행-방법)
+- [필수 패키지](#필수-패키지)
+- [파일 구조](#파일-구조)
+- [사용 흐름](#사용-흐름)
+- [프로젝트 성격 · 라이선스](#프로젝트-성격--라이선스)
+- [피드백 · 의견](#피드백--의견)
+- [🇺🇸 English](#-english)
 
 ---
 
@@ -23,7 +44,7 @@
 
 ---
 
-## 주요 기능 (현재 — 해군 단계)
+## 주요 기능 (현재 해군 단계)
 
 - **시간 스텝 기반 양방향 교전 엔진** — 탐지·추적·요격·반격을 초 단위로 시뮬레이션
 - **다층 방어 모델** — SAM(SM-3/SM-2/ESSM/해궁) · CIWS(Phalanx/RAM) · 전자전(ECM) · 채프/플레어
