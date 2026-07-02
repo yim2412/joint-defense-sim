@@ -5,7 +5,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v15.06)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.12)
 > **진행 중:** 단발 살보 교전 → **지속 전장 엔진**으로 아키텍처 전환 (양측 작전 목표·승패 판정·강화학습 기반 자가 대전 지향)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -31,10 +31,14 @@
 - **공군 자산 연동** — CAP 전투기 BVR 요격 · 해성-II 대함 공격 · ARM 회피 레이더 OFF 전술
 - **정밀 물리 모델** — RCS 기반 탐지 · 소나 방정식(수동·능동) · 동적 침수·복원력 · 미사일 비례항법(PNG) · 지형/수평선 차폐
 - **적응형 전술 AI** — 적이 방어 포화도를 평가해 살보 집중 ↔ 분산 ↔ 기만 침투를 점진 전환
+- **전자전·EMCON·사이버전** — ARM 역탐지(레이더 방사 딜레마) · 능동 소나 핑 역탐지 · 전자 좌표 기만 · 사이버 침투(데이터링크 변조·CIC 마비)
+- **극초음속·미래 위협 대응** — HGV 활공 궤적 다층 요격(외기권 SM-3 ↔ 대기권 SM-6) · 무인기 군집(Swarm) 포화 소모전 · 자폭 무인수상정(USV) · 기뢰전(MIW)
+- **분산·연안 작전** — 분산해양작전(DMO) · 해안 C-RAM/SAM 연안 방어 · 항만 거점 복합 방어
+- **무인·자율 자산** — 무인 정찰 드론(수평선 너머 OTH 탐지 확장) · 무인 수상/수중정(USV·UUV — 소해·전방 피켓·무인 점방어)
 - **지속 전장 모드** (실험적) — 양측이 작전 목표(자산 방어·해역 통제 등)를 두고 시간 지평까지 겨루는 승/패 판정 엔진
 - **3D 전장 시각화** — CesiumJS 위성 지구본 위에 함정·항공기·미사일 궤적·교전 이벤트를 재생(리플레이)
 - **몬테카를로 분석** — 표준 MC + LHS 고속 샘플링(멀티프로세싱 병렬) · 스트레스/Sobol 민감도/A·B 비교
-- **방대한 무기 체계 DB** — 적군 65종 · 아군 방어 14종 · 대함 타격 8종 · 함정 21종 · 항공 자산 7종 · 편대 프리셋 38종
+- **방대한 무기 체계 DB** — 적군 69종 · 아군 방어 14종 · 대함 타격 8종 · 함정 25종 · 항공 자산 9종 · 편대 프리셋 44종(아군 16 · 적군 28)
 - **작전 시나리오 라이브러리 · 적정 편대 추천** — 교리 기반 시나리오 자동 설정 + 비용 대비 성능 편대 순위
 - **보고서 출력** — 교전 결과를 Excel(.xlsx) · PNG로 내보내기
 
@@ -174,7 +178,7 @@ A project aiming to be a **joint air–land–sea integrated defense simulator**
 It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
 requirement (REQ) evaluation, and Excel/PNG report generation.
 
-> **Current stage:** Navy — Aegis task force integrated defense (v15.06)
+> **Current stage:** Navy — Aegis task force integrated defense (v16.12)
 > **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
 > **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
 
@@ -197,10 +201,14 @@ expand to other force domains step by step.
 - **Air asset integration** — CAP fighter BVR interception · Haeseong-II anti-ship strikes · ARM-evasion radar-off tactics
 - **Detailed physics models** — RCS-based detection · sonar equation (passive/active) · dynamic flooding & stability · missile proportional navigation (PNG) · terrain/horizon masking
 - **Adaptive tactical AI** — the enemy evaluates defensive saturation and gradually shifts among salvo concentration ↔ dispersion ↔ deception penetration
+- **Electronic warfare · EMCON · cyber** — ARM counter-detection (radar-emission dilemma) · active-sonar ping counter-detection · electronic coordinate deception · cyber intrusion (datalink corruption, CIC blinding)
+- **Hypersonic & emerging threats** — layered interception of HGV glide trajectories (exo-atmospheric SM-3 ↔ endo-atmospheric SM-6) · drone-swarm saturation attrition · suicide unmanned surface vessels (USV) · mine warfare (MIW)
+- **Distributed & littoral operations** — Distributed Maritime Operations (DMO) · shore-based C-RAM/SAM littoral defense · combined harbor-stronghold defense
+- **Unmanned & autonomous assets** — unmanned reconnaissance drones (over-the-horizon detection extension) · unmanned surface/undersea vehicles (USV·UUV — minesweeping, forward picket, unmanned point defense)
 - **Persistent battle mode** (experimental) — a win/loss engine where both sides pursue operational objectives (asset defense, sea control, etc.) over a time horizon
 - **3D battlefield visualization** — ships, aircraft, missile trajectories, and engagement events replayed on a CesiumJS satellite globe
 - **Monte Carlo analysis** — standard MC + LHS fast sampling (multiprocessing) · stress / Sobol sensitivity / A·B comparison
-- **Extensive weapon-system DB** — 65 enemy threats · 14 friendly defenses · 8 surface-strike weapons · 21 ship classes · 7 air assets · 38 fleet presets
+- **Extensive weapon-system DB** — 69 enemy threats · 14 friendly defenses · 8 surface-strike weapons · 25 ship classes · 9 air assets · 44 fleet presets (16 friendly · 28 enemy)
 - **Operational scenario library & fleet recommendation** — doctrine-based scenario auto-setup + cost-effectiveness fleet ranking
 - **Report export** — engagement results to Excel (.xlsx) and PNG
 

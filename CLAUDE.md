@@ -333,6 +333,11 @@ v12.06.01: [변경 내용 한 줄 요약]
    - 새 계획 생기면 추가한다.
    - **`_PLANS` 변경(추가·삭제 모두) 후에는 반드시 전체 빌드**한다. `_PLANS`는 `.py` 코드이므로 빌드 없이는 exe에 반영되지 않는다.
 
+3-b. **README.md 최신화** (DB/기능/버전이 바뀌었으면 — GitHub 공개 문서):
+   - **DB 항목수**(적군·함정·항공·편대 프리셋 등)가 바뀌면 README '주요 기능' 수치를 갱신한다(한·영 양쪽). → `audit_static_scan.py`의 `chk_readme_counts`가 실제 DB와 대조해 **자동 검출**하므로, 마이너 감사에서 정적 스캔을 돌리면 stale이 잡힌다.
+   - **헤드라인 기능**(새 도메인·무기 계열)이 추가되면 README '주요 기능' 목록에 1줄 추가(한·영). 자잘한 seq 패치는 불필요 — 새 계열/도메인일 때만.
+   - **현재 단계 버전**(`현재 단계: … (vXX.YY)`)은 major.minor가 오르면 갱신(한·영). 이것도 `chk_readme_counts`가 APP_VERSION과 대조해 자동 검출.
+
 4. **dist 폴더 갱신 (빠뜨리지 말 것)**:
 
    | 변경 파일 | 처리 |
@@ -452,6 +457,8 @@ v12.06.01: [변경 내용 한 줄 요약]
 | `_aircraft_asw()` | 함재 헬기·초계기 대잠 공격 |
 | `_aircraft_cap()` | 아군 CAP 전투기 적 항공기 BVR 요격 |
 | `_aircraft_aas()` | CAP 전투기 해성-II 등으로 적 수상함 공격 (항모 우선) |
+| `_aircraft_recon()` | 무인 정찰 드론 OTH 탐지 확장(`enable_recon_drone`) + 확률적 격추 |
+| `_unmanned_picket_update()` | 무인 함정(USV·UUV) 전방 피켓 탐지 확장(`enable_unmanned_assets`) |
 | `_arm_radar_off_check()` | ARM 탐지 시 레이더 OFF 전술 |
 | `monte_carlo_v7()` | 표준 MC 분석 |
 | `monte_carlo_lhs()` | LHS 샘플링 기반 고속 MC |
