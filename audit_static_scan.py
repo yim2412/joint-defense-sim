@@ -88,7 +88,10 @@ def chk_flag_triplet():
     flags = ['enable_battle_mode', 'enable_munition_limit', 'enable_ship_evasion',
              'enable_esm_arm', 'enable_sonar_emcon', 'enable_asw_forward',  # v16.1 EMCON 3종
              'enable_cyber_warfare',  # v16.3 사이버전
-             'enable_hgv_glide']  # v16.2 극초음속 활공 궤적
+             'enable_hgv_glide',  # v16.2 극초음속 활공 궤적
+             # (enable_recon_drone은 _restore_cfg가 for-루프 복원이라 이 정규식과 불일치 — 제외)
+             'enable_unmanned_assets',  # v16.12 트랙 A-2 무인 함정
+             'enable_autonomous_engagement']  # v16.13.02 트랙 C 함정 자율 교전
     for f in flags:
         build   = bool(re.search(rf"['\"]{f}['\"]\s*:\s*[^\n,}}]*isChecked", lau))
         restore = bool(re.search(rf"setChecked\(\s*cfg\.get\(['\"]{f}", lau))
