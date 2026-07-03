@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.04 — 결과 해석 도움말: 핵심 지표 등급+한 줄 해석 배너]             ║
+║  NEW-A  결과 화면 핵심 지표 아래에 해석 배너 — "이 숫자가 좋은가?"에 등급   ║
+║         (🟢우수·🟡양호·🔴미흡)과 한 줄 해석으로 답. 단발 교전은 요격률 기준 ║
+║         (게이지 90/60 경계 일관) + REQ 요격률 95% 대조 + 완전요격·무피격    ║
+║         조각 + 보강 조언, 지속 전장은 MC 승률·임무점수(50%) 기준 우세/백중/ ║
+║         열세. 표시 전용(엔진·DB 무변경, 회귀 bit-identical).                 ║
 ║  [v16.13.03 — 온보딩: 추천 시나리오 원클릭 배너(가이드된 첫 실행)]          ║
 ║  NEW-A  🚀 추천 시나리오 배너 — 설정 화면 상단에 대표 상황 5종(서해 차단·   ║
 ║         독도 방어·항모전단 요격·북한 포화도발·항만 거점 방어)을 원클릭으로   ║
@@ -1130,7 +1136,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.03"
+APP_VERSION = "v16.13.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7586,6 +7592,16 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.card_row)
 
+        # 결과 해석 배너 (v16.13.04) — 핵심 지표를 등급+한 줄 해석으로 풀어
+        # "이 숫자가 좋은가?"에 답한다. REQ 임계값과 대조. 표시 전용.
+        self._lbl_result_grade = QLabel("")
+        self._lbl_result_grade.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_result_grade.setWordWrap(True)
+        self._lbl_result_grade.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._lbl_result_grade.setVisible(False)
+        layout.addWidget(self._lbl_result_grade)
+
         # 실행 설정 요약 — 어떤 시나리오·날씨·MC로 돌렸는지 한눈에
         self._lbl_run_summary = QLabel("")
         self._lbl_run_summary.setStyleSheet(
@@ -9148,6 +9164,77 @@ class MainWindow(QMainWindow):
         self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
         # 이전 실행 대비 변화량(delta) 표시 — 직전 기록과 비교
         self._update_card_deltas(result, mc)
+        # 결과 해석 배너 — "이 숫자가 좋은가?"에 등급+한 줄로 답
+        self._update_result_grade(result, mc)
+
+    def _update_result_grade(self, result: dict, mc: dict):
+        """결과 해석 배너 — 핵심 지표를 등급(우수/양호/미흡)+한 줄 해석으로 풀어
+        "이 숫자가 좋은가?"에 답한다. 등급 경계는 요격률 게이지(90/60)와 일관,
+        REQ 임계값(요격률 95%·전장 승률 50%)과 대조. 표시 전용(회귀 무관)."""
+        lbl = getattr(self, '_lbl_result_grade', None)
+        if lbl is None:
+            return
+
+        def _band(color, tag, text):
+            lbl.setText(
+                f"<span style='color:{color}; font-weight:bold;'>{tag}</span>"
+                f"<span style='color:{C_SUBTEXT};'> — {text}</span>")
+            lbl.setStyleSheet(
+                f"font-size:12px; padding:5px 12px; margin:3px 12px 0;"
+                f" background:{C_PANEL}; border-left:4px solid {color}; border-radius:4px;")
+            lbl.setVisible(True)
+
+        # ── 지속 전장 모드: 승률·임무점수 기준 ──────────────────────────
+        wr = mc.get('win_rate')
+        outcome = result.get('outcome')
+        if wr is not None or outcome:
+            if wr is not None:
+                fs = mc.get('friendly_score')
+                score_txt = f" · 임무점수 {fs:.0%}" if isinstance(fs, (int, float)) else ""
+                if wr >= 0.70:
+                    _band('#2ecc71', '🟢 작전 우세',
+                          f"MC 작전 승률 {wr:.0%}{score_txt} — 작전 목표를 안정적으로 달성합니다.")
+                elif wr >= 0.50:
+                    _band('#f39c12', '🟡 우열 백중',
+                          f"MC 작전 승률 {wr:.0%}{score_txt} — 승패가 갈리는 접전입니다. "
+                          f"편성·전술을 보강하면 우세로 전환할 여지가 있습니다.")
+                else:
+                    _band('#e74c3c', '🔴 작전 열세',
+                          f"MC 작전 승률 {wr:.0%}{score_txt} — 작전 목표 달성이 어렵습니다. "
+                          f"전력 증강 또는 목표 재설정이 필요합니다.")
+            else:
+                _m = {'win':  ('#2ecc71', '🟢 작전 승리', '단일 작전에서 임무를 달성했습니다.'),
+                      'draw': ('#f39c12', '🟡 작전 무승부',
+                               '결판이 나지 않았습니다. 반복(MC) 분석으로 승률을 확인하세요.'),
+                      'loss': ('#e74c3c', '🔴 작전 패배', '단일 작전에서 임무를 달성하지 못했습니다.')}
+                c, t, d = _m.get(outcome, ('#95a5a6', '작전 종료', ''))
+                _band(c, t, d)
+            return
+
+        # ── 단발 교전 모드: 요격률 중심 ──────────────────────────────────
+        m_int = mc.get('mean_intercept', 0.0)
+        if m_int < 0.0 or m_int > 1.0:
+            lbl.setVisible(False)   # 비정상값은 카드 ⚠로 이미 표시
+            return
+        f_pass = mc.get('full_pass_rate', 0.0)
+        hits = mc.get('friendly_hits', [])
+        zero_hit = (sum(1 for h in hits if h == 0) / len(hits)) if hits else None
+        req_txt = ("REQ 요격률 95% 충족" if m_int >= 0.95
+                   else f"REQ 요격률 95% 기준 대비 {(0.95 - m_int) * 100:.0f}%p 미달")
+        sub = f"완전요격 {f_pass:.0%}"
+        if zero_hit is not None:
+            sub += f" · 무피격 {zero_hit:.0%}"
+        if m_int >= 0.90:
+            _band('#2ecc71', '🟢 우수',
+                  f"평균 요격률 {m_int:.0%} — 위협을 안정적으로 요격합니다. {req_txt}. ({sub})")
+        elif m_int >= 0.60:
+            _band('#f39c12', '🟡 양호',
+                  f"평균 요격률 {m_int:.0%} — 상당수 요격하나 일부 누수가 있습니다. "
+                  f"장거리 SAM(SM-6)·함정 수를 보강하면 향상 여지가 있습니다. {req_txt}. ({sub})")
+        else:
+            _band('#e74c3c', '🔴 미흡',
+                  f"평균 요격률 {m_int:.0%} — 위협 다수가 방어망을 돌파합니다. "
+                  f"편대 규모·요격 무기 재고를 재검토하세요. {req_txt}. ({sub})")
 
     def _update_card_deltas(self, result: dict, mc: dict):
         """직전 실행(_history[-1]) 대비 주요 지표 변화량을 카드 하단에 표시.
