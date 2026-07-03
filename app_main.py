@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.05 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.06 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.06 — 결과에 활성 토글 실제 영향 표시 (반사실 비교)]                ║
+║  NEW-A  결과 화면에 켜진 실험적·전술 토글이 이번 판 결과를 실제로 바꿨는지   ║
+║         표시 — 각 토글을 끈 채 같은 시드로 재실행해 요격률·피격 델타를 대조. ║
+║         "토글 켰는데 변화 0" 오해 해소: 영향 준 토글은 🟢 델타, 이번 설정선  ║
+║         발동 안 한 토글은 ⚪ 미미로 정직하게 구분. 비동기 계산(표시 전용,    ║
+║         엔진·회귀 무변경).                                                   ║
 ║  [v16.13.05 — 지속 전장 RAS 탄약 재보급 (v17.1 보급·병참)]                  ║
 ║  NEW-A  지속 전장 모드에서 군수지원함(AOE·AO)이 소강기에 소진된 함정의       ║
 ║         주요 SAM(SM-3/6/2)을 재장전. 위협 접근 시 중단·탄약 화물 유한(장기전 ║
@@ -1142,7 +1148,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.05"
+APP_VERSION = "v16.13.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3305,6 +3311,70 @@ class ShowcaseCompareWorker(QThread):
             self.done.emit(self.toggle_key, mc_off, mc_on)
         except Exception:
             self.failed.emit(self.toggle_key, traceback.format_exc())
+
+
+# Phase 3(백로그 5번): 결과에 "이 토글이 이번 판 결과를 바꿨나"를 반사실(counterfactual)로 표시.
+# 켜진 실험적/전술 토글을 각각 OFF로 되돌려 같은 고정 시드로 단발 재실행 → 요격률·피격 델타.
+_IMPACT_TOGGLES = [
+    ('enable_esm_arm',               'ESM→ARM 역탐지'),
+    ('enable_sonar_emcon',           '능동 소나 역탐지'),
+    ('enable_hgv_glide',             '극초음속 활공 다층요격'),
+    ('enable_asw_forward',           '대잠 항공 전진 초계'),
+    ('enable_cyber_warfare',         '사이버전'),
+    ('enable_dmo',                   '분산 해양 작전(DMO)'),
+    ('enable_coord_deception',       '전자 좌표 기만'),
+    ('enable_mine_threat',           '기뢰 위협'),
+    ('enable_minesweeping',          '소해'),
+    ('enable_unmanned_assets',       '무인 함정(USV·UUV)'),
+    ('enable_drone_swarm',           '적 무인기 군집'),
+    ('enable_autonomous_engagement', '함정 자율 교전'),
+    ('enable_ras_rearm',             'RAS 탄약 재보급'),
+    ('enable_recon_drone',           '정찰 드론'),
+    ('enable_png',                   'PNG 비례항법'),
+    ('enable_iff',                   'IFF 식별'),
+    ('enable_multibearing',          '다방위 공격'),
+]
+_IMPACT_SEED = 20260703   # 반사실 재현용 고정 시드(현재 설정에서 토글 유무만 대조)
+
+
+class CounterfactualWorker(QThread):
+    """Phase 3: 켜진 실험적/전술 토글을 각각 OFF로 되돌려 같은 시드로 단발 재실행 →
+    요격률·아군 피격 델타를 계산해 '이 토글이 이번 설정 결과를 바꾸는가'를 표시.
+    엔진·전역 상태 무변경(로컬 cfg 사본만). 결과 화면 표시 전용."""
+    done   = pyqtSignal(list)   # [(label, d_intercept_pp, d_hits, impacted), ...]
+    failed = pyqtSignal(str)
+
+    def __init__(self, base_cfg: dict, toggles: list):
+        super().__init__()
+        self.base_cfg = dict(base_cfg)
+        self.toggles  = list(toggles)
+
+    def _run_one(self, cfg: dict) -> dict:
+        if cfg.get('enable_battle_mode', False):
+            return run_battle_simulation(cfg)
+        return run_v7_simulation(cfg)
+
+    def run(self):
+        try:
+            base = dict(self.base_cfg)
+            base['sim_seed'] = _IMPACT_SEED
+            base['mc_mode']  = True   # 로그·프레임 억제(반복 단발 오버헤드↓, 수치 동일)
+            r_on  = self._run_one(base)
+            ir_on = r_on.get('intercept_rate', 0.0)
+            fh_on = r_on.get('friendly_hits', 0)
+            out = []
+            for key, label in self.toggles:
+                if self.isInterruptionRequested():
+                    return
+                cfg_off = dict(base); cfg_off[key] = False
+                r_off = self._run_one(cfg_off)
+                d_ir = (ir_on - r_off.get('intercept_rate', 0.0)) * 100.0   # %p
+                d_fh = fh_on - r_off.get('friendly_hits', 0)
+                impacted = (abs(d_ir) >= 0.05) or (abs(d_fh) >= 1)
+                out.append((label, d_ir, d_fh, impacted))
+            self.done.emit(out)
+        except Exception:
+            self.failed.emit(traceback.format_exc())
 
 
 class SimWorker(QThread):
@@ -7622,6 +7692,17 @@ class MainWindow(QMainWindow):
         self._lbl_result_grade.setVisible(False)
         layout.addWidget(self._lbl_result_grade)
 
+        # Phase 3(백로그 5번): 활성 토글 반사실 영향 — "이 토글을 끄면 이번 판이
+        # 어떻게 달라지나"를 고정 시드 단발 비교로 표시. "토글 켰는데 변화 0" 오해 해소.
+        self._lbl_toggle_impact = QLabel("")
+        self._lbl_toggle_impact.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_toggle_impact.setWordWrap(True)
+        self._lbl_toggle_impact.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._lbl_toggle_impact.setStyleSheet(f"font-size:11px; padding:2px 14px;")
+        self._lbl_toggle_impact.setVisible(False)
+        layout.addWidget(self._lbl_toggle_impact)
+
         # 실행 설정 요약 — 어떤 시나리오·날씨·MC로 돌렸는지 한눈에
         self._lbl_run_summary = QLabel("")
         self._lbl_run_summary.setStyleSheet(
@@ -9083,6 +9164,14 @@ class MainWindow(QMainWindow):
             if not scw.wait(2000):
                 scw.terminate()
                 scw.wait(500)
+        # Phase 3: 활성 토글 반사실 분석 워커 중단
+        icw = getattr(self, '_impact_worker', None)
+        if icw and icw.isRunning():
+            icw.requestInterruption()
+            icw.quit()
+            if not icw.wait(2000):
+                icw.terminate()
+                icw.wait(500)
         # 차트 렌더 워커 중단 (ChartPageWidget._worker) — placeholder QWidget은 hasattr로 건너뜀
         for attr in ('tab_mc_canvas', 'tab_ci',
                      'tab_optimize', 'tab_stress', 'tab_sobol'):
@@ -9187,6 +9276,9 @@ class MainWindow(QMainWindow):
         self._update_card_deltas(result, mc)
         # 결과 해석 배너 — "이 숫자가 좋은가?"에 등급+한 줄로 답
         self._update_result_grade(result, mc)
+        # Phase 3: 활성 토글 반사실 영향 분석(비동기) — "이 토글이 이번 판을 바꿨나"
+        if self._worker is not None:
+            self._start_toggle_impact(self._worker.cfg)
 
     def _update_result_grade(self, result: dict, mc: dict):
         """결과 해석 배너 — 핵심 지표를 등급(우수/양호/미흡)+한 줄 해석으로 풀어
@@ -9256,6 +9348,58 @@ class MainWindow(QMainWindow):
             _band('#e74c3c', '🔴 미흡',
                   f"평균 요격률 {m_int:.0%} — 위협 다수가 방어망을 돌파합니다. "
                   f"편대 규모·요격 무기 재고를 재검토하세요. {req_txt}. ({sub})")
+
+    def _start_toggle_impact(self, cfg: dict):
+        """Phase 3: 켜진 실험적/전술 토글의 반사실 영향 분석을 비동기로 시작.
+        켜진 토글이 없으면 표시 숨김."""
+        active = [(k, lbl) for k, lbl in _IMPACT_TOGGLES if cfg.get(k, False)]
+        lbl = getattr(self, '_lbl_toggle_impact', None)
+        if lbl is None:
+            return
+        if not active:
+            lbl.setVisible(False)
+            return
+        # 이전 분석이 돌고 있으면 중단
+        prev = getattr(self, '_impact_worker', None)
+        if prev is not None and prev.isRunning():
+            prev.requestInterruption()
+            prev.wait(100)
+        lbl.setText(f"<span style='color:{C_SUBTEXT}'>🔬 활성 토글 영향 분석 중… "
+                    f"(켜진 토글 {len(active)}종을 각각 꺼서 비교)</span>")
+        lbl.setVisible(True)
+        self._impact_worker = CounterfactualWorker(cfg, active)
+        self._impact_worker.done.connect(self._on_toggle_impact_done)
+        self._impact_worker.failed.connect(
+            lambda _e: self._lbl_toggle_impact.setVisible(False))
+        self._impact_worker.start(QThread.Priority.LowPriority)
+
+    def _on_toggle_impact_done(self, results: list):
+        """반사실 분석 완료 — 토글별 영향(요격률·피격 델타)을 결과 배너 아래 표시."""
+        lbl = getattr(self, '_lbl_toggle_impact', None)
+        if lbl is None:
+            return
+        if not results:
+            lbl.setVisible(False)
+            return
+        parts = []
+        for label, d_ir, d_fh, impacted in results:
+            if impacted:
+                bits = []
+                if abs(d_ir) >= 0.05:
+                    sign = '+' if d_ir > 0 else '−'
+                    bits.append(f"요격률 {sign}{abs(d_ir):.1f}%p")
+                if abs(d_fh) >= 1:
+                    bits.append(f"피격 {d_fh:+d}발")
+                parts.append(f"<span style='color:#2ecc71'>🟢 <b>{label}</b> "
+                             f"{' · '.join(bits)}</span>")
+            else:
+                parts.append(f"<span style='color:{C_SUBTEXT}'>⚪ {label} "
+                             f"영향 미미</span>")
+        header = (f"<span style='color:{C_SUBTEXT}'>🔬 활성 토글 영향 "
+                  f"(현재 설정·고정 시드 단발 비교 — 이 토글을 끄면 이번 판이 어떻게 달라지나):"
+                  f"</span><br>")
+        lbl.setText(header + " &nbsp; ".join(parts))
+        lbl.setVisible(True)
 
     def _update_card_deltas(self, result: dict, mc: dict):
         """직전 실행(_history[-1]) 대비 주요 지표 변화량을 카드 하단에 표시.
