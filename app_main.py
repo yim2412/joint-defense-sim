@@ -1,7 +1,16 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.07 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.09 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.09 — 지향성 에너지 무기(레이저·DEW) 교전 (실험적·효능 평가중)]     ║
+║  NEW-A  레이저 장착함이 근접 저속 표적(드론·자폭정·아음속미사일)을 조사      ║
+║         격추 — CIWS 채널과 독립된 1채널 dwell 경로. enable_laser_dew 기본    ║
+║         OFF. ⚠효능: 현 모델서 저속표적은 SAM이 원거리 전멸·고속미사일은      ║
+║         dwell 부족 → 실전 발동 미미(음성 위험). 방향 결정 대기.              ║
+║  BUG-1  드론(is_aircraft+is_ship 양립) 격추에너지 오분류 수정(항공기 우선)   ║
+║  [v16.13.08 — 함정 통합 전력 모델 (레이저 기반)]                            ║
+║  NEW-A  함정별 실측 발전량 DB(Burke FIII 12MW·KDX-III 9MW 등)와 전력 가용    ║
+║         모델 — 고속 기동 시 레이저 가용 전력 저하. 교전 무변경(회귀 동일).   ║
 ║  [v16.13.07 — 향후 계획 위생: 완료된 '진행 중' 2개 항목 정리]               ║
 ║  DEL-A  지속 전장 엔진·자율 학습 전술 AI를 '진행 중'에서 제거 — 엔진 전환과 ║
 ║         강화학습·self-play·자가개선 루프까지 완료. 남은 선택적 심화(자가     ║
@@ -1152,7 +1161,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.07"
+APP_VERSION = "v16.13.09"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3331,6 +3340,7 @@ _IMPACT_TOGGLES = [
     ('enable_minesweeping',          '소해'),
     ('enable_unmanned_assets',       '무인 함정(USV·UUV)'),
     ('enable_drone_swarm',           '적 무인기 군집'),
+    ('enable_laser_dew',             '지향성 에너지 무기(레이저)'),
     ('enable_autonomous_engagement', '함정 자율 교전'),
     ('enable_ras_rearm',             'RAS 탄약 재보급'),
     ('enable_recon_drone',           '정찰 드론'),
@@ -3585,6 +3595,7 @@ class SimWorker(QThread):
                     'mean_ships_flooding':      float(np.mean(_extra_acc.get('ships_flooding', [0]))),
                     'mean_iff_failures':        float(np.mean(_extra_acc.get('iff_failures', [0]))),
                     'mean_iff_fratricide':      float(np.mean(_extra_acc.get('iff_fratricide', [0]))),
+                    'mean_laser_kills':         float(np.mean(_extra_acc.get('laser_kills', [0]))),
                 }
                 _bo = _extra_acc.get('outcome', [])
                 if _bo:   # 전장 모드 — 병렬 MC 승률 집계
@@ -6376,6 +6387,8 @@ class MainWindow(QMainWindow):
             self.chk_unmanned.setChecked(cfg.get('enable_unmanned_assets', False))
         if hasattr(self, 'chk_drone_swarm'):
             self.chk_drone_swarm.setChecked(cfg.get('enable_drone_swarm', False))
+        if hasattr(self, 'chk_laser_dew'):
+            self.chk_laser_dew.setChecked(cfg.get('enable_laser_dew', False))
         # 항공 자산 복원
         for attr, key in [('chk_helo','enable_helo'),('chk_p3c','enable_p3c'),
                           ('chk_p8a','enable_p8a'),('chk_f35a','enable_f35a'),
@@ -7283,6 +7296,18 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
         )
 
+        # v17.2: 지향성 에너지 무기(레이저·DEW)
+        self.chk_laser_dew = QCheckBox("지향성 에너지 무기 레이저 (실험적)")
+        self.chk_laser_dew.setChecked(False)
+        self.chk_laser_dew.setToolTip(
+            "레이저 장착함(정조대왕함·미 이지스·해안 C-RAM)이 근접 저속 표적을 조사(照射) 격추합니다.\n"
+            "  · CIWS 동시교전 채널과 독립된 경로 — 채널 포화(드론 군집)를 별도로 완화\n"
+            "  · 표적당 조사시간(dwell)이 필요해 사실상 1채널 — 동시 다표적엔 약함\n"
+            "  · 대상 제한: 드론·자폭정·아음속 순항미사일만(초음속·탄도·극초음속 무효)\n"
+            "  · 유효 교전거리 약 5km, 발당 비용 극소(전력만 소모)\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         # v16.7: 기뢰전(MIW)
         self.chk_mine_threat = QCheckBox("기뢰전 위협 (실험적)")
         self.chk_mine_threat.setChecked(False)
@@ -7357,6 +7382,7 @@ class MainWindow(QMainWindow):
                     self.chk_ras_rearm,
                     self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_dmo, self.chk_coord_decep, self.chk_drone_swarm,
+                    self.chk_laser_dew,
                     self.chk_mine_threat,
                     self.chk_minesweeping, self.chk_unmanned, self.chk_tactical]:
             _wire_chk_color(chk, 13)
@@ -8788,6 +8814,7 @@ class MainWindow(QMainWindow):
             'enable_minesweeping':       self.chk_minesweeping.isChecked(),
             'enable_unmanned_assets':    self.chk_unmanned.isChecked(),
             'enable_drone_swarm':        self.chk_drone_swarm.isChecked(),
+            'enable_laser_dew':          self.chk_laser_dew.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {
@@ -10770,10 +10797,13 @@ class SplashWindow(QWidget):
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
             # ── v17.x — 군수·미래 전장 ────────────────────────────────────────
-            ("v17.2", "높음", "지향성 에너지 무기 (레이저)",
-             "함정 레이저(60kW급)·고출력 마이크로파. 전력 한도 내에서만 연속 발사. "
-             "【현실성】60kW는 드론·소형보트 한정. 초음속 탄두(현무-4급) 무력화는 메가와트급 필요 → 대상 제한 필수. "
-             "적 무인기 군집 포화(자폭 드론 스웜) 대응이 주 용도."),
+            ("v17.2", "높음", "지향성 에너지 무기 (레이저) — 구현 완료·효능 평가중",
+             "함정 레이저(60~100kW급)가 근접 저속 표적(드론·자폭정·아음속 순항미사일)을 조사 격추하는 "
+             "교전과 함정 통합 전력 모델은 구현 완료(실험적·기본 OFF). CIWS 채널과 독립된 1채널 조사 방식. "
+             "【현실성】초음속·탄도·극초음속은 무효(대상 제한). "
+             "남은 과제: 현 방어 모델에서 저속 표적은 함대 SAM이 원거리에서 먼저 요격하고, 고속 대함미사일은 "
+             "조사시간이 부족해 — 레이저가 실전 시나리오에서 발동하는 경우가 드물다. 실효화 방향(값싼 드론에 "
+             "고가 SAM을 낭비하지 않는 무기-표적 가치 배분 교리 등)은 별도 판단 항목."),
             # ── v18.x — 작전급 시뮬레이터 ─────────────────────────────────────
             # 선행 필수: v11.4(분석속도) · v15.2(즉시예측)
             ("v18.1", "매우 높음", "캠페인 엔진 기반 설계",

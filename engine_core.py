@@ -1319,6 +1319,66 @@ SHIP_SURVIVABILITY = {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+#  함정 통합 전력 모델 (v17.2 지향성 에너지 무기·레이저용, enable_laser_dew ON 경로)
+#  gen_kw      : 함정 총 발전량(kW, 공개 제원). SSGTG·디젤발전기 정격 합.
+#  radar_kw    : 주 탐지 레이더 상시 전기 부하(kW). SPY-6/1 등.
+#  prop_ref_kw : 순항 상한(_POWER_REF_SPEED_MS)에서의 추진연동 보조·냉각 증분 부하(kW).
+#                고속 기동 시 speed³로 증가해 레이저 가용 전력 마진을 잠식(트레이드오프).
+#  laser_kw    : 장착 레이저 정격출력(kW). 0=미장착. 실측·공개계획 기반.
+#
+#  ⚠ 추상화 주의: KDX-III·Burke는 기계식 추진(가스터빈 축직결)이라 실제로는 발전-추진
+#     전력이 분리돼 있다. 여기선 '고속 기동 시 냉각·보조 부하 증가 → 통합 전력 마진 축소'를
+#     단일 budget 잠식으로 추상화(설계 합의 2026-07-04). prop_ref_kw는 축마력(75MW급)이
+#     아니라 속도 연동 전기·냉각 증분(수백~수천 kW)임에 유의.
+#  출처: 발전량=Rolls-Royce/GE 제원·Jane's, 레이저=HELIOS 60kW(USS Preble 실배치)·
+#        한화 천광 블록-I 20kW(실전배치)·블록-III 함정용 목표 100kW(계획).
+# ════════════════════════════════════════════════════════════════════════════
+_POWER_REF_SPEED_MS = 15.0   # 순항 상한 기준속도(≈29kt). 이 속도에서 prop_ref_kw 부하.
+
+SHIP_POWER = {
+    # ── 한국 해군 ──────────────────────────────────────────────────────────
+    # KDX-III: 발전 3×Rolls-Royce AG9140RF(~3MW급)≈9MW / 추진 COGAG 4×LM2500(75MW 축·별계통)
+    'KDX-III-B1': {'gen_kw': 9000, 'radar_kw': 1200, 'prop_ref_kw': 2500, 'laser_kw': 0},
+    # B2 정조대왕급: 개량 SPY-1D(V). 국산 레이저 블록-III(함정용 목표 100kW) 탑재 계획 반영.
+    'KDX-III-B2': {'gen_kw': 9000, 'radar_kw': 1300, 'prop_ref_kw': 2500, 'laser_kw': 100},
+    'KDX-II':     {'gen_kw': 4500, 'radar_kw': 600,  'prop_ref_kw': 1500, 'laser_kw': 0},
+    'FFX-I':      {'gen_kw': 2800, 'radar_kw': 250,  'prop_ref_kw': 900,  'laser_kw': 0},
+    'FFX-II':     {'gen_kw': 3200, 'radar_kw': 400,  'prop_ref_kw': 1000, 'laser_kw': 0},
+    'FFX-III':    {'gen_kw': 3600, 'radar_kw': 450,  'prop_ref_kw': 1100, 'laser_kw': 0},
+    'PKG':        {'gen_kw': 800,  'radar_kw': 80,   'prop_ref_kw': 400,  'laser_kw': 0},
+    'PCC':        {'gen_kw': 1000, 'radar_kw': 100,  'prop_ref_kw': 400,  'laser_kw': 0},
+    'PKX-B':      {'gen_kw': 400,  'radar_kw': 40,   'prop_ref_kw': 200,  'laser_kw': 0},
+    # 해안 고정 포대(prop_ref=0, 추진 없음). 천광 블록-I 20kW 대드론 레이저 실배치 반영(CRAM).
+    'CRAM':       {'gen_kw': 2000, 'radar_kw': 200,  'prop_ref_kw': 0,    'laser_kw': 20},
+    'CSAM':       {'gen_kw': 3000, 'radar_kw': 500,  'prop_ref_kw': 0,    'laser_kw': 0},
+    'LPH':        {'gen_kw': 6000, 'radar_kw': 400,  'prop_ref_kw': 2000, 'laser_kw': 0},
+    'AOE':        {'gen_kw': 5000, 'radar_kw': 200,  'prop_ref_kw': 1800, 'laser_kw': 0},
+    'LST':        {'gen_kw': 2500, 'radar_kw': 150,  'prop_ref_kw': 800,  'laser_kw': 0},
+    'AO':         {'gen_kw': 2000, 'radar_kw': 100,  'prop_ref_kw': 700,  'laser_kw': 0},
+    'USV':        {'gen_kw': 200,  'radar_kw': 50,   'prop_ref_kw': 100,  'laser_kw': 0},
+    # ── 미 해군 ────────────────────────────────────────────────────────────
+    # DDG-51 Flight III: 발전 3×4MW=12MW(SPY-6 대응 증설). HELIOS 60kW(USS Preble DDG-88 실배치).
+    'DDG-51':     {'gen_kw': 12000, 'radar_kw': 4000, 'prop_ref_kw': 3000, 'laser_kw': 60},
+    # CG-47: 발전 3×2.5MW≈7.5MW(Allison 501-K34). 레이저 개장 상정.
+    'CG-47':      {'gen_kw': 7500,  'radar_kw': 1200, 'prop_ref_kw': 2500, 'laser_kw': 60},
+    'CVN':        {'gen_kw': 64000, 'radar_kw': 1500, 'prop_ref_kw': 8000, 'laser_kw': 0},
+    'LPD':        {'gen_kw': 5000,  'radar_kw': 500,  'prop_ref_kw': 1500, 'laser_kw': 0},
+    # ── 잠수함(KSS·SSN)·UUV = 레이저 무관(잠항·소형). SHIP_POWER 미등재 → power_avail 0 ──
+}
+
+
+def power_avail_kw(ship_type: str, speed_ms: float = 0.0) -> float:
+    """함정 레이저 가용 전력(kW) = 발전량 − 레이더 상시부하 − 속도연동 추진·냉각 증분.
+    고속(speed_ms↑)일수록 잉여 축소(트레이드오프). 미등재 함종은 0."""
+    p = SHIP_POWER.get(ship_type)
+    if not p:
+        return 0.0
+    frac = (max(0.0, speed_ms) / _POWER_REF_SPEED_MS) ** 3
+    prop = p.get('prop_ref_kw', 0.0) * frac
+    return max(0.0, p['gen_kw'] - p.get('radar_kw', 0.0) - prop)
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  함정 조달가 (USD) — 적정 편대 추천(v15.1) 비용효과 산출용
 #  공개 조달가(척당 건조비) 기반. 한국함은 원화 공개값 ÷ 1,350원/달러 환산(반올림).
 #  출처: 방위사업청 사업 공개자료·해군 예산서·언론 보도(한국함) / FY 예산서·CRS(미국함).

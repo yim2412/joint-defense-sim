@@ -86,6 +86,7 @@ from engine_core import (
     calculate_detect_range_by_rcs,
     normalize_enemy_db,
     SHIP_SURVIVABILITY, FLOOD_WARHEAD_FACTOR, FLOOD_BELOW_WL_PROB, FLOOD_INFLOW_K,
+    SHIP_POWER, power_avail_kw,
 )
 try:
     from db_ocean_acoustic import (
@@ -137,6 +138,16 @@ _STRAIT_OPEN_SEA_KM = 200.0
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — 해성 250m/s 기준 250km = 1000초 충분
+
+# ── v17.2: 지향성 에너지 무기(레이저·DEW) 상수 ───────────────────────────────
+# 회절·대기감쇠로 근거리 한정. ref_km 이내는 정격출력, 그 밖은 도달출력 ∝ 1/거리².
+_LASER_RANGE_KM        = 5.0     # 유효 교전거리(HELIOS 실측 최대 6마일≈9.6km의 보수적 유효값)
+_LASER_REF_KM          = 2.0     # 정격출력 도달 기준거리(이내=정격, 밖=1/거리² 감쇠)
+_LASER_MAX_TARGET_MS   = 340.0   # 표적 상한(아음속). 초음속·탄도·HGV 제외
+_LASER_MAX_AIRCRAFT_MS = 120.0   # 드론 상한(유인 전투기 제외 — 저속 무인기만)
+_LASER_NOMINAL_SPEED_MS = 10.0   # 방어 순항 근사(전력 마진 산정용). 전장 고속기동 시 저하는 battle 모드에서 발현
+# 표적별 격추 소요 에너지(kJ). 드론<자폭정<아음속미사일(내구 순). HELIOS 60kW×5s≈300kJ로 드론 앵커.
+_LASER_EKILL_KJ        = {'drone': 300.0, 'boat': 800.0, 'missile': 3000.0}
 
 # ── v10.7: 전술 의사결정 모드 상태 스냅샷 ────────────────────────────────────
 @dataclasses.dataclass
@@ -1157,6 +1168,12 @@ class FriendlyShipObj:
         self._rearming  = False   # 히스테리시스: TRIGGER서 True, TARGET 도달 시 False
         self._initial_defense_stock = dict(self.inventory)
 
+        # v17.2: 지향성 에너지 무기(레이저) — enable_laser_dew ON 경로에서만 교전.
+        # laser_kw=0(미장착)이면 _laser_defense 진입 시 무동작 → 회귀 bit-identical.
+        self.laser_kw          = float(SHIP_POWER.get(ship_type, {}).get('laser_kw', 0.0))
+        self._laser_target_uid = None   # 현재 조사 중인 표적 uid (dwell lock)
+        self._laser_dwell_acc  = 0.0    # 누적 조사 에너지(kJ). E_kill 도달 시 격추
+
     @property
     def max_channels(self):
         # 채널 계산 시 부분 피해 반영
@@ -1457,6 +1474,7 @@ class TimeStepEngine:
             'enemy_hits':              0,
             'friendly_ships_lost':     0,
             'enemy_ships_destroyed':   0,
+            'laser_kills':             0,   # v17.2: 레이저(DEW) 격추 수(드론·자폭정·아음속미사일)
             'total_cost':              0.0,
             'aircraft_sorties':        0,
             # 포팅 D: REQ 판정용
@@ -3387,6 +3405,123 @@ class TimeStepEngine:
                 self._vls_last_fire[id(ship)] = self.t
                 shots += 1
 
+    def _laser_defense(self):
+        """v17.2: 지향성 에너지 무기(레이저·DEW) 방어. enable_laser_dew ON 경로.
+
+        CIWS 채널과 **독립된 별도 경로**로, 레이저 장착 생존함마다 저속 표적(드론·자폭정·
+        아음속 순항미사일)을 1개씩 조사(dwell)해 격추한다. 표적당 조사시간(누적 에너지)이
+        필요해 사실상 1채널 — 동시 다표적엔 약하나, CIWS 동시교전 채널 포화와 무관하게
+        처치량을 더한다(설계: 채널 포화 우회 vs 1채널 dwell 트레이드오프).
+
+        OFF이거나 레이저 미장착(laser_kw=0)이면 무동작 → 회귀 bit-identical."""
+        if not self.cfg.get('enable_laser_dew', False):
+            return
+        for ship in self.friendly_ships:
+            if ship.alive and ship.laser_kw > 0:
+                self._laser_engage_ship(ship)
+
+    def _laser_lookup(self, uid):
+        """lock된 표적 uid를 현재 생존 미사일·위협에서 조회(없으면 None)."""
+        if uid is None:
+            return None
+        for m in self.missiles:
+            if m.uid == uid:
+                return m if (m.alive and not m.intercepted) else None
+        for et in self.enemy_threats:
+            if et.uid == uid:
+                return et if (et.alive and not et.intercepted) else None
+        return None
+
+    def _laser_eligible_missile(self, m) -> bool:
+        # 아음속 순항미사일만(초음속·탄도·HGV·QBM 제외)
+        return (m.alive and not m.intercepted and m.mtype == 'enemy_strike'
+                and not m.is_ballistic and not m.is_hgv and not m.is_qbm
+                and m.speed_ms <= _LASER_MAX_TARGET_MS)
+
+    def _laser_eligible_threat(self, et) -> bool:
+        if not et.alive or et.intercepted:
+            return False
+        # 저속 무인기(자폭 드론) — 유인 전투기 제외
+        if et.is_aircraft and not et.is_retreating and et.speed_ms <= _LASER_MAX_AIRCRAFT_MS:
+            return True
+        # 수상 자폭정(고속정 type, is_suicide)
+        if et.is_ship and et.info.get('is_suicide') and et.speed_ms <= _LASER_MAX_TARGET_MS:
+            return True
+        return False
+
+    def _laser_ekill(self, tgt) -> float:
+        if isinstance(tgt, MissileObj):
+            return _LASER_EKILL_KJ['missile']
+        # 드론은 is_aircraft·is_ship 양쪽 True일 수 있어 항공기(드론)를 먼저 판정
+        if getattr(tgt, 'is_aircraft', False):
+            return _LASER_EKILL_KJ['drone']
+        if tgt.is_ship:
+            return _LASER_EKILL_KJ['boat']
+        return _LASER_EKILL_KJ['drone']
+
+    def _laser_acquire(self, ship):
+        """사거리 내 유효 표적 중 최근접 1개 lock(없으면 None)."""
+        rng_m = _LASER_RANGE_KM * 1000
+        best, best_d = None, rng_m
+        for m in self.missiles:
+            if self._laser_eligible_missile(m):
+                d = ship.pos.dist_to(m.pos)
+                if d <= best_d:
+                    best, best_d = m, d
+        for et in self.enemy_threats:
+            if self._laser_eligible_threat(et):
+                d = ship.pos.dist_to(et.pos)
+                if d <= best_d:
+                    best, best_d = et, d
+        return best
+
+    def _laser_engage_ship(self, ship: FriendlyShipObj):
+        # 1) 현재 조사 표적 유지(lock) — 유효하지 않으면 신규 획득
+        tgt = self._laser_lookup(ship._laser_target_uid)
+        if tgt is None:
+            tgt = self._laser_acquire(ship)
+            ship._laser_dwell_acc = 0.0
+            ship._laser_target_uid = tgt.uid if tgt is not None else None
+            if tgt is None:
+                return
+        # 2) 사거리 이탈 시 lock 해제
+        dist_m = ship.pos.dist_to(tgt.pos)
+        if dist_m > _LASER_RANGE_KM * 1000:
+            ship._laser_target_uid = None
+            ship._laser_dwell_acc = 0.0
+            return
+        # 3) 도달출력 P[kW] = 정격 × (ref/거리)² (이내=정격 상한). 잉여 전력 한도 적용.
+        ref_m = _LASER_REF_KM * 1000
+        reach = ship.laser_kw * min(1.0, (ref_m / max(dist_m, 1.0)) ** 2)
+        avail = power_avail_kw(ship.ship_type, _LASER_NOMINAL_SPEED_MS)
+        power = min(reach, avail)   # kW = kJ/s
+        # 4) 누적 조사 에너지 → E_kill 도달 시 격추
+        ship._laser_dwell_acc += power * DT
+        if ship._laser_dwell_acc >= self._laser_ekill(tgt):
+            self._laser_kill(ship, tgt, dist_m)
+            ship._laser_target_uid = None
+            ship._laser_dwell_acc = 0.0
+
+    def _laser_kill(self, ship: FriendlyShipObj, tgt, dist_m: float):
+        """레이저 격추 처리 — 기존 SAM/CIWS 격추와 동일 상태 규약(집계 일관)."""
+        tgt.alive = False
+        tgt.intercepted = True
+        self.stats['laser_kills'] += 1
+        if isinstance(tgt, MissileObj):
+            tgt.t_intercept = self.t
+            # 아음속 미사일 격추는 SAM과 동일하게 intercepted_threats에 집계(집계 규약 일치)
+            self.stats['intercepted_threats'] += 1
+            tgt.intercept_weapon = '레이저(DEW)'
+            tgt.intercept_km = dist_m / 1000
+            tgt_name = tgt.name
+        else:
+            # 항공기·자폭정 플랫폼은 enemy_ships_destroyed로 집계(SAM 규약과 일치, 4459~ 참조)
+            tgt.t_intercept = self.t
+            tgt_name = tgt.preset_name
+        if not self._mc_mode:
+            self._log(f"[레이저 격추] {ship.name} → {tgt_name} "
+                      f"(거리 {dist_m/1000:.1f}km, {self.t:.0f}s)")
+
     def _launch_friendly_sam(self, ship: FriendlyShipObj, wpn: str, target,
                               dist_m: float, is_aa: bool, cec_relay: bool = False):
         wpn_info = FRIENDLY_DB[wpn]
@@ -4876,6 +5011,7 @@ class TimeStepEngine:
             _t0 = _pc(); self._enemy_fire();       pt['적발사']   += _pc() - _t0
             self._arm_radar_off_check()
             _t0 = _pc(); self._friendly_defense(); pt['대공방어'] += _pc() - _t0
+            self._laser_defense()   # v17.2: 지향성 에너지 무기(레이저) — OFF 시 무동작
             _t0 = _pc(); self._friendly_strike();  pt['아군공격'] += _pc() - _t0
             _t0 = _pc(); self._aircraft_asw(); self._aircraft_cap(); self._aircraft_aas(); pt['대잠'] += _pc() - _t0
             _t0 = _pc(); self._enemy_defense();    pt['적방어']   += _pc() - _t0
@@ -6074,6 +6210,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     recon_loss:  list = []
     unmanned_lost: list = []
     ras_resupplied: list = []
+    laser_kills: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
 
     step = max(1, n // 5)
@@ -6101,6 +6238,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         recon_loss.append(r.get('recon_losses', 0))
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
+        laser_kills.append(r.get('laser_kills', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6169,6 +6307,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
         'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         'mean_ras_resupplied':      float(np.mean(ras_resupplied)) if ras_resupplied else 0.0,
+        'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -6187,6 +6326,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     recon_loss:  list = []
     unmanned_lost: list = []
     ras_resupplied: list = []
+    laser_kills: list = []
     outcomes: list = []; fscores: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -6208,6 +6348,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
         recon_loss.append(r.get('recon_losses', 0))
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
+        laser_kills.append(r.get('laser_kills', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6231,6 +6372,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'recon_losses': recon_loss,
                    'unmanned_lost': unmanned_lost,
                    'ras_missiles_resupplied': ras_resupplied,
+                   'laser_kills': laser_kills,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
@@ -6247,6 +6389,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     recon_loss:  list = []
     unmanned_lost: list = []
     ras_resupplied: list = []
+    laser_kills: list = []
     outcomes: list = []; fscores: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
@@ -6267,6 +6410,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         recon_loss.append(r.get('recon_losses', 0))
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
+        laser_kills.append(r.get('laser_kills', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6280,6 +6424,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'recon_losses': recon_loss,
                    'unmanned_lost': unmanned_lost,
                    'ras_missiles_resupplied': ras_resupplied,
+                   'laser_kills': laser_kills,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
@@ -6348,6 +6493,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     recon_loss:  list = []
     unmanned_lost: list = []
     ras_resupplied: list = []
+    laser_kills: list = []
     outcomes: list = []; fscores: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
@@ -6372,6 +6518,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 recon_loss.extend(bxs.get('recon_losses', []))
                 unmanned_lost.extend(bxs.get('unmanned_lost', []))
                 ras_resupplied.extend(bxs.get('ras_missiles_resupplied', []))
+                laser_kills.extend(bxs.get('laser_kills', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
@@ -6399,6 +6546,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             recon_loss.append(r.get('recon_losses', 0))
             unmanned_lost.append(r.get('unmanned_lost', 0))
             ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
+            laser_kills.append(r.get('laser_kills', 0))
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6435,6 +6583,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_recon_losses':        float(np.mean(recon_loss)) if recon_loss else 0.0,
         'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         'mean_ras_resupplied':      float(np.mean(ras_resupplied)) if ras_resupplied else 0.0,
+        'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
