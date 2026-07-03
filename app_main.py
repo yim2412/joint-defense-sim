@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.05 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.05 — 지속 전장 RAS 탄약 재보급 (v17.1 보급·병참)]                  ║
+║  NEW-A  지속 전장 모드에서 군수지원함(AOE·AO)이 소강기에 소진된 함정의       ║
+║         주요 SAM(SM-3/6/2)을 재장전. 위협 접근 시 중단·탄약 화물 유한(장기전 ║
+║         서 결국 소진)의 트레이드오프. 기존 해상급유(RAS) 인프라 확장 —       ║
+║         연료만 보급하던 것을 탄약까지. 3종세트·기본 OFF·실험적·지속 전장     ║
+║         전용(단발 무영향). 회귀 bit-identical.                               ║
 ║  [v16.13.04 — 결과 해석 도움말: 핵심 지표 등급+한 줄 해석 배너]             ║
 ║  NEW-A  결과 화면 핵심 지표 아래에 해석 배너 — "이 숫자가 좋은가?"에 등급   ║
 ║         (🟢우수·🟡양호·🔴미흡)과 한 줄 해석으로 답. 단발 교전은 요격률 기준 ║
@@ -1136,7 +1142,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.04"
+APP_VERSION = "v16.13.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6278,6 +6284,8 @@ class MainWindow(QMainWindow):
             self.chk_cec_jammed.setChecked(cfg.get('enable_cec_jammed', False))
         if hasattr(self, 'chk_autonomous'):
             self.chk_autonomous.setChecked(cfg.get('enable_autonomous_engagement', False))
+        if hasattr(self, 'chk_ras_rearm'):
+            self.chk_ras_rearm.setChecked(cfg.get('enable_ras_rearm', False))
         if hasattr(self, 'chk_ship_evasion'):
             self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
         if hasattr(self, 'chk_radar_off'):
@@ -7140,6 +7148,17 @@ class MainWindow(QMainWindow):
             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
         )
 
+        # v17.1: RAS 탄약 재보급 (지속 전장 전용)
+        self.chk_ras_rearm = QCheckBox("RAS 탄약 재보급 (실험적)")
+        self.chk_ras_rearm.setChecked(False)
+        self.chk_ras_rearm.setToolTip(
+            "지속 전장 모드에서 군수지원함(AOE·AO)이 소강기에 소진된 함정의 주요 SAM(SM-3/6/2)을 재장전합니다.\n"
+            "  · 위협(적 대함미사일) 접근 시 중단 — 붙어서 재장전 불가, 소강기에만 발동\n"
+            "  · 탄약 화물 유한 — 장기전에서 결국 소진(무한 재보급 아님)\n"
+            "  · 단발 교전에는 영향 없음 — 장기 지속 전장에서만 발현\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         self.chk_ship_evasion = QCheckBox("함정 회피 기동")
         self.chk_ship_evasion.setChecked(False)
         self.chk_ship_evasion.setToolTip(
@@ -7261,6 +7280,7 @@ class MainWindow(QMainWindow):
 
         for chk in [self.chk_cec, self.chk_multibearing,
                     self.chk_cec_jammed, self.chk_autonomous,
+                    self.chk_ras_rearm,
                     self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_dmo, self.chk_coord_decep, self.chk_drone_swarm,
                     self.chk_mine_threat,
@@ -8672,6 +8692,7 @@ class MainWindow(QMainWindow):
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
             'enable_autonomous_engagement': self.chk_autonomous.isChecked(),
+            'enable_ras_rearm':          self.chk_ras_rearm.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
             'enable_radar_off':          self.chk_radar_off.isChecked(),
             'enable_dmo':                self.chk_dmo.isChecked(),
@@ -10618,9 +10639,6 @@ class SplashWindow(QWidget):
              "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
              "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다 — 별도 설계 항목."),
             # ── v17.x — 군수·미래 전장 ────────────────────────────────────────
-            ("v17.1", "중간", "보급·병참 지속성",
-             "탄약·연료·보급품 지속성 모델. 군수지원함 보급 주기, 재고 고갈 시 작전 제약. "
-             "전술~작전 경계의 군수 — v17.2 캠페인 재보급의 전술급 선행(중복 없이 연계)."),
             ("v17.2", "높음", "지향성 에너지 무기 (레이저)",
              "함정 레이저(60kW급)·고출력 마이크로파. 전력 한도 내에서만 연속 발사. "
              "【현실성】60kW는 드론·소형보트 한정. 초음속 탄두(현무-4급) 무력화는 메가와트급 필요 → 대상 제한 필수. "
