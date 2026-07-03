@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.03 — 온보딩: 추천 시나리오 원클릭 배너(가이드된 첫 실행)]          ║
+║  NEW-A  🚀 추천 시나리오 배너 — 설정 화면 상단에 대표 상황 5종(서해 차단·   ║
+║         독도 방어·항모전단 요격·북한 포화도발·항만 거점 방어)을 원클릭으로   ║
+║         노출. 클릭 시 함정·위협·해역·날씨를 일괄 설정 → 실행 버튼으로 유도.  ║
+║         처음 사용자의 "뭘 눌러야 할지" 이탈 방지. 한 번 접으면 다음 실행부터 ║
+║         숨김(상단 [추천 시나리오] 버튼으로 재표시). 기존 시나리오 자산       ║
+║         재사용·순수 UI(엔진·DB 무변경, 회귀 bit-identical).                  ║
 ║  [v16.13.02 — 함정 자율 교전(트랙 C): 지휘 강건성 + CEC 지휘 저하 모델]     ║
 ║  NEW-A  함정 자율 교전 토글 — 각 함정이 CEC 중앙 조율 없이 독립 판단·교전   ║
 ║         (메시 협동 탐지 유지, 중앙 조율 살보 +1만 제외). 지휘 노드(기함)에  ║
@@ -1123,7 +1130,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.02"
+APP_VERSION = "v16.13.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -5780,6 +5787,82 @@ class MainWindow(QMainWindow):
             f"<span style='color:#e74c3c'>⚠ 비교 실행 실패 — 로그를 확인하세요.</span>")
         _write_log(f'[ERROR] 쇼케이스 비교 실패({key}): {err}')
 
+    def _build_quickstart_banner(self) -> QWidget:
+        """처음 사용자용 추천 시나리오 원클릭 배너 (기존 SCENARIO_LIBRARY 재사용).
+        클릭 시 함정·위협·해역·날씨를 일괄 설정하고 실행 버튼으로 유도한다."""
+        banner = QWidget()
+        banner.setStyleSheet(
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            f" stop:0 #16324a, stop:1 {C_PANEL});"
+            f" border-bottom:1px solid {C_BORDER}; border-left:4px solid {C_ACCENT};")
+        bl = QVBoxLayout(banner)
+        bl.setContentsMargins(14, 8, 14, 10)
+        bl.setSpacing(6)
+
+        head = QHBoxLayout(); head.setSpacing(8)
+        title = QLabel("🚀  처음이신가요?  추천 시나리오로 바로 시작하세요")
+        title.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold;")
+        head.addWidget(title)
+        head.addStretch()
+        btn_close = QPushButton("✕ 접기")
+        btn_close.setFixedHeight(22)
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C_SUBTEXT};"
+            f" border:1px solid {C_BORDER}; border-radius:3px; padding:0 8px; font-size:11px; }}"
+            f"QPushButton:hover {{ color:{C_TEXT}; }}")
+        btn_close.clicked.connect(lambda: self._toggle_quickstart_banner(False, remember=True))
+        head.addWidget(btn_close)
+        bl.addLayout(head)
+
+        hint = QLabel("아래 상황을 누르면 함정·위협·해역·날씨가 한 번에 설정됩니다. "
+                      "그다음 우측 [▶ 시뮬레이션 실행]만 누르면 결과를 볼 수 있습니다.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        bl.addWidget(hint)
+
+        row = QHBoxLayout(); row.setSpacing(6)
+        for name, d in SCENARIO_LIBRARY.items():
+            b = QPushButton(name)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFixedHeight(30)
+            b.setToolTip(f"{d.get('desc','')}\n\n권장: {d.get('recommend','')}")
+            b.setStyleSheet(
+                f"QPushButton {{ background:{C_ACCENT}; color:#0b1220; border:none;"
+                f" border-radius:15px; padding:0 16px; font-size:12px; font-weight:bold; }}"
+                f"QPushButton:hover {{ background:#4db8ff; }}")
+            b.clicked.connect(lambda _, n=name: self._load_quickstart(n))
+            row.addWidget(b)
+        row.addStretch()
+        bl.addLayout(row)
+        return banner
+
+    def _load_quickstart(self, name: str):
+        """추천 시나리오를 설정 UI에 일괄 적용 (온보딩 원클릭). SCENARIO_LIBRARY 재사용."""
+        sc = SCENARIO_LIBRARY.get(name)
+        if not sc:
+            return
+        # 작전 시나리오 라디오 그룹도 동기화(숨김 콤보 경유)
+        if hasattr(self, 'cmb_scenario'):
+            idx = self.cmb_scenario.findText(name)
+            if idx >= 0:
+                self.cmb_scenario.setCurrentIndex(idx)
+        self._restore_cfg(sc['cfg'])
+        self._lbl_status.setText(
+            f"🎯 '{name}' 시나리오 적용 완료 — 우측 [▶ 시뮬레이션 실행]을 누르세요")
+
+    def _toggle_quickstart_banner(self, show=None, remember: bool = False):
+        """온보딩 배너 표시/숨김. show=None이면 토글. remember=True면 app_state 저장."""
+        if not hasattr(self, '_quickstart_banner'):
+            return
+        if show is None:
+            show = not self._quickstart_banner.isVisible()
+        self._quickstart_banner.setVisible(show)
+        if remember:
+            st = _load_app_state()
+            st['quickstart_banner_hidden'] = (not show)
+            _save_app_state(st)
+
     def _build_setup_page(self) -> QWidget:
         """전체 화면 설정 페이지 (실행 전).
         상단(1/3): 5칸 — 아군편대·적군+시나리오·날씨계절·해역·시뮬모드+실행
@@ -5797,6 +5880,17 @@ class MainWindow(QMainWindow):
         nav_l = QHBoxLayout(nav)
         nav_l.setContentsMargins(8, 3, 8, 3)
         nav_l.addStretch()
+        btn_quickstart = QPushButton("🚀  추천 시나리오")
+        btn_quickstart.setToolTip("처음 사용자를 위한 추천 상황 — 원클릭으로 함정·위협·해역·날씨를 일괄 설정")
+        btn_quickstart.setFixedHeight(26)
+        btn_quickstart.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_quickstart.setStyleSheet(
+            f"QPushButton {{ background:{C_ACCENT}; color:#0b1220; border:none;"
+            f" border-radius:4px; padding:0 12px; font-size:12px; font-weight:bold; }}"
+            f"QPushButton:hover {{ background:#4db8ff; }}"
+        )
+        btn_quickstart.clicked.connect(lambda: self._toggle_quickstart_banner())
+        nav_l.addWidget(btn_quickstart)
         btn_showcase = QPushButton("🎬  실험적 기능 쇼케이스")
         btn_showcase.setToolTip("실험적 기능의 효과를 미리 정의된 시나리오로 확인 + ON/OFF 실측 비교")
         btn_showcase.setFixedHeight(26)
@@ -5809,6 +5903,14 @@ class MainWindow(QMainWindow):
         btn_showcase.clicked.connect(lambda: self._main_stack.setCurrentIndex(2))
         nav_l.addWidget(btn_showcase)
         outer.addWidget(nav)
+
+        # ── 온보딩 배너: 추천 시나리오 원클릭 (v16.13.03) ────────────────
+        # 처음 사용자가 "뭘 눌러야 할지" 모르는 이탈을 막는다. 기존 SCENARIO_LIBRARY
+        # 를 눈에 띄는 배너로 승격해 원클릭 로드. 한 번 접으면 다음 실행부터 숨김.
+        self._quickstart_banner = self._build_quickstart_banner()
+        outer.addWidget(self._quickstart_banner)
+        _qs_hidden = bool(_load_app_state().get('quickstart_banner_hidden', False))
+        self._quickstart_banner.setVisible(not _qs_hidden)
 
         # ── 상단 바: 5칸 (전체 높이의 1/3) ─────────────────────────────
         top_bar = QWidget()
