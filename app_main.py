@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.02 — 함정 자율 교전(트랙 C): 지휘 강건성 + CEC 지휘 저하 모델]     ║
+║  NEW-A  함정 자율 교전 토글 — 각 함정이 CEC 중앙 조율 없이 독립 판단·교전   ║
+║         (메시 협동 탐지 유지, 중앙 조율 살보 +1만 제외). 지휘 노드(기함)에  ║
+║         의존하지 않아 기함 격침에 강건. 소편대 요격탄 효율 배분으로 요격률  ║
+║         우위(항모 킬 체인 86→92%). 3종세트·기본 OFF·실험적. = v15 무인·자율 ║
+║         블록 마지막.                                                         ║
+║  NEW-B  기함 격침 시 CEC 지휘 저하 모델(기본 동작) — 지휘 노드 상실 시       ║
+║         차순위 지휘권 인수까지 45초간 CEC 협동 중계 저하. 골든 갱신.         ║
 ║  [v16.13.01 — 실험적 기능 쇼케이스 탭 + ON/OFF 실측 비교]                   ║
 ║  NEW-A  🎬 쇼케이스 탭 신설 — 실험적 기능의 효과가 극명한 시나리오를 원클릭 ║
 ║         로드 + 그 기능 OFF↔ON을 실제 몬테카를로로 대조(무인기 군집·무인     ║
@@ -1115,7 +1123,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.01"
+APP_VERSION = "v16.13.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6160,6 +6168,8 @@ class MainWindow(QMainWindow):
             self.chk_multibearing.setChecked(cfg.get('enable_multibearing', False))
         if hasattr(self, 'chk_cec_jammed'):
             self.chk_cec_jammed.setChecked(cfg.get('enable_cec_jammed', False))
+        if hasattr(self, 'chk_autonomous'):
+            self.chk_autonomous.setChecked(cfg.get('enable_autonomous_engagement', False))
         if hasattr(self, 'chk_ship_evasion'):
             self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
         if hasattr(self, 'chk_radar_off'):
@@ -7011,6 +7021,17 @@ class MainWindow(QMainWindow):
             "CEC 사전 배정이 ON이어도 강제 비활성화됩니다."
         )
 
+        # v16.13.02 트랙 C: 함정 자율 교전
+        self.chk_autonomous = QCheckBox("함정 자율 교전 (실험적)")
+        self.chk_autonomous.setChecked(False)
+        self.chk_autonomous.setToolTip(
+            "각 함정이 CEC 중앙 조율 없이 자기 센서·사거리 내 위협을 독립 판단해 교전합니다.\n"
+            "  · CEC 두절(재밍)과 달리 함정 자체 교전 능력(살보)은 온전 — 협동 엄호(원거리 중계)만 없음\n"
+            "  · 지휘 노드(기함)에 의존하지 않아 기함 격침에 강건 — 지휘 저하 없이 전투 지속\n"
+            "평시엔 CEC 협동이 우세하나, 기함이 조기 격침되는 고강도 포화에서 강건성이 드러납니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+
         self.chk_ship_evasion = QCheckBox("함정 회피 기동")
         self.chk_ship_evasion.setChecked(False)
         self.chk_ship_evasion.setToolTip(
@@ -7131,7 +7152,8 @@ class MainWindow(QMainWindow):
         ai_tactic_row.addWidget(self.cmb_ai_tactic, stretch=1)
 
         for chk in [self.chk_cec, self.chk_multibearing,
-                    self.chk_cec_jammed, self.chk_ship_evasion, self.chk_radar_off,
+                    self.chk_cec_jammed, self.chk_autonomous,
+                    self.chk_ship_evasion, self.chk_radar_off,
                     self.chk_dmo, self.chk_coord_decep, self.chk_drone_swarm,
                     self.chk_mine_threat,
                     self.chk_minesweeping, self.chk_unmanned, self.chk_tactical]:
@@ -8531,6 +8553,7 @@ class MainWindow(QMainWindow):
             'tactical_interval':      30,
             'enable_multibearing':       self.chk_multibearing.isChecked(),
             'enable_cec_jammed':         self.chk_cec_jammed.isChecked(),
+            'enable_autonomous_engagement': self.chk_autonomous.isChecked(),
             'enable_ship_evasion':       self.chk_ship_evasion.isChecked(),
             'enable_radar_off':          self.chk_radar_off.isChecked(),
             'enable_dmo':                self.chk_dmo.isChecked(),
@@ -10397,9 +10420,6 @@ class SplashWindow(QWidget):
              "【1차 구현 완료】실행 전 '예상 전황' 카드 — 미리 계산한 룩업 표로 편대·적·날씨별 예상 "
              "승률·임무점수·비용을 즉시 표시(맑음 주간 한정). 다음: 날씨·임의 편성 확장, 신경망 추론. "
              "【현실성】학습 범위 밖은 부정확 — 빠른 1차 추정용."),
-            ("v15.3", "높음", "함정별 자율 교전 AI",
-             "각 함정이 독립 판단하는 AI. 협동 교전망·지령 없이도 자율 탐지·사격. "
-             "기함 격침 시 차순위 함정이 지휘권 인수. 자율화 수준(반자동~완전자율) 조정."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
             ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — 구조 개선 필요)",
              "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)와 대잠 항공 전진 초계는 "
