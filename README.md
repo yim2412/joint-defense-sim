@@ -12,7 +12,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.12)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.13)
 > **진행 중:** 단발 살보 교전 → **지속 전장 엔진**으로 아키텍처 전환 (양측 작전 목표·승패 판정·강화학습 기반 자가 대전 지향)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -199,7 +199,7 @@ A project aiming to be a **joint air–land–sea integrated defense simulator**
 It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
 requirement (REQ) evaluation, and Excel/PNG report generation.
 
-> **Current stage:** Navy — Aegis task force integrated defense (v16.12)
+> **Current stage:** Navy — Aegis task force integrated defense (v16.13)
 > **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
 > **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
 

@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.12.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.01 — 실험적 기능 쇼케이스 탭 + ON/OFF 실측 비교]                   ║
+║  NEW-A  🎬 쇼케이스 탭 신설 — 실험적 기능의 효과가 극명한 시나리오를 원클릭 ║
+║         로드 + 그 기능 OFF↔ON을 실제 몬테카를로로 대조(무인기 군집·무인     ║
+║         함정 소해·DMO·전자 좌표 기만 4종). "토글 켜도 변화 없다" 오해 해소. ║
+║         카드에 예상 효과(사전측정) 즉시표시 + [직접 비교 실행] 실측 델타.   ║
+║         순수 UI 추가(엔진·DB 무변경, 회귀 bit-identical).                    ║
 ║  [v16.12.03 — 적 무인기 군집(Swarm): 자폭 드론 다축 포화 소모전]            ║
 ║  NEW-A  적 자폭 드론 군집 위협 신설 — 저가·저RCS 무인기 수십 대가 다축      ║
 ║         동시 접근, 개별 요격 강제로 함대 SAM·CIWS 채널·요격탄 급소모.       ║
@@ -1109,7 +1115,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.12.03"
+APP_VERSION = "v16.13.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1343,6 +1349,91 @@ def _load_surrogate() -> dict | None:
     except Exception:
         pass
     return None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  쇼케이스 — 실험적 기능별 효과 시연 시나리오 + ON/OFF 비교 (near-term 사용성)
+# ════════════════════════════════════════════════════════════════════════════
+# 각 카드: 그 기능의 효과가 극명히 드러나는 사전 정의 시나리오. [시나리오 로드]로
+# 설정에 한 번에 세팅하거나, [직접 비교 실행]으로 토글 OFF↔ON MC를 실측 대조한다.
+# scenario dict는 _restore_cfg가 읽는 cfg 키를 그대로 사용(콤보·체크박스 세팅).
+_SHOWCASE_WEATHER = '맑음 (주간)'
+
+_SHOWCASES: list[dict] = [
+    {
+        'key':    'drone_swarm',
+        'title':  '적 무인기 군집 (자폭 드론 포화)',
+        'desc':   '무장 없는 자폭 드론이 다방위로 돌진 → 요격 채널·요격탄이 포화되며 '
+                  '요격률이 급락하는 비대칭 소모전.',
+        'toggle': 'enable_drone_swarm',
+        'scenario': {
+            'fleet_preset':      '이지스 기동전단',
+            'enemy_fleet_mode':  'preset',
+            'enemy_fleet_preset':'무인기 군집 포화',
+            'weather':           _SHOWCASE_WEATHER,
+            'enable_multibearing': True,   # 다방위 병용해야 360° 포화가 드러남
+        },
+        'expected': '요격률 38% → 27% (드론 군집 다방위 투입) · 요격 채널·요격탄 포화',
+        'metrics':  ['intercept', 'hits', 'lost'],
+    },
+    {
+        'key':    'unmanned_assets',
+        'title':  '아군 무인 함정 (USV·UUV 전방 피켓·소해)',
+        'desc':   'UUV가 기뢰를 사전 소해하고 USV가 전방 피켓으로 나서 유인함 대신 '
+                  '위험을 흡수 → 유인함 손실·기뢰 접촉이 감소(인명 손실 0).',
+        'toggle': 'enable_unmanned_assets',
+        'scenario': {
+            'fleet_preset':      '대잠전단',
+            'enemy_fleet_mode':  'preset',
+            'enemy_fleet_preset':'대잠 복합',
+            'weather':           _SHOWCASE_WEATHER,
+            'enable_mine_threat': True,    # 기뢰가 깔려야 UUV 소해가 binding
+        },
+        'expected': '기뢰 접촉 0.60 → 0.30 (UUV 사전 소해) · 무인정이 유인함 대신 위험 흡수(인명 0)',
+        'metrics':  ['mine_struck', 'intercept', 'unmanned'],
+    },
+    {
+        'key':    'dmo',
+        'title':  '분산 해양 작전 (DMO)',
+        'desc':   '함대를 광역 분산 배치 → 대량 포화 공격의 명중을 접근축으로 분산시켜 '
+                  '요격 효율을 끌어올리는 양날의 검(소수 위협엔 역효과).',
+        'toggle': 'enable_dmo',
+        'scenario': {
+            'fleet_preset':      '이지스 기동전단',
+            'enemy_fleet_mode':  'preset',
+            'enemy_fleet_preset':'전면전 포화',
+            'weather':           _SHOWCASE_WEATHER,
+        },
+        'expected': '요격률 0.28 → 0.45 · 아군 피격 감소 (전면전 포화 기준)',
+        'metrics':  ['intercept', 'hits', 'lost'],
+    },
+    {
+        'key':    'coord_deception',
+        'title':  '전자 좌표 기만 (ECM 종말 유도 교란)',
+        'desc':   '아군 ECM이 적 대함미사일의 종말 유도에 가짜 좌표를 주입 → 명중점을 함정 '
+                  '바깥으로 밀어내 피격과 함정 손실을 크게 줄인다.',
+        'toggle': 'enable_coord_deception',
+        'scenario': {
+            'fleet_preset':      '이지스 기동전단',
+            'enemy_fleet_mode':  'preset',
+            'enemy_fleet_preset':'수상함 편대전',
+            'weather':           _SHOWCASE_WEATHER,
+        },
+        'expected': '아군 피격 19.4 → 13.5 · 유인함 손실 4.15 → 1.20 (수상함 편대전 기준)',
+        'metrics':  ['hits', 'lost', 'intercept'],
+    },
+]
+
+# 비교 뷰 지표 정의: 키 → (표시명, 추출 lambda(mc_dict), 단위, 방향 '+'좋을수록↑ / '-'낮을수록↓)
+_SHOWCASE_METRICS: dict = {
+    'intercept': ('요격률',      lambda m: m.get('mean_intercept', 0.0) * 100,                     '%',  '+'),
+    'hits':      ('아군 피격',   lambda m: float(np.mean(m['friendly_hits'])) if m.get('friendly_hits') else 0.0, '발', '-'),
+    'lost':      ('유인함 손실', lambda m: float(np.mean(m['friendly_lost'])) if m.get('friendly_lost') else 0.0, '척', '-'),
+    'unmanned':  ('무인정 손실', lambda m: m.get('mean_unmanned_lost', 0.0),                       '척', '~'),
+    'mine_struck':('기뢰 접촉',  lambda m: m.get('mean_mines_struck', 0.0),                        '회', '-'),
+    'mine':      ('기뢰 피해',   lambda m: m.get('mean_ships_lost_to_mine', 0.0),                  '척', '-'),
+    'cost':      ('교전 비용',   lambda m: float(np.mean(m['total_costs']))/1e6 if m.get('total_costs') else 0.0, 'M$', '-'),
+}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3157,6 +3248,36 @@ class FleetRecommendWorker(QThread):
 
 class _SimCancelled(BaseException):
     """중단 요청 전파용 — except Exception에 잡히지 않도록 BaseException 상속."""
+
+
+class ShowcaseCompareWorker(QThread):
+    """쇼케이스 ON/OFF 비교 — 동일 시나리오에서 대상 토글만 OFF·ON으로 바꿔
+    MC를 순차 2회 돌린 뒤 두 결과 dict를 함께 emit한다. 엔진·전역 상태 무변경."""
+    progress = pyqtSignal(str)                 # 진행 안내 문구
+    done     = pyqtSignal(str, dict, dict)     # (toggle_key, mc_off, mc_on)
+    failed   = pyqtSignal(str, str)            # (toggle_key, 오류 메시지)
+
+    def __init__(self, toggle_key: str, base_cfg: dict, mc_n: int = 40):
+        super().__init__()
+        self.toggle_key = toggle_key
+        self.base_cfg   = dict(base_cfg)
+        self.mc_n       = mc_n
+
+    def run(self):
+        try:
+            cfg_off = dict(self.base_cfg); cfg_off[self.toggle_key] = False
+            cfg_on  = dict(self.base_cfg); cfg_on[self.toggle_key]  = True
+            self.progress.emit(f"토글 OFF — {self.mc_n}회 분석 중…")
+            mc_off = monte_carlo_v7(cfg_off, n=self.mc_n)
+            if self.isInterruptionRequested():
+                return
+            self.progress.emit(f"토글 ON — {self.mc_n}회 분석 중…")
+            mc_on = monte_carlo_v7(cfg_on, n=self.mc_n)
+            if self.isInterruptionRequested():
+                return
+            self.done.emit(self.toggle_key, mc_off, mc_on)
+        except Exception:
+            self.failed.emit(self.toggle_key, traceback.format_exc())
 
 
 class SimWorker(QThread):
@@ -5373,6 +5494,7 @@ class MainWindow(QMainWindow):
 
         self._main_stack.addWidget(self._build_setup_page())    # index 0: 설정 화면
         self._main_stack.addWidget(self._build_results_page())  # index 1: 결과 화면
+        self._main_stack.addWidget(self._build_showcase_page()) # index 2: 쇼케이스
 
         self._in_results_mode = False
         self._enter_setup_mode()
@@ -5439,6 +5561,217 @@ class MainWindow(QMainWindow):
 
     # ── 설정/결과 화면 전환 ───────────────────────────────────────────────────
 
+    # ── 쇼케이스 (실험적 기능 효과 시연 + ON/OFF 비교) ────────────────────────
+
+    def _build_showcase_page(self) -> QWidget:
+        """실험적 기능별 쇼케이스 카드 목록. 원클릭 시나리오 로드 + ON/OFF 실측 비교."""
+        page = QWidget()
+        page.setStyleSheet(f"background:{C_BG};")
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 상단 바: 뒤로가기 + 제목
+        top = QWidget()
+        top.setStyleSheet(f"background:{C_PANEL}; border-bottom:2px solid {C_ACCENT};")
+        tl = QHBoxLayout(top)
+        tl.setContentsMargins(10, 6, 10, 6)
+        btn_back = QPushButton("←  설정으로")
+        btn_back.setFixedHeight(28)
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_back.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_SUBTEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:4px; padding:0 12px; font-size:12px; }}"
+            f"QPushButton:hover {{ color:{C_TEXT}; background:#1f2d40; }}"
+        )
+        btn_back.clicked.connect(lambda: self._main_stack.setCurrentIndex(0))
+        tl.addWidget(btn_back)
+        title = QLabel("🎬  실험적 기능 쇼케이스")
+        title.setStyleSheet(f"color:{C_ACCENT}; font-size:15px; font-weight:bold; letter-spacing:1px;")
+        tl.addWidget(title)
+        tl.addStretch()
+        outer.addWidget(top)
+
+        # 안내 문구
+        guide = QLabel(
+            "각 실험적 기능의 효과가 극명히 드러나는 시나리오입니다. "
+            "[시나리오 로드]로 설정에 한 번에 적용하거나, [직접 비교 실행]으로 "
+            "그 기능을 끈 경우(OFF)와 켠 경우(ON)를 실제 몬테카를로로 대조해 보세요.")
+        guide.setWordWrap(True)
+        guide.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; padding:10px 14px;")
+        outer.addWidget(guide)
+
+        # 카드 스크롤 영역
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border:none; background:{C_BG}; }}")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        holder = QWidget()
+        holder.setStyleSheet(f"background:{C_BG};")
+        hl = QVBoxLayout(holder)
+        hl.setContentsMargins(14, 4, 14, 14)
+        hl.setSpacing(12)
+
+        self._showcase_cards: dict = {}
+        for sc in _SHOWCASES:
+            hl.addWidget(self._build_showcase_card(sc))
+        hl.addStretch()
+
+        scroll.setWidget(holder)
+        outer.addWidget(scroll, stretch=1)
+        return page
+
+    def _build_showcase_card(self, sc: dict) -> QWidget:
+        """쇼케이스 카드 1장 — 제목·설명·예상효과·버튼2 + 결과 라벨."""
+        box = QGroupBox(sc['title'])
+        box.setStyleSheet(
+            f"QGroupBox {{ background:{C_PANEL}; border:1px solid {C_BORDER}; border-radius:6px;"
+            f" margin-top:10px; padding:10px 12px 12px 12px; }}"
+            f"QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 6px;"
+            f" color:{C_ACCENT}; font-size:13px; font-weight:bold; }}"
+        )
+        v = QVBoxLayout(box)
+        v.setSpacing(6)
+
+        desc = QLabel(sc['desc'])
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        v.addWidget(desc)
+
+        exp = QLabel(f"📊 예상 효과 :  {sc['expected']}")
+        exp.setWordWrap(True)
+        exp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-style:italic;")
+        v.addWidget(exp)
+
+        # 버튼 행
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        btn_load = QPushButton("⚙  시나리오 로드")
+        btn_load.setFixedHeight(30)
+        btn_load.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_load.setStyleSheet(
+            f"QPushButton {{ background:#1f2d40; color:{C_TEXT}; border:1px solid {C_BORDER};"
+            f" border-radius:4px; padding:0 14px; font-size:12px; }}"
+            f"QPushButton:hover {{ background:#26364d; }}"
+        )
+        btn_load.clicked.connect(lambda _, s=sc: self._load_showcase_scenario(s))
+        row.addWidget(btn_load)
+
+        btn_cmp = QPushButton("▶  직접 비교 실행 (ON/OFF)")
+        btn_cmp.setFixedHeight(30)
+        btn_cmp.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cmp.setStyleSheet(
+            f"QPushButton {{ background:{C_ACCENT}; color:#0b1220; border:none;"
+            f" border-radius:4px; padding:0 14px; font-size:12px; font-weight:bold; }}"
+            f"QPushButton:hover {{ background:#4db8ff; }}"
+            f"QPushButton:disabled {{ background:{C_BORDER}; color:{C_SUBTEXT}; }}"
+        )
+        btn_cmp.clicked.connect(lambda _, s=sc: self._run_showcase_compare(s))
+        row.addWidget(btn_cmp)
+        row.addStretch()
+        v.addLayout(row)
+
+        result = QLabel("")
+        result.setWordWrap(True)
+        result.setTextFormat(Qt.TextFormat.RichText)
+        result.setStyleSheet("font-size:12px; padding:2px;")
+        result.hide()
+        v.addWidget(result)
+
+        self._showcase_cards[sc['key']] = {'btn': btn_cmp, 'result': result, 'sc': sc}
+        return box
+
+    def _load_showcase_scenario(self, sc: dict):
+        """시나리오를 설정 UI에 세팅(대상 기능 ON) 후 설정 화면으로 전환."""
+        cfg = dict(sc['scenario'])
+        cfg[sc['toggle']] = True   # 로드 시 그 기능을 켠 상태로 — 바로 실행 가능
+        self._restore_cfg(cfg)
+        self._main_stack.setCurrentIndex(0)
+        self._lbl_status.setText(f"🎬 '{sc['title']}' 시나리오 로드 완료 — 실행 버튼을 누르세요")
+
+    def _run_showcase_compare(self, sc: dict):
+        """대상 토글만 OFF↔ON으로 바꿔 MC 2회 비교 실행."""
+        if getattr(self, '_showcase_worker', None) and self._showcase_worker.isRunning():
+            return   # 중복 실행 방지
+        # 현재 UI 기반 완전 cfg + 시나리오 override (UI는 건드리지 않음)
+        base_cfg = self._build_cfg_from_ui()
+        base_cfg.update(sc['scenario'])
+        card = self._showcase_cards[sc['key']]
+        card['btn'].setEnabled(False)
+        card['result'].show()
+        card['result'].setText(
+            f"<span style='color:{C_SUBTEXT}'>⏳ 비교 분석 준비 중… "
+            f"(OFF·ON 각 40회 몬테카를로)</span>")
+        self._showcase_worker = ShowcaseCompareWorker(sc['toggle'], base_cfg, mc_n=40)
+        self._showcase_worker.progress.connect(
+            lambda msg, k=sc['key']: self._showcase_cards[k]['result'].setText(
+                f"<span style='color:{C_SUBTEXT}'>⏳ {msg}</span>"))
+        self._showcase_worker.done.connect(self._on_showcase_done)
+        self._showcase_worker.failed.connect(self._on_showcase_failed)
+        self._showcase_worker.start(QThread.Priority.LowPriority)
+
+    def _on_showcase_done(self, key: str, mc_off: dict, mc_on: dict):
+        card = self._showcase_cards.get(key)
+        if not card:
+            return
+        card['btn'].setEnabled(True)
+        sc = card['sc']
+        rows = ["<table cellspacing='0' cellpadding='4' style='font-size:12px;'>"
+                "<tr>"
+                f"<td style='color:{C_SUBTEXT};'>지표</td>"
+                f"<td style='color:{C_SUBTEXT};' align='right'>OFF</td>"
+                f"<td style='color:{C_SUBTEXT};' align='center'>→</td>"
+                f"<td style='color:{C_SUBTEXT};' align='right'>ON</td>"
+                f"<td style='color:{C_SUBTEXT};' align='right'>변화</td></tr>"]
+        for mk in sc['metrics']:
+            if mk not in _SHOWCASE_METRICS:
+                continue
+            name, extract, unit, direction = _SHOWCASE_METRICS[mk]
+            try:
+                v_off = float(extract(mc_off)); v_on = float(extract(mc_on))
+            except Exception:
+                continue
+            d = v_on - v_off
+
+            def _fmt(v):
+                if unit == '%':   return f"{v:.1f}%"
+                if unit == 'M$':  return f"${v:.1f}M"
+                return f"{v:.2f}{unit}"
+
+            # 방향에 따른 개선/악화 색
+            if direction == '+':
+                good = d > 1e-9
+            elif direction == '-':
+                good = d < -1e-9
+            else:
+                good = None
+            if abs(d) < 1e-9 or good is None:
+                dcolor = C_SUBTEXT
+            else:
+                dcolor = '#2ecc71' if good else '#e74c3c'
+            sign = '+' if d > 0 else ('' if d == 0 else '−')
+            dtxt = f"{sign}{_fmt(abs(d))}" if unit != '%' else f"{sign}{abs(d):.1f}%p"
+            rows.append(
+                f"<tr><td style='color:{C_TEXT};'>{name}</td>"
+                f"<td align='right' style='color:{C_TEXT};'>{_fmt(v_off)}</td>"
+                f"<td align='center' style='color:{C_SUBTEXT};'>→</td>"
+                f"<td align='right' style='color:{C_TEXT}; font-weight:bold;'>{_fmt(v_on)}</td>"
+                f"<td align='right' style='color:{dcolor}; font-weight:bold;'>{dtxt}</td></tr>")
+        rows.append("</table>")
+        rows.append(
+            f"<div style='color:{C_SUBTEXT}; font-size:10px; margin-top:2px;'>"
+            f"토글 외 조건 동일 · OFF·ON 각 40회 MC · 시드/편차로 예상 효과와 다를 수 있음</div>")
+        card['result'].setText(''.join(rows))
+
+    def _on_showcase_failed(self, key: str, err: str):
+        card = self._showcase_cards.get(key)
+        if not card:
+            return
+        card['btn'].setEnabled(True)
+        card['result'].setText(
+            f"<span style='color:#e74c3c'>⚠ 비교 실행 실패 — 로그를 확인하세요.</span>")
+        _write_log(f'[ERROR] 쇼케이스 비교 실패({key}): {err}')
+
     def _build_setup_page(self) -> QWidget:
         """전체 화면 설정 페이지 (실행 전).
         상단(1/3): 5칸 — 아군편대·적군+시나리오·날씨계절·해역·시뮬모드+실행
@@ -5449,6 +5782,25 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        # ── 최상단 네비게이션: 쇼케이스 진입 ───────────────────────────
+        nav = QWidget()
+        nav.setStyleSheet(f"background:{C_PANEL}; border-bottom:1px solid {C_BORDER};")
+        nav_l = QHBoxLayout(nav)
+        nav_l.setContentsMargins(8, 3, 8, 3)
+        nav_l.addStretch()
+        btn_showcase = QPushButton("🎬  실험적 기능 쇼케이스")
+        btn_showcase.setToolTip("실험적 기능의 효과를 미리 정의된 시나리오로 확인 + ON/OFF 실측 비교")
+        btn_showcase.setFixedHeight(26)
+        btn_showcase.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_showcase.setStyleSheet(
+            f"QPushButton {{ background:#1f2d40; color:{C_ACCENT}; border:1px solid {C_BORDER};"
+            f" border-radius:4px; padding:0 12px; font-size:12px; font-weight:bold; }}"
+            f"QPushButton:hover {{ background:#26364d; color:{C_TEXT}; }}"
+        )
+        btn_showcase.clicked.connect(lambda: self._main_stack.setCurrentIndex(2))
+        nav_l.addWidget(btn_showcase)
+        outer.addWidget(nav)
 
         # ── 상단 바: 5칸 (전체 높이의 1/3) ─────────────────────────────
         top_bar = QWidget()
@@ -8110,7 +8462,9 @@ class MainWindow(QMainWindow):
 
     # ── 시뮬 실행 ────────────────────────────────────────────────────────────
 
-    def _run_sim(self):
+    def _build_cfg_from_ui(self) -> dict:
+        """현재 UI 위젯 상태를 완전한 시뮬 cfg dict로 조립.
+        _run_sim과 쇼케이스 ON/OFF 비교가 동일 cfg 빌드를 공유한다."""
         # 적군 모드 및 편대 구성 (포팅 A)
         mode_label = self.cmb_enemy_mode.currentText()
         mode_map   = {'프리셋': 'preset', '혼합 시나리오': 'mixed', '랜덤': 'random'}
@@ -8214,6 +8568,10 @@ class MainWindow(QMainWindow):
             'cd_time_s':      10,
             'confirm_time_s': 3,
         }
+        return cfg
+
+    def _run_sim(self):
+        cfg = self._build_cfg_from_ui()
         mode_idx = self.cmb_sim_mode.currentIndex() if hasattr(self, 'cmb_sim_mode') else 1
         mc_n = [5_000, 10_000, 100_000][mode_idx]
         precision_mode = (mode_idx == 2)
@@ -8555,6 +8913,14 @@ class MainWindow(QMainWindow):
             if not opt.wait(1000):
                 opt.terminate()
                 opt.wait(500)
+        # 쇼케이스 ON/OFF 비교 워커 중단
+        scw = getattr(self, '_showcase_worker', None)
+        if scw and scw.isRunning():
+            scw.requestInterruption()
+            scw.quit()
+            if not scw.wait(2000):
+                scw.terminate()
+                scw.wait(500)
         # 차트 렌더 워커 중단 (ChartPageWidget._worker) — placeholder QWidget은 hasattr로 건너뜀
         for attr in ('tab_mc_canvas', 'tab_ci',
                      'tab_optimize', 'tab_stress', 'tab_sobol'):
