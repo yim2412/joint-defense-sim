@@ -1546,8 +1546,14 @@ class TimeStepEngine:
     # ── 편대 구성 ─────────────────────────────────────────────────────────────
 
     def _build_friendly(self) -> List[FriendlyShipObj]:
-        preset_name = self.cfg.get('fleet_preset', '단독 작전')
-        preset = FLEET_PRESETS.get(preset_name, FLEET_PRESETS['단독 작전'])
+        # v15.2: 임의 편성(fleet_custom) 지원 — list of {name,type}가 있으면 프리셋 대신 사용.
+        # 없으면 기존 프리셋 경로 그대로 → 회귀 bit-identical.
+        custom = self.cfg.get('fleet_custom')
+        if custom:
+            preset = custom
+        else:
+            preset_name = self.cfg.get('fleet_preset', '단독 작전')
+            preset = FLEET_PRESETS.get(preset_name, FLEET_PRESETS['단독 작전'])
         ships = []
         for spec in preset:
             s = FriendlyShipObj(spec['name'], spec['type'])
