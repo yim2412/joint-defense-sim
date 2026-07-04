@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.12 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.14.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.14.01 — 실행 전 예상 전황: 학습 대리모델 날씨별 즉시 추정]            ║
+║  NEW-A  '예상 전황' 카드가 학습 대리모델로 현재 편대·적·날씨의 예상 승률·   ║
+║         임무점수·비용을 몬테카를로 없이 즉시 추정. 기존 룩업(맑음 주간)은    ║
+║         정확값 우선, 다른 날씨·미수록 조합은 모델이 날씨를 반영해 추정.      ║
+║         전장 MC 2,944표본 학습(승률 R²0.78·임무점수 0.84·비용 0.67).        ║
+║         순수 표시 기능 — 엔진·회귀 무영향, 모델 부재 시 룩업 폴백.           ║
 ║  [v16.13.12 — 무인 함정 USV·UUV 정규 기능 승격 (검증 완료)]                 ║
 ║  수정  검증 완료된 무인 함정 USV·UUV에서 '실험적' 표기를 제거하고 정규      ║
 ║        옵션으로 승격 (기본값 OFF 유지). 회귀 OFF 동일 + UUV 소해로 기뢰      ║
@@ -1173,7 +1179,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.12"
+APP_VERSION = "v16.14.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1403,6 +1409,19 @@ def _load_surrogate() -> dict | None:
         with open(_res('forecast_surrogate.json'), encoding='utf-8') as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get('table'), dict):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _load_forecast_model() -> dict | None:
+    """v15.2 대리모델(forecast_model.pkl) 로드 — 임의 날씨·미룩업 조합 즉시 추정용.
+    없거나 joblib/sklearn 부재면 None → 룩업 폴백(하위호환). 번들 리소스라 _res 경로."""
+    try:
+        import joblib
+        data = joblib.load(_res('forecast_model.pkl'))
+        if isinstance(data, dict) and data.get('models'):
             return data
     except Exception:
         pass
@@ -1808,6 +1827,12 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 import numpy as np
+
+# v15.2 즉시예측 특징화 (없어도 앱 동작 — 룩업 폴백)
+try:
+    from forecast_features import featurize as _forecast_featurize
+except Exception:
+    _forecast_featurize = None
 
 
 # ── 엔진 import ──────────────────────────────────────────────────────────────
@@ -5586,6 +5611,7 @@ class MainWindow(QMainWindow):
         self._float_mon = FloatingMonitor()
         # 실행 전 '예상 전황' 룩업(surrogate) — 없으면 None(기능 자동 비활성)
         self._surrogate = _load_surrogate()
+        self._forecast_model = _load_forecast_model()   # v15.2 날씨 반영 즉시 추정(없으면 룩업 폴백)
 
         # ── BUG-1: 탭 전환 디바운스 (200ms) ────────────────────────────────
         self._page_pending_idx: int = -1
@@ -8695,7 +8721,10 @@ class MainWindow(QMainWindow):
         self._update_forecast_card()
 
     def _update_forecast_card(self):
-        """surrogate 룩업으로 '예상 전황' 카드 갱신 (실행 전 즉시 추정).
+        """'예상 전황' 카드 갱신 (실행 전 즉시 추정) — 하이브리드:
+          ▸맑음 주간 + 룩업 정확값 있으면 룩업(최우선)
+          ▸다른 날씨 or 룩업 없는 조합이면 학습 대리모델(forecast_model.pkl)로 날씨 반영 추정
+          ▸모델 없으면 룩업 근사/데이터 없음 폴백(하위호환)
         순수 표시 — 엔진·시뮬·회귀에 영향 없음. JSON 없으면 카드 숨김."""
         if getattr(self, '_surrogate', None) is None \
                 or not hasattr(self, '_prev_lbl_forecast'):
@@ -8705,7 +8734,7 @@ class MainWindow(QMainWindow):
         n = self._surrogate.get('n', 0)
 
         mode = self.cmb_enemy_mode.currentText() if hasattr(self, 'cmb_enemy_mode') else ''
-        # 조회 가능 조건: 적 편대 모드 == '프리셋'
+        # 조회 가능 조건: 적 편대 모드 == '프리셋' (혼합·랜덤은 편성 비결정)
         if mode != '프리셋':
             self._prev_lbl_forecast.setText(
                 "적 편대를 '프리셋' 모드로 두면\n예상 승률·비용을 표시합니다.")
@@ -8715,10 +8744,46 @@ class MainWindow(QMainWindow):
         enemy  = self.cmb_fleet_preset_e.currentText() if hasattr(self, 'cmb_fleet_preset_e') else ''
         weather = self.cmb_weather.currentText()        if hasattr(self, 'cmb_weather') else ''
         rec = table.get(f'{fleet}|{enemy}')
-        if rec is None:
-            self._prev_lbl_forecast.setText("이 조합의 예상 데이터가 없습니다.")
+
+        # ① 최우선: 맑음 주간 + 룩업 정확값
+        if weather == ref_weather and rec is not None:
+            self._render_forecast_lookup(rec, weather, ref_weather, n)
             return
 
+        # ② 학습 대리모델 추정: 다른 날씨 또는 룩업 없는 조합
+        est = self._forecast_predict(fleet, enemy, weather)
+        if est is not None:
+            self._render_forecast_estimate(est, weather)
+            return
+
+        # ③ 폴백: 룩업 있으면 맑음 근사, 없으면 데이터 없음
+        if rec is not None:
+            self._render_forecast_lookup(rec, weather, ref_weather, n)
+        else:
+            self._prev_lbl_forecast.setText("이 조합의 예상 데이터가 없습니다.")
+
+    def _forecast_predict(self, fleet: str, enemy: str, weather: str) -> dict | None:
+        """학습 대리모델로 (승률·임무점수·비용) 즉시 추정. 모델·특징화 부재 시 None."""
+        model = getattr(self, '_forecast_model', None)
+        if model is None or _forecast_featurize is None or not _V7_OK:
+            return None
+        try:
+            fleet_ships = [s['type'] for s in V7_FLEET_PRESETS.get(fleet, [])]
+            if not fleet_ships:
+                return None
+            feat = _forecast_featurize(fleet_ships, enemy_preset=enemy,
+                                       weather=weather).reshape(1, -1)
+            models = model['models']
+            win   = float(np.clip(models[0].predict(feat)[0], 0.0, 1.0))
+            score = float(np.clip(models[1].predict(feat)[0], 0.0, 1.0))
+            raw   = float(models[2].predict(feat)[0])
+            cost  = float(np.expm1(raw)) if model.get('cost_is_log1p') else raw
+            return {'win': win, 'score': score, 'cost': max(0.0, cost)}
+        except Exception:
+            return None
+
+    def _render_forecast_lookup(self, rec: dict, weather: str, ref_weather: str, n: int):
+        """프리셋 룩업(맑음 주간 MC 정확값) 렌더."""
         win  = rec.get('win_rate', 0) * 100
         draw = rec.get('draw_rate', 0) * 100
         loss = rec.get('loss_rate', 0) * 100
@@ -8735,6 +8800,22 @@ class MainWindow(QMainWindow):
         if weather and weather != ref_weather:
             lines.append(f"※ {ref_weather} 기준 근사값")
         lines.append(f"참고 예상치 (MC {n}회·신뢰구간 없음)")
+        self._prev_lbl_forecast.setText('\n'.join(lines))
+
+    def _render_forecast_estimate(self, est: dict, weather: str):
+        """학습 대리모델 추정 렌더 (승률만 예측 — 무·패는 합산 표시)."""
+        win   = est['win'] * 100
+        score = est['score'] * 100
+        cost  = est['cost']
+        cost_s = f"${cost/1e6:.1f}M" if cost else "—"
+        cpw    = (cost / est['win']) if est['win'] > 0 else None
+        cpw_s  = f"${cpw/1e6:.1f}M" if cpw else "승리 없음"
+        lines = [
+            f"승 {win:.0f}%   (무·패 {100 - win:.0f}%)",
+            f"평균 임무점수 {score:.0f}%",
+            f"평균 비용 {cost_s}  ·  승리당 {cpw_s}",
+            f"※ {weather} 반영 학습 모델 추정",
+        ]
         self._prev_lbl_forecast.setText('\n'.join(lines))
 
     def _update_mixed_scenario_detail(self, scenario_name: str):
@@ -10797,8 +10878,9 @@ class SplashWindow(QWidget):
             ("v15.2", "높음", "학습 기반 즉시 예측",
              "과거 분석 결과를 학습한 예측 모델. 설정 바꾸는 즉시 요격률·피해를 추정(몬테카를로 없이). "
              "작전급 캠페인의 핵심 부품(교전을 즉시 계산해 72시간을 수초로). "
-             "【1차 구현 완료】실행 전 '예상 전황' 카드 — 미리 계산한 룩업 표로 편대·적·날씨별 예상 "
-             "승률·임무점수·비용을 즉시 표시(맑음 주간 한정). 다음: 날씨·임의 편성 확장, 신경망 추론. "
+             "【구현 완료】실행 전 '예상 전황' 카드 — 편대·적·날씨별 예상 승률·임무점수·비용을 즉시 표시. "
+             "맑음 주간은 미리 계산한 정확값을, 다른 날씨·미수록 조합은 전장 시뮬 표본으로 학습한 "
+             "예측 모델이 기상 영향을 반영해 추정한다. 다음: 임의 편성 UI 확장, 작전급 캠페인 연동. "
              "【현실성】학습 범위 밖은 부정확 — 빠른 1차 추정용."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
             ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — 구조 개선 필요)",

@@ -3,8 +3,15 @@
 # onedir 모드: subprocess 워커가 번들 재압축해제 없이 즉시 import 가능
 
 import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
+
+# v15.2: joblib은 PyInstaller hook이 없어 단일 hiddenimport로는 서브모듈이 누락된다.
+# 대리모델 언피클(joblib.load)에 전체가 필요 → collect_submodules로 확실히 수집.
+_joblib_hidden = collect_submodules('joblib')
+_sklearn_hidden = collect_submodules('sklearn')
+_sklearn_datas = collect_data_files('sklearn')
 
 a = Analysis(
     ['app_main.py'],
@@ -16,6 +23,8 @@ a = Analysis(
         ('db_specsheet.py',             '.'),
         ('app_changelog.json',         '.'),
         ('forecast_surrogate.json',  '.'),
+        ('forecast_model.pkl',       '.'),   # v15.2 학습 대리모델(날씨 반영 즉시 추정)
+        ('forecast_features.py',     '.'),   # v15.2 특징화(빌더·GUI 공유)
         ('ai_rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
         ('db_ocean_acoustic.py',   '.'),
@@ -24,10 +33,21 @@ a = Analysis(
         ('db_ground_threat.py',         '.'),
         ('assets/images',          'assets/images'),
         ('view_cesium_3d.html',       '.'),
-    ],
+    ] + _sklearn_datas,
     hiddenimports=[
         # RL 추론 모듈(app_main가 지연 import — 정적 분석 누락 방지). numpy만 의존.
         'ai_policy_infer',
+        # v15.2 즉시예측: 특징화 + 대리모델 언피클(런타임 joblib.load — 정적 분석 누락 방지)
+        'forecast_features',
+        'joblib',
+        'sklearn',
+        'sklearn.ensemble',
+        'sklearn.ensemble._hist_gradient_boosting',
+        'sklearn.ensemble._hist_gradient_boosting.predictor',
+        'sklearn.utils._typedefs',
+        'sklearn.utils._heap',
+        'sklearn.tree',
+        'sklearn.tree._utils',
         # PyQt6 core
         'PyQt6',
         'PyQt6.QtWidgets',
@@ -73,7 +93,7 @@ a = Analysis(
         # 기타 stdlib
         'json', 'io', 'math', 'random', 'copy', 'dataclasses',
         'collections', 'itertools', 'threading', 'time', 'subprocess',
-    ],
+    ] + _joblib_hidden + _sklearn_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
