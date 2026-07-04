@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.13.10 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.13.11 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.13.11 — 기뢰전 위협 정규 기능 승격 (검증 완료)]                       ║
+║  수정  검증 완료된 기뢰전 위협에서 '실험적' 표기를 제거하고 정규 옵션으로    ║
+║        승격 (기본값 OFF 유지). 회귀 OFF 동일 + 기뢰 접촉·손실 효과 입증.     ║
 ║  [v16.13.10 — 레이저 효능 검증 종결: 현 모델서 실효 없음(음성) 반영]        ║
 ║  수정  향후 계획의 레이저 항목을 '효능 평가중' → '현 모델서 실효 없음·보류'  ║
 ║        로 갱신. 무기-표적 가치배분 교리까지 시험했으나 함포(23km)가 5km      ║
@@ -1166,7 +1169,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.13.10"
+APP_VERSION = "v16.13.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7314,13 +7317,13 @@ class MainWindow(QMainWindow):
         )
 
         # v16.7: 기뢰전(MIW)
-        self.chk_mine_threat = QCheckBox("기뢰전 위협 (실험적)")
+        self.chk_mine_threat = QCheckBox("기뢰전 위협")
         self.chk_mine_threat.setChecked(False)
         self.chk_mine_threat.setToolTip(
             "작전 해역(협수로·항만 입구)의 기뢰 위협에 함정이 노출됩니다.\n"
             "진입 시 함정별로 확률적 기뢰 접촉을 판정 — 계류·해저감응·자항 3종이 차등 피해를 줍니다.\n"
             "배수량 큰 함정일수록 감응 기뢰에 취약하고, 소형함은 회피가 유리합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_minesweeping = QCheckBox("소해 지원 (기뢰 접촉 경감)")
         self.chk_minesweeping.setChecked(False)
