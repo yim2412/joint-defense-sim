@@ -12,7 +12,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.13)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 (v16.14)
 > **진행 중:** 단발 살보 교전 → **지속 전장 엔진**으로 아키텍처 전환 (양측 작전 목표·승패 판정·강화학습 기반 자가 대전 지향)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -105,6 +105,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
 | `db_specsheet.py` | DB 탭 스펙시트용 상세 설명 |
 | `ai_policy_infer.py` | 학습된 AI 전술 정책을 numpy만으로 추론 (exe 탑재) |
+| `forecast_features.py` | 예상 전황 특징화 — 편성·적·날씨를 학습 모델 입력 벡터로 변환 (exe 탑재) |
 | `view_cesium_3d.html` | 3D 전장 탭 — CesiumJS 위성 지구본 뷰 |
 
 ### DB 데이터 모듈 (exe 번들)
@@ -199,7 +200,7 @@ A project aiming to be a **joint air–land–sea integrated defense simulator**
 It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
 requirement (REQ) evaluation, and Excel/PNG report generation.
 
-> **Current stage:** Navy — Aegis task force integrated defense (v16.13)
+> **Current stage:** Navy — Aegis task force integrated defense (v16.14)
 > **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
 > **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
 

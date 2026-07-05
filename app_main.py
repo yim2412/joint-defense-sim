@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.14.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v16.14.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v16.14.02 — 아군 함대 직접 편성 UI]                                        ║
+║  NEW-A  아군 편대를 프리셋 외에 직접 편성 — 함정을 골라 척수를 지정하는      ║
+║         편성 창을 추가. 무기 재고는 설정값을 함정마다 적용. 학습 대리모델이  ║
+║         직접 편성 함대의 예상 전황도 즉시 추정. 미사용 시 기존 결과와 동일.  ║
 ║  [v16.14.01 — 실행 전 예상 전황: 학습 대리모델 날씨별 즉시 추정]            ║
 ║  NEW-A  '예상 전황' 카드가 학습 대리모델로 현재 편대·적·날씨의 예상 승률·   ║
 ║         임무점수·비용을 몬테카를로 없이 즉시 추정. 기존 룩업(맑음 주간)은    ║
@@ -1179,7 +1183,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.14.01"
+APP_VERSION = "v16.14.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2844,6 +2848,151 @@ class FloatingMonitor(QWidget):
 
 # ════════════════════════════════════════════════════════════════════════════
 #  실행 로그 뷰어 다이얼로그
+# ════════════════════════════════════════════════════════════════════════════
+#  v16.14.02: 아군 함대 직접 편성 다이얼로그
+# ════════════════════════════════════════════════════════════════════════════
+def _expand_fleet_custom(counts: dict) -> list:
+    """{type:count} → [{name,type}, ...] (엔진 fleet_custom 형식). 2척 이상이면 #번호."""
+    out = []
+    for stype, cnt in counts.items():
+        disp = V7_SHIP_DB.get(stype, {}).get('display', stype) if _V7_OK else stype
+        for i in range(int(cnt)):
+            name = disp if cnt == 1 else f"{disp} #{i + 1}"
+            out.append({'name': name, 'type': stype})
+    return out
+
+
+def _collapse_fleet_custom(fleet_list: list) -> dict:
+    """[{name,type}, ...] → {type:count} (다이얼로그·복원용). 삽입 순서 보존."""
+    counts = {}
+    for spec in fleet_list or []:
+        t = spec.get('type')
+        if t:
+            counts[t] = counts.get(t, 0) + 1
+    return counts
+
+
+class FleetCustomDialog(QDialog):
+    """아군 함대 직접 편성 — SHIP_DB 함정을 골라 척수를 지정한다.
+    결과는 {type:count} dict(get_counts). 취소 시 QDialog.Rejected."""
+
+    def __init__(self, initial: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("✏️  아군 함대 직접 편성")
+        self.setMinimumWidth(440)
+        self.setModal(True)
+        self.setStyleSheet(f"QDialog {{ background:{C_BG}; }}")
+        self._counts = dict(initial) if initial else {}   # {type: count}
+
+        root = QVBoxLayout(self)
+        root.setSpacing(8)
+
+        hint = QLabel("함정을 골라 담고 척수를 지정하세요. "
+                      "무기 재고는 설정 화면의 재고값을 함정마다 적용합니다.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        root.addWidget(hint)
+
+        # ── 함정 추가 행 ────────────────────────────────────────────────
+        add_row = QWidget(); arl = QHBoxLayout(add_row)
+        arl.setContentsMargins(0, 0, 0, 0)
+        _al = QLabel("함정:"); _al.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+        arl.addWidget(_al)
+        self._cmb = NoScrollComboBox()
+        if _V7_OK:
+            for k, v in V7_SHIP_DB.items():
+                mark = "🤿 " if v.get('is_submarine') else "⚓ "
+                self._cmb.addItem(mark + v.get('display', k), k)
+        arl.addWidget(self._cmb, stretch=1)
+        btn_add = QPushButton("+ 담기"); btn_add.setFixedHeight(26)
+        btn_add.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; "
+            f"border-radius:6px; padding:2px 12px; }} "
+            f"QPushButton:hover {{ border-color:{C_ACCENT}; }}")
+        btn_add.clicked.connect(self._on_add)
+        arl.addWidget(btn_add)
+        root.addWidget(add_row)
+
+        # ── 현재 편성 리스트 (동적) ─────────────────────────────────────
+        lbl = QLabel("현재 편성")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-weight:bold;")
+        root.addWidget(lbl)
+        self._list_w = QWidget(); self._list_l = QVBoxLayout(self._list_w)
+        self._list_l.setContentsMargins(0, 0, 0, 0); self._list_l.setSpacing(3)
+        root.addWidget(self._list_w)
+
+        self._empty_lbl = QLabel("(비어 있음 — 최소 1척을 담아야 확정할 수 있습니다)")
+        self._empty_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        root.addWidget(self._empty_lbl)
+        root.addStretch()
+
+        # ── 하단 버튼 ───────────────────────────────────────────────────
+        btn_row = QWidget(); brl = QHBoxLayout(btn_row)
+        brl.setContentsMargins(0, 0, 0, 0); brl.addStretch()
+        btn_cancel = QPushButton("취소"); btn_cancel.setFixedHeight(28)
+        btn_cancel.setStyleSheet(
+            f"QPushButton {{ background:{C_PANEL}; color:{C_TEXT}; border:1px solid #30363d; "
+            f"border-radius:6px; padding:4px 16px; }}")
+        btn_cancel.clicked.connect(self.reject)
+        self._btn_ok = QPushButton("확정"); self._btn_ok.setFixedHeight(28)
+        self._btn_ok.setStyleSheet(
+            f"QPushButton {{ background:{C_ACCENT}; color:white; font-weight:bold; "
+            f"border-radius:6px; padding:4px 16px; }} "
+            f"QPushButton:disabled {{ background:#30363d; color:{C_SUBTEXT}; }}")
+        self._btn_ok.clicked.connect(self.accept)
+        brl.addWidget(btn_cancel); brl.addWidget(self._btn_ok)
+        root.addWidget(btn_row)
+
+        self._rebuild()
+
+    def _on_add(self):
+        stype = self._cmb.currentData()
+        if stype:
+            self._counts[stype] = self._counts.get(stype, 0) + 1
+            self._rebuild()
+
+    def _on_spin(self, stype: str, n: int):
+        # 척수 조정 — dict만 갱신(리스트 재생성 안 함 → 스핀박스 포커스 유지)
+        if stype in self._counts:
+            self._counts[stype] = int(n)
+
+    def _remove(self, stype: str):
+        self._counts.pop(stype, None)
+        self._rebuild()
+
+    def _rebuild(self):
+        while self._list_l.count():
+            it = self._list_l.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+        for stype, cnt in self._counts.items():
+            row = QWidget(); rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(4)
+            disp = V7_SHIP_DB.get(stype, {}).get('display', stype) if _V7_OK else stype
+            name_lbl = QLabel(disp)
+            name_lbl.setStyleSheet(f"color:{C_TEXT}; font-size:12px;")
+            rl.addWidget(name_lbl, stretch=1)
+            spn = NoScrollSpinBox(); spn.setRange(1, 20); spn.setValue(int(cnt))
+            spn.setFixedWidth(64)
+            spn.valueChanged.connect(lambda v, t=stype: self._on_spin(t, v))
+            rl.addWidget(spn)
+            btn_del = QPushButton("✕"); btn_del.setFixedSize(24, 24)
+            btn_del.setStyleSheet(
+                f"QPushButton {{ background:transparent; color:{C_SUBTEXT}; border:none; }} "
+                f"QPushButton:hover {{ color:#e05252; }}")
+            btn_del.clicked.connect(lambda _, t=stype: self._remove(t))
+            rl.addWidget(btn_del)
+            self._list_l.addWidget(row)
+        has = bool(self._counts)
+        self._empty_lbl.setVisible(not has)
+        self._btn_ok.setEnabled(has)
+
+    def get_counts(self) -> dict:
+        """확정된 편성 {type:count}. 삽입 순서 보존."""
+        return dict(self._counts)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  v10.7: 전술 의사결정 다이얼로그
 # ════════════════════════════════════════════════════════════════════════════
@@ -6302,14 +6451,48 @@ class MainWindow(QMainWindow):
                                 "실행 로그 창을 여는 중 오류가 발생했습니다.\n"
                                 "sim_history.log에 상세 내용이 기록되었습니다.")
 
+    # ── v16.14.02: 아군 직접 편성 ──────────────────────────────────────
+    def _open_fleet_custom(self):
+        """직접 편성 다이얼로그를 열어 아군 함대를 구성한다."""
+        dlg = FleetCustomDialog(getattr(self, '_fleet_custom', None), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            counts = dlg.get_counts()
+            if counts:
+                self._fleet_custom = counts
+                self._apply_fleet_custom_label()
+                self._update_forecast_card()
+
+    def _clear_fleet_custom(self):
+        """직접 편성 해제 → 프리셋 모드 복귀."""
+        if getattr(self, '_fleet_custom', None) is not None:
+            self._fleet_custom = None
+            if hasattr(self, '_lbl_fleet_custom'):
+                self._lbl_fleet_custom.hide()
+            self._update_forecast_card()
+
+    def _apply_fleet_custom_label(self):
+        """직접 편성 상태 레이블 갱신."""
+        counts = getattr(self, '_fleet_custom', None)
+        if not counts or not hasattr(self, '_lbl_fleet_custom'):
+            return
+        n = sum(counts.values())
+        self._lbl_fleet_custom.setText(f"✏️ 직접 편성 적용 중 ({n}척)")
+        self._lbl_fleet_custom.show()
+
     def _restore_cfg(self, cfg: dict):
         """실행 기록에서 설정을 복원한다 — 편대·날씨·적군 모드 복원."""
-        # 아군 편대
-        fleet = cfg.get('fleet_preset', '')
-        if fleet and hasattr(self, 'cmb_fleet'):
-            idx = self.cmb_fleet.findText(fleet)
-            if idx >= 0:
-                self.cmb_fleet.setCurrentIndex(idx)
+        # 아군 편대 — v16.14.02: 직접 편성이 저장돼 있으면 우선 복원, 없으면 프리셋 경로.
+        custom = cfg.get('fleet_custom')
+        if custom:
+            self._fleet_custom = _collapse_fleet_custom(custom)
+            self._apply_fleet_custom_label()
+        else:
+            self._clear_fleet_custom()
+            fleet = cfg.get('fleet_preset', '')
+            if fleet and hasattr(self, 'cmb_fleet'):
+                idx = self.cmb_fleet.findText(fleet)
+                if idx >= 0:
+                    self.cmb_fleet.setCurrentIndex(idx)
         # 날씨
         weather = cfg.get('weather', '')
         if weather and hasattr(self, 'cmb_weather'):
@@ -6532,9 +6715,28 @@ class MainWindow(QMainWindow):
             _fleet_bg.addButton(_b, _i)
             _fgrid.addWidget(_b, _i // 2, _i % 2)
         _fleet_bg.idClicked.connect(self.cmb_fleet.setCurrentIndex)
+        # 프리셋 버튼을 누르면 직접 편성 모드 해제
+        _fleet_bg.idClicked.connect(lambda _i: self._clear_fleet_custom())
         self.cmb_fleet.currentIndexChanged.connect(
             lambda i: _fleet_bg.button(i).setChecked(True) if _fleet_bg.button(i) else None)
         _ffl.addWidget(_fleet_grid_w)
+
+        # ── v16.14.02: 직접 편성 진입 ────────────────────────────────────
+        self._fleet_custom = None   # {type:count} 또는 None(=프리셋 모드)
+        _btn_custom = QPushButton("✏️ 직접 편성…"); _btn_custom.setFixedHeight(24)
+        _btn_custom.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C_ACCENT}; border:1px dashed #30363d; "
+            f"border-radius:6px; font-size:11px; padding:2px; }} "
+            f"QPushButton:hover {{ border-color:{C_ACCENT}; }}")
+        _btn_custom.clicked.connect(self._open_fleet_custom)
+        _ffl.addWidget(_btn_custom)
+        self._lbl_fleet_custom = QLabel("")
+        self._lbl_fleet_custom.setStyleSheet(
+            f"color:{C_ACCENT}; font-size:11px; font-weight:bold;")
+        self._lbl_fleet_custom.hide()
+        _ffl.addWidget(self._lbl_fleet_custom)
+        self._fleet_btn_group = _fleet_bg
+
         _ffl.addStretch()
         self._cfg_fleet = _fleet
 
@@ -8743,17 +8945,20 @@ class MainWindow(QMainWindow):
         fleet  = self.cmb_fleet.currentText()          if hasattr(self, 'cmb_fleet') else ''
         enemy  = self.cmb_fleet_preset_e.currentText() if hasattr(self, 'cmb_fleet_preset_e') else ''
         weather = self.cmb_weather.currentText()        if hasattr(self, 'cmb_weather') else ''
-        rec = table.get(f'{fleet}|{enemy}')
+        # v16.14.02: 직접 편성이면 프리셋 룩업 테이블에 없으므로 학습 모델 추정 경로만 사용
+        # (프리셋 이름으로 우연히 룩업되는 오표시 방지).
+        custom = getattr(self, '_fleet_custom', None)
+        rec = None if custom else table.get(f'{fleet}|{enemy}')
 
         # ① 최우선: 맑음 주간 + 룩업 정확값
         if weather == ref_weather and rec is not None:
             self._render_forecast_lookup(rec, weather, ref_weather, n)
             return
 
-        # ② 학습 대리모델 추정: 다른 날씨 또는 룩업 없는 조합
+        # ② 학습 대리모델 추정: 다른 날씨 또는 룩업 없는 조합 (직접 편성 포함)
         est = self._forecast_predict(fleet, enemy, weather)
         if est is not None:
-            self._render_forecast_estimate(est, weather)
+            self._render_forecast_estimate(est, weather, custom=bool(custom))
             return
 
         # ③ 폴백: 룩업 있으면 맑음 근사, 없으면 데이터 없음
@@ -8768,7 +8973,12 @@ class MainWindow(QMainWindow):
         if model is None or _forecast_featurize is None or not _V7_OK:
             return None
         try:
-            fleet_ships = [s['type'] for s in V7_FLEET_PRESETS.get(fleet, [])]
+            # v16.14.02: 직접 편성이면 그 함급 리스트로, 아니면 프리셋에서 함급 추출.
+            fc = getattr(self, '_fleet_custom', None)
+            if fc:
+                fleet_ships = [t for t, c in fc.items() for _ in range(int(c))]
+            else:
+                fleet_ships = [s['type'] for s in V7_FLEET_PRESETS.get(fleet, [])]
             if not fleet_ships:
                 return None
             feat = _forecast_featurize(fleet_ships, enemy_preset=enemy,
@@ -8802,7 +9012,7 @@ class MainWindow(QMainWindow):
         lines.append(f"참고 예상치 (MC {n}회·신뢰구간 없음)")
         self._prev_lbl_forecast.setText('\n'.join(lines))
 
-    def _render_forecast_estimate(self, est: dict, weather: str):
+    def _render_forecast_estimate(self, est: dict, weather: str, custom: bool = False):
         """학습 대리모델 추정 렌더 (승률만 예측 — 무·패는 합산 표시)."""
         win   = est['win'] * 100
         score = est['score'] * 100
@@ -8810,11 +9020,12 @@ class MainWindow(QMainWindow):
         cost_s = f"${cost/1e6:.1f}M" if cost else "—"
         cpw    = (cost / est['win']) if est['win'] > 0 else None
         cpw_s  = f"${cpw/1e6:.1f}M" if cpw else "승리 없음"
+        src = "직접 편성 · " if custom else ""
         lines = [
             f"승 {win:.0f}%   (무·패 {100 - win:.0f}%)",
             f"평균 임무점수 {score:.0f}%",
             f"평균 비용 {cost_s}  ·  승리당 {cpw_s}",
-            f"※ {weather} 반영 학습 모델 추정",
+            f"※ {src}{weather} 반영 학습 모델 추정",
         ]
         self._prev_lbl_forecast.setText('\n'.join(lines))
 
@@ -8935,6 +9146,12 @@ class MainWindow(QMainWindow):
             'cd_time_s':      10,
             'confirm_time_s': 3,
         }
+        # v16.14.02: 아군 직접 편성 — 설정 시 프리셋 대신 fleet_custom 우선(엔진 소비).
+        # 미설정 시 fleet_custom 키 없음 → 엔진 기존 프리셋 경로 → 회귀 bit-identical.
+        _fc = getattr(self, '_fleet_custom', None)
+        if _fc:
+            cfg['fleet_custom'] = _expand_fleet_custom(_fc)
+            cfg['fleet_preset'] = '(직접 편성)'   # 표시·기록용
         return cfg
 
     def _run_sim(self):
@@ -10880,7 +11097,8 @@ class SplashWindow(QWidget):
              "작전급 캠페인의 핵심 부품(교전을 즉시 계산해 72시간을 수초로). "
              "【구현 완료】실행 전 '예상 전황' 카드 — 편대·적·날씨별 예상 승률·임무점수·비용을 즉시 표시. "
              "맑음 주간은 미리 계산한 정확값을, 다른 날씨·미수록 조합은 전장 시뮬 표본으로 학습한 "
-             "예측 모델이 기상 영향을 반영해 추정한다. 다음: 임의 편성 UI 확장, 작전급 캠페인 연동. "
+             "예측 모델이 기상 영향을 반영해 추정한다. 아군 함대를 직접 편성(함정·척수 지정)해도 "
+             "예측 모델이 예상 전황을 즉시 추정한다. 다음: 작전급 캠페인 연동. "
              "【현실성】학습 범위 밖은 부정확 — 빠른 1차 추정용."),
             # ── v16.x — 전장 도메인 확장 ──────────────────────────────────────
             ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — 구조 개선 필요)",
