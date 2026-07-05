@@ -265,11 +265,31 @@ def chk_completed_plans():
           f"루트 잔존(아카이브 필요)={root_plans}" if root_plans else 'OK')
 
 
+def chk_resource_paths():
+    # ⑤ exe·빌드: 번들 소스가 리소스 파일(pkl/npz/model 등)을 '기본인자 리터럴 상대경로'로
+    # 로드하면 exe(_internal/sys._MEIPASS)에서 못 찾아 조용히 폴백/실패한다.
+    # (v17.01.02 캠페인 예측모델 폴백 버그를 메타회고로 굳힘 — 상대경로 joblib.load가 원인)
+    # 경로를 '인자로 받는' 모듈(ai_policy_infer 등)은 호출측이 _res로 넘기므로 기본인자 패턴에 안 걸림.
+    BUNDLED = ['app_main.py', 'engine_core.py', 'engine_combat.py', 'engine_campaign.py',
+               'forecast_features.py', 'ai_policy_infer.py', 'db_specsheet.py']
+    dflt = re.compile(r"""def\s+\w+\([^)]*=\s*['"][^'"/\\]+\.(?:pkl|npz|joblib|h5|model)['"]""")
+    bad = []
+    for fn in BUNDLED:
+        try:
+            src = rd(fn)
+        except Exception:
+            continue
+        if dflt.search(src) and '_MEIPASS' not in src and '_res(' not in src:
+            bad.append(fn)
+    check('⑤', 'exe 리소스 로더 기본경로 _MEIPASS 경유(상대경로 폴백 방지)', not bad,
+          f"상대경로 기본인자 로더(_MEIPASS 미경유)={bad}" if bad else 'OK')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_spec_count, chk_div_guards, chk_mc_paths,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts,
-               chk_stale_filename, chk_completed_plans):
+               chk_stale_filename, chk_completed_plans, chk_resource_paths):
         try:
             fn()
         except Exception as e:

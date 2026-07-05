@@ -71,9 +71,18 @@ def action_to_choice(action) -> dict:
             'ecm': _ECM_OPTS[ei]}
 
 
-def load_policy(npz_path: str = 'ai_rl_policy.npz') -> dict:
-    """npz 가중치 로드 → forward용 dict. 파일 없으면 FileNotFoundError(호출부가 처리)."""
-    z = np.load(npz_path)
+def _default_npz_path() -> str:
+    """exe 번들(sys._MEIPASS)·개발환경(__file__ 옆) 자동 해석 — 상대경로만 쓰면
+    exe에서 _internal 안의 npz를 못 찾아 폴백되므로 절대경로로 확정."""
+    import os, sys
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, 'ai_rl_policy.npz')
+
+
+def load_policy(npz_path: str | None = None) -> dict:
+    """npz 가중치 로드 → forward용 dict. 파일 없으면 FileNotFoundError(호출부가 처리).
+    npz_path 미지정 시 exe/개발환경 자동 해석(_MEIPASS)."""
+    z = np.load(npz_path or _default_npz_path())
     return {k: z[k] for k in z.files}
 
 
@@ -91,7 +100,7 @@ def forward(npz: dict, obs: np.ndarray) -> np.ndarray:
     return np.array(out, dtype=np.int64)
 
 
-def make_policy_cb(npz_path: str = 'ai_rl_policy.npz', horizon: float = _DEFAULT_HORIZON):
+def make_policy_cb(npz_path: str | None = None, horizon: float = _DEFAULT_HORIZON):
     """학습 정책을 엔진 전술 콜백으로 — app_main가 sim._tactical_pause_cb에 주입.
     npz 로드 1회 후 매 결정 지점에서 featurize→forward→choice. 로드 실패 시 None 반환."""
     try:
@@ -106,7 +115,7 @@ def make_policy_cb(npz_path: str = 'ai_rl_policy.npz', horizon: float = _DEFAULT
 
 
 # ── 개발 검증: ai_rl_env(학습)와 복제 로직 출력 일치 + npz forward == SB3 ─────────
-def _assert_parity_with_rl_env(npz_path='ai_rl_policy.npz'):
+def _assert_parity_with_rl_env(npz_path=None):
     """ai_rl_env._featurize/_action_to_choice와 본 모듈 복제본이 같은 출력을 내는지(drift 감시)."""
     from ai_rl_env import BattleEnv, _BALANCED_PRESETS  # 테스트 전용 import(exe 런타임 무관)
     env = BattleEnv()

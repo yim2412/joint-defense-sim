@@ -111,10 +111,10 @@ def main():
             if i in (20, 40, 60, 80):
                 log(f"  …대기 {i+1}s")
         if found:
-            log(f"결과 표시 확인: {found}")
+            log(f"[단발] 결과 표시 확인: {found}")
             rc = 0
         else:
-            log("결과 마커 미검출 (90s) — 시뮬 미완 또는 결과 미표시")
+            log("[단발] 결과 마커 미검출 (90s) — 시뮬 미완 또는 결과 미표시")
             rc = 1
         return rc
     except Exception as e:

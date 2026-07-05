@@ -131,7 +131,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 |------|------|
 | `audit_verify_regression.py` | 회귀 검증 (엔진 동작 무결성 자동 점검) |
 | `audit_static_scan.py` | 정적 위생 감사 스캐너 |
-| `_audit_gui_smoke.py` | exe GUI 스모크 자동화 (감사용) |
+| `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
+| `_audit_campaign_smoke.py` | exe GUI 스모크 자동화 — 작전급 캠페인 모드 (감사용) |
 | `_audit_make_pdf.py` | 감사 보고서 PDF 생성기 |
 
 ### 강화학습(RL)·self-play (수동 실행)
