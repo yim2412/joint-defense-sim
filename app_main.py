@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.02 — 캠페인 예측모델 exe 로드 수정]                                 ║
+║  BUG-1  exe에서 캠페인 교전 예측 모델을 상대경로로 찾아 번들 환경에선        ║
+║         못 찾고 근사 폴백(승률 0.5)으로 돌던 문제 수정(_MEIPASS 경로 해석).  ║
+║         폴백 시 결과에 '예측모델 미적용' 경고 표시.                          ║
 ║  [v17.01.01 — 작전급 캠페인 엔진 (v18.1 코어 루프 MVP)]                      ║
 ║  NEW-A  며칠 단위 전역을 1시간 단위로 진행하는 작전급 캠페인 엔진 신설.      ║
 ║         함정 초계·교전·귀항·수리를 추적하고, 교전은 학습된 예측 모델로 즉시  ║
@@ -1189,7 +1193,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.01"
+APP_VERSION = "v17.01.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -9304,12 +9308,13 @@ class MainWindow(QMainWindow):
         """v18.1 작전급 캠페인 결과 요약 렌더 (요격률·MC 무관). 교전 분석 탭 배너 재사용."""
         oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
             result.get('outcome'), result.get('outcome', '—'))
+        warn = '' if result.get('model_loaded', True) else '  ⚠ 예측모델 미적용(근사)'
         self._lbl_status.setText(
             f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
             f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)} · "
             f"교전 {result.get('n_engagements', 0)}회 · "
             f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h")
+            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
