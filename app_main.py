@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v16.14.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.01 — 작전급 캠페인 엔진 (v18.1 코어 루프 MVP)]                      ║
+║  NEW-A  며칠 단위 전역을 1시간 단위로 진행하는 작전급 캠페인 엔진 신설.      ║
+║         함정 초계·교전·귀항·수리를 추적하고, 교전은 학습된 예측 모델로 즉시  ║
+║         계산해 72시간 전역을 수초에. 승패는 해상 교통로(서해·대한해협·동해)  ║
+║         통제로 판정. 별도 engine_campaign — 전술 엔진 무수정(회귀 동일).     ║
+║         기본 OFF·실험적. 임무 배정·전장의 안개·수리 상세는 후속 단계.        ║
 ║  [v16.14.02 — 아군 함대 직접 편성 UI]                                        ║
 ║  NEW-A  아군 편대를 프리셋 외에 직접 편성 — 함정을 골라 척수를 지정하는      ║
 ║         편성 창을 추가. 무기 재고는 설정값을 함정마다 적용. 학습 대리모델이  ║
@@ -1183,7 +1189,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v16.14.02"
+APP_VERSION = "v17.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3650,6 +3656,14 @@ class SimWorker(QThread):
             elif self.cfg.get('tactical_mode', False):
                 _tactical_hook = self._tactical_pause_cb
 
+            # v18.1: 작전급 캠페인 모드 — 즉시예측 해결기로 72h 전역 1회.
+            # MC 미지원(v18.6 예정) → 단발 1회 결과만 emit하고 조기 반환.
+            if self.cfg.get('enable_campaign_mode', False):
+                from engine_campaign import run_campaign
+                result = run_campaign(self.cfg, step_cb=_step_cb)
+                self.finished.emit(result, {})   # mc는 빈 dict(수신부가 campaign 분기서 조기 반환)
+                return
+
             if self.cfg.get('enable_battle_mode', False):
                 result = run_battle_simulation(self.cfg, step_cb=_step_cb,
                                                tactical_cb=_tactical_hook)
@@ -4519,6 +4533,24 @@ class EngagementAnalysisTab(QWidget):
             f"QFrame#battlePanel {{ background:#161d2a; border-radius:8px;"
             f" border-left:5px solid {color}; }}"
             f"QFrame#battlePanel QLabel {{ background:transparent; }}")
+
+        # v18.1: 작전급 캠페인 요약(교통로 통제·교전·생존). 전장 목표판과 다른 지표.
+        if result.get('mode') == 'campaign':
+            self._bp_outcome.setText(f"🗺 캠페인 결과:  {label}")
+            self._bp_outcome.setStyleSheet(
+                f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
+            self._bp_score.setText(
+                f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)}  ·  "
+                f"교전 {result.get('n_engagements', 0)}회  ·  "
+                f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)}  ·  "
+                f"전역 {result.get('end_h', 0)}h / {result.get('horizon_h', 72)}h  ·  "
+                f"누적 비용 ${result.get('cost_total', 0)/1e6:.0f}M")
+            _sc = result.get('sloc_control', {})
+            _sl = [f"{'🟢' if v else '🔴'} {z}" for z, v in _sc.items()]
+            self._bp_obj.setText('      '.join(_sl))
+            self._battle_panel.show()
+            return
+
         self._bp_outcome.setText(f"⚔ 작전 결과:  {label}")
         self._bp_outcome.setStyleSheet(
             f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
@@ -6536,6 +6568,8 @@ class MainWindow(QMainWindow):
             self.chk_munition_limit.setChecked(cfg.get('enable_munition_limit', True))
         if hasattr(self, 'chk_battle'):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
+        if hasattr(self, 'chk_campaign'):
+            self.chk_campaign.setChecked(cfg.get('enable_campaign_mode', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
@@ -7108,6 +7142,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_battle.setChecked(False)
 
+        # v18.1: 작전급 캠페인 모드 (실험적) — 며칠 단위 전역
+        self.chk_campaign = QCheckBox("작전급 캠페인 모드 (실험적)")
+        self.chk_campaign.setToolTip(
+            "교전 1회 대신, 며칠 단위 전역(기본 72시간)을 1시간 단위로 진행합니다.\n"
+            "함정 초계·교전·귀항·수리를 추적하고, 교전은 학습된 예측 모델로 즉시 계산해\n"
+            "72시간 전역을 수초에 끝냅니다. 승패는 해상 교통로(서해·대한해협·동해) 통제로 판정.\n"
+            "기본값 OFF — 기존 교전 모드와 공존 (작전급 엔진 구축 단계, 실험적)."
+        )
+        self.chk_campaign.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7241,6 +7285,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_flooding)
         fl_env.addRow("",            self.chk_munition_limit)
         fl_env.addRow("",            self.chk_battle)
+        fl_env.addRow("",            self.chk_campaign)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9063,6 +9108,7 @@ class MainWindow(QMainWindow):
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
             'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
+            'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -9254,6 +9300,22 @@ class MainWindow(QMainWindow):
         # ⑤ Windows 작업표시줄 진행바 (최소화 중에도 아이콘에 진행률)
         self._taskbar.set_progress(int(self.winId()), done, total)
 
+    def _render_campaign_result(self, result: dict, elapsed: float):
+        """v18.1 작전급 캠페인 결과 요약 렌더 (요격률·MC 무관). 교전 분석 탭 배너 재사용."""
+        oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
+            result.get('outcome'), result.get('outcome', '—'))
+        self._lbl_status.setText(
+            f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
+            f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)} · "
+            f"교전 {result.get('n_engagements', 0)}회 · "
+            f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
+            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h")
+        # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
+        self.tab_engagement.load_result(result)
+        self._sidebar.mark_new_data([0])
+        self._sidebar.set_current_index(0)
+        self._on_page_changed(0)   # 동일 인덱스면 item_selected 미발화 → 수동 트리거
+
     def _on_finished(self, result: dict, mc: dict):
         elapsed = time.time() - self._t0
         self._result = result
@@ -9262,6 +9324,11 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(True)
         self._prog.setVisible(False)
         self._taskbar.clear(int(self.winId()))
+
+        # v18.1: 캠페인 모드는 요격률·MC 파이프라인을 타지 않는다(전용 요약 렌더 후 반환).
+        if result.get('mode') == 'campaign':
+            self._render_campaign_result(result, elapsed)
+            return
         cvar_str = f" | CVaR {mc.get('cvar', 0):.1%}" if mc.get('cvar') is not None else ''
         _outcome = result.get('outcome')
         if _outcome:   # 지속 전장 모드 — 승/패 중심 표시 (단일 시뮬 + MC 승률)
@@ -11123,7 +11190,10 @@ class SplashWindow(QWidget):
             ("v18.1", "매우 높음", "캠페인 엔진 기반 설계",
              "며칠 단위 전역(캠페인)을 다루는 작전급 엔진. 1시간 단위로 진행, 72시간 캠페인이 수초 내 완료. "
              "교전이 발생할 때만 기존 전술 엔진을 불러 처리하고, 나머지는 즉시예측(v15.2)으로 빠르게 계산. "
-             "전술 엔진과 분리된 별도 엔진."),
+             "전술 엔진과 분리된 별도 엔진. "
+             "【코어 루프 구현】함정 초계·교전·귀항·수리 추적 + 해상 교통로(서해·대한해협·동해) 통제로 "
+             "승패 판정. 교전은 학습된 예측 모델로 즉시 계산. 기본 OFF·실험적. "
+             "다음: 전력 관리 상세(수리 기간·재보급) → 임무 배정 → 전장의 안개."),
             ("v18.2", "높음", "전력 관리 모델",
              "전 함정 상태 추적: 출항·초계·귀항·수리대기·수리중·재편성. "
              "손상 함정 수리 기간(피해 심각도별 1~14일), 탄약 재보급 시간. "

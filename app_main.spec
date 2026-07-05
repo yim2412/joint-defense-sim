@@ -25,6 +25,7 @@ a = Analysis(
         ('forecast_surrogate.json',  '.'),
         ('forecast_model.pkl',       '.'),   # v15.2 학습 대리모델(날씨 반영 즉시 추정)
         ('forecast_features.py',     '.'),   # v15.2 특징화(빌더·GUI 공유)
+        ('engine_campaign.py',       '.'),   # v18.1 작전급 캠페인 엔진
         ('ai_rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
         ('db_ocean_acoustic.py',   '.'),
@@ -39,6 +40,8 @@ a = Analysis(
         'ai_policy_infer',
         # v15.2 즉시예측: 특징화 + 대리모델 언피클(런타임 joblib.load — 정적 분석 누락 방지)
         'forecast_features',
+        # v18.1 캠페인 엔진(SimWorker가 지연 import — 정적 분석 누락 방지)
+        'engine_campaign',
         'joblib',
         'sklearn',
         'sklearn.ensemble',
