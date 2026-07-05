@@ -21,10 +21,18 @@ from forecast_features import featurize, fleet_ships_from_preset
 SLOC_ZONES        = ['서해', '대한해협', '동해']   # 해상 교통로 3개 (승패 판정 기준)
 HOME_ZONE         = '모항'                          # 기지(안전·수리)
 CAMPAIGN_HORIZON_H_DEFAULT = 72                     # 기본 전역 시간(시간)
-_REPAIR_H_FULL    = 24                              # hp 0→1 완전 수리 소요(시간, MVP 고정 근사)
 _HP_RETREAT_FRAC  = 0.4                             # 이 아래로 손상되면 귀항→수리
 _DMG_WIN_K        = 0.30                            # 승리 시 아군 피해 계수 (× (1-score))
 _DMG_LOSS_K       = 0.60                            # 패배 시 아군 피해 계수
+# v18.2 전력 관리 — 수리 기간 차등 + 탄약·연료 재보급
+_REPAIR_DAYS_MIN  = 1                               # 경상 최소 수리(일)
+_REPAIR_DAYS_MAX  = 14                              # 대파 최대 수리(일) — 교리상 전역 중 복귀 불가 수준
+_AMMO_PER_ENGAGEMENT = 0.28                         # 교전 1회당 탄약 소모 비율(추상)
+_AMMO_RESUPPLY_FRAC  = 0.20                         # 이 아래로 소진되면 재보급 귀항
+_FUEL_PER_TICK       = 0.010                        # 초계 1시간당 연료 소모(72h ≈ 0.72)
+_FUEL_RESUPPLY_FRAC  = 0.25                         # 이 아래면 재보급 귀항
+_RESUPPLY_AMMO_H     = 48                           # 모항 탄약 재보급 소요(2일)
+_RESUPPLY_FUEL_H     = 24                           # 모항 연료 재보급 소요(1일)
 
 
 def load_forecast_model(path: str | None = None):
@@ -68,18 +76,24 @@ def _predict_engagement(model, fleet_ships: list, enemy_fleet: list,
 
 
 class CampaignShip:
-    """캠페인 함정 상태 — 전술 FriendlyShipObj의 작전급 추상(물리 필드 아님)."""
-    __slots__ = ('ship_type', 'zone', 'state', 'hp_frac', 'repair_eta_h')
+    """캠페인 함정 상태 — 전술 FriendlyShipObj의 작전급 추상(물리 필드 아님).
+    v18.2: 탄약·연료 재보급 상태 추가."""
+    __slots__ = ('ship_type', 'zone', 'state', 'hp_frac', 'repair_eta_h',
+                 'ammo_frac', 'fuel_frac', 'resupply_eta_h')
 
     def __init__(self, ship_type: str, zone: str):
-        self.ship_type    = ship_type
-        self.zone         = zone
-        self.state        = 'patrol'   # patrol / transit / repair
-        self.hp_frac      = 1.0
-        self.repair_eta_h = 0
+        self.ship_type      = ship_type
+        self.zone           = zone
+        self.state          = 'patrol'   # patrol / repair / resupply
+        self.hp_frac        = 1.0
+        self.repair_eta_h   = 0
+        self.ammo_frac      = 1.0        # v18.2: 탄약 잔여
+        self.fuel_frac      = 1.0        # v18.2: 연료 잔여
+        self.resupply_eta_h = 0
 
     @property
     def available(self) -> bool:
+        # 초계 상태만 가용 전력(수리·재보급·귀항 중 제외)
         return self.state == 'patrol'
 
 
@@ -141,7 +155,8 @@ class CampaignEngine:
     # ── 시간 루프 ─────────────────────────────────────────────────────────────
     def run(self) -> dict:
         for self.t_h in range(1, self.horizon_h + 1):
-            self._tick_repairs()
+            self._tick_logistics()      # v18.2: 수리·재보급 진행
+            self._tick_fuel()           # v18.2: 초계 연료 소모 + 재보급 트리거
             self._tick_engagements()
             self._tick_sloc()
             self._tl_control.append(sum(self.sloc.values()))
@@ -150,15 +165,34 @@ class CampaignEngine:
                 break
         return self._compile()
 
-    def _tick_repairs(self):
+    def _tick_logistics(self):
+        """v18.2: 모항에서 수리(hp) / 재보급(탄약·연료) 진행. 완료 시 초계 복귀."""
         for s in self.ships:
             if s.state == 'repair':
                 s.repair_eta_h -= 1
-                s.hp_frac = min(1.0, s.hp_frac + 1.0 / _REPAIR_H_FULL)
                 if s.repair_eta_h <= 0:
-                    s.hp_frac = 1.0
+                    s.hp_frac = 1.0            # 수리 완료 = 완전 회복
                     s.state = 'patrol'
                     s.zone  = SLOC_ZONES[self.rng.randrange(len(SLOC_ZONES))]
+            elif s.state == 'resupply':
+                s.resupply_eta_h -= 1
+                if s.resupply_eta_h <= 0:
+                    s.ammo_frac = 1.0
+                    s.fuel_frac = 1.0
+                    s.state = 'patrol'
+                    s.zone  = SLOC_ZONES[self.rng.randrange(len(SLOC_ZONES))]
+
+    def _tick_fuel(self):
+        """v18.2: 초계 중 연료 소모. 탄약·연료가 임계 미만이면 모항 재보급 귀항."""
+        for s in self.ships:
+            if s.state != 'patrol':
+                continue
+            s.fuel_frac = max(0.0, s.fuel_frac - _FUEL_PER_TICK)
+            if s.ammo_frac < _AMMO_RESUPPLY_FRAC or s.fuel_frac < _FUEL_RESUPPLY_FRAC:
+                s.state = 'resupply'
+                s.zone  = HOME_ZONE
+                s.resupply_eta_h = _RESUPPLY_AMMO_H if s.ammo_frac < _AMMO_RESUPPLY_FRAC \
+                    else _RESUPPLY_FUEL_H
 
     def _active_enemy_in(self, zone: str) -> list:
         """해당 zone에 도달·생존한 적 웨이브의 편성 합(featurize용 [{preset,count}])."""
@@ -195,15 +229,18 @@ class CampaignEngine:
 
     def _apply_engagement(self, zone, patrol, enemy_fleet, won, score):
         """교전 결과 반영 — 승패·임무점수 기반 추상 피해(MVP). 손실 수 미추정이므로
-        점수↓일수록 피해↑. hp 임계 미만 함정은 귀항→수리."""
+        점수↓일수록 피해↑. v18.2: 교전당 탄약 소모 + 피해 심각도별 수리 기간 차등."""
         dmg = (1.0 - score) * (_DMG_WIN_K if won else _DMG_LOSS_K)
         for s in patrol:
+            s.ammo_frac = max(0.0, s.ammo_frac - _AMMO_PER_ENGAGEMENT)   # v18.2: 탄약 소모
             # 함정별 피해에 소량 확률 분산(결정론: rng 사용)
             s.hp_frac = max(0.0, s.hp_frac - dmg * (0.5 + self.rng.random()))
             if s.hp_frac < _HP_RETREAT_FRAC:
                 s.state = 'repair'
                 s.zone  = HOME_ZONE
-                s.repair_eta_h = int(_REPAIR_H_FULL * (1.0 - s.hp_frac)) + 1
+                # v18.2: 피해 심각도별 수리 기간 1~14일 (hp 낮을수록 길게)
+                days = _REPAIR_DAYS_MIN + (1.0 - s.hp_frac) * (_REPAIR_DAYS_MAX - _REPAIR_DAYS_MIN)
+                s.repair_eta_h = int(round(days * 24))
         if won:
             # 적 웨이브 격퇴(해당 zone 도달분 제거)
             for w in self.waves:
@@ -221,7 +258,8 @@ class CampaignEngine:
                 self.sloc[zone] = True   # 위협 소멸 시 통제 회복
 
     def _all_ships_down(self) -> bool:
-        return all(s.state == 'repair' for s in self.ships) if self.ships else True
+        # 가용(초계) 함정이 하나도 없으면 전력 소진(수리·재보급 중 전부)
+        return not any(s.available for s in self.ships) if self.ships else True
 
     # ── 결과 ──────────────────────────────────────────────────────────────────
     def _compile(self) -> dict:
@@ -238,6 +276,9 @@ class CampaignEngine:
             outcome = 'loss'
         surviving = sum(1 for s in self.ships if s.hp_frac > 0)
         avail     = sum(1 for s in self.ships if s.available)
+        n_repair   = sum(1 for s in self.ships if s.state == 'repair')
+        n_resupply = sum(1 for s in self.ships if s.state == 'resupply')
+        nships = len(self.ships) or 1
         return {
             'mode':            'campaign',
             'model_loaded':    self.model is not None,   # False면 교전이 근사 폴백(승률 0.5)
@@ -250,6 +291,10 @@ class CampaignEngine:
             'n_ships':         len(self.ships),
             'surviving_ships': surviving,
             'available_ships': avail,
+            'n_repair':        n_repair,       # v18.2: 수리 중 함정 수
+            'n_resupply':      n_resupply,     # v18.2: 재보급 중 함정 수
+            'mean_ammo':       round(sum(s.ammo_frac for s in self.ships) / nships, 3),
+            'mean_fuel':       round(sum(s.fuel_frac for s in self.ships) / nships, 3),
             'n_engagements':   len(self.engagements),
             'engagements':     self.engagements,
             'cost_total':      round(self.cost_total, 1),
