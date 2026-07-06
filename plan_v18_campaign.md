@@ -118,6 +118,29 @@ def run_campaign(cfg: dict, step_cb=None) -> dict:
 
 **공통**: 전술 엔진 무수정 유지 · 회귀 bit-identical · 난이도 높음 → **에포트 high 권장, 설계 먼저 합의**.
 
+## 6-C. v18.5 SLOC 정교화 — ✅ 설계 확정 (2026-07-06, 구현 대기)
+**결정 포인트 4개 사용자 합의**: ①연속 통제도 0~1 ②통제→보급 피드백 ③우회 SLOC 포함 ④연속 통제도 평균 임계 승패.
+**전제**: SLOC 통제 판정은 **truth 전력**으로(실제 결과). 안개(belief)는 임무 배정에만 — 두 축 독립. SLOC 정교화는 **캠페인 기본 동작**(토글 없음, 이진→연속 대체). 캠페인 회귀 골든 밖이라 무방. 전술 엔진 무수정.
+
+**① 연속 통제도** (`self.sloc` 이진 → `self.control` 0~1): 매 틱 각 교통로에서
+```
+아군_전력 = Σ _ship_strength(초계 함정 in zone)
+적_전력   = _zone_threat_truth(zone)
+target    = 아군_전력 / (아군_전력 + 적_전력)   # 적 없으면 1.0(회복)
+control[z] += α·(target - control[z])          # α=0.3, 관성으로 급변 방지
+```
+적 우세 **지속** 시 통제도 서서히 하락(한 틱에 안 무너짐) → "적 진입→위협도 상승" 반영.
+
+**② 통제→보급 피드백**(핵심): v18.2 재보급 소요(`_RESUPPLY_AMMO_H`/`_RESUPPLY_FUEL_H`)를 보급선 통제도로 스케일 — `resupply_eta = base / max(best_control, 0.2)` (통제 낮으면 최대 5배 지연). 통제 붕괴 → 재보급 지연 → 가용 전력 회복 지연 → 작전 지속 하락. **SLOC이 결과 아닌 원인이 되는 피드백 루프.**
+
+**③ 우회 SLOC**(노드 지리 없이 추상): `best_control = max(control.values())` — 함정은 **가장 잘 통제되는 교통로로 우회 보급**. 자기 교통로 차단돼도 다른 교통로 열려 있으면 보급 가능(지연). 전 교통로 통제 저하 시에만 심각 지연. 우회 발생(자기 zone ≠ 보급 경로 zone) 횟수 계측(`n_reroute`).
+
+**④ 승패 판정**(`_compile`): `avg = mean(control.values())` → avg ≥0.7 win / ≥0.3 draw / else loss. 조기 전력소진도 avg 기반.
+
+**파라미터(구현 시 튜닝)**: α=0.3(통제 관성), 승패 임계 0.7/0.3, 보급 지연 floor 0.2(최대 5배).
+
+**구현 시 손댈 곳**: `__init__`(sloc→control dict, n_reroute), `_tick_sloc`(연속 갱신), `_tick_fuel`/`_tick_logistics`(재보급 eta에 best_control 스케일·우회 계측), `_compile`(avg 기반 outcome·n_reroute 지표), app_main 배너(통제도·우회 표시). **검증**: 통제도 하락 곡선·보급 지연 발현·우회 계측·헤드리스 outcome 분포. 난이도 높음 → 에포트 high, code-review high, 안개 포함 GUI 스모크.
+
 ## 7. UI (MVP 최소)
 - 설정에 `enable_campaign_mode` 토글(실험적). ON 시 워커가 `run_campaign` 라우팅(단발/전장/캠페인 3분기).
 - 결과: 캠페인 요약(교통로 통제·잔존 전력·교전 수·outcome). 상세 타임라인은 v18.7.
