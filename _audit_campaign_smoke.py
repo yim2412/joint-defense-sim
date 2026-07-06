@@ -75,13 +75,24 @@ def main():
         except Exception: pass
         time.sleep(2)
 
-        # 캠페인 토글
-        chk = None
+        # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
+        # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
+        chk = fog = None
         for c in main_w.descendants(control_type='CheckBox'):
-            if '캠페인' in _txt(c): chk = c; break
+            t = _txt(c)
+            if '안개' in t:            fog = c
+            elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
         log(f"캠페인 체크박스: {_txt(chk)!r} → 체크"); _act(chk); time.sleep(1)
+        if fog is not None:
+            log(f"안개 체크박스: {_txt(fog)!r} → 체크"); _act(fog); time.sleep(1)
+            try:
+                log(f"   토글 상태: 캠페인={chk.get_toggle_state()} 안개={fog.get_toggle_state()} (1=ON)")
+            except Exception as e:
+                log(f"   토글 상태 확인 실패: {e}")
+        else:
+            log("⚠ 안개 체크박스 미포착 — 캠페인만 검증(v18.4 GUI 경로 미확인)")
 
         # 시뮬 실행
         target = None
@@ -103,7 +114,12 @@ def main():
                 if '교통로 통제' in blob or '캠페인:' in blob:
                     if '⚠ 예측모델 미적용' in blob:
                         log("🔴 캠페인 결과는 떴으나 예측모델 미적용(폴백) — exe 모델 로드 실패"); return 1
-                    log("✅ 캠페인 결과 정상 표시(예측모델 적용)"); return 0
+                    if fog is not None and '안개' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('수리', '재배정', '탄약', '교통로'))]
+                        log(f"🔴 안개 ON인데 배너에 안개 상태 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프

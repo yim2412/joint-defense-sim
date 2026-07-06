@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.05 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.05 — 캠페인 전장의 안개 (v18.4)]                                    ║
+║  NEW-A  작전급 캠페인에서 적 위치를 관측 기반 추정(belief)으로 관리. 초계    ║
+║         함정·초계기·위성이 탐지한 교통로만 실측을 알고, 못 본 곳은 시간이    ║
+║         지날수록 불확실(반감기 12h). 적이 온 뒤에야 대응 → 자산 부족 시      ║
+║         빈 교통로 무방비. 임무 배정은 belief, 실제 교전은 실측. 기본 OFF.    ║
 ║  [v17.01.04 — 캠페인 임무 배정 (v18.3)]                                      ║
 ║  NEW-A  작전급 캠페인에서 함정을 위협 기반으로 동적 재배정. 강한 함정을      ║
 ║         고위협 교통로에 방어집중, 위협 없는 교통로엔 초계 함정을 남긴다.     ║
@@ -1201,7 +1206,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.04"
+APP_VERSION = "v17.01.05"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4565,6 +4570,9 @@ class EngagementAnalysisTab(QWidget):
                      f"🔀 재배정 {result.get('n_reassign', 0)}회  ·  "
                      f"탄약 {result.get('mean_ammo', 1.0)*100:.0f}%  ·  "
                      f"연료 {result.get('mean_fuel', 1.0)*100:.0f}%")
+            # v18.4: 전장의 안개 상태(적용 시에만)
+            if result.get('fog_enabled'):
+                _logi += f"  ·  🌫 안개 ON (적 위치 과소평가 {result.get('n_missed', 0)}회)"
             self._bp_obj.setText('      '.join(_sl) + '        ' + _logi)
             self._battle_panel.show()
             return
@@ -6588,6 +6596,8 @@ class MainWindow(QMainWindow):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
         if hasattr(self, 'chk_campaign'):
             self.chk_campaign.setChecked(cfg.get('enable_campaign_mode', False))
+        if hasattr(self, 'chk_campaign_fog'):
+            self.chk_campaign_fog.setChecked(cfg.get('enable_campaign_fog', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
@@ -7170,6 +7180,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_campaign.setChecked(False)
 
+        # v18.4: 전장의 안개 — 캠페인 모드에서 적 위치를 불완전 정보로 관리
+        self.chk_campaign_fog = QCheckBox("전장의 안개 (적 위치 불확실성) (실험적)")
+        self.chk_campaign_fog.setToolTip(
+            "작전급 캠페인 모드에서 적 위치를 '확실'이 아닌 관측 기반 추정(belief)으로 관리합니다.\n"
+            "초계 함정·초계기·위성이 탐지한 교통로만 실측을 알고, 못 본 교통로는 시간이 지날수록\n"
+            "불확실해집니다(반감기 12시간). 적이 온 뒤에야 알고 대응하므로 자산이 부족하면\n"
+            "빈 교통로가 무방비로 뚫릴 수 있습니다(임무 배정은 belief로, 실제 교전은 실측으로).\n"
+            "캠페인 모드와 함께 켜야 작동합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_campaign_fog.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7304,6 +7326,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_munition_limit)
         fl_env.addRow("",            self.chk_battle)
         fl_env.addRow("",            self.chk_campaign)
+        fl_env.addRow("",            self.chk_campaign_fog)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9127,6 +9150,7 @@ class MainWindow(QMainWindow):
             'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
+            'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -9323,12 +9347,13 @@ class MainWindow(QMainWindow):
         oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
             result.get('outcome'), result.get('outcome', '—'))
         warn = '' if result.get('model_loaded', True) else '  ⚠ 예측모델 미적용(근사)'
+        fog = ' · 🌫 안개' if result.get('fog_enabled') else ''
         self._lbl_status.setText(
             f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
             f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)} · "
             f"교전 {result.get('n_engagements', 0)}회 · "
             f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{warn}")
+            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -11230,7 +11255,11 @@ class SplashWindow(QWidget):
             ("v18.4", "높음", "정보 불확실성 모델 (전장의 안개)",
              "적 위치를 '확실'이 아닌 확률 범위로 관리. 위성·초계기 탐지 때마다 정보 갱신. "
              "오래된 정보일수록 위치 불확실성 반경 확대. 작전의 본질인 '적이 어디 있는지 모름' 반영. "
-             "임무 배정 시 위험도로 환산."),
+             "임무 배정 시 위험도로 환산. "
+             "【구현 완료】교통로별 관측 기반 추정(belief) — 초계 함정·초계기 ISR·위성이 탐지한 "
+             "곳만 실측, 미탐지 교통로는 반감기 12시간으로 감쇠. 적이 온 뒤에야 대응(선제 예측 상실). "
+             "임무 배정은 belief로, 실제 교전·통제는 실측으로. ON/OFF 토글(기본 OFF=완전정보). "
+             "다음: SLOC 정교화 → 캠페인 반복 분석."),
             ("v18.5", "중간", "해상 교통로 통제 (SLOC)",
              "한반도 주요 해상 교통로 3개(서해·대한해협·동해) 통제 상태 시뮬. "
              "적 해역 진입 → 교통로 위협도 상승 → 보급 감소 → 작전 지속 능력 하락. "
