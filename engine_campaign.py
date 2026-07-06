@@ -41,6 +41,12 @@ _FOG_HALFLIFE_H      = 12                            # 미탐지 zone belief 반
 _ISR_AIRCRAFT_DEFAULT = 1                            # 초계기 ISR 기본 대수(cfg로 override)
 _SAT_INTERVAL_H      = 24                            # 위성 전역 스캔 주기(시간)
 _SAT_TRUST           = 0.5                           # 위성 저신뢰 부분 갱신 계수(광역·저해상)
+# v18.5 SLOC 정교화 — 연속 통제도 + 통제→보급 피드백 + 우회 보급
+_CONTROL_ALPHA         = 0.30    # 통제도 관성 계수 — 한 틱에 급변 방지(적 우세 지속 시에만 붕괴)
+_CONTROL_WIN_THRESH    = 0.70    # 평균 통제도 승리 임계
+_CONTROL_DRAW_THRESH   = 0.30    # 평균 통제도 무승부 임계(미만은 패배)
+_RESUPPLY_CONTROL_FLOOR = 0.20   # 보급선 통제도 하한 — 통제 붕괴 시 재보급 최대 5배(1/0.2) 지연
+_REROUTE_EPS           = 0.05    # 우회 보급 판정 최소 통제도 격차(자기 교통로가 이만큼 더 나쁠 때만)
 
 
 def _ship_strength(ship_type: str) -> float:
@@ -127,11 +133,13 @@ class CampaignEngine:
 
         self.ships   = self._build_force()
         self.waves   = self._build_enemy_waves()   # [{preset, zone, arrive_h, alive}]
-        self.sloc    = {z: True for z in SLOC_ZONES}  # True=통제 유지
+        # v18.5: 이진 통제(True/False) → 연속 통제도(0~1). 1.0=완전 통제
+        self.control = {z: 1.0 for z in SLOC_ZONES}
         self.t_h     = 0
         self.engagements = []                      # 교전 기록
         self.cost_total  = 0.0
         self._n_reassign = 0                       # v18.3: 누적 재배정 이동 횟수
+        self._n_reroute  = 0                       # v18.5: 누적 우회 보급 횟수
         # v18.4 전장의 안개 — 적 위협 belief(불완전 정보) + 마지막 탐지 시각
         self.fog         = bool(cfg.get('enable_campaign_fog', False))
         self.isr_aircraft = int(cfg.get('campaign_isr_aircraft', _ISR_AIRCRAFT_DEFAULT))
@@ -186,7 +194,8 @@ class CampaignEngine:
             self._assign_missions()     # v18.3: belief 기반 동적 재배정(6h마다)
             self._tick_engagements()
             self._tick_sloc()
-            self._tl_control.append(sum(self.sloc.values()))
+            # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
+            self._tl_control.append(round(sum(self.control.values()) / len(SLOC_ZONES), 3))
             self._tl_force.append(sum(1 for s in self.ships if s.available))
             if self._all_ships_down():
                 break
@@ -216,16 +225,26 @@ class CampaignEngine:
                     s.state = 'patrol'
 
     def _tick_fuel(self):
-        """v18.2: 초계 중 연료 소모. 탄약·연료가 임계 미만이면 모항 재보급 귀항."""
+        """v18.2: 초계 중 연료 소모. 탄약·연료가 임계 미만이면 모항 재보급 귀항.
+        v18.5: 재보급 소요를 보급선 통제도로 스케일 — 함정은 가장 잘 통제되는 교통로로
+        우회 보급(best_control)하므로 eta는 best_control에 반비례(통제 붕괴 시 최대 5배 지연).
+        자기 교통로가 최선보다 통제 낮으면 우회 발생(n_reroute)."""
+        best = max(self.control.values(), default=1.0)           # 최선 교통로 통제도(우회 보급선)
+        delay_scale = 1.0 / max(best, _RESUPPLY_CONTROL_FLOOR)   # 통제 낮을수록 지연↑
         for s in self.ships:
             if s.state != 'patrol':
                 continue
             s.fuel_frac = max(0.0, s.fuel_frac - _FUEL_PER_TICK)
             if s.ammo_frac < _AMMO_RESUPPLY_FRAC or s.fuel_frac < _FUEL_RESUPPLY_FRAC:
+                patrol_zone = s.zone
+                base = _RESUPPLY_AMMO_H if s.ammo_frac < _AMMO_RESUPPLY_FRAC \
+                    else _RESUPPLY_FUEL_H
+                s.resupply_eta_h = int(round(base * delay_scale))
                 s.state = 'resupply'
                 s.zone  = HOME_ZONE
-                s.resupply_eta_h = _RESUPPLY_AMMO_H if s.ammo_frac < _AMMO_RESUPPLY_FRAC \
-                    else _RESUPPLY_FUEL_H
+                # v18.5: 자기 교통로가 최선 교통로보다 통제 낮으면 우회 보급으로 계측
+                if patrol_zone in SLOC_ZONES and best - self.control[patrol_zone] > _REROUTE_EPS:
+                    self._n_reroute += 1
 
     def _active_enemy_in(self, zone: str) -> list:
         """해당 zone에 도달·생존한 적 웨이브의 편성 합(featurize용 [{preset,count}])."""
@@ -397,35 +416,52 @@ class CampaignEngine:
                     w['alive'] = False
 
     def _tick_sloc(self):
-        """교통로 통제 갱신 — 적 존재 + 아군 초계 부재면 차단, 아군 초계 있으면 유지."""
+        """v18.5: 교통로별 연속 통제도(0~1) 갱신. target=아군전력/(아군+적전력),
+        α=0.30 관성으로 서서히 수렴 → 적 우세가 지속돼야 통제 붕괴(한 틱에 안 무너짐).
+        아군전력=초계 함정 방공 강도 합, 적전력=_zone_threat_truth(truth 기준).
+        위협 없으면 target=1.0(회복). SLOC 판정은 truth로, 안개(belief)는 배정만(독립)."""
         for zone in SLOC_ZONES:
-            enemy = self._active_enemy_in(zone)
-            patrol = any(s.available and s.zone == zone for s in self.ships)
-            if enemy and not patrol:
-                self.sloc[zone] = False
-            elif not enemy:
-                self.sloc[zone] = True   # 위협 소멸 시 통제 회복
+            friendly = sum(_ship_strength(s.ship_type)
+                           for s in self.ships if s.available and s.zone == zone)
+            enemy = self._zone_threat_truth(zone)
+            if friendly + enemy <= 0:
+                target = 1.0                       # 위협·아군 모두 없음 → 통제 회복
+            else:
+                target = friendly / (friendly + enemy)
+            c = self.control[zone] + _CONTROL_ALPHA * (target - self.control[zone])
+            self.control[zone] = min(1.0, max(0.0, c))
 
     def _all_ships_down(self) -> bool:
-        # 초계·이동 중이면 곧 가용 → 수리·재보급만 남으면(전투 불가) 전력 소진
+        """전력 소진 판정 — v18.5 정교화. 초계·이동 중(곧 가용)이 하나라도 있으면 유지.
+        전원이 수리·재보급 중이어도 '남은 horizon 내 복귀 가능'하면 아직 소진 아님
+        (일시 재보급은 복귀하므로 조기종료하면 통제→보급 피드백 루프가 죽는다).
+        전원이 남은 시간 내 복귀 불가할 때만 진짜 전력 소진."""
         if not self.ships:
             return True
-        return not any(s.state in ('patrol', 'transit') for s in self.ships)
+        if any(s.state in ('patrol', 'transit') for s in self.ships):
+            return False
+        remaining = self.horizon_h - self.t_h
+        for s in self.ships:
+            eta = s.repair_eta_h if s.state == 'repair' else \
+                  s.resupply_eta_h if s.state == 'resupply' else 0
+            if eta <= remaining:
+                return False        # 이 함정은 horizon 내 복귀 → 계속 진행
+        return True
 
     # ── 결과 ──────────────────────────────────────────────────────────────────
     def _compile(self) -> dict:
-        controlled = sum(self.sloc.values())
-        n = len(SLOC_ZONES)
-        if controlled >= n - 0:      # 전 교통로 유지
+        surviving = sum(1 for s in self.ships if s.hp_frac > 0)
+        # v18.5: 평균 연속 통제도로 승패 — ≥0.70 win / ≥0.30 draw / else loss.
+        # 조기 종료여도 avg 기반(§6-C ④). 단 실제 전멸(생존 0)은 통제도 무관 loss 강제.
+        mean_control = sum(self.control.values()) / len(SLOC_ZONES)
+        if surviving == 0:
+            outcome = 'loss'
+        elif mean_control >= _CONTROL_WIN_THRESH:
             outcome = 'win'
-        elif controlled >= 1:
+        elif mean_control >= _CONTROL_DRAW_THRESH:
             outcome = 'draw'
         else:
             outcome = 'loss'
-        # 조기 전멸(전 함정 수리불능 상태로 종료) → loss 우선
-        if self._all_ships_down() and self.t_h < self.horizon_h:
-            outcome = 'loss'
-        surviving = sum(1 for s in self.ships if s.hp_frac > 0)
         avail     = sum(1 for s in self.ships if s.available)
         n_repair   = sum(1 for s in self.ships if s.state == 'repair')
         n_resupply = sum(1 for s in self.ships if s.state == 'resupply')
@@ -435,9 +471,10 @@ class CampaignEngine:
             'mode':            'campaign',
             'model_loaded':    self.model is not None,   # False면 교전이 근사 폴백(승률 0.5)
             'outcome':         outcome,
-            'sloc_control':    dict(self.sloc),
-            'n_controlled':    controlled,
-            'n_sloc':          n,
+            'control':         {z: round(v, 3) for z, v in self.control.items()},  # v18.5 교통로별 통제도(0~1)
+            'mean_control':    round(mean_control, 3),   # v18.5 평균 통제도(승패 기준)
+            'n_reroute':       self._n_reroute,          # v18.5 누적 우회 보급 횟수
+            'n_sloc':          len(SLOC_ZONES),
             'horizon_h':       self.horizon_h,
             'end_h':           self.t_h,
             'n_ships':         len(self.ships),

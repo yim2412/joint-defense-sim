@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.05 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.06 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.06 — 캠페인 교통로 통제 정교화 (v18.5)]                             ║
+║  NEW-A  작전급 캠페인의 해상 교통로 통제를 0~100% 연속 지표로 정교화.        ║
+║         아군·적 전력비로 서서히 변동(적 우세가 지속돼야 통제 붕괴). 통제가    ║
+║         낮은 교통로는 재보급이 최대 5배 지연되고, 함정은 가장 잘 통제되는     ║
+║         교통로로 우회 보급. 승패는 평균 통제도로 판정(70%↑ 승·30%↑ 무).      ║
+║  BUG-1  전 함정이 일시 재보급 중일 때 곧 복귀함에도 전역을 조기 종료·패배     ║
+║         처리하던 문제 수정 — 남은 기간 내 복귀 가능하면 전역을 지속한다.      ║
 ║  [v17.01.05 — 캠페인 전장의 안개 (v18.4)]                                    ║
 ║  NEW-A  작전급 캠페인에서 적 위치를 관측 기반 추정(belief)으로 관리. 초계    ║
 ║         함정·초계기·위성이 탐지한 교통로만 실측을 알고, 못 본 곳은 시간이    ║
@@ -1206,7 +1213,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.05"
+APP_VERSION = "v17.01.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4557,17 +4564,20 @@ class EngagementAnalysisTab(QWidget):
             self._bp_outcome.setStyleSheet(
                 f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
             self._bp_score.setText(
-                f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)}  ·  "
+                f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}%  ·  "
                 f"교전 {result.get('n_engagements', 0)}회  ·  "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)}  ·  "
                 f"전역 {result.get('end_h', 0)}h / {result.get('horizon_h', 72)}h  ·  "
                 f"누적 비용 ${result.get('cost_total', 0)/1e6:.0f}M")
-            _sc = result.get('sloc_control', {})
-            _sl = [f"{'🟢' if v else '🔴'} {z}" for z, v in _sc.items()]
-            # v18.2: 전력 관리 상태(수리·재보급·평균 탄약/연료) + v18.3: 임무 재배정
+            # v18.5: 교통로별 연속 통제도(0~1) — 🟢≥70 · 🟠≥30 · 🔴 미만
+            _sc = result.get('control', {})
+            _sl = [f"{'🟢' if v >= 0.7 else '🟠' if v >= 0.3 else '🔴'} {z} {v*100:.0f}%"
+                   for z, v in _sc.items()]
+            # v18.2: 전력 관리 상태(수리·재보급·평균 탄약/연료) + v18.3: 재배정 + v18.5: 우회 보급
             _logi = (f"🔧 수리 {result.get('n_repair', 0)}척  ·  "
                      f"⛽ 재보급 {result.get('n_resupply', 0)}척  ·  "
                      f"🔀 재배정 {result.get('n_reassign', 0)}회  ·  "
+                     f"🔁 우회보급 {result.get('n_reroute', 0)}회  ·  "
                      f"탄약 {result.get('mean_ammo', 1.0)*100:.0f}%  ·  "
                      f"연료 {result.get('mean_fuel', 1.0)*100:.0f}%")
             # v18.4: 전장의 안개 상태(적용 시에만)
@@ -9350,7 +9360,7 @@ class MainWindow(QMainWindow):
         fog = ' · 🌫 안개' if result.get('fog_enabled') else ''
         self._lbl_status.setText(
             f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
-            f"교통로 통제 {result.get('n_controlled', 0)}/{result.get('n_sloc', 3)} · "
+            f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
             f"교전 {result.get('n_engagements', 0)}회 · "
             f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
             f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{warn}")
@@ -11259,11 +11269,15 @@ class SplashWindow(QWidget):
              "【구현 완료】교통로별 관측 기반 추정(belief) — 초계 함정·초계기 ISR·위성이 탐지한 "
              "곳만 실측, 미탐지 교통로는 반감기 12시간으로 감쇠. 적이 온 뒤에야 대응(선제 예측 상실). "
              "임무 배정은 belief로, 실제 교전·통제는 실측으로. ON/OFF 토글(기본 OFF=완전정보). "
-             "다음: SLOC 정교화 → 캠페인 반복 분석."),
+             "다음: 캠페인 반복 분석."),
             ("v18.5", "중간", "해상 교통로 통제 (SLOC)",
              "한반도 주요 해상 교통로 3개(서해·대한해협·동해) 통제 상태 시뮬. "
              "적 해역 진입 → 교통로 위협도 상승 → 보급 감소 → 작전 지속 능력 하락. "
-             "에너지·무역 99% 해상의존인 한국에 핵심. 캠페인 승패 판정 기준."),
+             "에너지·무역 99% 해상의존인 한국에 핵심. 캠페인 승패 판정 기준. "
+             "【구현 완료】교통로 통제를 0~100% 연속 지표로 — 아군·적 전력비로 서서히 변동(적 "
+             "우세가 지속돼야 통제 붕괴). 통제 낮은 교통로는 재보급이 최대 5배 지연되고, 함정은 "
+             "가장 잘 통제되는 교통로로 우회 보급. 승패는 평균 통제도로 판정(70%↑ 승·30%↑ 무). "
+             "다음: 캠페인 반복 분석."),
             ("v18.6", "중간", "캠페인 반복 분석",
              "캠페인 전체를 여러 번 반복해 전역 결과 통계. "
              "72시간 후 잔존 전력 분포·교통로 통제 성공률·전역 비용·민감도 분석. "

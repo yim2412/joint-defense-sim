@@ -111,7 +111,7 @@ def main():
                     if wt and any(k in wt for k in ('오류', 'Error', 'Exception', 'unexpected type')):
                         log(f"🔴 에러창 감지: {wt!r}"); return 1
                 blob = ' '.join(_txt(c) for c in main_w.descendants() if _txt(c))
-                if '교통로 통제' in blob or '캠페인:' in blob:
+                if '평균 통제도' in blob or '캠페인:' in blob:
                     if '⚠ 예측모델 미적용' in blob:
                         log("🔴 캠페인 결과는 떴으나 예측모델 미적용(폴백) — exe 모델 로드 실패"); return 1
                     if fog is not None and '안개' not in blob:
