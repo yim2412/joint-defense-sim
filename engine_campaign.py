@@ -127,7 +127,8 @@ class CampaignEngine:
         self.cfg      = dict(cfg)            # 오염 방지(전술 엔진 규약과 동일)
         self.model    = model
         self.weather  = cfg.get('weather', '맑음 (주간)')
-        self.horizon_h = int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT))
+        # 축퇴 입력(0·음수) 방어 — 빈 루프로 교전 0인데 통제도 초기값 1.0 유지→오판('win') 방지
+        self.horizon_h = max(1, int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)))
         seed = cfg.get('campaign_seed', cfg.get('sim_seed'))
         self.rng = random.Random(seed)
 

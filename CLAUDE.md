@@ -10,6 +10,7 @@
 |------|------|
 | `engine_core.py` | 핵심 DB (ENEMY_DB·FRIENDLY_DB·SHIP_DB 등), 물리모델, 탐지·교전 로직 |
 | `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진. engine_core.py DB를 import해서 사용 |
+| `engine_campaign.py` | 작전급 캠페인 엔진 (v18) — 며칠 전역을 1시간 틱으로 진행, 교전은 즉시예측(forecast_model)으로 해결. 전술 엔진(engine_combat) 무수정 호출. `CampaignEngine`·`run_campaign`·`monte_carlo_campaign` |
 | `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
 | `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
