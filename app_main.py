@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.07 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.08 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.08 — 캠페인 분석 리포트 (v18.7)]                                    ║
+║  NEW-A  교전 분석에 '캠페인 분석' 화면 신설 — 반복한 전역의 승·무·패 분포,   ║
+║         교통로별 최종 통제도, 대표 전역의 통제도 추이(승리·무승부 임계선·    ║
+║         통제 붕괴 시점)를 그래프로 표시. v18 캠페인 블록 완성.               ║
 ║  [v17.01.07 — 캠페인 반복 분석 (v18.6)]                                      ║
 ║  NEW-A  작전급 캠페인을 여러 번 반복 실행해 전역 결과 분포를 산출. 승·무·    ║
 ║         패 비율, 평균 교통로 통제도(±편차·범위), 평균 생존·교전·비용을       ║
@@ -1218,7 +1222,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.07"
+APP_VERSION = "v17.01.08"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4382,6 +4386,98 @@ def _render_battle_timeline(result: dict) -> 'Figure':
     return fig
 
 
+def _render_campaign_report(result: dict) -> 'Figure':
+    """v18.7 작전급 캠페인 분석 리포트 — 전역 결과 분포(승/무/패)·교통로별 통제·
+    대표 전역 통제도 시계열(승리/무승부 임계선·통제 붕괴 시점). campaign_mc 반복 분포 사용."""
+    from matplotlib.figure import Figure as _Fig
+    mc   = result.get('campaign_mc') or {}
+    tl   = (result.get('timeline', {}) or {}).get('control', []) or []
+    ctrl = result.get('control', {}) or {}
+    fig = _Fig(figsize=(14, 9), facecolor=C_BG)
+
+    if result.get('mode') != 'campaign':
+        ax = fig.add_subplot(111, facecolor='#0a0e1a')
+        ax.text(0.5, 0.5, '캠페인 분석은 작전급 캠페인 모드에서 표시됩니다',
+                ha='center', va='center', color=C_SUBTEXT, fontsize=13,
+                transform=ax.transAxes, fontfamily='Malgun Gothic')
+        ax.axis('off')
+        return fig
+
+    def _style(ax, title, ylabel='', grid_axis='y'):
+        ax.set_facecolor('#0a0e1a')
+        ax.set_title(title, color=C_TEXT, fontsize=12.5, fontfamily='Malgun Gothic', loc='left')
+        if ylabel:
+            ax.set_ylabel(ylabel, color=C_SUBTEXT, fontsize=10.5, fontfamily='Malgun Gothic')
+        ax.tick_params(colors=C_SUBTEXT, labelsize=9)
+        for sp in ax.spines.values():
+            sp.set_color('#1e2a3a')
+        ax.grid(True, color='#1e2a3a', lw=0.5, axis=grid_axis)
+
+    axd = fig.subplot_mosaic([['dist', 'zones'], ['ts', 'ts']],
+                             gridspec_kw={'height_ratios': [1.0, 1.1]})
+
+    # A) 전역 결과 분포 (N회 반복)
+    ax = axd['dist']
+    n_runs = mc.get('n_runs', 0)
+    rates  = [mc.get('win_rate', 0) * 100, mc.get('draw_rate', 0) * 100,
+              mc.get('loss_rate', 0) * 100]
+    bars = ax.bar(['승리', '무승부', '패배'], rates,
+                  color=['#2ecc71', '#f1c40f', '#e74c3c'], width=0.6)
+    for b, r in zip(bars, rates):
+        ax.text(b.get_x() + b.get_width() / 2, r + 1.5, f'{r:.0f}%',
+                ha='center', color=C_TEXT, fontsize=11, fontfamily='Malgun Gothic')
+    ax.set_ylim(0, 108)
+    for lbl in ax.get_xticklabels():
+        lbl.set_fontfamily('Malgun Gothic')
+    _style(ax, f'전역 결과 분포 ({n_runs}회 반복)', '비율 (%)')
+
+    # B) 교통로별 최종 통제도 (대표 전역)
+    ax = axd['zones']
+    if ctrl:
+        zs = list(ctrl.keys())
+        vs = [ctrl[z] * 100 for z in zs]
+        bcol = ['#2ecc71' if v >= 70 else '#f1c40f' if v >= 30 else '#e74c3c' for v in vs]
+        bars = ax.barh(zs, vs, color=bcol, height=0.55)
+        for b, v in zip(bars, vs):
+            ax.text(min(v + 2, 90), b.get_y() + b.get_height() / 2, f'{v:.0f}%',
+                    va='center', color=C_TEXT, fontsize=10, fontfamily='Malgun Gothic')
+        ax.set_xlim(0, 108)
+        ax.axvline(70, color='#2ecc71', ls='--', lw=0.8, alpha=0.5)
+        ax.axvline(30, color='#e74c3c', ls='--', lw=0.8, alpha=0.5)
+        for lbl in ax.get_yticklabels():
+            lbl.set_fontfamily('Malgun Gothic')
+    _style(ax, '교통로별 통제도 (대표 전역)', '', grid_axis='x')
+
+    # C) 대표 전역(seed 0) 통제도 시계열 + 임계선 + 통제 붕괴 시점
+    ax = axd['ts']
+    if tl:
+        hrs = list(range(1, len(tl) + 1))
+        pct = [v * 100 for v in tl]
+        ax.plot(hrs, pct, color='#3498db', lw=1.8)
+        ax.fill_between(hrs, pct, color='#3498db', alpha=0.12)
+        ax.axhline(70, color='#2ecc71', ls='--', lw=0.9, alpha=0.6)
+        ax.axhline(30, color='#e74c3c', ls='--', lw=0.9, alpha=0.6)
+        ax.text(hrs[-1], 71, '승리선 70% ', color='#2ecc71', fontsize=8.5,
+                va='bottom', ha='right', fontfamily='Malgun Gothic')
+        ax.text(hrs[-1], 31, '무승부선 30% ', color='#e74c3c', fontsize=8.5,
+                va='bottom', ha='right', fontfamily='Malgun Gothic')
+        crit = next((h for h, v in zip(hrs, tl) if v < 0.3), None)
+        if crit is not None:
+            ax.axvline(crit, color='#e67e22', lw=1.2, alpha=0.85)
+            ax.text(crit, 99, f' 통제 붕괴 {crit}h', color='#e67e22', fontsize=9,
+                    va='top', fontfamily='Malgun Gothic')
+        ax.set_ylim(0, 104)
+        ax.set_xlim(1, max(hrs[-1], 2))
+    ax.set_xlabel('전역 시각 (시간)', color=C_SUBTEXT, fontsize=10.5, fontfamily='Malgun Gothic')
+    mc_txt = (f"   ·   MC 평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%"
+              f"±{mc.get('mean_control_std', 0)*100:.0f} "
+              f"({mc.get('mean_control_min', 0)*100:.0f}~{mc.get('mean_control_max', 0)*100:.0f})") if mc else ''
+    _style(ax, '대표 전역(seed 0) 교통로 통제도 추이' + mc_txt, '평균 통제도 (%)')
+
+    fig.tight_layout()
+    return fig
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  교전 분석 탭
 # ════════════════════════════════════════════════════════════════════════════
@@ -4469,7 +4565,11 @@ class EngagementAnalysisTab(QWidget):
         self._tab_btimeline = ChartPageWidget()
         tabs.addTab(self._tab_btimeline, "📈  작전 시계열")
 
-        # ── Sub-tab 5: 3D 전장 (CesiumJS) ──────────────────────────────────
+        # ── Sub-tab 5: 캠페인 분석 (v18.7 — 전역 결과 분포·통제도 추이) ──────
+        self._tab_campaign = ChartPageWidget()
+        tabs.addTab(self._tab_campaign, "🗺  캠페인 분석")
+
+        # ── Sub-tab 6: 3D 전장 (CesiumJS) ──────────────────────────────────
         tabs.addTab(self._build_3d_tab(), "🌐  3D 전장")
 
         layout.addWidget(tabs)
@@ -4558,6 +4658,9 @@ class EngagementAnalysisTab(QWidget):
 
         # 작전 시계열 — 전장 모드 timeline(돌파선·전력비·자원). 단발/MC는 안내문 표시
         self._tab_btimeline.start_render(_render_battle_timeline, result)
+
+        # v18.7: 캠페인 분석 — 전역 결과 분포·통제도 추이(캠페인 모드만, 그 외 안내문)
+        self._tab_campaign.start_render(_render_campaign_report, result)
 
         # 3D 전장 — frames → CZML 주입 (단일 시뮬만, MC는 frames 없어 document만)
         self._load_3d(result)
@@ -4684,6 +4787,7 @@ class EngagementAnalysisTab(QWidget):
         self._tab_funnel.stop_worker()
         self._tab_gantt.stop_worker()
         self._tab_btimeline.stop_worker()
+        self._tab_campaign.stop_worker()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -11351,7 +11455,10 @@ class SplashWindow(QWidget):
             ("v18.7", "낮음", "캠페인 보고서 & 시각화",
              "전역 타임라인: 시각별 전력 상태·임무 현황·교통로 변화 그래프. "
              "결정적 순간(전력 30% 이하, 교통로 차단) 자동 표시. "
-             "3D 지도(v14.1)에 캠페인 경로 표시. 보고서 자동 생성."),
+             "3D 지도(v14.1)에 캠페인 경로 표시. 보고서 자동 생성. "
+             "【구현 완료】교전 분석에 '캠페인 분석' 화면 신설 — 반복 전역의 승·무·패 분포, "
+             "교통로별 최종 통제도, 대표 전역의 통제도 추이(승리·무승부 임계선·통제 붕괴 시점) "
+             "그래프. 3D 캠페인 경로·자동 보고서 파일은 후속 과제. = v18 캠페인 블록 완성."),
             # ── v19.x — 공군 작전급 ────────────────────────────────────────────
             # 선행 필수: v17 완성
             ("v19.1", "높음", "공군 전력 & 임무 모델",
