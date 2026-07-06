@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.06 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.07 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.07 — 캠페인 반복 분석 (v18.6)]                                      ║
+║  NEW-A  작전급 캠페인을 여러 번 반복 실행해 전역 결과 분포를 산출. 승·무·    ║
+║         패 비율, 평균 교통로 통제도(±편차·범위), 평균 생존·교전·비용을       ║
+║         집계. 시뮬 모드(빠른/표준/정밀)를 캠페인 반복 횟수 100/300/1,000회로 ║
+║         매핑. 개별 교전은 즉시예측이라 1,000회 전역도 약 1분 내 완료.        ║
 ║  [v17.01.06 — 캠페인 교통로 통제 정교화 (v18.5)]                             ║
 ║  NEW-A  작전급 캠페인의 해상 교통로 통제를 0~100% 연속 지표로 정교화.        ║
 ║         아군·적 전력비로 서서히 변동(적 우세가 지속돼야 통제 붕괴). 통제가    ║
@@ -1213,7 +1218,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.06"
+APP_VERSION = "v17.01.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3680,12 +3685,28 @@ class SimWorker(QThread):
             elif self.cfg.get('tactical_mode', False):
                 _tactical_hook = self._tactical_pause_cb
 
-            # v18.1: 작전급 캠페인 모드 — 즉시예측 해결기로 72h 전역 1회.
-            # MC 미지원(v18.6 예정) → 단발 1회 결과만 emit하고 조기 반환.
+            # v18.1: 작전급 캠페인 모드 — 즉시예측 해결기로 72h 전역.
+            # v18.6: 캠페인 MC — 시뮬 모드(빠른/표준/정밀)를 캠페인 전용 반복 횟수로 매핑.
+            #   전술 mc_n(5000~100000)은 캠페인엔 과함(1회가 더 무거움). 대표 단발(seed 0)을
+            #   배너·시계열용으로 함께 실행하고 MC 분포를 result에 임베드해 조기 반환.
             if self.cfg.get('enable_campaign_mode', False):
-                from engine_campaign import run_campaign
-                result = run_campaign(self.cfg, step_cb=_step_cb)
-                self.finished.emit(result, {})   # mc는 빈 dict(수신부가 campaign 분기서 조기 반환)
+                from engine_campaign import (run_campaign, monte_carlo_campaign,
+                                             load_forecast_model)
+                camp_n = 10 if self.test_mode else [100, 300, 1000][self.sim_mode_idx]
+                model = load_forecast_model()   # 1회 로드 → 대표 단발·MC 공유
+
+                def _camp_cb(done, total):
+                    if self.isInterruptionRequested():
+                        raise _SimCancelled()
+                    self.progress_detail.emit(done, total, 0.0)
+                    self.progress.emit(f"캠페인 MC {done}/{total}회 분석 중…")
+
+                result = run_campaign(dict(self.cfg, campaign_seed=0),
+                                      step_cb=_step_cb, model=model)   # 대표 단발(배너·시계열)
+                mc = monte_carlo_campaign(self.cfg, n=camp_n, model=model,
+                                          progress_cb=_camp_cb)
+                result['campaign_mc'] = mc     # 결과 렌더가 분포 표시에 사용
+                self.finished.emit(result, mc)
                 return
 
             if self.cfg.get('enable_battle_mode', False):
@@ -4559,7 +4580,34 @@ class EngagementAnalysisTab(QWidget):
             f"QFrame#battlePanel QLabel {{ background:transparent; }}")
 
         # v18.1: 작전급 캠페인 요약(교통로 통제·교전·생존). 전장 목표판과 다른 지표.
+        # v18.6: campaign_mc가 있으면 N회 반복 분포(승/무/패)+평균 지표로 표시.
         if result.get('mode') == 'campaign':
+            mc = result.get('campaign_mc')
+            if mc:
+                self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
+                    f"🟢승 {mc.get('win_rate', 0)*100:.0f}%  "
+                    f"🟡무 {mc.get('draw_rate', 0)*100:.0f}%  "
+                    f"🔴패 {mc.get('loss_rate', 0)*100:.0f}%")
+                self._bp_outcome.setStyleSheet(
+                    f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
+                self._bp_score.setText(
+                    f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f}"
+                    f" ({mc.get('mean_control_min', 0)*100:.0f}~{mc.get('mean_control_max', 0)*100:.0f})  ·  "
+                    f"평균 교전 {mc.get('n_engagements_avg', 0):.1f}회  ·  "
+                    f"평균 생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)}  ·  "
+                    f"전역 {result.get('horizon_h', 72)}h  ·  "
+                    f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M")
+                _logi = (f"🔀 평균 재배정 {mc.get('n_reassign_avg', 0):.1f}회  ·  "
+                         f"🔁 평균 우회보급 {mc.get('n_reroute_avg', 0):.1f}회")
+                if mc.get('fog_enabled'):
+                    _logi += f"  ·  🌫 안개 ON (평균 과소평가 {mc.get('n_missed_avg', 0):.1f}회)"
+                # 대표 전역(seed 0) 교통로별 통제 병기
+                _sc = result.get('control', {})
+                _sl = [f"{'🟢' if v >= 0.7 else '🟠' if v >= 0.3 else '🔴'} {z} {v*100:.0f}%"
+                       for z, v in _sc.items()]
+                self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl))
+                self._battle_panel.show()
+                return
             self._bp_outcome.setText(f"🗺 캠페인 결과:  {label}")
             self._bp_outcome.setStyleSheet(
                 f"color:{color}; font-size:20px; font-weight:bold; font-family:'Malgun Gothic';")
@@ -9353,17 +9401,31 @@ class MainWindow(QMainWindow):
         self._taskbar.set_progress(int(self.winId()), done, total)
 
     def _render_campaign_result(self, result: dict, elapsed: float):
-        """v18.1 작전급 캠페인 결과 요약 렌더 (요격률·MC 무관). 교전 분석 탭 배너 재사용."""
-        oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
-            result.get('outcome'), result.get('outcome', '—'))
+        """v18.1 작전급 캠페인 결과 요약 렌더 (요격률·전술 MC 무관). 교전 분석 탭 배너 재사용.
+        v18.6: campaign_mc(N회 반복 분포)가 있으면 상태줄을 MC 분포 요약으로 표시."""
         warn = '' if result.get('model_loaded', True) else '  ⚠ 예측모델 미적용(근사)'
         fog = ' · 🌫 안개' if result.get('fog_enabled') else ''
-        self._lbl_status.setText(
-            f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
-            f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
-            f"교전 {result.get('n_engagements', 0)}회 · "
-            f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-            f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{warn}")
+        mc = result.get('campaign_mc')
+        if mc:
+            # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
+            self._lbl_status.setText(
+                f"완료 ({elapsed:.1f}s) | 🗺 캠페인 MC {mc.get('n_runs', 0)}회: "
+                f"🟢승 {mc.get('win_rate', 0)*100:.0f}% · "
+                f"🟡무 {mc.get('draw_rate', 0)*100:.0f}% · "
+                f"🔴패 {mc.get('loss_rate', 0)*100:.0f}% | "
+                f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f} · "
+                f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
+                f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
+                f"전역 {result.get('horizon_h', 72)}h{fog}{warn}")
+        else:
+            oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
+                result.get('outcome'), result.get('outcome', '—'))
+            self._lbl_status.setText(
+                f"완료 ({elapsed:.1f}s) | 🗺 캠페인: {oc} | "
+                f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
+                f"교전 {result.get('n_engagements', 0)}회 · "
+                f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
+                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -11281,7 +11343,11 @@ class SplashWindow(QWidget):
             ("v18.6", "중간", "캠페인 반복 분석",
              "캠페인 전체를 여러 번 반복해 전역 결과 통계. "
              "72시간 후 잔존 전력 분포·교통로 통제 성공률·전역 비용·민감도 분석. "
-             "개별 교전은 즉시예측(v15.2)으로 대체 → 1,000회 캠페인이 수분 내 완료."),
+             "개별 교전은 즉시예측(v15.2)으로 대체 → 1,000회 캠페인이 수분 내 완료. "
+             "【구현 완료】캠페인 반복 실행 → 승·무·패 비율, 평균 통제도(±편차·범위), 평균 "
+             "생존·교전·비용을 집계. 시뮬 모드(빠른/표준/정밀)를 반복 횟수 100/300/1,000회로 "
+             "매핑. 분포 히스토그램·시계열 시각화는 다음 단계(보고서). "
+             "다음: 캠페인 보고서·시각화."),
             ("v18.7", "낮음", "캠페인 보고서 & 시각화",
              "전역 타임라인: 시각별 전력 상태·임무 현황·교통로 변화 그래프. "
              "결정적 순간(전력 30% 이하, 교통로 차단) 자동 표시. "

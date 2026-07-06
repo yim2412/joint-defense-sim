@@ -508,3 +508,51 @@ def run_campaign(cfg: dict, step_cb=None, model=None) -> dict:
                 int(result.get('surviving_ships', 0)), 0,
                 f"캠페인 종료 ({eng.t_h}h)")
     return result
+
+
+def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dict:
+    """v18.6: 작전급 캠페인 N회 반복(seed 0…N-1 스윕) → outcome 분포·통제도·비용 통계.
+    개별 교전이 즉시예측(~ms)이라 수백~천 회도 수초~수분. 모델을 1회 로드해 공유하고
+    (3.1MB pkl 반복 로드 방지) run_campaign을 시드만 바꿔 호출한다. 전술 MC(monte_carlo_v7
+    ·_mc_batch_worker·monte_carlo_lhs)와 완전 별개 — 캠페인 전용 집계."""
+    if model is None:
+        model = load_forecast_model()
+    n = max(1, int(n))
+    outcomes = {'win': 0, 'draw': 0, 'loss': 0}
+    _acc_keys = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total',
+                 'n_reassign', 'n_reroute', 'n_missed', 'end_h')
+    acc = {k: 0.0 for k in _acc_keys}
+    ctrl_list = []
+    for i in range(n):
+        r = run_campaign(dict(cfg, campaign_seed=i), model=model)
+        outcomes[r['outcome']] = outcomes.get(r['outcome'], 0) + 1
+        for k in _acc_keys:
+            acc[k] += float(r.get(k, 0) or 0)
+        ctrl_list.append(float(r.get('mean_control', 0.0)))
+        if progress_cb and (i % 10 == 0 or i == n - 1):
+            progress_cb(i + 1, n)
+    inv = 1.0 / n
+    mean_ctrl = acc['mean_control'] * inv
+    var = sum((c - mean_ctrl) ** 2 for c in ctrl_list) * inv
+    return {
+        'mode':            'campaign_mc',
+        'model_loaded':    model is not None,
+        'n_runs':          n,
+        'outcomes':        outcomes,
+        'win_rate':        round(outcomes['win'] * inv, 3),
+        'draw_rate':       round(outcomes['draw'] * inv, 3),
+        'loss_rate':       round(outcomes['loss'] * inv, 3),
+        'mean_control_avg': round(mean_ctrl, 3),
+        'mean_control_std': round(var ** 0.5, 3),
+        'mean_control_min': round(min(ctrl_list), 3),
+        'mean_control_max': round(max(ctrl_list), 3),
+        'surviving_avg':   round(acc['surviving_ships'] * inv, 2),
+        'n_engagements_avg': round(acc['n_engagements'] * inv, 1),
+        'cost_avg':        round(acc['cost_total'] * inv, 1),
+        'n_reassign_avg':  round(acc['n_reassign'] * inv, 2),
+        'n_reroute_avg':   round(acc['n_reroute'] * inv, 2),
+        'n_missed_avg':    round(acc['n_missed'] * inv, 2),
+        'end_h_avg':       round(acc['end_h'] * inv, 1),
+        'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
+        'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
+    }
