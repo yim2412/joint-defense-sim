@@ -297,9 +297,41 @@ def chk_resource_paths():
           f"상대경로 기본인자 로더(_MEIPASS 미경유)={bad}" if bad else 'OK')
 
 
+def chk_flag_restore_auto():
+    """자동 추출 전수 검사 — 하드코딩 목록 없이 app_main의 **모든** 체크박스 빌드 플래그
+    ('enable_xxx': self.chk_*.isChecked())가 _restore_cfg에서 복원되는지 확인.
+    복원은 개별 setChecked(cfg.get('enable_xxx')) 또는 for-루프 튜플 ('chk_x','enable_xxx')
+    둘 다 인정. chk_flag_triplet의 하드코딩 목록(14개)이 놓치던 사각을 원천 제거 —
+    새 토글이 추가돼도 자동으로 검사 대상이 된다(strike·thaad·ashore 복원 누락을 이 검사가 잡음)."""
+    lau = rd('app_main.py')
+    built = set(re.findall(r"['\"](enable_\w+)['\"]\s*:\s*self\.\w+\.isChecked\(\)", lau))
+    restored = set(re.findall(r"setChecked\(\s*\w*\.?get\(['\"](enable_\w+)", lau))
+    restored |= set(re.findall(r"\(['\"]chk_\w+['\"]\s*,\s*['\"](enable_\w+)['\"]\s*[,)]", lau))  # for-루프 튜플(2·3튜플 무관)
+    missing = sorted(built - restored)
+    check('①', f'플래그 복원 전수(자동추출 {len(built)}개 체크박스)', not missing,
+          f"복원 누락(시나리오 로드 시 초기화): {missing}" if missing else '체크박스 빌드 전부 복원 확인')
+
+
+def chk_flag_consume_auto():
+    """자동 추출 — 엔진(engine_combat·engine_campaign)이 소비하는 enable_ 플래그 중
+    체크박스 빌드도 없고(사용자 제어 불가) 문서화 의도(_ALWAYS_ON 화이트리스트)도 없는
+    '숨은 플래그'를 경고. 상시 ON이 의도된 내부 물리/기본값은 화이트리스트로 명시(오탐 방지)."""
+    lau = rd('app_main.py'); ev = rd('engine_combat.py') + rd('engine_campaign.py')
+    consumed = set(re.findall(r"\.get\(['\"](enable_\w+)", ev)) | set(re.findall(r"cfg\[['\"](enable_\w+)", ev))
+    built_any = set(re.findall(r"['\"](enable_\w+)['\"]\s*:", lau))
+    # 상시 ON이 의도된 내부 기능(사용자 토글 불필요) — 명시적 화이트리스트
+    ALWAYS_ON = {'enable_cec_preassign', 'enable_subsystem_damage', 'enable_decoy',
+                 'enable_ecm', 'enable_evasion', 'enable_layered_defense',
+                 'enable_random_placement', 'enable_selfdefense'}
+    hidden = sorted(consumed - built_any - ALWAYS_ON)
+    check('①', '숨은 플래그 없음(소비O·UI빌드X·화이트리스트X)', not hidden,
+          f"엔진 소비하나 UI/화이트리스트 없음: {hidden}" if hidden else 'OK(상시ON은 화이트리스트로 명시)')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
-               chk_flag_triplet, chk_spec_count, chk_div_guards, chk_mc_paths,
+               chk_flag_triplet, chk_flag_restore_auto, chk_flag_consume_auto,
+               chk_spec_count, chk_div_guards, chk_mc_paths,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts,
                chk_stale_filename, chk_completed_plans, chk_resource_paths):
         try:

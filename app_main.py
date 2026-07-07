@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.09 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.10 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.10 — 시나리오 복원 누락 수정 + 감사 자동추출 강화]                  ║
+║  BUG-1  저장·추천 시나리오를 불러올 때 공격 임무·THAAD·이지스 어쇼어         ║
+║         토글이 복원되지 않고 초기화되던 문제 수정.                           ║
+║  BUG-2  설정 토글 복원 여부를 하드코딩 목록이 아닌 전체 체크박스 자동        ║
+║         검사로 전환 — 앞으로 새 토글의 복원 누락도 감사에서 자동 검출.       ║
 ║  [v17.01.09 — v18 캠페인 블록 종합 감사 수정]                                ║
 ║  BUG-1  캠페인 전역 시간을 0 이하로 지정하면 교전이 한 번도 없는데 승리로    ║
 ║         잘못 판정하던 문제 수정(최소 1시간 보장). 9영역 종합 감사 통과.      ║
@@ -1225,7 +1230,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.09"
+APP_VERSION = "v17.01.10"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6844,6 +6849,12 @@ class MainWindow(QMainWindow):
                           ('chk_recon','enable_recon_drone')]:
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, False))
+        # 공격 임무·BMD 자산 복원 — 체크박스는 있으나 복원이 누락돼 있던 3종(감사 자동검사로 발견)
+        for attr, key, dflt in [('chk_strike', 'enable_strike', True),
+                                ('chk_thaad',  'enable_thaad',  False),
+                                ('chk_ashore', 'enable_ashore', False)]:
+            if hasattr(self, attr):
+                getattr(self, attr).setChecked(cfg.get(key, dflt))
         self._lbl_status.setText("✅ 설정 복원 완료")
 
 
