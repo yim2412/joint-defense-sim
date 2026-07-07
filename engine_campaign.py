@@ -151,6 +151,12 @@ class CampaignEngine:
         # 시계열(단일 실행용)
         self._tl_control = []   # 틱별 통제 교통로 수
         self._tl_force   = []   # 틱별 가용 전력 함정 수
+        # v19.1 공군 작전급 층 — enable_air_campaign ON일 때만 생성(OFF면 v18 bit-identical).
+        # v19.1은 제공권을 산출만 하고 해군 교전엔 무영향(연동은 v19.2).
+        self.air = None
+        if bool(cfg.get('enable_air_campaign', False)):
+            from engine_airforce import AirCampaign
+            self.air = AirCampaign(self.cfg)
 
     # ── 초기화 ────────────────────────────────────────────────────────────────
     def _build_force(self) -> list:
@@ -195,6 +201,8 @@ class CampaignEngine:
             self._assign_missions()     # v18.3: belief 기반 동적 재배정(6h마다)
             self._tick_engagements()
             self._tick_sloc()
+            if self.air is not None:   # v19.1: 공군 제공권 격자 갱신(해군 outcome 무영향)
+                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES})
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
             self._tl_control.append(round(sum(self.control.values()) / len(SLOC_ZONES), 3))
             self._tl_force.append(sum(1 for s in self.ships if s.available))
@@ -468,7 +476,7 @@ class CampaignEngine:
         n_resupply = sum(1 for s in self.ships if s.state == 'resupply')
         n_transit  = sum(1 for s in self.ships if s.state == 'transit')
         nships = len(self.ships) or 1
-        return {
+        result = {
             'mode':            'campaign',
             'model_loaded':    self.model is not None,   # False면 교전이 근사 폴백(승률 0.5)
             'outcome':         outcome,
@@ -494,6 +502,9 @@ class CampaignEngine:
             'cost_total':      round(self.cost_total, 1),
             'timeline':        {'control': self._tl_control, 'force': self._tl_force},
         }
+        if self.air is not None:   # v19.1: 공군 지표 병합(제공권·소티)
+            result.update(self.air.summary())
+        return result
 
 
 def run_campaign(cfg: dict, step_cb=None, model=None) -> dict:

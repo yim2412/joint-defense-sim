@@ -2011,6 +2011,90 @@ FRIENDLY_AIRCRAFT_DB = {
     },
 }
 
+# ── v19.1: 공군 작전급 전력 DB (AIR_FORCE_DB) ──────────────────────────────────
+# 작전급 캠페인(engine_airforce.py)용 — 일일 소티율·전투행동반경·수행 임무로 기술한다.
+# 전술 교전용 FRIENDLY_AIRCRAFT_DB(소티 1회당 Pk·BVR 사거리)와 도메인이 다르다:
+#   · FRIENDLY_AIRCRAFT_DB = 단발/전장 엔진의 CAP 교전 1회 해결(초~분)
+#   · AIR_FORCE_DB         = 캠페인 엔진의 며칠 소티 생성·제공권 기여(1h 틱)
+# 기체명은 두 DB에서 겹칠 수 있으나(KF-21·F-35A 등) 필드 규약이 다르므로 별도 유지.
+# 제원은 공개값(전투행동반경·순항속도)·교리 표준(임무 유형) 기준. sortie_rate=지속 출격/일/기.
+AIR_FORCE_DB = {
+    # ── 한국 공군 (ROK) ──────────────────────────────────────────────────────
+    'KF-21 보라매': {
+        'side': 'ROK', 'role': 'multirole',
+        'missions': ['CAP', 'CAS', 'SEAD', 'strike', 'recon'],
+        'combat_radius_km': 500,    # 공개 미확정 — 내부연료 전투행동반경 추정(페리 ~2900km)
+        'cruise_ms': 250,           # ~Mach 0.85 순항
+        'sortie_rate': 2.0,         # 지속 출격/일/기
+        'sortie_cost_usd': 400_000,
+    },
+    'F-35A 라이트닝 II': {
+        'side': 'ROK', 'role': 'stealth_multirole',
+        'missions': ['CAP', 'SEAD', 'strike', 'recon'],
+        'combat_radius_km': 1090,   # 공식 >590 nmi(내부연료)
+        'cruise_ms': 250,
+        'sortie_rate': 1.5,         # 정비 소요 큼(스텔스 도장·저관측 유지)
+        'sortie_cost_usd': 600_000,
+    },
+    'F-15K 슬램이글': {
+        'side': 'ROK', 'role': 'strike',
+        'missions': ['strike', 'SEAD', 'CAP'],
+        'combat_radius_km': 1200,   # CFT/증조 장착 타격반경(페리 ~1800km 이상)
+        'cruise_ms': 250,
+        'sortie_rate': 1.5,
+        'sortie_cost_usd': 500_000,
+    },
+    'KF-16 파이팅팰컨': {
+        'side': 'ROK', 'role': 'multirole',
+        'missions': ['CAP', 'CAS', 'SEAD', 'strike'],
+        'combat_radius_km': 550,    # F-16C/D Block52 전투행동반경
+        'cruise_ms': 240,
+        'sortie_rate': 2.5,         # 정비 부담 낮아 고소티
+        'sortie_cost_usd': 250_000,
+    },
+    'E-737 피스아이': {
+        'side': 'ROK', 'role': 'aew',
+        'missions': ['AEW'],        # 조기경보·통제 — CAP 효율 승수(직접 격추 아님)
+        'combat_radius_km': 1800,   # 체공 반경(임무시간 ~9h)
+        'cruise_ms': 230,
+        'sortie_rate': 1.0,         # 장기 체공 1소티
+        'sortie_cost_usd': 350_000,
+    },
+    'RQ-4 글로벌호크': {
+        'side': 'ROK', 'role': 'isr',
+        'missions': ['recon'],      # 고고도 장기체공 ISR — 전장의 안개 belief 갱신
+        'combat_radius_km': 5500,   # 초장거리(체공 32h+)
+        'cruise_ms': 175,           # ~630 km/h
+        'sortie_rate': 0.7,
+        'sortie_cost_usd': 300_000,
+    },
+    # ── 미국 공군 (US) ───────────────────────────────────────────────────────
+    'F-16 파이팅팰컨': {
+        'side': 'US', 'role': 'multirole',
+        'missions': ['CAP', 'CAS', 'SEAD', 'strike'],
+        'combat_radius_km': 550,
+        'cruise_ms': 240,
+        'sortie_rate': 2.5,
+        'sortie_cost_usd': 250_000,
+    },
+    'B-1B 랜서': {
+        'side': 'US', 'role': 'strategic_bomber',
+        'missions': ['strike'],     # 전략폭격·대함(LRASM) — 적 기지 타격(v19.4)
+        'combat_radius_km': 5500,   # 무급유 항속 ~9400km
+        'cruise_ms': 270,           # 고아음속 순항(M~0.92)
+        'sortie_rate': 0.5,         # 장거리 출격 저소티
+        'sortie_cost_usd': 1_500_000,
+    },
+    'B-52 스트래토포트리스': {
+        'side': 'US', 'role': 'strategic_bomber',
+        'missions': ['strike'],
+        'combat_radius_km': 7200,   # 항속 ~14000km
+        'cruise_ms': 230,
+        'sortie_rate': 0.5,
+        'sortie_cost_usd': 1_200_000,
+    },
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 #  NEW-L: 적군 편대 프리셋 + 랜덤 난이도 설정 (v6.4)
 # ════════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.11 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.01 — 공군 작전급: 제공권 격자 & 공군 전력 모델 (v19.1)]             ║
+║  NEW-A  작전급 캠페인에 공군 층 신설 — 한·미 공군(KF-21·F-35A·F-15K·        ║
+║         B-1B 등)이 제공권 장악(CAP)·정찰 임무 수행, 한반도 격자 지도로        ║
+║         교통로별 제공권(0~100%)을 산출. 일일 소티율·재무장 추적.             ║
+║         별도 엔진(engine_airforce.py)·캠페인 무수정 호출·기본 OFF(실험적).   ║
 ║  [v17.01.11 — 실험적 기능 체크박스 안 보이던 문제 수정]                      ║
 ║  BUG-1  환경 세부 옵션의 실험적/고급 토글 9개(지속 전장·캠페인·안개·AI      ║
 ║         전술·ESM·능동소나·사이버전·극초음속·대잠 전진초계)의 체크박스       ║
@@ -1235,7 +1240,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.11"
+APP_VERSION = "v18.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4698,6 +4703,14 @@ class EngagementAnalysisTab(QWidget):
         # v18.1: 작전급 캠페인 요약(교통로 통제·교전·생존). 전장 목표판과 다른 지표.
         # v18.6: campaign_mc가 있으면 N회 반복 분포(승/무/패)+평균 지표로 표시.
         if result.get('mode') == 'campaign':
+            # v19.1: 공군 제공권 요약(공군 층 ON일 때만) — 대표 전역 zone별 제공권
+            _air_txt = ''
+            if result.get('air_enabled'):
+                _as = result.get('air_superiority', {})
+                _al = [f"{'🟢' if v >= 0.6 else '🟠' if v >= 0.4 else '🔴'} {z} {v*100:.0f}%"
+                       for z, v in _as.items()]
+                _air_txt = ('        ✈ 제공권: ' + '  '.join(_al) +
+                            f"  (소티 {result.get('air_sorties', 0)}회)")
             mc = result.get('campaign_mc')
             if mc:
                 self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
@@ -4721,7 +4734,7 @@ class EngagementAnalysisTab(QWidget):
                 _sc = result.get('control', {})
                 _sl = [f"{'🟢' if v >= 0.7 else '🟠' if v >= 0.3 else '🔴'} {z} {v*100:.0f}%"
                        for z, v in _sc.items()]
-                self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl))
+                self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl) + _air_txt)
                 self._battle_panel.show()
                 return
             self._bp_outcome.setText(f"🗺 캠페인 결과:  {label}")
@@ -4747,7 +4760,7 @@ class EngagementAnalysisTab(QWidget):
             # v18.4: 전장의 안개 상태(적용 시에만)
             if result.get('fog_enabled'):
                 _logi += f"  ·  🌫 안개 ON (적 위치 과소평가 {result.get('n_missed', 0)}회)"
-            self._bp_obj.setText('      '.join(_sl) + '        ' + _logi)
+            self._bp_obj.setText('      '.join(_sl) + '        ' + _logi + _air_txt)
             self._battle_panel.show()
             return
 
@@ -6775,6 +6788,8 @@ class MainWindow(QMainWindow):
             self.chk_campaign.setChecked(cfg.get('enable_campaign_mode', False))
         if hasattr(self, 'chk_campaign_fog'):
             self.chk_campaign_fog.setChecked(cfg.get('enable_campaign_fog', False))
+        if hasattr(self, 'chk_air_campaign'):
+            self.chk_air_campaign.setChecked(cfg.get('enable_air_campaign', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
@@ -7375,6 +7390,17 @@ class MainWindow(QMainWindow):
         )
         self.chk_campaign_fog.setChecked(False)
 
+        # v19.1: 공군 작전급 층 — 제공권 격자 + 공군 전력 관리(캠페인 모드 하위)
+        self.chk_air_campaign = QCheckBox("공군 작전급 (제공권) (실험적)")
+        self.chk_air_campaign.setToolTip(
+            "작전급 캠페인 모드에 공군 층을 얹습니다. 한·미 공군(KF-21·F-35A·F-15K·B-1B 등)이\n"
+            "제공권 장악(CAP)·정찰 임무를 수행하고, 한반도 격자 지도로 교통로별 제공권(0~1)을 계산합니다.\n"
+            "일일 소티율·재무장을 추적하며, 아군 출격 밀도 대 적 대공 위협으로 제공권이 오르내립니다.\n"
+            "캠페인 모드와 함께 켜야 작동합니다(v19.1은 제공권을 산출·표시만, 해군 교전 연동은 v19.2).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_air_campaign.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7500,6 +7526,7 @@ class MainWindow(QMainWindow):
                     # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
                     # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
+                    self.chk_air_campaign,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7515,6 +7542,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_battle)
         fl_env.addRow("",            self.chk_campaign)
         fl_env.addRow("",            self.chk_campaign_fog)
+        fl_env.addRow("",            self.chk_air_campaign)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9339,6 +9367,7 @@ class MainWindow(QMainWindow):
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
             'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개
+            'enable_air_campaign': self.chk_air_campaign.isChecked(),  # v19.1 공군 작전급(제공권)
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -9535,6 +9564,9 @@ class MainWindow(QMainWindow):
         v18.6: campaign_mc(N회 반복 분포)가 있으면 상태줄을 MC 분포 요약으로 표시."""
         warn = '' if result.get('model_loaded', True) else '  ⚠ 예측모델 미적용(근사)'
         fog = ' · 🌫 안개' if result.get('fog_enabled') else ''
+        # v19.1: 공군 층 ON이면 평균 제공권 표시
+        air = (f" · ✈ 제공권 {result.get('mean_air_superiority', 0)*100:.0f}%"
+               if result.get('air_enabled') else '')
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
@@ -9546,7 +9578,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f} · "
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
-                f"전역 {result.get('horizon_h', 72)}h{fog}{warn}")
+                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -9555,7 +9587,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
                 f"교전 {result.get('n_engagements', 0)}회 · "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{warn}")
+                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -11428,10 +11460,7 @@ class SplashWindow(QWidget):
             #    완료 항목은 _PLANS에서 제거(향후 계획만 유지) — 이력은 changelog·감사보고서.md.
             # ── v19.x — 공군 작전급 (v18 해군 캠페인 완성 → 다음 메이저) ────────
             # 선행 필수: v18 캠페인 완성 (완료)
-            ("v19.1", "높음", "공군 전력 & 임무 모델",
-             "한국·미국 공군 전력: KF-21·F-35A·F-15K·F-16·B-1B·B-52 등. "
-             "임무 유형: 제공권 장악(CAP)·근접항공지원(CAS)·방공망 제압(SEAD)·전략폭격·정찰. "
-             "작전급 전력 관리 구조를 공군용으로 확장."),
+            # v19.1 공군 전력 & 임무 모델 = 구현 완료(v18.01.01) — 제거.
             ("v19.2", "높음", "제공권 통제 모델",
              "공중 우세 구역을 한반도 격자 지도로 시뮬. 아군 제공권 출격 밀도·적 방공망 강도로 통제 확률 계산. "
              "제공권 상실 시 해군 작전에 패널티 연동. 1시간 단위 제공권 지도 갱신."),
