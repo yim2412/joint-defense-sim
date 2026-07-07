@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v17.01.10 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v17.01.11 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v17.01.11 — 실험적 기능 체크박스 안 보이던 문제 수정]                      ║
+║  BUG-1  환경 세부 옵션의 실험적/고급 토글 9개(지속 전장·캠페인·안개·AI      ║
+║         전술·ESM·능동소나·사이버전·극초음속·대잠 전진초계)의 체크박스       ║
+║         네모가 안 보이던 문제 수정(인디케이터 스타일 미적용). 감사에도       ║
+║         '안 보이는 체크박스' 자동 검출 추가.                                 ║
 ║  [v17.01.10 — 시나리오 복원 누락 수정 + 감사 자동추출 강화]                  ║
 ║  BUG-1  저장·추천 시나리오를 불러올 때 공격 임무·THAAD·이지스 어쇼어         ║
 ║         토글이 복원되지 않고 초기화되던 문제 수정.                           ║
@@ -1230,7 +1235,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v17.01.10"
+APP_VERSION = "v17.01.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7489,7 +7494,12 @@ class MainWindow(QMainWindow):
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
                     self.chk_flooding, self.chk_munition_limit,
-                    self.chk_weather_dyn, self.chk_iff]:
+                    self.chk_weather_dyn, self.chk_iff,
+                    # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
+                    # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.
+                    self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
+                    self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
+                    self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
 
         fl_env.addRow("",            self.chk_terrain)

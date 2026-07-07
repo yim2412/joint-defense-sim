@@ -61,13 +61,32 @@ def main():
         if rebuilt.get(k) != flipped[k]:
             missing.append((k, f"기대 {flipped[k]} 실제 {rebuilt.get(k)}"))
 
-    print(f"round-trip 감사 — 토글 {len(enable_keys)}개 뒤집기→복원→재빌드 대조")
+    # ── 인디케이터 스타일 누락(=안 보이는 체크박스) 검사 ─────────────────────
+    # _wire_chk_color 목록에서 빠진 체크박스는 인디케이터(네모)가 어두운 배경에 안 보인다.
+    # 이 시각적 버그는 styleSheet에 'indicator'가 있는지로 헤드리스 탐지 가능.
+    from PyQt6.QtWidgets import QCheckBox
+    IND_EXEMPT = {'chk_current'}   # UI 미노출(해류 연동 — db_ocean_environment 필요)
+    invisible = []
+    for n in dir(w):
+        if n.startswith('chk_') and n not in IND_EXEMPT:
+            c = getattr(w, n, None)
+            if isinstance(c, QCheckBox) and 'indicator' not in c.styleSheet():
+                invisible.append((n, c.text()[:24]))
+
+    print(f"round-trip 감사 — 토글 {len(enable_keys)}개 뒤집기→복원→재빌드 + 체크박스 인디케이터")
+    errs = []
     if missing:
-        print(f"\n❌ 복원 반영 안 됨 {len(missing)}개 (시나리오 로드 시 초기화되는 실제 버그):")
-        for k, d in missing:
-            print(f"  {k}: {d}")
+        errs.append(f"복원 반영 안 됨 {len(missing)}개 (시나리오 로드 시 초기화): " +
+                    ', '.join(f"{k}({d})" for k, d in missing))
+    if invisible:
+        errs.append(f"인디케이터 스타일 누락 {len(invisible)}개 (체크박스 네모 안 보임 — "
+                    f"_wire_chk_color 목록 확인): " + ', '.join(f"{n} {t!r}" for n, t in invisible))
+    if errs:
+        print("\n❌ 발견:")
+        for e in errs:
+            print(f"  {e}")
         return 1
-    print("\n✅ PASS — 모든 토글이 복원 후 값 그대로 반영(복원 누락 0)")
+    print("\n✅ PASS — 토글 복원 누락 0 · 안 보이는 체크박스 0")
     return 0
 
 
