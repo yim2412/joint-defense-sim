@@ -11,4 +11,6 @@ python _audit_roundtrip.py
 rc=$?
 if [ "$rc" -eq 1 ]; then echo "❌ round-trip FAIL — 복원 누락"; exit 1; fi
 if [ "$rc" -eq 2 ]; then echo "⚠ round-trip BLOCKED(헤드리스 Qt 불가) — 통과 처리"; fi
+echo "[pre-push] 결과 탭 렌더 크래시…"
+python _audit_render_smoke.py || { echo "❌ 렌더 크래시 FAIL"; exit 1; }
 echo "[pre-push] ✅ 런타임 감사 PASS"
