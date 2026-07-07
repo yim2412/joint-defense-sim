@@ -62,9 +62,13 @@ def _prob(mode, seed, name, v):
         violations.append((mode, seed, f"{name}∈[0,1]", f"{name}={v}"))
 
 
+_threats_seen = [0]   # property 자체의 vacuous 가드용 — 단발이 실제 위협을 생성했는지 누적
+
+
 def _base_cfg(seed, rng):
     cfg = dict(fleet_preset=rng.choice(FLEETS),
                enemy_fleet_preset=rng.choice(ENEMIES),
+               enemy_fleet_mode='preset',   # ← 없으면 위협 0으로 시뮬이 vacuous해짐(실측 발견)
                weather=rng.choice(WEATHERS), sim_seed=seed)
     for t in TOGGLES:
         if rng.random() < 0.4:
@@ -75,7 +79,21 @@ def _base_cfg(seed, rng):
 def check_single(seed, rng):
     cfg = _base_cfg(seed, rng)
     r = run_v7_simulation(dict(cfg))
-    _prob('단발', seed, 'intercept_rate', r.get('intercept_rate'))
+    tt = r.get('total_threats', 0) or 0
+    it = r.get('intercepted_threats', 0) or 0
+    ir = r.get('intercept_rate')
+    _threats_seen[0] += tt
+    _prob('단발', seed, 'intercept_rate', ir)
+    # 보존식 — 요격 수 ≤ 총위협, 요격률 = 요격/총(정합), 개수 ≥ 0
+    if it > tt:
+        violations.append(('단발', seed, '요격≤총위협', f"요격{it} > 총{tt}"))
+    if tt > 0 and ir is not None and abs(ir - it / tt) > 0.02:
+        violations.append(('단발', seed, '요격률=요격/총(정합)', f"rate{ir} vs {it}/{tt}={it/tt:.3f}"))
+    for k in ('total_threats', 'intercepted_threats', 'friendly_hits', 'kor_shots',
+              'usa_shots', 'friendly_ships_lost', 'total_missiles_fired'):
+        v = r.get(k)
+        if isinstance(v, (int, float)) and v < 0:
+            violations.append(('단발', seed, f'{k}≥0', f"{k}={v}"))
     for b in _finite_scan(r):
         violations.append(('단발', seed, 'NaN/Inf 없음', b))
 
@@ -123,6 +141,34 @@ def check_campaign_mc(seed, rng, model):
         violations.append(('캠페인MC', seed, 'n_runs>0', f"n_runs={mc['n_runs']}"))
 
 
+def check_boundary(model):
+    """경계·축퇴 수치 파라미터 — NaN/크래시 없이 견디는가(enable_ 외 수치 키 사각 보강)."""
+    cases = [
+        ('단발', dict(fleet_preset='단독 작전', enemy_fleet_preset='북한 포화 공격 (40발)',
+                     enemy_fleet_mode='preset', weather='폭풍', sim_seed=0, max_salvo=0)),
+        ('단발', dict(fleet_preset='이지스 기동전단', enemy_fleet_preset='입체 포화 (최강)',
+                     enemy_fleet_mode='preset', weather='맑음 (주간)', sim_seed=999999,
+                     drone_swarm_size=999, enable_drone_swarm=True)),
+        ('캠페인', dict(fleet_preset='단독 작전', enemy_fleet_preset='입체 포화 (최강)',
+                      enable_campaign_mode=True, campaign_horizon_h=0)),        # 축퇴 0
+        ('캠페인', dict(fleet_preset='이지스 기동전단', enemy_fleet_preset='랴오닝 항모전단',
+                      enable_campaign_mode=True, campaign_horizon_h=-5)),       # 음수
+        ('캠페인', dict(fleet_preset='이지스 기동전단', enemy_fleet_preset='랴오닝 항모전단',
+                      enable_campaign_mode=True, campaign_horizon_h=2000,
+                      campaign_isr_aircraft=0, enable_campaign_fog=True)),      # 초장기+ISR0
+    ]
+    for i, (mode, cfg) in enumerate(cases):
+        try:
+            if mode == '단발':
+                r = run_v7_simulation(dict(cfg))
+            else:
+                r = run_campaign(dict(cfg), model=model)
+            for b in _finite_scan(r):
+                violations.append(('경계', 5000 + i, 'NaN/Inf 없음', f"{mode}:{b}"))
+        except Exception as e:
+            violations.append(('경계', 5000 + i, '축퇴입력 크래시', f"{mode}:{cfg!r}: {e!r}"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('n', nargs='?', type=int, default=40, help='케이스 수(모드당 n/4)')
@@ -130,7 +176,7 @@ def main():
     per = max(1, args.n // 4)
     rng = random.Random(20260707)
     model = load_forecast_model()
-    print(f"속성 기반 감사 — 모드당 {per}케이스 (단발·전장·캠페인·캠페인MC)")
+    print(f"속성 기반 감사 — 모드당 {per}케이스 (단발·전장·캠페인·캠페인MC) + 경계 5")
     print(f"  예측모델 로드: {model is not None}")
 
     ran = 0
@@ -154,8 +200,15 @@ def main():
             check_campaign_mc(4000 + i, rng, model); ran += 1
         except Exception as e:
             violations.append(('캠페인MC', 4000 + i, '실행 예외', repr(e)))
+    check_boundary(model); ran += 5
 
-    print(f"  실행 {ran}케이스 · 불변식 위반 {len(violations)}건")
+    # property 자체의 vacuous 가드 — 단발이 실제 위협을 하나도 안 만들었으면(cfg 키 오류 등)
+    # 보존식 검사가 전부 무의미하게 통과한 것 → 검사 무력화로 FAIL(감사를 감사).
+    if _threats_seen[0] == 0:
+        violations.append(('메타', 0, 'property 비-vacuous',
+                           '단발 케이스 총위협 합=0 — enemy_fleet_mode 등 cfg 키 확인(검사 무력화)'))
+
+    print(f"  실행 {ran}케이스 · 단발 총위협 누적 {_threats_seen[0]} · 불변식 위반 {len(violations)}건")
     if violations:
         print("\n❌ 불변식 위반 (재현: 해당 seed로 재실행):")
         for mode, seed, inv, detail in violations[:40]:

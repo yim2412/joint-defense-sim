@@ -1,0 +1,14 @@
+#!/bin/sh
+# 자동 감사 (푸시 전 런타임 안전망) — 무거운 런타임 감사를 push 전 1회.
+# pre-commit(정적+회귀)이 싼 안전망이면, 이쪽은 실제 실행 기반 제2 오라클·효과·복원.
+# 우회: git push --no-verify   (권장 안 함)
+echo "[pre-push] 속성 기반 감사(불변식·보존식·경계)…"
+python audit_property.py || { echo "❌ property FAIL — 불변식 위반(우회: git push --no-verify)"; exit 1; }
+echo "[pre-push] 토글 효과 검증(죽은 토글)…"
+python audit_effect.py || { echo "❌ effect FAIL — 죽은 토글/회귀"; exit 1; }
+echo "[pre-push] 설정 저장/복원 round-trip…"
+python _audit_roundtrip.py
+rc=$?
+if [ "$rc" -eq 1 ]; then echo "❌ round-trip FAIL — 복원 누락"; exit 1; fi
+if [ "$rc" -eq 2 ]; then echo "⚠ round-trip BLOCKED(헤드리스 Qt 불가) — 통과 처리"; fi
+echo "[pre-push] ✅ 런타임 감사 PASS"

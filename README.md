@@ -131,7 +131,9 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 |------|------|
 | `audit_verify_regression.py` | 회귀 검증 (엔진 동작 무결성 자동 점검 — 자기참조 오라클) |
 | `audit_static_scan.py` | 정적 위생 감사 스캐너 (자동추출·vacuous 가드·커버리지 리포트) |
-| `audit_property.py` | 속성 기반 감사 — 불변식(확률[0,1]·합=1·NaN 0) 랜덤 검증 (독립 오라클) |
+| `audit_property.py` | 속성 기반 감사 — 불변식(확률[0,1]·합=1·NaN 0·보존식·경계) 랜덤 검증 (독립 오라클) |
+| `audit_effect.py` | 토글 효과 검증 — 효과 입증 시나리오에서 ON/OFF 델타로 죽은 토글 탐지 |
+| `_audit_roundtrip.py` | 설정 저장/복원 round-trip 런타임 감사 (offscreen Qt, 복원 누락 근본 차단) |
 | `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
 | `_audit_campaign_smoke.py` | exe GUI 스모크 자동화 — 작전급 캠페인 모드 (감사용) |
 | `_audit_make_pdf.py` | 감사 보고서 PDF 생성기 |
