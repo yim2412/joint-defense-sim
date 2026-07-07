@@ -63,15 +63,19 @@ def main():
 
     # ── 인디케이터 스타일 누락(=안 보이는 체크박스) 검사 ─────────────────────
     # _wire_chk_color 목록에서 빠진 체크박스는 인디케이터(네모)가 어두운 배경에 안 보인다.
-    # 이 시각적 버그는 styleSheet에 'indicator'가 있는지로 헤드리스 탐지 가능.
+    # styleSheet에 'indicator'가 있는지로 헤드리스 탐지. findChildren 전수라 이름 무관·
+    # 중첩 위젯·_WrapCheckBox 내부 체크박스까지 커버(위젯 트리에 실제 표시되는 것만).
     from PyQt6.QtWidgets import QCheckBox
-    IND_EXEMPT = {'chk_current'}   # UI 미노출(해류 연동 — db_ocean_environment 필요)
     invisible = []
-    for n in dir(w):
-        if n.startswith('chk_') and n not in IND_EXEMPT:
-            c = getattr(w, n, None)
-            if isinstance(c, QCheckBox) and 'indicator' not in c.styleSheet():
-                invisible.append((n, c.text()[:24]))
+    for c in w.findChildren(QCheckBox):
+        # 인디케이터 스타일이 자신 또는 부모 체인 어디에도 없으면 안 보임
+        ss = c.styleSheet()
+        p = c.parent()
+        while 'indicator' not in ss and p is not None:
+            ss += ' ' + p.styleSheet()
+            p = p.parent()
+        if 'indicator' not in ss:
+            invisible.append((c.objectName() or '(무명)', c.text()[:24]))
 
     print(f"round-trip 감사 — 토글 {len(enable_keys)}개 뒤집기→복원→재빌드 + 체크박스 인디케이터")
     errs = []

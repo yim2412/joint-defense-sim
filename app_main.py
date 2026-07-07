@@ -5124,7 +5124,9 @@ class _WrapCheckBox(QWidget):
     def setChecked(self, v: bool):       self._chk.setChecked(v)
     def setEnabled(self, v: bool):
         self._chk.setEnabled(v); self._lbl.setEnabled(v); super().setEnabled(v)
-    def setStyleSheet(self, s: str):     self._lbl.setStyleSheet(s)
+    def setStyleSheet(self, s: str):
+        self._lbl.setStyleSheet(s)
+        self._chk.setStyleSheet(s)   # 인디케이터 스타일이 내부 체크박스에 닿게(안 보임 방지)
     def setToolTip(self, tip: str):
         self._chk.setToolTip(tip); self._lbl.setToolTip(tip)
 
