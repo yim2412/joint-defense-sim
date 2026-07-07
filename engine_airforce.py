@@ -196,6 +196,10 @@ class AirCampaign:
             else:
                 u.mission = None
 
+    def zone_superiority(self) -> dict:
+        """SLOC zone별 평균 제공권 — v19.2 해군 교전 연동(_tick_engagements)이 호출."""
+        return self.grid.zone_superiority()
+
     def summary(self) -> dict:
         """CampaignEngine._compile이 결과 dict에 병합할 공군 지표."""
         zs = self.grid.zone_superiority()

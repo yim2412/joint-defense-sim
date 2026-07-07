@@ -47,6 +47,10 @@ _CONTROL_WIN_THRESH    = 0.70    # 평균 통제도 승리 임계
 _CONTROL_DRAW_THRESH   = 0.30    # 평균 통제도 무승부 임계(미만은 패배)
 _RESUPPLY_CONTROL_FLOOR = 0.20   # 보급선 통제도 하한 — 통제 붕괴 시 재보급 최대 5배(1/0.2) 지연
 _REROUTE_EPS           = 0.05    # 우회 보급 판정 최소 통제도 격차(자기 교통로가 이만큼 더 나쁠 때만)
+# v19.2 제공권→해군 교전 연동 — factor = BASE + SLOPE·제공권. 각축(0.5)에서 1.0(중립),
+# 완전 우세(1.0)→1.4·완전 열세(0.0)→0.6. win_p·score 둘 다 곱연산(사용자 합의 2026-07-08).
+_AIR_ENGAGE_BASE  = 0.60
+_AIR_ENGAGE_SLOPE = 0.80
 
 
 def _ship_strength(ship_type: str) -> float:
@@ -151,8 +155,8 @@ class CampaignEngine:
         # 시계열(단일 실행용)
         self._tl_control = []   # 틱별 통제 교통로 수
         self._tl_force   = []   # 틱별 가용 전력 함정 수
-        # v19.1 공군 작전급 층 — enable_air_campaign ON일 때만 생성(OFF면 v18 bit-identical).
-        # v19.1은 제공권을 산출만 하고 해군 교전엔 무영향(연동은 v19.2).
+        # 공군 작전급 층 — enable_air_campaign ON일 때만 생성(OFF면 v18 bit-identical).
+        # v19.2부터 제공권이 해군 교전(win_p·score)에 연동됨(_tick_engagements).
         self.air = None
         if bool(cfg.get('enable_air_campaign', False)):
             from engine_airforce import AirCampaign
@@ -199,10 +203,11 @@ class CampaignEngine:
             self._tick_fuel()           # v18.2: 초계 연료 소모 + 재보급 트리거
             self._tick_intel()          # v18.4: 적 위협 belief 갱신(탐지·감쇠)
             self._assign_missions()     # v18.3: belief 기반 동적 재배정(6h마다)
+            if self.air is not None:   # v19.1: 공군 제공권 격자 갱신
+                # v19.2: 교전 前에 갱신 → 현재 틱 제공권이 같은 틱 교전에 연동(win_p·score 보정)
+                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES})
             self._tick_engagements()
             self._tick_sloc()
-            if self.air is not None:   # v19.1: 공군 제공권 격자 갱신(해군 outcome 무영향)
-                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES})
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
             self._tl_control.append(round(sum(self.control.values()) / len(SLOC_ZONES), 3))
             self._tl_force.append(sum(1 for s in self.ships if s.available))
@@ -380,6 +385,8 @@ class CampaignEngine:
                 self._n_reassign += 1
 
     def _tick_engagements(self):
+        # v19.2: 공군 층 ON이면 zone별 제공권을 1회 조회(교전 win_p·score 보정에 사용).
+        air_sups = self.air.zone_superiority() if self.air is not None else None
         for zone in SLOC_ZONES:
             enemy_fleet = self._active_enemy_in(zone)
             if not enemy_fleet:
@@ -395,14 +402,26 @@ class CampaignEngine:
             else:
                 win_p, score, cost = _predict_engagement(
                     self.model, fleet_ships, enemy_fleet, self.weather)
+            # v19.2: 제공권 연동 — factor=0.6+0.8·제공권(각축 0.5=중립 1.0, 우세→유리·열세→불리).
+            #   승률(win_p)과 임무점수(score) 둘 다 보정. rng.random() 소비는 불변이므로
+            #   공군 OFF(air_sups=None)면 기존과 완전 동일. 사용자 합의 모델(2026-07-08).
+            air_sup = None
+            if air_sups is not None:
+                air_sup = air_sups.get(zone, 0.5)
+                factor = _AIR_ENGAGE_BASE + _AIR_ENGAGE_SLOPE * air_sup
+                win_p = min(1.0, max(0.0, win_p * factor))
+                score = min(1.0, max(0.0, score * factor))
             won = self.rng.random() < win_p
             self._apply_engagement(zone, patrol, enemy_fleet, won, score)
             self.cost_total += cost
-            self.engagements.append({
+            rec = {
                 't_h': self.t_h, 'zone': zone, 'win_p': round(win_p, 3),
                 'won': won, 'score': round(score, 3),
                 'n_friendly': len(patrol), 'n_enemy': len(enemy_fleet),
-            })
+            }
+            if air_sup is not None:
+                rec['air_sup'] = round(air_sup, 3)   # 연동에 쓰인 제공권(투명성)
+            self.engagements.append(rec)
 
     def _apply_engagement(self, zone, patrol, enemy_fleet, won, score):
         """교전 결과 반영 — 승패·임무점수 기반 추상 피해(MVP). 손실 수 미추정이므로
