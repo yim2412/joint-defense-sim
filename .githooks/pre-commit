@@ -1,0 +1,11 @@
+#!/bin/sh
+# 자동 감사 (커밋 전 싼 안전망) — 감사 3층 정책의 ① 마이너 안전망을 사람 기억이 아니라
+# 도구가 강제한다. 무거운 property/GUI 스모크/종합 9영역은 수동 or pre-push.
+# 활성화: git config core.hooksPath .githooks  (설치 1회)
+# 우회:   git commit --no-verify   (권장 안 함 — 정말 필요할 때만)
+set -e
+echo "[pre-commit] 정적 스캔…"
+python audit_static_scan.py || { echo "❌ 정적 스캔 FAIL — 수정 후 재커밋 (우회: git commit --no-verify)"; exit 1; }
+echo "[pre-commit] 회귀 검증…"
+python audit_verify_regression.py || { echo "❌ 회귀 FAIL — 의도된 변경이면 --update, 아니면 버그 (우회: --no-verify)"; exit 1; }
+echo "[pre-commit] ✅ 정적 + 회귀 PASS — 커밋 진행"

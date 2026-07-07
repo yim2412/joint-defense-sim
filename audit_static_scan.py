@@ -31,6 +31,14 @@ results = []  # (영역, 이름, ok, 상세)
 def check(area, name, ok, detail=''):
     results.append((area, name, bool(ok), detail))
 
+def guard_count(area, label, n, floor):
+    """vacuous-pass 방지 — 자동추출 검사가 기대 하한 미만을 추출하면 정규식/구조가
+    깨진 것으로 간주해 FAIL. (추출 0개 → 위반 0개 → 조용히 PASS 하는 함정 차단.
+    '감사가 스스로 깨졌는데 통과'가 '버그를 못 잡음'보다 위험 — 거짓 안심을 준다.)"""
+    check(area, f'추출 sanity: {label}', n >= floor,
+          f"{n}개 추출(하한 {floor}) — 정규식/소스 구조 변경 의심, 검사 무력화 위험"
+          if n < floor else f"{n}개 추출 OK(≥{floor})")
+
 # ── ⑥ 위생: APP_VERSION == 헤더 버전 == changelog 마지막 ──────────────────────
 def chk_version():
     lau = rd('app_main.py')
@@ -123,6 +131,7 @@ def chk_spec_count():
     entity = sum(topcount(eng, n) or 0 for n in
                  ['ENEMY_DB', 'FRIENDLY_DB', 'SHIP_DB', 'FRIENDLY_AIRCRAFT_DB'])
     sd = topcount(spec, 'SPEC_DETAIL_DB')
+    guard_count('②', 'DB 항목 파싱(엔티티/스펙)', min(entity, sd or 0), 50)  # vacuous 방지(0==0 차단)
     check('②', 'db_specsheet 항목수 = 엔티티 DB 합', sd == entity,
           f"SPEC_DETAIL_DB={sd} vs ENEMY+FRIENDLY+SHIP+AIRCRAFT={entity}")
 
@@ -307,6 +316,7 @@ def chk_flag_restore_auto():
     built = set(re.findall(r"['\"](enable_\w+)['\"]\s*:\s*self\.\w+\.isChecked\(\)", lau))
     restored = set(re.findall(r"setChecked\(\s*\w*\.?get\(['\"](enable_\w+)", lau))
     restored |= set(re.findall(r"\(['\"]chk_\w+['\"]\s*,\s*['\"](enable_\w+)['\"]\s*[,)]", lau))  # for-루프 튜플(2·3튜플 무관)
+    guard_count('①', '체크박스 빌드 플래그(복원검사 기반)', len(built), 30)  # vacuous 방지(현 44개)
     missing = sorted(built - restored)
     check('①', f'플래그 복원 전수(자동추출 {len(built)}개 체크박스)', not missing,
           f"복원 누락(시나리오 로드 시 초기화): {missing}" if missing else '체크박스 빌드 전부 복원 확인')
@@ -319,6 +329,7 @@ def chk_flag_consume_auto():
     lau = rd('app_main.py'); ev = rd('engine_combat.py') + rd('engine_campaign.py')
     consumed = set(re.findall(r"\.get\(['\"](enable_\w+)", ev)) | set(re.findall(r"cfg\[['\"](enable_\w+)", ev))
     built_any = set(re.findall(r"['\"](enable_\w+)['\"]\s*:", lau))
+    guard_count('①', '엔진 소비 플래그(숨은플래그 검사 기반)', len(consumed), 30)  # vacuous 방지(현 40+)
     # 상시 ON이 의도된 내부 기능(사용자 토글 불필요) — 명시적 화이트리스트
     ALWAYS_ON = {'enable_cec_preassign', 'enable_subsystem_damage', 'enable_decoy',
                  'enable_ecm', 'enable_evasion', 'enable_layered_defense',
@@ -350,6 +361,20 @@ def main():
         if detail and (not ok or os.environ.get('AUDIT_VERBOSE')):
             print(f"        {detail}")
     print("-" * 64)
+    # 커버리지 리포트 — "무엇을 보나/안 보나"를 수치로 가시화(사각 관리, BLIND_SPOTS.md)
+    try:
+        lau = rd('app_main.py')
+        built = set(re.findall(r"['\"](enable_\w+)['\"]\s*:\s*self\.\w+\.isChecked\(\)", lau))
+        nblind = 0
+        try:
+            nblind = sum(1 for _ in re.finditer(r'^\s*\d+\.\s', rd('BLIND_SPOTS.md'), re.M))
+        except Exception:
+            pass
+        print(f"커버리지: 정적검사 {len(results)}항목 · 체크박스 플래그 복원 자동추출 {len(built)}개 "
+              f"· 회귀 8×26 · property 불변식(별도 audit_property.py) · 열린 사각 {nblind}건(BLIND_SPOTS.md)")
+        print("-" * 64)
+    except Exception:
+        pass
     npass = sum(1 for r in results if r[2])
     print(f"{npass}/{len(results)} PASS")
     if npass != len(results):
