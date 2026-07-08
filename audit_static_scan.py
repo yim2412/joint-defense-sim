@@ -116,7 +116,8 @@ def chk_flag_triplet():
     camp_flags = {'enable_campaign_mode': lau,   # app_main SimWorker 라우팅에서 소비
                   'enable_campaign_fog': camp,   # engine_campaign _tick_intel에서 소비
                   'enable_air_campaign': camp,   # v19.1 engine_campaign __init__에서 소비(공군 층)
-                  'enable_sead': air}            # v19.3 engine_airforce AirCampaign에서 소비(방공망 제압)
+                  'enable_sead': air,            # v19.3 engine_airforce AirCampaign에서 소비(방공망 제압)
+                  'enable_strategic_strike': air}  # v19.4 engine_airforce AirCampaign에서 소비(전략폭격)
     for f, consumer in camp_flags.items():
         build    = bool(re.search(rf"['\"]{f}['\"]\s*:\s*[^\n,}}]*isChecked", lau))
         restore  = bool(re.search(rf"setChecked\(\s*cfg\.get\(['\"]{f}", lau))

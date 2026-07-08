@@ -260,17 +260,30 @@ class CampaignEngine:
                 if patrol_zone in SLOC_ZONES and best - self.control[patrol_zone] > _REROUTE_EPS:
                     self._n_reroute += 1
 
+    def _enemy_output_factor(self) -> float:
+        """v19.4: 전략폭격 ON이면 적 출항능력 스칼라(<1, 기지 손상 누적 반영), 아니면 1.0.
+        OFF(공군 없음·폭격 미사용)면 정확히 1.0 → 위협·교전 편성 불변(v19.3 bit-identical)."""
+        if self.air is not None and self.air.strike_enabled:
+            return self.air.enemy_output_factor()
+        return 1.0
+
     def _active_enemy_in(self, zone: str) -> list:
         """해당 zone에 도달·생존한 적 웨이브의 편성 합(featurize용 [{preset,count}])."""
         fleet = []
         for w in self.waves:
             if w['alive'] and w['zone'] == zone and self.t_h >= w['arrive_h']:
                 fleet.extend(ENEMY_FLEET_PRESETS.get(w['preset'], []))
+        # v19.4: 전략폭격으로 적 출항능력↓ 시 출항 편성 비례 축소(교전 난이도↓). OFF면 불변.
+        eo = self._enemy_output_factor()
+        if eo < 1.0 and fleet:
+            keep = max(1, int(np.ceil(len(fleet) * eo)))
+            fleet = fleet[:keep]
         return fleet
 
     def _zone_threat_truth(self, zone: str) -> float:
         """zone 실제 위협도(truth) = 이미 도달한 웨이브 규모 + 임박(다음 재배정 주기 내
-        도착) 규모×0.5. 교전·SLOC은 이 실측을 쓰고, 임무 배정은 belief를 쓴다(안개)."""
+        도착) 규모×0.5. 교전·SLOC은 이 실측을 쓰고, 임무 배정은 belief를 쓴다(안개).
+        v19.4: 전략폭격으로 적 출항능력↓ 시 위협도 비례 축소(→제공권↑·SLOC 압력↓). OFF면 불변."""
         now = soon = 0.0
         for w in self.waves:
             if not w['alive'] or w['zone'] != zone:
@@ -280,7 +293,7 @@ class CampaignEngine:
                 now += size
             elif w['arrive_h'] - self.t_h <= _REASSIGN_PERIOD_H:
                 soon += size * 0.5
-        return now + soon
+        return (now + soon) * self._enemy_output_factor()
 
     def _zone_observed(self, zone: str) -> float:
         """지금 실제로 그 zone에 있는 적(도착분만). belief는 이 관측만 반영한다 —

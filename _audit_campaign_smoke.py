@@ -77,12 +77,13 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = sead = None
+        chk = fog = air = sead = strike = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
             elif '공군' in t:           air = c      # v19.1 공군 작전급(제공권)
             elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
+            elif '전략' in t:           strike = c   # v19.4 전략 폭격 & 기지 타격
             elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
@@ -101,11 +102,17 @@ def main():
             log(f"SEAD 체크박스: {_txt(sead)!r} → 체크"); _act(sead); time.sleep(1)
         else:
             log("⚠ SEAD 체크박스 미포착 — 공군만 검증(v19.3 GUI 경로 미확인)")
+        # v19.4: 전략 폭격 토글 — 공군 하위 옵션이라 함께 켜서 적 기지·전략폭격 GUI 경로를 태운다.
+        if strike is not None:
+            log(f"전략폭격 체크박스: {_txt(strike)!r} → 체크"); _act(strike); time.sleep(1)
+        else:
+            log("⚠ 전략폭격 체크박스 미포착 — 공군만 검증(v19.4 GUI 경로 미확인)")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
             if air is not None: _st += f" 공군={air.get_toggle_state()}"
             if sead is not None: _st += f" SEAD={sead.get_toggle_state()}"
+            if strike is not None: _st += f" 전략폭격={strike.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")
@@ -144,10 +151,16 @@ def main():
                         frag = [t for t in (_txt(c) for c in main_w.descendants())
                                 if any(k in t for k in ('제공권', '통제도', '전역'))]
                         log(f"🔴 SEAD ON인데 배너에 방공망 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    # v19.4: 전략폭격 ON이면 적 기지 손상 상태가 배너에 떠야 한다(폭격기 없어도 0%로 표시)
+                    if strike is not None and '기지' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('제공권', '방공망', '전역'))]
+                        log(f"🔴 전략폭격 ON인데 배너에 적 기지 미표시 — 배너 조각: {frag[:4]}"); return 1
                     _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
                     _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
-                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}"); return 0
+                    _strmsg = " + 💥 적 기지 배너 확인" if strike is not None else ""
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프
