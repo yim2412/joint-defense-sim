@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.03 — 공군 작전급: 방공망 제압 SEAD/DEAD (v19.3)]                    ║
+║  NEW-A  적 방공망(S-400·HQ-9·S-300)이 해상 접근 공역 방어 → 제공권 하락.     ║
+║         SEAD 임무기가 방공망 제압(6~48h 복구, 보수적 효과). 강한 공군은      ║
+║         방공망 눌러 제공권 유지, 빈약한 편성은 제압당함. 기본 OFF(실험적).   ║
 ║  [v18.01.02 — 공군 작전급: 제공권 통제 모델 (v19.2)]                         ║
 ║  NEW-A  제공권이 해상 교통로 교전에 연동 — 제공권 우세 시 해군 승률·        ║
 ║         작전 지속성 상승, 열세 시 하락(각축 시 중립). 공군 작전이 처음으로   ║
@@ -1244,7 +1248,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.02"
+APP_VERSION = "v18.01.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4715,6 +4719,9 @@ class EngagementAnalysisTab(QWidget):
                        for z, v in _as.items()]
                 _air_txt = ('        ✈ 제공권: ' + '  '.join(_al) +
                             f"  (소티 {result.get('air_sorties', 0)}회)")
+                if result.get('sead_enabled'):   # v19.3: 방공망 제압 상태
+                    _air_txt += (f"  ·  🎯 방공망 {result.get('n_ad_sites', 0)}개 "
+                                 f"제압 {result.get('ad_suppression', 0)*100:.0f}%")
             mc = result.get('campaign_mc')
             if mc:
                 self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
@@ -6794,6 +6801,8 @@ class MainWindow(QMainWindow):
             self.chk_campaign_fog.setChecked(cfg.get('enable_campaign_fog', False))
         if hasattr(self, 'chk_air_campaign'):
             self.chk_air_campaign.setChecked(cfg.get('enable_air_campaign', False))
+        if hasattr(self, 'chk_sead'):
+            self.chk_sead.setChecked(cfg.get('enable_sead', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
@@ -7405,6 +7414,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_air_campaign.setChecked(False)
 
+        # v19.3: 방공망 제압(SEAD/DEAD) — 공군 작전급 하위 옵션
+        self.chk_sead = QCheckBox("방공망 제압 SEAD/DEAD (실험적)")
+        self.chk_sead.setToolTip(
+            "공군 작전급에서 적 방공망(S-400·HQ-9·S-300 등 IADS)이 해상 접근 공역을 방어합니다.\n"
+            "활성 방공망은 제공권을 끌어내리고, SEAD 임무기(F-35A·F-15K·KF-16 등)가 이를 제압합니다.\n"
+            "제압된 방공망은 6~48시간에 걸쳐 재가동하며, 제압 효과는 보수적으로 반영합니다(과대평가 방지).\n"
+            "강한 공군은 방공망을 눌러 제공권을 유지하지만, 빈약한 편성은 CAP·SEAD를 동시에 못해 제압당합니다.\n"
+            "공군 작전급과 함께 켜야 작동합니다(끄면 방공망 없이 제공권만 계산 = 기존과 동일).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_sead.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7530,7 +7551,7 @@ class MainWindow(QMainWindow):
                     # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
                     # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
-                    self.chk_air_campaign,
+                    self.chk_air_campaign, self.chk_sead,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7547,6 +7568,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_campaign)
         fl_env.addRow("",            self.chk_campaign_fog)
         fl_env.addRow("",            self.chk_air_campaign)
+        fl_env.addRow("",            self.chk_sead)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9372,6 +9394,7 @@ class MainWindow(QMainWindow):
             'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
             'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개
             'enable_air_campaign': self.chk_air_campaign.isChecked(),  # v19.1 공군 작전급(제공권)
+            'enable_sead': self.chk_sead.isChecked(),  # v19.3 방공망 제압(SEAD/DEAD)
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -9571,6 +9594,9 @@ class MainWindow(QMainWindow):
         # v19.1: 공군 층 ON이면 평균 제공권 표시
         air = (f" · ✈ 제공권 {result.get('mean_air_superiority', 0)*100:.0f}%"
                if result.get('air_enabled') else '')
+        # v19.3: SEAD ON이면 방공망 제압률 표시(air 세그먼트 뒤)
+        sead = (f" · 🎯 방공망 제압 {result.get('ad_suppression', 0)*100:.0f}%"
+                if result.get('sead_enabled') else '')
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
@@ -9582,7 +9608,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f} · "
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
-                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{warn}")
+                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{sead}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -9591,7 +9617,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
                 f"교전 {result.get('n_engagements', 0)}회 · "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{warn}")
+                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{sead}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -11466,10 +11492,7 @@ class SplashWindow(QWidget):
             # 선행 필수: v18 캠페인 완성 (완료)
             # v19.1 공군 전력 & 임무 모델 = 구현 완료(v18.01.01) — 제거.
             # v19.2 제공권 통제 모델(격자·해군 교전 연동) = 구현 완료(v18.01.02) — 제거.
-            ("v19.3", "높음", "방공망 제압 (SEAD/DEAD)",
-             "적 방공망(SA-21·HHQ-9·S-400) 탐지·타격. 성공 시 해군 작전 구역 확대, 실패 시 함대공 수요 증가. "
-             "방공망 복구 6~48시간. 해군 전자전(v16.1)과 연동. "
-             "【현실성】타격 효과 평가는 역사적으로 과대평가 경향 → 보수적 계수."),
+            # v19.3 방공망 제압 SEAD/DEAD = 구현 완료(v18.01.03) — 제거.
             ("v19.4", "높음", "전략 폭격 & 적 기지 타격",
              "B-1B·KF-21·현무-3C 합동으로 적 항구·비행장·레이더 타격. "
              "성공 시 적 해군 출항 능력 저하 → 해상 교통로 위협 감소. 적 재건 시간 모델. "

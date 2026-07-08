@@ -31,3 +31,5 @@ _build_*.log
 _selfplay_*.zip
 _selfplay_*.log
 _selfplay_*.npz
+
+build_*.log

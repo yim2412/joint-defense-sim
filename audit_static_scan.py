@@ -112,9 +112,11 @@ def chk_flag_triplet():
     # v18 캠페인 계열 — 소비처가 engine_combat이 아니라 engine_campaign(fog) / app_main 라우팅(mode)
     # 이라 위 engread가 오탐 → 소비처를 명시해 별도 검사(3종세트 무결성은 동일하게 요구).
     camp = rd('engine_campaign.py')
+    air  = rd('engine_airforce.py')
     camp_flags = {'enable_campaign_mode': lau,   # app_main SimWorker 라우팅에서 소비
                   'enable_campaign_fog': camp,   # engine_campaign _tick_intel에서 소비
-                  'enable_air_campaign': camp}   # v19.1 engine_campaign __init__에서 소비(공군 층)
+                  'enable_air_campaign': camp,   # v19.1 engine_campaign __init__에서 소비(공군 층)
+                  'enable_sead': air}            # v19.3 engine_airforce AirCampaign에서 소비(방공망 제압)
     for f, consumer in camp_flags.items():
         build    = bool(re.search(rf"['\"]{f}['\"]\s*:\s*[^\n,}}]*isChecked", lau))
         restore  = bool(re.search(rf"setChecked\(\s*cfg\.get\(['\"]{f}", lau))

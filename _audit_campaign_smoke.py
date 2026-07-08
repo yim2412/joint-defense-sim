@@ -77,11 +77,12 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = None
+        chk = fog = air = sead = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
             elif '공군' in t:           air = c      # v19.1 공군 작전급(제공권)
+            elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
             elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
@@ -95,10 +96,16 @@ def main():
             log(f"공군 체크박스: {_txt(air)!r} → 체크"); _act(air); time.sleep(1)
         else:
             log("⚠ 공군 체크박스 미포착 — 캠페인만 검증(v19.1 GUI 경로 미확인)")
+        # v19.3: 방공망 제압(SEAD) 토글 — 공군 하위 옵션이라 함께 켜서 방공망·SEAD GUI 경로를 태운다.
+        if sead is not None:
+            log(f"SEAD 체크박스: {_txt(sead)!r} → 체크"); _act(sead); time.sleep(1)
+        else:
+            log("⚠ SEAD 체크박스 미포착 — 공군만 검증(v19.3 GUI 경로 미확인)")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
             if air is not None: _st += f" 공군={air.get_toggle_state()}"
+            if sead is not None: _st += f" SEAD={sead.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")
@@ -132,9 +139,15 @@ def main():
                         frag = [t for t in (_txt(c) for c in main_w.descendants())
                                 if any(k in t for k in ('통제도', '교통로', '전역', '캠페인'))]
                         log(f"🔴 공군 ON인데 배너에 제공권 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    # v19.3: SEAD ON이면 방공망 제압 상태가 배너에 떠야 한다
+                    if sead is not None and '방공망' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('제공권', '통제도', '전역'))]
+                        log(f"🔴 SEAD ON인데 배너에 방공망 미표시 — 배너 조각: {frag[:4]}"); return 1
                     _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
-                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}"); return 0
+                    _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프
