@@ -205,7 +205,9 @@ class CampaignEngine:
             self._assign_missions()     # v18.3: belief 기반 동적 재배정(6h마다)
             if self.air is not None:   # v19.1: 공군 제공권 격자 갱신
                 # v19.2: 교전 前에 갱신 → 현재 틱 제공권이 같은 틱 교전에 연동(win_p·score 보정)
-                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES})
+                # v19.5: 해군 지원요청(통제 붕괴 신호)을 함께 전달 → CAS 자동 요청·배정
+                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES},
+                              self._support_request())
             self._tick_engagements()
             self._tick_sloc()
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
@@ -304,6 +306,12 @@ class CampaignEngine:
                 now += len(ENEMY_FLEET_PRESETS.get(w['preset'], []))
         return now
 
+    def _support_request(self) -> dict:
+        """v19.5: zone별 공군 지원 요청 우선도 = (1-통제도)×도달 적 규모. 통제가 붕괴 중이고
+        적이 실제 도달한 zone일수록 높다. zone_threat(위협 규모)과 달리 control 항이 들어가
+        차별화 — 위협이 커도 통제가 유지되면 요청이 낮아(공군 자원을 위기 zone에 집중)."""
+        return {z: (1.0 - self.control[z]) * self._zone_observed(z) for z in SLOC_ZONES}
+
     def _tick_intel(self):
         """v18.4: 적 위협 belief 갱신. fog OFF면 belief=truth(완전정보, soon 예측 포함
         → v18.3 선제 배치 보존). fog ON: 관측(도착분)만 반영, 미탐지 zone은 반감기 12h로
@@ -399,7 +407,9 @@ class CampaignEngine:
 
     def _tick_engagements(self):
         # v19.2: 공군 층 ON이면 zone별 제공권을 1회 조회(교전 win_p·score 보정에 사용).
+        # v19.5: CAS 피해경감(dmg 레버)도 조회 — 제공권(win_p 레버)과 직교.
         air_sups = self.air.zone_superiority() if self.air is not None else None
+        cas_sup  = self.air.cas_support() if self.air is not None else None
         for zone in SLOC_ZONES:
             enemy_fleet = self._active_enemy_in(zone)
             if not enemy_fleet:
@@ -425,7 +435,9 @@ class CampaignEngine:
                 win_p = min(1.0, max(0.0, win_p * factor))
                 score = min(1.0, max(0.0, score * factor))
             won = self.rng.random() < win_p
-            self._apply_engagement(zone, patrol, enemy_fleet, won, score)
+            # v19.5: CAS 근접 엄호 피해경감(relief=0이면 dmg 불변 = v19.4 bit-identical)
+            cas_relief = cas_sup.get(zone, 0.0) if cas_sup is not None else 0.0
+            self._apply_engagement(zone, patrol, enemy_fleet, won, score, cas_relief)
             self.cost_total += cost
             rec = {
                 't_h': self.t_h, 'zone': zone, 'win_p': round(win_p, 3),
@@ -434,12 +446,16 @@ class CampaignEngine:
             }
             if air_sup is not None:
                 rec['air_sup'] = round(air_sup, 3)   # 연동에 쓰인 제공권(투명성)
+            if cas_relief > 0:
+                rec['cas_relief'] = round(cas_relief, 3)   # v19.5 CAS 피해경감(투명성)
             self.engagements.append(rec)
 
-    def _apply_engagement(self, zone, patrol, enemy_fleet, won, score):
+    def _apply_engagement(self, zone, patrol, enemy_fleet, won, score, cas_relief=0.0):
         """교전 결과 반영 — 승패·임무점수 기반 추상 피해(MVP). 손실 수 미추정이므로
-        점수↓일수록 피해↑. v18.2: 교전당 탄약 소모 + 피해 심각도별 수리 기간 차등."""
+        점수↓일수록 피해↑. v18.2: 교전당 탄약 소모 + 피해 심각도별 수리 기간 차등.
+        v19.5: cas_relief만큼 피해 경감(근접 항공 지원). relief=0이면 dmg 불변(bit-identical)."""
         dmg = (1.0 - score) * (_DMG_WIN_K if won else _DMG_LOSS_K)
+        dmg *= (1.0 - cas_relief)   # v19.5: CAS 근접 엄호 — 제공권(win_p)과 다른 레버(손실 경감)
         for s in patrol:
             s.ammo_frac = max(0.0, s.ammo_frac - _AMMO_PER_ENGAGEMENT)   # v18.2: 탄약 소모
             # 함정별 피해에 소량 확률 분산(결정론: rng 사용)

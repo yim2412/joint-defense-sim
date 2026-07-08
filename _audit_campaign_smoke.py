@@ -160,7 +160,10 @@ def main():
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
                     _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
                     _strmsg = " + 💥 적 기지 배너 확인" if strike is not None else ""
-                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}"); return 0
+                    # v19.5: CAS는 조건부(통제 붕괴 시 요청 발동) — 필수 아님. 발현되면 배너
+                    # 형식만 확인, 미발현은 정상(기본 시나리오에서 통제 유지 시 요청 0).
+                    _casmsg = " + 🛩 근접지원 배너 확인(발현)" if '근접지원' in blob else ""
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}{_casmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프

@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.06 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.06 — 공군 작전급: 공군 캠페인 통합 — 보고서 임무 타임라인 (v19.5)]  ║
+║  NEW-A  결과 배너에 근접 항공 지원(CAS) 소티·요청 표시 + 공군 임무별        ║
+║         소티 타임라인(제공권·SEAD·전략폭격·CAS)을 결과에 기록.               ║
+║  [v18.01.05 — 공군 작전급: 근접 항공 지원(CAS) & 해공 통합 배정 (v19.5)]     ║
+║  NEW-A  해상 교통로 통제가 붕괴하는 교통로에 근접 항공 지원(CAS)을 자동      ║
+║         요청·배정 — 근접 엄호로 아군 함정 손실을 경감(제공권과 별개 효과).   ║
+║         CAS 가능 기체를 제공권(CAP)에서 차출하는 현실적 트레이드오프.        ║
+║         기본 OFF(실험적). 공군 미발동 시 기존과 동일.                        ║
 ║  [v18.01.04 — 공군 작전급: 전략 폭격 & 기지 타격 (v19.4)]                    ║
 ║  NEW-A  전략폭격기(B-1B·B-52)가 적 항구·비행장 타격 → 적 출항 능력 저하 →    ║
 ║         해상 위협 감소·제공권 상승. 기지 재건(6~72h), 보수적 효과.           ║
@@ -1252,7 +1260,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.04"
+APP_VERSION = "v18.01.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4730,6 +4738,9 @@ class EngagementAnalysisTab(QWidget):
                     _air_txt += (f"  ·  💥 적 기지 {result.get('n_enemy_bases', 0)}개 "
                                  f"손상 {result.get('enemy_base_damage', 0)*100:.0f}% "
                                  f"(출항 {result.get('enemy_output_factor', 1)*100:.0f}%)")
+                if result.get('n_cas_requests', 0) > 0:   # v19.5: 근접 항공 지원(CAS)
+                    _air_txt += (f"  ·  🛩 근접지원 {result.get('air_cas_sorties', 0)}소티 "
+                                 f"/ 요청 {result.get('n_cas_requests', 0)}건")
             mc = result.get('campaign_mc')
             if mc:
                 self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
@@ -9625,6 +9636,9 @@ class MainWindow(QMainWindow):
         strike = (f" · 💥 적 기지 손상 {result.get('enemy_base_damage', 0)*100:.0f}% "
                   f"(출항 {result.get('enemy_output_factor', 1)*100:.0f}%)"
                   if result.get('strike_enabled') else '')
+        # v19.5: CAS 근접 항공 지원 발동 시 소티·요청 표시
+        cas = (f" · 🛩 근접지원 {result.get('air_cas_sorties', 0)}소티"
+               if result.get('n_cas_requests', 0) > 0 else '')
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
@@ -9636,7 +9650,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f} · "
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
-                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{warn}")
+                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{cas}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -9645,7 +9659,7 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
                 f"교전 {result.get('n_engagements', 0)}회 · "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{warn}")
+                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{cas}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -11522,9 +11536,7 @@ class SplashWindow(QWidget):
             # v19.2 제공권 통제 모델(격자·해군 교전 연동) = 구현 완료(v18.01.02) — 제거.
             # v19.3 방공망 제압 SEAD/DEAD = 구현 완료(v18.01.03) — 제거.
             # v19.4 전략 폭격 & 적 기지 타격 = 구현 완료(v18.01.04) — 제거.
-            ("v19.5", "중간", "공군 작전 캠페인 통합",
-             "해군 캠페인 엔진에 공군 임무 추가. 해상 교통로 위협 상승 시 공군 근접지원·방공망제압 자동 요청. "
-             "해군·공군 자산 통합 배정. 캠페인 보고서에 공군 임무 타임라인 추가."),
+            # v19.5 공군 작전 캠페인 통합(CAS 자동 요청·타임라인) = 구현 완료(v18.01.05~06) — 제거.
             ("v19.6", "높음", "다전장 연동 (공군·지상 합동 교전구역)",
              "공군 SEAD·지상 패트리엇/THAAD를 해군 캠페인 엔진과 연동. 합동 교전규칙 구역 자동 분할. "
              "v19.5 공군 통합 완료 후 지상 방공망(v20.2)과 연결되는 다전장 교전 구역 확정."),
@@ -11561,6 +11573,11 @@ class SplashWindow(QWidget):
              "육해공 전 전력 캠페인 결과 통합. 군별 기여도 분석(해군이 교통로 방어에 얼마나 기여? 공군 방공망제압이 해군 손실을 얼마나 줄였나?). "
              "전역 비용·손실 대비 목표 달성률. 최적 전력 구성 추천."),
             # ── 선택 트랙 — v20 완료 후 별도 판단 ────────────────────────────
+            ("선택", "중간", "육해공 전력 DB 심화 확충",
+             "육군 작전급(v20)까지 로드맵 완성 후, 각 도메인 전력 DB를 실측 제원 기준으로 확충. "
+             "공군: 적 공군 기종(J-20·J-16·Su-35 등)·아군 공중급유기·전자전기·무인기 추가로 제공권 모델 정교화. "
+             "해군·육군: 실측 교전에서 효과가 발현하는 항목 위주(무작정 규모 확대는 중복 시나리오만 늘어 지양). "
+             "각 도메인 층이 완성된 뒤 통합 상태에서 한 번에 현실성 확충하는 게 효율적."),
             ("선택", "높음", "자율 학습 전술 AI 심화 (자가개선·공진화)",
              "지속 전장 강화학습·적 지휘 AI 동시 학습(self-play)·자가개선 루프는 메커니즘까지 "
              "구축 완료(학습 정책이 기본 전술을 일관되게 능가). 남은 것은 선택적 심화 — "
