@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.06 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.07 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.07 — v19 공군 블록 종합 감사: 발견 2건 수정]                        ║
+║  BUG-1  전략 폭격 체크박스가 다른 옵션과 이름이 겹쳐 실제로는 항상 켜진      ║
+║         상태로 동작하던 문제 수정 — 이제 기본 OFF(체크해야 발동).            ║
+║  BUG-2  KF-21 전투행동반경을 공개제원(약 1000km)으로 현실화(기존 500km).     ║
 ║  [v18.01.06 — 공군 작전급: 공군 캠페인 통합 — 보고서 임무 타임라인 (v19.5)]  ║
 ║  NEW-A  결과 배너에 근접 항공 지원(CAS) 소티·요청 표시 + 공군 임무별        ║
 ║         소티 타임라인(제공권·SEAD·전략폭격·CAS)을 결과에 기록.               ║
@@ -1260,7 +1264,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.06"
+APP_VERSION = "v18.01.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6822,8 +6826,8 @@ class MainWindow(QMainWindow):
             self.chk_air_campaign.setChecked(cfg.get('enable_air_campaign', False))
         if hasattr(self, 'chk_sead'):
             self.chk_sead.setChecked(cfg.get('enable_sead', False))
-        if hasattr(self, 'chk_strike'):
-            self.chk_strike.setChecked(cfg.get('enable_strategic_strike', False))
+        if hasattr(self, 'chk_strategic_strike'):
+            self.chk_strategic_strike.setChecked(cfg.get('enable_strategic_strike', False))
         if hasattr(self, 'chk_rl_policy'):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
@@ -7448,8 +7452,10 @@ class MainWindow(QMainWindow):
         self.chk_sead.setChecked(False)
 
         # v19.4: 전략 폭격 & 기지 타격 — 공군 작전급 하위 옵션
-        self.chk_strike = QCheckBox("전략 폭격 & 기지 타격 (실험적)")
-        self.chk_strike.setToolTip(
+        # ⚠ 위젯 attr은 chk_strategic_strike(고유명). 기존 "공격 임무 활성화"가 self.chk_strike를
+        #    쓰므로 이름 충돌 금지 — 같은 이름이면 나중 정의가 이겨 이 위젯이 orphan이 됨.
+        self.chk_strategic_strike = QCheckBox("전략 폭격 & 기지 타격 (실험적)")
+        self.chk_strategic_strike.setToolTip(
             "공군 작전급에서 전략폭격기(B-1B·B-52)가 적 항구·비행장을 타격해 적 해군 출항 능력을 떨어뜨립니다.\n"
             "기지 손상이 누적되면 적 해상 위협(웨이브 규모)이 줄어 제공권·해상 교통로 통제가 개선됩니다.\n"
             "타격받은 기지는 6~72시간에 걸쳐 재건되며, 타격 효과는 보수적으로 반영합니다(과대평가 방지).\n"
@@ -7457,7 +7463,7 @@ class MainWindow(QMainWindow):
             "공군 작전급과 함께 켜야 작동합니다(끄면 적 기지 없이 기존과 동일).\n"
             "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
         )
-        self.chk_strike.setChecked(False)
+        self.chk_strategic_strike.setChecked(False)
 
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
@@ -7584,7 +7590,7 @@ class MainWindow(QMainWindow):
                     # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
                     # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
-                    self.chk_air_campaign, self.chk_sead, self.chk_strike,
+                    self.chk_air_campaign, self.chk_sead, self.chk_strategic_strike,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7602,7 +7608,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_campaign_fog)
         fl_env.addRow("",            self.chk_air_campaign)
         fl_env.addRow("",            self.chk_sead)
-        fl_env.addRow("",            self.chk_strike)
+        fl_env.addRow("",            self.chk_strategic_strike)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9429,7 +9435,7 @@ class MainWindow(QMainWindow):
             'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개
             'enable_air_campaign': self.chk_air_campaign.isChecked(),  # v19.1 공군 작전급(제공권)
             'enable_sead': self.chk_sead.isChecked(),  # v19.3 방공망 제압(SEAD/DEAD)
-            'enable_strategic_strike': self.chk_strike.isChecked(),  # v19.4 전략 폭격 & 기지 타격
+            'enable_strategic_strike': self.chk_strategic_strike.isChecked(),  # v19.4 전략 폭격 & 기지 타격
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)

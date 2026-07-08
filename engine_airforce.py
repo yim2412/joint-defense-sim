@@ -416,8 +416,8 @@ class AirCampaign:
             'air_superiority':      zs,                                   # zone별 제공권 0~1
             'mean_air_superiority': round(sum(zs.values()) / len(zs), 3) if zs else 0.0,
             'air_units':            len(self.units),
-            'air_sorties':          int(self._cap_acc + self._recon_acc
-                                        + self._sead_acc + self._cas_acc),
+            'air_sorties':          int(self._cap_acc + self._recon_acc + self._sead_acc
+                                        + self._cas_acc + self._strike_acc),  # 전 임무 소티 합
             'air_cap_sorties':      int(self._cap_acc),
             'air_recon_sorties':    int(self._recon_acc),
             'air_cas_sorties':      int(self._cas_acc),       # v19.5 근접 항공 지원 소티

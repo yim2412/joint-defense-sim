@@ -2023,7 +2023,7 @@ AIR_FORCE_DB = {
     'KF-21 보라매': {
         'side': 'ROK', 'role': 'multirole',
         'missions': ['CAP', 'CAS', 'SEAD', 'strike', 'recon'],
-        'combat_radius_km': 500,    # 공개 미확정 — 내부연료 전투행동반경 추정(페리 ~2900km)
+        'combat_radius_km': 1000,   # 내부연료 전투행동반경 ~1000~1100km(공개제원, 페리 ~2900km)
         'cruise_ms': 250,           # ~Mach 0.85 순항
         'sortie_rate': 2.0,         # 지속 출격/일/기
         'sortie_cost_usd': 400_000,

@@ -343,9 +343,22 @@ def chk_flag_consume_auto():
           f"엔진 소비하나 UI/화이트리스트 없음: {hidden}" if hidden else 'OK(상시ON은 화이트리스트로 명시)')
 
 
+def chk_widget_dup():
+    """① 위젯 attr 이름 충돌 — 같은 self.chk_XXX가 QCheckBox로 2번+ 정의되면 나중 정의가
+    이겨 앞 위젯이 orphan(화면엔 보이나 참조 상실)이 된다. v19.4 chk_strike 충돌
+    (전략폭격 위젯이 '공격 임무' 위젯에 묶여 기본 OFF 계약 위반)을 잡은 검사. 3종세트
+    정규식은 문자열 존재만 봐서 이 충돌을 놓쳤다 → 위젯 정의 중복을 직접 검출."""
+    lau = rd('app_main.py')
+    defs = re.findall(r'self\.(chk_\w+)\s*=\s*QCheckBox', lau)
+    dups = sorted({n for n in defs if defs.count(n) > 1})
+    check('①', '체크박스 위젯 attr 중복정의 없음(orphan 방지)', not dups,
+          f"같은 이름으로 2번+ 정의된 위젯(하나가 orphan): {dups}" if dups
+          else f'OK({len(set(defs))}개 위젯 전부 고유명)')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
-               chk_flag_triplet, chk_flag_restore_auto, chk_flag_consume_auto,
+               chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
                chk_spec_count, chk_div_guards, chk_mc_paths,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts,
                chk_stale_filename, chk_completed_plans, chk_resource_paths):
