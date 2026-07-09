@@ -356,12 +356,35 @@ def chk_widget_dup():
           else f'OK({len(set(defs))}개 위젯 전부 고유명)')
 
 
+def chk_memory_freshness():
+    """⑥ 위생: 로컬 메모리(patch_queue.md) 재개지점 APP_VERSION vs 실제 코드 APP_VERSION.
+    메모리는 수동 갱신이라 감사·패치를 커밋한 뒤 갱신을 빠뜨리면 stale → 다음 세션의 자동
+    브리핑이 옛 상태를 정본처럼 보고한다(2026-07-09: v18.01.07 감사 완료를 patch_queue가
+    v18.01.06으로 방치→브리핑이 '감사 아직 안 함' 오보). 메모리 파일이 없는 환경(CI·
+    빌드 등)에서는 조용히 SKIP — 이 검사는 개발 머신 로컬 정합용이다."""
+    import glob
+    lau = rd('app_main.py')
+    m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)', lau)
+    appv = m.group(1) if m else None
+    cands = glob.glob(os.path.expanduser('~/.claude/projects/*/memory/patch_queue.md'))
+    if not cands or not appv:
+        return  # 로컬 메모리 없음(비-개발 환경) → SKIP
+    path = max(cands, key=os.path.getmtime)   # 여러 프로젝트면 최근 수정본
+    txt = open(path, encoding='utf-8').read()
+    pm = re.search(r'APP_VERSION\s+(v[\d.]+)', txt)   # 첫 매치=최상단 재개지점
+    memv = pm.group(1) if pm else None
+    check('⑥', '메모리 patch_queue 재개지점 버전 == 코드 APP_VERSION', memv == appv,
+          f"patch_queue={memv} vs 코드={appv} — 메모리 stale 의심(패치·감사 커밋 후 갱신 누락)"
+          if memv != appv else f"OK({memv})")
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
                chk_spec_count, chk_div_guards, chk_mc_paths,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts,
-               chk_stale_filename, chk_completed_plans, chk_resource_paths):
+               chk_stale_filename, chk_completed_plans, chk_resource_paths,
+               chk_memory_freshness):
         try:
             fn()
         except Exception as e:
