@@ -378,13 +378,44 @@ def chk_memory_freshness():
           if memv != appv else f"OK({memv})")
 
 
+def chk_session_log_fresh():
+    """⑥ 위생: SESSION_LOG.md(세션 재개 저널) 최신 항목의 HEAD 해시가 실제 git HEAD에서
+    너무 멀면(커밋 THRESH개+) 세션 매듭 갱신이 밀린 것 → 세션 완전 종료 시 새 세션 재개
+    맥락이 stale. 세션 중단 대비 3층 방어의 stale 검출층(2026-07-10 사용자 "무거워도 확실히").
+    파일 없으면 SKIP."""
+    THRESH = 10   # 세션 매듭당 갱신이라 넉넉히 — 이보다 밀리면 저널 방치
+    p = os.path.join(ROOT, 'SESSION_LOG.md')
+    if not os.path.exists(p):
+        return
+    txt = open(p, encoding='utf-8').read()
+    m = re.search(r'HEAD:\s*([0-9a-f]{7,40})', txt)   # 첫 매치 = 최신 항목
+    if not m:
+        check('⑥', 'SESSION_LOG 최신 항목 HEAD 해시 표기', False,
+              '(HEAD: <해시>) 표기 없음 — 정합 검사 불가')
+        return
+    logh = m.group(1)
+    try:
+        r = subprocess.run(['git', 'rev-list', f'{logh}..HEAD', '--count'],
+                           cwd=ROOT, capture_output=True, text=True, timeout=10)
+        cnt = int(r.stdout.strip()) if r.returncode == 0 else -1
+    except Exception:
+        cnt = -1
+    if cnt < 0:
+        check('⑥', 'SESSION_LOG 최신 해시가 git 이력에 존재', False,
+              f'{logh} rev-list 실패 — 해시 오타·조작 의심')
+    else:
+        check('⑥', f'SESSION_LOG 세션 저널 최신성(HEAD 거리 <{THRESH})', cnt < THRESH,
+              f'저널 이후 커밋 {cnt}개 — 세션 매듭 갱신 밀림(재개 맥락 stale)'
+              if cnt >= THRESH else f'OK(이후 {cnt}커밋)')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
                chk_spec_count, chk_div_guards, chk_mc_paths,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
-               chk_memory_freshness):
+               chk_memory_freshness, chk_session_log_fresh):
         try:
             fn()
         except Exception as e:

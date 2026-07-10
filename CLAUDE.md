@@ -367,6 +367,18 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 ## 개발 워크플로우
 
+### 세션 중단 대비 (완전 종료 후 재개 3층 방어)
+
+세션이 의도치 않게 **완전히 닫혀도**(크래시·사용량 한도·창 닫힘) 새 세션이 이어가게 하는 3층. 핵심 원리: **새 세션은 대화 기억이 0 — 디스크에 쓴 것(git 커밋+워킹트리 파일+메모리 .md+plan/SESSION_LOG .md)만 살아남는다.**
+
+| 층 | 무엇 | 도구/파일 |
+|----|------|-----------|
+| ① **진입점** | 새 세션 SessionStart 브리핑이 `git status`(미커밋)+`git log`+`SESSION_LOG.md`를 읽어 자동 복원. **미커밋 있으면 최우선 재개 지점**(워킹트리는 세션이 죽어도 디스크에 남음). | SessionStart 훅(`.claude/settings.local.json`) |
+| ② **맥락 저장** | `SESSION_LOG.md`(루트)에 세션 매듭마다 최신 위로 **무엇을·왜·다음·미커밋 주의** 누적. git/plan이 담는 *결과*가 아니라 **판단 맥락**. 각 항목 `(HEAD: <해시>)`. | `SESSION_LOG.md` |
+| ③ **stale 방어** | `audit_static_scan.chk_session_log_fresh`가 SESSION_LOG 최신 해시와 git HEAD 거리(커밋<10) 검사 → 저널 갱신 밀리면 경고. patch_queue 버전 정합(`chk_memory_freshness`)과 짝. | `audit_static_scan.py` |
+
+**습관(맥락 손실 최소화)**: ▸`Edit`/`Write`는 즉시 디스크라 코드는 미커밋이어도 살아남음 — *왜/다음* 맥락만 자주 flush하면 손실 최소. ▸긴 작업은 **완결 단위마다 커밋·푸시**(원격에 있으면 무엇이든 안전). ▸세션 매듭·중요 결정·규명마다 **SESSION_LOG + patch_queue 갱신**([[feedback-memory-git-source-of-truth]]). 규명은 plan 파일에.
+
 ### 모델 및 에포트 선택 기준
 
 모델 자동 전환은 불가능하므로, 전환이 필요할 때 Claude가 먼저 알리고 `/model` 명령어로 직접 변경한다.
