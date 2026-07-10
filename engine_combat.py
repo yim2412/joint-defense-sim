@@ -2004,7 +2004,7 @@ class TimeStepEngine:
             return self._primary()
         # DMO: 위협 위치에서 가까운(접근축 상) 함정에 가중 집중 → 멀리 분산된 함정은 안전
         if self.cfg.get('enable_dmo', False) and threat_pos is not None:
-            _D = self.cfg.get('dmo_spread_km', 80.0) * 1000.0 * 0.75  # 특성 감쇠거리
+            _D = max(self.cfg.get('dmo_spread_km', 80.0) * 1000.0 * 0.75, 1.0)  # 특성 감쇠거리(dmo_spread_km=0 시 0 나눗셈 방어)
             w = [s._max_hp * math.exp(-threat_pos.dist_to(s.pos) / _D) for s in alive]
             if sum(w) > 0:
                 return random.choices(alive, weights=w, k=1)[0]
@@ -4273,8 +4273,7 @@ class TimeStepEngine:
 
                 if random.random() < aam_pk:
                     et.alive = False
-                    et.intercepted = True
-                    self.stats['intercepted_threats'] += 1
+                    et.intercepted = True   # 격침 집계용(enemy_ships_destroyed) — 항공기 격추는 요격률(발사 살보 대비)에 미포함, SAM 경로(4594) 규약과 일치
                     self._log(
                         f"[CAP] {ac.name} → {et.preset_name} "
                         f"{wpn_name} 격추 (거리 {dist_threat/1000:.0f}km, {self.t:.0f}s)"
@@ -5111,7 +5110,7 @@ class TimeStepEngine:
         )
 
         intercept_rate = (
-            self.stats['intercepted_threats'] / self.stats['total_threats']
+            min(1.0, self.stats['intercepted_threats'] / self.stats['total_threats'])
             if self.stats['total_threats'] > 0 else 1.0
         )
 
@@ -6571,6 +6570,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'friendly_lost':            f_lost,
         'total_costs':              costs,
         'weapon_avg_remaining':     {k: float(np.mean(v)) for k, v in weapon_usage.items()},
+        # MC 3경로 정합: monte_carlo_v7·_mc_batch_worker가 채우는 소진율을 LHS도 제공(잔여≤0 비율)
+        'weapon_exhaustion_rates':  {k: sum(1 for x in v if x <= 0) / len(v)
+                                     for k, v in weapon_usage.items() if v},
         'ship_avg_hits':            {k: float(np.mean(v)) for k, v in ship_hits_mc.items()},
         'mean_intercept':           float(arr.mean()),
         'std_intercept':            float(arr.std()),

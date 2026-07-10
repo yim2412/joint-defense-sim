@@ -464,7 +464,10 @@ class CampaignEngine:
                 s.state = 'repair'
                 s.zone  = HOME_ZONE
                 # v18.2: 피해 심각도별 수리 기간 1~14일 (hp 낮을수록 길게)
-                days = _REPAIR_DAYS_MIN + (1.0 - s.hp_frac) * (_REPAIR_DAYS_MAX - _REPAIR_DAYS_MIN)
+                # 진입 hp(<0.4) 범위를 손상도 0~1로 정규화 — 기존 (1-hp)는 진입 조건상 최소 8.8일로 쏠려
+                # '경상 1일' 티어가 도달 불가였고 72h 전역서 복귀 분기가 미발현했다(로직 감사 발견).
+                severity = min(1.0, max(0.0, (_HP_RETREAT_FRAC - s.hp_frac) / _HP_RETREAT_FRAC))
+                days = _REPAIR_DAYS_MIN + severity * (_REPAIR_DAYS_MAX - _REPAIR_DAYS_MIN)
                 s.repair_eta_h = int(round(days * 24))
         if won:
             # 적 웨이브 격퇴(해당 zone 도달분 제거)

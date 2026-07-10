@@ -287,7 +287,7 @@ class AirCampaign:
             elif u.mission == 'SEAD':
                 self._sead_acc += u.sortie_rate / 24.0
                 n_sead += 1
-            elif u.mission == 'strike':
+            elif u.mission == 'strike' and self.strike_enabled:   # 전략폭격 OFF면 표적 없는 출격은 소티 미계상
                 self._strike_acc += u.sortie_rate / 24.0
                 n_strike += 1
             elif u.mission == 'CAS':   # v19.5: CAS는 제공권(zone_power) 무기여 — dmg 경감 레버

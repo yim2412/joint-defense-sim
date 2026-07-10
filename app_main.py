@@ -1,7 +1,14 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.07 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.15 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.08~15 — 전체 로직 감사(v7~v19) 발견 8건 수정]                       ║
+║  BUG-1  CAP 전투기의 적기 격추가 요격률에 이중 계상되던 문제 수정.           ║
+║  BUG-2  설정 복원 시 전술 모드·적/AI 전술·난이도·혼합 시나리오 누락 수정.    ║
+║  BUG-3  경상 피해 함정 수리 기간이 과도하게 길던 문제 수정(1~14일 차등).     ║
+║  BUG-4  전략폭격 미사용 시 폭격 소티 오계상·고속 MC 무기소진율 누락 수정.    ║
+║  BUG-5  광역 분산 간격 0 설정 시 계산 오류 방어.                             ║
+║  DEL-A  미사용 구 시뮬레이션 코드·폭격기 무효 플래그 정리(동작 무영향).      ║
 ║  [v18.01.07 — v19 공군 블록 종합 감사: 발견 2건 수정]                        ║
 ║  BUG-1  전략 폭격 체크박스가 다른 옵션과 이름이 겹쳐 실제로는 항상 켜진      ║
 ║         상태로 동작하던 문제 수정 — 이제 기본 OFF(체크해야 발동).            ║
@@ -1264,7 +1271,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.07"
+APP_VERSION = "v18.01.15"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6915,6 +6922,22 @@ class MainWindow(QMainWindow):
                                 ('chk_ashore', 'enable_ashore', False)]:
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, dflt))
+        # 전술 모드·적/AI 전술·난이도·혼합 시나리오 복원 — 빌드엔 있으나 복원 누락됐던 5종(로직 감사 발견, 재현성)
+        if hasattr(self, 'chk_tactical'):
+            self.chk_tactical.setChecked(cfg.get('tactical_mode', False))
+        if hasattr(self, 'cmb_difficulty') and cfg.get('enemy_fleet_difficulty'):
+            self.cmb_difficulty.setCurrentText(cfg['enemy_fleet_difficulty'])
+        if hasattr(self, 'cmb_mixed_scenario') and cfg.get('mixed_scenario'):
+            self.cmb_mixed_scenario.setCurrentText(cfg['mixed_scenario'])
+        if hasattr(self, 'cmb_enemy_tactics'):
+            self.cmb_enemy_tactics.setCurrentText(
+                {None: '없음', 'v_formation': 'V자 대형', 'encirclement': '포위 기동'}
+                .get(cfg.get('enemy_tactics'), '없음'))
+        if hasattr(self, 'cmb_ai_tactic'):
+            self.cmb_ai_tactic.setCurrentText(
+                {None: '없음', 'saturation': '채널 포화', 'stagger': '시차 공격',
+                 'exploit_weakness': '약점 공략', 'adaptive': '적응형(자동)'}
+                .get(cfg.get('ai_tactic'), '없음'))
         self._lbl_status.setText("✅ 설정 복원 완료")
 
 
