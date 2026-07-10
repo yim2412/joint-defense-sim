@@ -3922,6 +3922,11 @@ class TimeStepEngine:
         weather = self.cfg.get('weather', '맑음 (주간)')
 
         for ac in self.aircraft:
+            # CAP 전투기·정찰기는 대잠 무장이 없다 — ASW 순회에서 제외한다. 미제외 시
+            # 공대공 payload(KF-21 'IRIS-T SL')를 어뢰로 FRIENDLY_DB 조회 → KeyError 크래시
+            # (잠수함 위협이 CAP 탐지권에 든 편성·시드에서만 발현). 대잠은 헬기·초계기만.
+            if ac.info.get('aircraft_role') in ('cap', 'recon'):
+                continue
             if ac.payload_remaining <= 0:
                 continue
             if self.t < ac.t_available:

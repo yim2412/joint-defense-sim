@@ -54,6 +54,10 @@ CASES = [
                              enable_strike=True, haesong2_stock=16, harpoon_stock=8,
                              enable_kf21=True, enable_helo=True),                                            [7]),
     ('잠수함복합',      dict(_BASE, fleet_preset='대잠전단',        enemy_fleet_preset='잠수함 복합 포화'),  [4, 5]),
+    # CAP(KF-21)+잠수함 동시 편성 — CAP기가 ASW 순회에 잘못 들어가 공대공 무장을 어뢰로
+    # 조회하던 KeyError 크래시(v18.01.16)를 회귀가 앞으로 자동 차단하도록 커버(크래시 재현 시드).
+    ('3축+CAP잠수함',   dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='중국 3축 동시 공격',
+                             enable_kf21=True, enable_helo=True),                                         [2, 5]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
