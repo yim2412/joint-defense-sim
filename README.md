@@ -163,6 +163,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `_asset_make_bg.py` | 홈 배경 이미지 생성 |
 | `_changelog_export.py` | app_changelog.json → `변경이력/` 유형별 정리 문서 생성 |
 | `asset_download_images.py` | DB 장비 사진 일괄 수집 |
+| `_bg_wait.sh` · `_bg_res.py` | 백그라운드 작업 1분 진행 보고 헬퍼(타임박스 폴링 + 작업 트리 전용 CPU/RAM 격리 측정) |
 
 ### 디렉터리
 | 경로 | 역할 |
