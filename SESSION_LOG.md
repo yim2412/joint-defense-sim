@@ -13,19 +13,23 @@
 
 ---
 
-## [2026-07-10] 깊은 감사 → 자동 그물 강화 A~D → 백그라운드 개선 → 재개 인프라  (HEAD: ed85d09)
+## [2026-07-10] 깊은 감사 → 그물 강화 A~D → 백그라운드 박스 → 재개 인프라 → 정밀화 백로그  (HEAD: 606d78a)
 
 - **무엇을**:
   - 깊은 로직 감사 발견 8건 전부 수정 (v18.01.08~15).
   - 자동 오류탐지 그물 강화 **A~D**: A=회귀 골든 커버리지(8→10케이스)·B=`audit_fuzz.py`(수치키 극단값)·D=`audit_pairwise.py`(토글 쌍)·C=`_audit_deep_review.md`(4팬아웃 감사 레시피).
   - 강화 중 **실크래시 발견·수정**: KF-21이 대잠 초계에 오배정돼 `IRIS-T SL` KeyError (v18.01.16).
-  - 백그라운드 진행 박스 **v2**: winpid PID 트리 격리 CPU/RAM + 로그단계 진행바 (`_bg_res.py`·`_bg_wait.sh`).
+  - 백그라운드 진행 박스 **v2 + 고정 10필드 통일**: winpid PID 트리 격리 CPU/RAM·로그단계 진행바(`_bg_res.py`·`_bg_wait.sh`), 시작 박스부터 같은 필드(작업별 라벨 흔들림 교정), 트리거=예상 1분 초과면 전부 박스.
   - CAP 공대공 요격 조사 → **B로 분리** (`plan_cap_air_engagement.md`).
+  - **세션 중단 대비 3층 방어** 구축: SessionStart 브리핑에 `git status` 미커밋 감지·`SESSION_LOG.md` 신설·`chk_session_log_fresh`(정적 39항목).
+  - **정밀화 개선 백로그** 전수 수집 (`plan_precision_upgrades.md`, 높음 A1·중 6·하 13, 무의미 2 제외).
 - **왜(판단 맥락)**:
   - A~D는 "자동으로 찾아주는 기능 강화" 요청. 순서 A→B→D→C(즉효→도구→pairwise→큰투자).
   - CAP: `aircraft_sorties=0`이 단순 계상버그가 아니라 **CAP 공대공이 죽은 경로**(t_available 1200s+standoff)로 드러남. 살리려면 상시초계(60s) 밸런스 변경=기준값·골든 대거갱신 → 서두르지 않고 규명만 plan에 남기고 분리.
   - 재개 인프라: "세션 완전 종료 후 이어가기"는 디스크에 쓴 것만 살아남음 → git status 브리핑 감지 + 이 저널 + 도구 정합검사 3층으로.
-- **다음**:
-  - 로드맵 **v20.1 지상군**(별도 엔진, Opus/high) 또는 **B(CAP 공대공)**.
-  - 경미 숙제: fuzz·pairwise **전장·캠페인 경로** 미커버(단발만)·pairwise triple+ 미커버.
-- **미커밋 주의**: 없음(git clean 목표). CAP 착수분은 되돌리고 규명은 `plan_cap_air_engagement.md`에.
+- **다음** (전부 "다른 세션에" — 사용자 지시 2026-07-10, 이번 세션은 여기서 매듭):
+  - **v20.1 지상군**(로드맵 다음 major, 별도 엔진, Opus/high).
+  - **B — CAP 공대공 정상화**(`plan_cap_air_engagement.md`, 밸런스 변경).
+  - **정밀화 백로그 A1**(`plan_precision_upgrades.md`, 캠페인 정밀 교전 — 유일 고가치).
+  - 경미 숙제: fuzz·pairwise **전장·캠페인 경로** 미커버(단발만)·pairwise triple+.
+- **미커밋 주의**: 없음(git clean·전부 푸시). CAP 착수분은 되돌렸고 규명은 `plan_cap_air_engagement.md`에.
