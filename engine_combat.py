@@ -6044,7 +6044,10 @@ class BattleEngine(TimeStepEngine):
         if self._attr_active:
             self._attrition_update()
             x = (1.0 - self._en_frac) - (1.0 - self._fr_frac)    # 적손실율 - 아군손실율
-            attr_prog_f = 1.0 / (1.0 + math.exp(-self._attr_k * x))
+            # exp 인자 clamp: attr_k 극단값(경계 fuzzing)에서 math.exp 오버플로 방지.
+            # 정상값(attr_k≈5, x∈[-1,1])에선 무영향 — z∈[-5,5]가 [-700,700] 안.
+            _z = max(-700.0, min(700.0, self._attr_k * x))
+            attr_prog_f = 1.0 / (1.0 + math.exp(-_z))
             en_wiped = self._en_frac <= 0.0
             fr_wiped = self._fr_frac <= 0.0
         # v15.07.03: 자원 지속성 — 탄약·연료 최저 잔여비
@@ -6119,6 +6122,9 @@ class BattleEngine(TimeStepEngine):
         ew = sum(ob.weight for ob in self.objectives if ob.side == 'enemy') or 1.0
         f  = sum(ob.weight * ob.progress for ob in self.objectives if ob.side == 'friendly') / fw
         e  = sum(ob.weight * ob.progress for ob in self.objectives if ob.side == 'enemy') / ew
+        # 점수 [0,1] clamp: weight 극단값(음수 등, 경계 fuzzing)에서 점수 범위 이탈 방지.
+        # 정상값(양수 weight, progress∈[0,1])에선 이미 [0,1]이라 무영향.
+        f = min(1.0, max(0.0, f)); e = min(1.0, max(0.0, e))
         margin = float(self.cfg.get('battle_draw_margin', 0.1))
         if   f - e >  margin: outcome = 'win'
         elif e - f >  margin: outcome = 'loss'
