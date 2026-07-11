@@ -123,6 +123,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 |------|------|
 | `app_changelog.json` | 패치 이력 |
 | `audit_regression_golden.json` | 회귀 검증 기준값 (고정 시나리오 결과) |
+| `audit_perf_baseline.json` | 성능 회귀 가드 기준값 (경로별 실행시간) |
 | `forecast_surrogate.json` | 실행 전 예상 전황 룩업 테이블 |
 | `ai_rl_policy.npz` | 학습된 AI 전술 정책 가중치 |
 | `app_main.spec` | PyInstaller 빌드 스펙 |
@@ -135,7 +136,10 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `audit_property.py` | 속성 기반 감사 — 불변식(확률[0,1]·합=1·NaN 0·보존식·경계) 랜덤 검증 (독립 오라클) |
 | `audit_effect.py` | 토글 효과 검증 — 효과 입증 시나리오에서 ON/OFF 델타로 죽은 토글 탐지 |
 | `audit_fuzz.py` | 수치 cfg 키 경계값 fuzzing — 극단값(0·음수·거대값) 자동 주입으로 크래시·NaN·확률범위 위반 탐지 |
-| `audit_pairwise.py` | 토글 쌍(pairwise) 조합 상호작용 감사 — 엔진 소비 토글 전수 쌍을 ON으로 단발 실행해 크래시·NaN·보존식 위반 탐지 |
+| `audit_pairwise.py` | 토글 쌍(pairwise) 조합 상호작용 감사 — 엔진 소비 토글 전수 쌍을 ON으로 단발·전장·캠페인 실행해 크래시·NaN·보존식 위반 탐지 |
+| `audit_perf.py` | 실행시간 회귀 가드 — 단발·전장·캠페인 실행시간을 기준 대비 측정해 급증(1.5배+) 탐지 |
+| `_audit_nightly.sh` | 야간 자동 감사 러너 — 정적+회귀+속성+fuzz+pairwise+성능을 순차 실행해 로그 누적 (schtasks 등록) |
+| `_bg_launch.sh` | 백그라운드 작업 표준 런처 — winpid·시작시각 자동 기록(리소스 격리) |
 | `_audit_roundtrip.py` | 설정 저장/복원 round-trip 런타임 감사 (offscreen Qt, 복원 누락 근본 차단) |
 | `_audit_render_smoke.py` | 결과 탭 렌더 크래시 테스트 (헤드리스, 9개 차트 함수 실제+엣지 데이터) |
 | `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
