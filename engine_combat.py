@@ -502,6 +502,9 @@ _AIRCRAFT_V7_SORTIE = {
     # 전개 대기시간을 짧게 둬 교전 초반부터 함대 탐지를 확장한다(장기체공 UAV 특성).
     'RQ-101 송골매':   60,    # 근접 전방기지 발진, 1분
     'MQ-9B 시가디언':  0,     # 장기체공 — 교전 개시 시점에 이미 초계 중
+    # v18.01.18: CAP 전투기(role=='cap')는 이 목록에 없어도 FriendlyAircraftObj.__init__에서
+    # 항모전단 상시 공중초계(24/7 on-station) 교리로 60s 기본값을 받는다. 평시 대기시간을
+    # 그대로 두면 적기 종말 교전창(~236s)을 놓쳐 공대공이 죽은 경로가 되므로 role 기준 일반화.
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1309,7 +1312,10 @@ class FriendlyAircraftObj:
         self.info              = FRIENDLY_AIRCRAFT_DB[name]
         self.home_pos          = home_pos.copy()
         # BUG-7: v7 시뮬(700초)에 맞는 전시 긴급 출격 시간 적용 (engine_core.py 평시값 무시)
-        self.t_available       = float(_AIRCRAFT_V7_SORTIE.get(name, self.info['sortie_time_s']))
+        # v18.01.18: CAP 전투기는 항모전단 상시 공중초계 교리라 기종별 목록에 없어도 60s 기본값
+        # (평시값으로 폴백하면 적기 종말 교전창을 놓쳐 공대공이 죽은 경로가 되는 재발 방지).
+        _cap_default = 60.0 if self.info.get('aircraft_role') == 'cap' else self.info['sortie_time_s']
+        self.t_available       = float(_AIRCRAFT_V7_SORTIE.get(name, _cap_default))
         self.payload_remaining = self.info['payload_cnt']
         # v10.6: 공대함 strike payload (KF-21 해성-II 등)
         self.strike_payload_remaining = self.info.get('cap_strike_payload_cnt', 0)
@@ -4274,6 +4280,7 @@ class TimeStepEngine:
                     continue
 
                 ac.payload_remaining -= 1
+                ac.sorties += 1   # v18.01.18: BVR 교전 = 출격 계상(헬기 _asw_detect_check 4121과 대칭)
                 ac.total_cost += ac.info['cost_usd'] / max(ac.info['payload_cnt'], 1)
 
                 if random.random() < aam_pk:

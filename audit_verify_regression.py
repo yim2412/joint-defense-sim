@@ -58,6 +58,11 @@ CASES = [
     # 조회하던 KeyError 크래시(v18.01.16)를 회귀가 앞으로 자동 차단하도록 커버(크래시 재현 시드).
     ('3축+CAP잠수함',   dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='중국 3축 동시 공격',
                              enable_kf21=True, enable_helo=True),                                         [2, 5]),
+    # v18.01.18: CAP 공대공 상시초계(60s) 정상화로 aircraft_sorties 발현 — 죽어있던
+    # 공대공 격추 경로를 골든에 봉인(sorties>0·적기 격추 반영). 랴오닝 항모전단 vs
+    # 이지스 기동전단 + F-35A/KF-21/FA-50 3기종에서 항공 요격이 확실히 발현하는 시드.
+    ('CAP상시초계',     dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='랴오닝 항모전단',
+                             enable_f35a=True, enable_kf21=True, enable_fa50=True, enable_helo=True),     [2, 3]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
