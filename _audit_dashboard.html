@@ -1,0 +1,265 @@
+<title>감사 그물 현황판 — 합동 통합방어 시뮬레이터</title>
+<style>
+  :root {
+    --ground: #eef1f6;
+    --panel: #ffffff;
+    --panel-2: #f6f8fc;
+    --ink: #16202e;
+    --ink-soft: #4a5a70;
+    --ink-faint: #7b8aa0;
+    --line: #d6deea;
+    --accent: #0f8fa6;
+    --accent-soft: #d3ecf1;
+    --good: #1f9d57;
+    --good-bg: #dbf1e4;
+    --warn: #c07d16;
+    --warn-bg: #f6e8cf;
+    --crit: #c33a4e;
+    --crit-bg: #f6dbe0;
+    --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", "Consolas", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0c1119;
+      --panel: #131b27;
+      --panel-2: #0f1721;
+      --ink: #e6edf6;
+      --ink-soft: #a3b1c6;
+      --ink-faint: #6c7d95;
+      --line: #24303f;
+      --accent: #45c1d6;
+      --accent-soft: #16323b;
+      --good: #43c07b;
+      --good-bg: #14301f;
+      --warn: #e0a94a;
+      --warn-bg: #322611;
+      --crit: #e2687a;
+      --crit-bg: #331820;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #eef1f6; --panel: #ffffff; --panel-2: #f6f8fc; --ink: #16202e;
+    --ink-soft: #4a5a70; --ink-faint: #7b8aa0; --line: #d6deea; --accent: #0f8fa6;
+    --accent-soft: #d3ecf1; --good: #1f9d57; --good-bg: #dbf1e4; --warn: #c07d16;
+    --warn-bg: #f6e8cf; --crit: #c33a4e; --crit-bg: #f6dbe0;
+  }
+  :root[data-theme="dark"] {
+    --ground: #0c1119; --panel: #131b27; --panel-2: #0f1721; --ink: #e6edf6;
+    --ink-soft: #a3b1c6; --ink-faint: #6c7d95; --line: #24303f; --accent: #45c1d6;
+    --accent-soft: #16323b; --good: #43c07b; --good-bg: #14301f; --warn: #e0a94a;
+    --warn-bg: #322611; --crit: #e2687a; --crit-bg: #331820;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 64px; }
+
+  /* ── 헤더 ── */
+  .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 6px;
+  }
+  h1 { font-size: clamp(26px, 4vw, 38px); margin: 0; letter-spacing: -0.02em; text-wrap: balance; font-weight: 680; }
+  .sub { color: var(--ink-soft); margin: 8px 0 0; font-size: 15px; max-width: 60ch; }
+  .stamp {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
+    text-align: right; white-space: nowrap; padding-top: 6px; line-height: 1.7;
+  }
+  .stamp b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ── 종합 판정 바 ── */
+  .verdict {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--good);
+    border-radius: var(--radius); padding: 18px 22px; margin: 24px 0 32px;
+  }
+  .verdict-badge {
+    font-family: var(--mono); font-weight: 700; font-size: 13px; letter-spacing: 0.06em;
+    color: var(--good); background: var(--good-bg); padding: 6px 12px; border-radius: 6px; white-space: nowrap;
+  }
+  .verdict-text { font-size: 15px; color: var(--ink-soft); flex: 1; min-width: 240px; }
+  .verdict-text strong { color: var(--ink); font-weight: 640; }
+
+  /* ── 섹션 ── */
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-faint);
+    margin: 40px 0 16px; font-weight: 700; display: flex; align-items: center; gap: 10px;
+  }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* ── 감사 그물 카드 ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .card-name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+  .pill {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+  }
+  .pill.ok { color: var(--good); background: var(--good-bg); }
+  .pill.watch { color: var(--warn); background: var(--warn-bg); }
+  .card-desc { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+  .metric { display: flex; align-items: baseline; gap: 8px; }
+  .metric .num {
+    font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+  .metric .unit { font-size: 12.5px; color: var(--ink-faint); }
+  .paths { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .tag {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
+  }
+  .tag.new { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ── 성능 테이블 ── */
+  .perf { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); font-weight: 700; background: var(--panel-2); }
+  tr:last-child td { border-bottom: none; }
+  td.ms { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }
+  td .bar { display: inline-block; height: 7px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-left: 10px; }
+
+  /* ── 3층 구조 ── */
+  .layers { display: grid; gap: 12px; }
+  .layer {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px;
+  }
+  .layer-n {
+    font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--accent);
+    width: 34px; height: 34px; display: grid; place-items: center;
+    background: var(--accent-soft); border-radius: 8px;
+  }
+  .layer-body h3 { margin: 0 0 3px; font-size: 15px; font-weight: 640; }
+  .layer-body p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+  .layer-weight { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; }
+
+  /* ── 사각 ── */
+  .blind {
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    border-radius: var(--radius); padding: 18px 22px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  }
+  .blind .big { font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--warn); }
+  .blind p { margin: 0; font-size: 13.5px; color: var(--ink-soft); flex: 1; min-width: 260px; }
+
+  footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-faint); font-family: var(--mono); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">◆ 감사 인프라 현황판</p>
+      <h1>감사 그물 현황판</h1>
+      <p class="sub">합동 통합방어 시뮬레이터의 자동 오류 탐지 그물 — 정적·회귀·속성·경계·상호작용·성능 6층이 코드 무결성을 상시 감시한다.</p>
+    </div>
+    <div class="stamp">
+      기준 <b>v18.01.17</b><br>
+      2026-07-11<br>
+      브랜치 <b>main</b>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <span class="verdict-badge">✓ 전부 PASS</span>
+    <span class="verdict-text"><strong>6개 감사 경로 모두 통과.</strong> 야간 러너 종합 판정 정상 — 크래시·NaN·확률 범위 위반·성능 회귀 0건.</span>
+  </div>
+
+  <h2>감사 그물 6층</h2>
+  <div class="grid">
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_static_scan</span><span class="pill ok">40/40</span></div>
+      <p class="card-desc">위생·정합 정적 스캔. 3종세트·MC 3경로·db_specsheet·README·메모리 신선도 등 자동 검사.</p>
+      <div class="metric"><span class="num">40</span><span class="unit">항목 전수 PASS</span></div>
+      <div class="paths"><span class="tag new">+ 골든 커버리지 체크</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_verify_regression</span><span class="pill ok">PASS</span></div>
+      <p class="card-desc">고정 시나리오×시드 결과를 골든값과 대조 — 엔진 동작의 조용한 변화를 차단.</p>
+      <div class="metric"><span class="num">10×26</span><span class="unit">케이스 × 지표</span></div>
+      <div class="paths"><span class="tag">단발</span><span class="tag">CAP·잠수함 크래시 시드</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_property</span><span class="pill ok">PASS</span></div>
+      <p class="card-desc">독립 오라클 — 확률∈[0,1]·합=1·NaN 0·보존식을 랜덤 입력 수십 케이스로 검증.</p>
+      <div class="metric"><span class="num">45</span><span class="unit">불변식 케이스</span></div>
+      <div class="paths"><span class="tag">단발</span><span class="tag">전장</span><span class="tag">캠페인</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_fuzz</span><span class="pill ok">PASS</span></div>
+      <p class="card-desc">수치 cfg 키에 극단값(0·음수·거대값) 자동 주입 — 경계에서만 터지는 방어 부재 발굴.</p>
+      <div class="metric"><span class="num">33×3</span><span class="unit">키 × 극단값 / 경로</span></div>
+      <div class="paths"><span class="tag">단발</span><span class="tag new">+ 전장</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_pairwise</span><span class="pill ok">PASS</span></div>
+      <p class="card-desc">엔진 소비 토글 전수 쌍을 각각 ON으로 실행 — 상호작용 크래시·보존식 위반 탐지.</p>
+      <div class="metric"><span class="num">1,812</span><span class="unit">토글 쌍</span></div>
+      <div class="paths"><span class="tag">단발 903</span><span class="tag new">+ 전장 903</span><span class="tag new">+ 캠페인 6</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-name">audit_perf</span><span class="pill ok">PASS</span></div>
+      <p class="card-desc">경로별 실행시간을 기준 대비 측정 — 급증(1.5배+) 시 성능 회귀·비효율 조기 포착.</p>
+      <div class="metric"><span class="num">1.5×</span><span class="unit">회귀 임계</span></div>
+      <div class="paths"><span class="tag new">신규</span><span class="tag">3경로 기준선</span></div>
+    </div>
+
+  </div>
+
+  <h2>경로별 실행시간 기준선</h2>
+  <div class="perf">
+    <table>
+      <thead><tr><th>교전 경로</th><th style="text-align:right">중앙값</th><th style="width:44%">상대</th></tr></thead>
+      <tbody>
+        <tr><td>단발 (run_v7_simulation · 입체 포화)</td><td class="ms">558.7 ms</td><td><span class="bar" style="width:100%"></span></td></tr>
+        <tr><td>전장 (run_battle_simulation · 랴오닝)</td><td class="ms">89.0 ms</td><td><span class="bar" style="width:16%"></span></td></tr>
+        <tr><td>캠페인 (run_campaign · 즉시예측)</td><td class="ms">58.3 ms</td><td><span class="bar" style="width:10.4%"></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>감사 3층 구조 — 무게별</h2>
+  <div class="layers">
+    <div class="layer">
+      <span class="layer-n">1</span>
+      <div class="layer-body"><h3>마이너 감사</h3><p>마이너 버전마다 — 회귀 검증 + 변경 유형에 맞는 코드·수치 감사.</p></div>
+      <span class="layer-weight">가벼움 · 매번</span>
+    </div>
+    <div class="layer">
+      <span class="layer-n">2</span>
+      <div class="layer-body"><h3>경량 점검</h3><p>마이너 묶음 완료 시 — 정적 스캔 + 회귀 + 빌드·스모크(자동만).</p></div>
+      <span class="layer-weight">중간 · 묶음 단위</span>
+    </div>
+    <div class="layer">
+      <span class="layer-n">3</span>
+      <div class="layer-body"><h3>종합 9영역</h3><p>major 전환 직전 — 코드·DB·회귀·MC·exe·위생·하위호환·수치·리소스 통합 점검.</p></div>
+      <span class="layer-weight">무거움 · major 단위</span>
+    </div>
+  </div>
+
+  <h2>자동화 · 열린 사각</h2>
+  <div class="blind">
+    <span class="big">7</span>
+    <p><strong>BLIND_SPOTS.md에 관리 중인 열린 사각 7건.</strong> 야간 러너(<span style="font-family:var(--mono)">_audit_nightly.sh</span>)가 6층 감사를 순차 실행해 <span style="font-family:var(--mono)">감사야간로그/</span>에 누적하며, 세션 시작 브리핑이 간밤 FAIL을 확인한다.</p>
+  </div>
+
+  <footer>합동 통합방어 시뮬레이터 · 감사 인프라 현황 스냅샷 · plan_workflow_upgrades ①~⑥</footer>
+</div>
