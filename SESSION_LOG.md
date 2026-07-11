@@ -13,7 +13,20 @@
 
 ---
 
-## [2026-07-12] 트랙 ⑤ 정밀화 A1 — 캠페인 정밀 교전 (v18.02.01)  (HEAD: 커밋대기)
+## [2026-07-12] E1 캠페인 MC 병렬화 (v18.02.02)  (HEAD: 커밋대기)
+
+- **무엇을**: monte_carlo_campaign을 멀티프로세스 병렬화(ProcessPoolExecutor, 워커
+  initializer로 forecast_model.pkl 1회 로드). A1 정밀 MC 실용화가 목적. seed 독립이라
+  순차와 집계 bit-identical 검증 완료. 임계 차등: 정밀 ON n≥8·OFF n≥64(정밀 OFF는 개별
+  ~85ms라 spawn 오버헤드로 병렬이 오히려 느림을 실측 발견 → 차등화).
+- **왜**: "v20 전 남은 것 다" 지시. A1(⑤) 후속. run_campaign 무수정(MC 집계만)이라 회귀 무영향.
+- **다음**: **⑥ 사용자 백로그 — 시나리오 저장/불러오기**. 과거 v7.25 DEL-B로 삭제됐으나
+  당시 UI 단순화 결정(기능결함 아님), 지금 _build_cfg_from_ui·_restore_cfg 인프라 완비라
+  견고 재구현. 영어화·릴리스exe는 v20전 마무리서 제외(장기·외부노출보류).
+- **미검증**: exe 캠페인 MC 병렬(전술 MC ProcessPoolExecutor 선례로 낮은 리스크)=감사개선 숙제.
+- **미커밋 주의**: 이 커밋으로 E1 반영. dist 재빌드 완료(EXIT0)·스모크 PASS.
+
+## [2026-07-12] 트랙 ⑤ 정밀화 A1 — 캠페인 정밀 교전 (v18.02.01)  (HEAD: b7449cd)
 
 - **무엇을**: 캠페인 교전을 학습 대리모델 근사 대신 **실제 전술 단발(run_v7_simulation)로
   해결**(하이브리드: 적 규모≥3만 정밀·소규모 대리모델). `enable_precise_engagement` 3종세트

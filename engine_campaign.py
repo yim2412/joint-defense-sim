@@ -667,27 +667,77 @@ def run_campaign(cfg: dict, step_cb=None, model=None) -> dict:
     return result
 
 
+# E1: 캠페인 MC 병렬화 임계 — 정밀 여부로 차등.
+#   정밀 ON은 개별 캠페인이 수백ms~수초(전술 단발 반복)라 n≥8부터 병렬 이득이 크다.
+#   정밀 OFF(대리모델)는 개별 ~85ms로 빨라, Windows spawn+pkl 3.1MB 워커 로드 오버헤드가
+#   커서 n≥64는 돼야 병렬이 순차를 앞선다(실측: 정밀OFF n=20은 순차1.7s<병렬4.5s).
+_MC_PARALLEL_MIN_PRECISE = 8    # 정밀 ON 병렬 임계
+_MC_PARALLEL_MIN_PROXY   = 64   # 대리모델 병렬 임계
+# 병렬 집계에 쓰는 축소 키(워커→메인 직렬화 최소화 — engagements 리스트 등 대형 필드 제외)
+_MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total',
+                'n_reassign', 'n_reroute', 'n_missed', 'end_h', 'n_precise')
+
+# ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
+_MC_WORKER_MODEL = None
+
+
+def _campaign_mc_init():
+    """병렬 MC 워커 초기화 — forecast_model.pkl을 프로세스당 1회 로드."""
+    global _MC_WORKER_MODEL
+    _MC_WORKER_MODEL = load_forecast_model()
+
+
+def _campaign_mc_worker(args: tuple) -> dict:
+    """병렬 MC 워커 — seed 1개 캠페인 실행 후 집계에 필요한 축소 dict만 반환(직렬화 경량화).
+    PyQt6 비의존 순수 함수(전술 _mc_batch_worker 선례)."""
+    cfg, seed = args
+    r = run_campaign(dict(cfg, campaign_seed=seed), model=_MC_WORKER_MODEL)
+    out = {k: r.get(k, 0) for k in _MC_ACC_KEYS}
+    out['outcome'] = r.get('outcome', 'loss')
+    return out
+
+
 def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dict:
     """v18.6: 작전급 캠페인 N회 반복(seed 0…N-1 스윕) → outcome 분포·통제도·비용 통계.
     개별 교전이 즉시예측(~ms)이라 수백~천 회도 수초~수분. 모델을 1회 로드해 공유하고
     (3.1MB pkl 반복 로드 방지) run_campaign을 시드만 바꿔 호출한다. 전술 MC(monte_carlo_v7
     ·_mc_batch_worker·monte_carlo_lhs)와 완전 별개 — 캠페인 전용 집계."""
     if model is None:
-        model = load_forecast_model()
+        model = load_forecast_model()   # 판정·순차용. 병렬 워커는 initializer로 자체 재로드.
     n = max(1, int(n))
     outcomes = {'win': 0, 'draw': 0, 'loss': 0}
-    _acc_keys = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total',
-                 'n_reassign', 'n_reroute', 'n_missed', 'end_h')
-    acc = {k: 0.0 for k in _acc_keys}
+    acc = {k: 0.0 for k in _MC_ACC_KEYS}
     ctrl_list = []
-    for i in range(n):
-        r = run_campaign(dict(cfg, campaign_seed=i), model=model)
+
+    def _accumulate(r):
         outcomes[r['outcome']] = outcomes.get(r['outcome'], 0) + 1
-        for k in _acc_keys:
+        for k in _MC_ACC_KEYS:
             acc[k] += float(r.get(k, 0) or 0)
         ctrl_list.append(float(r.get('mean_control', 0.0)))
-        if progress_cb and (i % 10 == 0 or i == n - 1):
-            progress_cb(i + 1, n)
+
+    # E1: n이 크면 멀티프로세스 병렬(seed 독립 → 순차와 집계 동일, 정밀 교전 ON 시 큰 이득).
+    #     작으면 순차(spawn 오버헤드 회피). progress_cb는 완료 순서로 보고(무순 집계라 무방).
+    parallel_min = (_MC_PARALLEL_MIN_PRECISE
+                    if cfg.get('enable_precise_engagement', False)
+                    else _MC_PARALLEL_MIN_PROXY)
+    if n >= parallel_min:
+        import os
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        n_workers = min(os.cpu_count() or 4, 8)
+        done = 0
+        with ProcessPoolExecutor(max_workers=n_workers,
+                                 initializer=_campaign_mc_init) as pool:
+            futs = [pool.submit(_campaign_mc_worker, (cfg, i)) for i in range(n)]
+            for fut in as_completed(futs):
+                _accumulate(fut.result())
+                done += 1
+                if progress_cb and (done % 10 == 0 or done == n):
+                    progress_cb(done, n)
+    else:
+        for i in range(n):
+            _accumulate(run_campaign(dict(cfg, campaign_seed=i), model=model))
+            if progress_cb and (i % 10 == 0 or i == n - 1):
+                progress_cb(i + 1, n)
     inv = 1.0 / n
     mean_ctrl = acc['mean_control'] * inv
     var = sum((c - mean_ctrl) ** 2 for c in ctrl_list) * inv
@@ -710,6 +760,8 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         'n_reroute_avg':   round(acc['n_reroute'] * inv, 2),
         'n_missed_avg':    round(acc['n_missed'] * inv, 2),
         'end_h_avg':       round(acc['end_h'] * inv, 1),
+        'n_precise_avg':   round(acc['n_precise'] * inv, 2),   # E1/A1: 평균 정밀 교전 수
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
+        'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)
     }
