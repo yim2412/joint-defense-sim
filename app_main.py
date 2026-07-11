@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.18 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.01.19 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.01.19 — 피아식별 오류(IFF) 정규 기능 승격]                            ║
+║  MOD-A  다축 대량 포화에서 IFF 오사·교전 지연이 확실히 발현함을 확인해       ║
+║         '실험적' 표기 제거(요격률 76→65%·오사 평균 1.5건, 기본 OFF 유지).    ║
 ║  [v18.01.18 — 공군 CAP 상시 공중초계 정상화(공대공 요격 발현)]              ║
 ║  BUG-1  한국 공군 CAP 전투기(F-35A·KF-21·FA-50)가 평시 출격 대기시간에      ║
 ║         묶여 적기 종말 교전창을 놓쳐 공대공 요격이 전혀 발현되지 않던 문제   ║
@@ -1282,7 +1285,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.18"
+APP_VERSION = "v18.01.19"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7584,12 +7587,12 @@ class MainWindow(QMainWindow):
         self.chk_weather_dyn.toggled.connect(_on_weather_dyn_toggled)
         _on_weather_dyn_toggled(False)
 
-        self.chk_iff = QCheckBox("피아식별 오류 (실험적)")
+        self.chk_iff = QCheckBox("피아식별 오류")
         self.chk_iff.setToolTip(
             "v12.6 — IFF(피아식별) 실패 확률을 교전에 반영합니다.\n"
             "C&D 결심 후 IFF 판정 실패 시 15초 재확인 대기. ECM 재밍·혼잡 교전 시 확률↑\n"
             "CAP 전투기 운용 중 IFF 실패가 누적되면 아군 오사(오인 발사) 발생 가능.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_iff.setChecked(False)
 
