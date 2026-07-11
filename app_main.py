@@ -1,7 +1,10 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.02.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.02.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.02.03 — 시나리오 저장·불러오기]                                        ║
+║  NEW-A  현재 설정(편대·날씨·모든 토글)을 JSON 파일로 저장하고 다시 불러와    ║
+║         복원 — 설정 재현·공유. 실행 버튼 아래 [저장]·[불러오기] 버튼.        ║
 ║  [v18.02.02 — 작전급 캠페인 반복 분석 병렬 가속]                             ║
 ║  NEW-A  캠페인 반복 분석(몬테카를로)을 멀티프로세스 병렬 실행 — 정밀 교전    ║
 ║         반복이 여러 CPU 코어로 분산돼 대량 반복도 실용 시간에. 결과 동일.    ║
@@ -1292,7 +1295,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.02.02"
+APP_VERSION = "v18.02.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -8245,6 +8248,25 @@ class MainWindow(QMainWindow):
             self.btn_run.setEnabled(False)
         mcl.addWidget(self.btn_run)
 
+        # 시나리오 저장/불러오기 (사용자 백로그 4) — 현재 설정 전체를 JSON으로 저장·복원.
+        # _build_cfg_from_ui/_restore_cfg 인프라 재사용(설정 재현·공유).
+        _scn_row = QHBoxLayout()
+        self.btn_save_scenario = QPushButton("💾 시나리오 저장")
+        self.btn_load_scenario = QPushButton("📂 시나리오 불러오기")
+        for _b in (self.btn_save_scenario, self.btn_load_scenario):
+            _b.setFixedHeight(26)
+            _b.setFont(QFont('Malgun Gothic', 10))
+            _b.setStyleSheet(
+                f"QPushButton{{background:{C_PANEL};color:{C_TEXT};"
+                f"border:1px solid {C_BORDER};border-radius:6px;}}"
+                f"QPushButton:hover{{background:{C_BORDER};}}")
+            _scn_row.addWidget(_b)
+        self.btn_save_scenario.setToolTip("현재 설정(편대·날씨·모든 토글)을 JSON 파일로 저장합니다.")
+        self.btn_load_scenario.setToolTip("저장한 JSON 시나리오를 불러와 설정을 복원합니다.")
+        self.btn_save_scenario.clicked.connect(self._save_scenario)
+        self.btn_load_scenario.clicked.connect(self._load_scenario)
+        mcl.addLayout(_scn_row)
+
         # ── 하단 섹션 hover 팝업 일괄 설치 ──────────────────────────────
         _bot_popup = _HoverPopup(self)
         for _g in [grp_env, grp_def, grp_bmd, grp_cd, grp_ac, grp_mc]:
@@ -9464,6 +9486,41 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(STYLE_MAIN)
 
     # ── 시뮬 실행 ────────────────────────────────────────────────────────────
+
+    def _save_scenario(self):
+        """현재 설정 전체를 JSON 시나리오 파일로 저장(사용자 백로그 4). _build_cfg_from_ui 재사용 —
+        편대·날씨·모든 토글이 그대로 직렬화된다(순수 dict). 설정 재현·공유용."""
+        import json
+        cfg = self._build_cfg_from_ui()
+        path, _ = QFileDialog.getSaveFileName(
+            self, "시나리오 저장", "시나리오.json", "시나리오 파일 (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            self._lbl_status.setText(f"💾 시나리오 저장됨: {os.path.basename(path)}")
+        except Exception as e:
+            QMessageBox.warning(self, "저장 실패", f"시나리오 저장 중 오류:\n{e}")
+
+    def _load_scenario(self):
+        """JSON 시나리오 파일을 불러와 설정 UI에 복원(_restore_cfg 재사용). 구버전 시나리오의
+        누락 키는 _restore_cfg의 hasattr/get 패턴이 기본값으로 흡수(하위 호환)."""
+        import json
+        path, _ = QFileDialog.getOpenFileName(
+            self, "시나리오 불러오기", "", "시나리오 파일 (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding='utf-8') as f:
+                cfg = json.load(f)
+            if not isinstance(cfg, dict):
+                raise ValueError("올바른 시나리오 형식이 아닙니다(dict 아님)")
+            self._restore_cfg(cfg)
+            self._lbl_status.setText(
+                f"📂 시나리오 불러옴: {os.path.basename(path)} — [🚀 시뮬레이션 실행]을 누르세요")
+        except Exception as e:
+            QMessageBox.warning(self, "불러오기 실패", f"시나리오 불러오기 중 오류:\n{e}")
 
     def _build_cfg_from_ui(self) -> dict:
         """현재 UI 위젯 상태를 완전한 시뮬 cfg dict로 조립.

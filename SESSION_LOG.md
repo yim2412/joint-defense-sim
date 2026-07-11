@@ -13,7 +13,22 @@
 
 ---
 
-## [2026-07-12] E1 캠페인 MC 병렬화 (v18.02.02)  (HEAD: 커밋대기)
+## [2026-07-12] ⑥ 시나리오 저장/불러오기 (v18.02.03) — v20 전 트랙 전부 소진  (HEAD: 커밋대기)
+
+- **무엇을**: 사용자 백로그 4번. 현재 설정 전체를 JSON 저장·복원(_build_cfg_from_ui/
+  _restore_cfg 재사용). 실행 버튼 아래 [저장][불러오기]. 과거 v7.25 DEL-B로 삭제됐으나
+  당시 UI 단순화(기능결함 아님)라 재구현 정당.
+- **왜/검증**: _build_cfg_from_ui 반환 전부 JSON serializable 정적확인. offscreen 헤드리스는
+  QWebEngine(Cesium) offscreen 미지원으로 MainWindow 생성이 하드크래시(RC127)→불가 판명.
+  대신 **exe 왕복 스모크 신설**(_audit_scenario_smoke.py): 저장버튼→파일다이얼로그 타이핑→
+  JSON 82키 생성→불러오기→상태줄 확인, RESULT_CODE=0. 감사 자기개선 숙제(QFileDialog 자동화)
+  를 그 자리서 해소. 순수 UI라 회귀 bit-identical.
+- **다음**: **v20 전 열린 6트랙(①감사인프라 ②CAP ③IFF승격 ④위생 ⑤정밀화A1 ⑥시나리오) 전부
+  완료.** E1(병렬MC)도 완료. → **v20.1 지상군 전력·기동 모델**(로드맵 다음 major, 별도 엔진,
+  매우 높음 난이도 → Opus/high). 영어화·릴리스exe는 장기/외부노출보류로 별개.
+- **미커밋 주의**: 이 커밋으로 ⑥ 반영. dist 재빌드 완료(EXIT0)·왕복 스모크 PASS.
+
+## [2026-07-12] E1 캠페인 MC 병렬화 (v18.02.02)  (HEAD: 92cfe05)
 
 - **무엇을**: monte_carlo_campaign을 멀티프로세스 병렬화(ProcessPoolExecutor, 워커
   initializer로 forecast_model.pkl 1회 로드). A1 정밀 MC 실용화가 목적. seed 독립이라
