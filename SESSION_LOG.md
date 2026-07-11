@@ -24,8 +24,8 @@
 - **왜(판단 맥락)**:
   - 큰 엔진(v20) 들어가기 전 감사 그물을 촘촘히 = 실버그 ROI 최고(전장 fuzz가 바로 2건 잡음, 취지 입증).
   - CAP(②)은 밸런스 변경이라 골든 대거 갱신 동반 → 트랙 ① 먼저 닫고 착수가 안전.
-- **다음**: **② CAP 공대공 정상화(B)** — `plan_cap_air_engagement.md`. 상시초계 60s 살림 + sorties 계상, 골든·기준값(project-baseline-cap) 대거 갱신. 완료 후 IFF 실험적 재검증 연쇄(③에서).
-- **미커밋 주의**: 대시보드 커밋 1건 남음(_audit_dashboard.html·README·patch_queue·SESSION_LOG). 그 외 푸시됨.
+- **다음(사용자 "여기서 멈춤" 2026-07-11)**: **② CAP 공대공 정상화(B)** — `plan_cap_air_engagement.md`. 상시초계 60s 살림 + sorties 계상, 골든·기준값(project-baseline-cap) 대거 갱신. 완료 후 IFF 실험적 재검증 연쇄(③). 그 뒤 ④위생·⑤정밀화A1·⑥사용자백로그. TaskList #2~#6에 등록됨(#1 완료).
+- **미커밋 주의**: 없음(트랙① 전부 커밋·푸시, git clean). 재개 지점 = TaskList #2 CAP.
 
 ## [2026-07-10] 깊은 감사 → 그물 강화 A~D → 백그라운드 박스 → 재개 인프라 → 정밀화 백로그  (HEAD: 606d78a)
 
