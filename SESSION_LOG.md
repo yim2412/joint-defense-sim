@@ -13,6 +13,23 @@
 
 ---
 
+## [2026-07-12] 트랙 ⑤ 정밀화 A1 — 캠페인 정밀 교전 (v18.02.01)  (HEAD: 커밋대기)
+
+- **무엇을**: 캠페인 교전을 학습 대리모델 근사 대신 **실제 전술 단발(run_v7_simulation)로
+  해결**(하이브리드: 적 규모≥3만 정밀·소규모 대리모델). `enable_precise_engagement` 3종세트
+  기본OFF·실험적. 함정별 실측 손상(ship_subsystem_damage hp→hp_frac 차감)·실측 요격탄
+  비용·요격률 승패 → '추상 피해' 제거. 새 minor v18.02 계열 시작.
+- **왜/발견**: 사용자 "네 최선으로" 위임. **버그 1건**: '(직접 편성)'이 FLEET_PRESETS에 없어
+  detect range 1km 폴백→요격0·cost0 발견 → calculate_fleet_detect_ranges에 fleet_list
+  파라미터 추가(하위호환)+정밀 tcfg서 명시. code-review medium 4건(correctness 버그0,
+  #2무인함경계·#3repair복붙헬퍼추출·#4중복계산 수정, #1손상함정full-hp재시작=A6보류 plan기록).
+- **검증**: OFF bit-identical(전술 12케이스 골든+캠페인 대리모델 $1391M 동일)·정밀 발현
+  (이지스vs항모킬체인 n_precise3, KDX-II 0.5/0.75 차등손상)·정적41/41(precise 3종세트 자동
+  등록)·빌드 EXIT0·**GUI 스모크 PASS**(6토글 ON exe 실클릭, 캠페인 배너 정상). 스모크에
+  정밀 토글 추가(감사 자기개선).
+- **다음**: **E1(병렬 캠페인 MC)** — 정밀 MC는 병렬 필수. 그다음 ⑥ 사용자 백로그 → v20 지상군.
+- **미커밋 주의**: 이 커밋으로 트랙⑤ A1 반영. dist 재빌드 완료(EXIT0).
+
 ## [2026-07-12] 트랙 ④ 위생 정리 완료  (HEAD: 커밋대기)
 
 - **무엇을**: 6트랙 중 ④위생. 정적 스캔 40/40 PASS로 자동 위생(stale·readme·파일명)은 클린.

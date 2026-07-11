@@ -24,6 +24,46 @@
   이걸로 A2(탄약)·A6(함정 상태)·E1(병렬)이 자연 해결/필수화됨.
 - **의존**: E1(병렬 MC) 사실상 필수. A2·A6 흡수.
 
+#### ✅ 확정 설계 (2026-07-12, 조사 완료 — 하이브리드 + A1 코어 먼저)
+
+**교전 해결기 = `run_v7_simulation`(단발 교전), NOT `run_battle_simulation`.**
+캠페인 zone 1틱 교전 = 단발 교전 1회에 해당. `run_battle_simulation`(지속 전장)은 캠페인이
+이미 작전급 상위 레이어라 중첩이 부적절 — plan 본문의 "전술 시뮬"은 단발이 의미상 정확.
+
+**cfg 매핑 (캠페인 → 전술, `_tick_engagements`의 정밀 분기)**:
+- `tcfg = dict(self.cfg)` (weather 등 상속) → **캠페인 전용 플래그 제거**
+  (`enable_campaign_mode`·`enable_air_campaign`·`enable_battle_mode`)로 라우터 오염 방지.
+- 아군: `tcfg['fleet_custom'] = [{'name': f'{st}#{i}', 'type': st} for i,st in patrol]`
+  — **name을 유니크(`타입#i`)** 로 (전술 `ship_subsystem_damage` dict 키 충돌 방지, DB조회는 type).
+- 적: `tcfg['enemy_fleet_mode']='custom'`; `tcfg['enemy_fleet'] = enemy_fleet`
+  — `_active_enemy_in` 반환 `[{preset,count}]`이 전술 `fleet_cfg` 원소 형식과 **정확히 동일**(무변환).
+- 결정론: `tcfg['sim_seed'] = hash((campaign_seed, t_h, zone))`; `tcfg['mc_mode']=True`(로그 억제).
+
+**결과 → 캠페인 상태 매핑 (`_apply_engagement` 정밀 분기 — "추상 피해" 제거)**:
+- `r['ship_subsystem_damage'][name]['hp']/['max_hp']` → 각 `CampaignShip.hp_frac` **직접 대입**
+  (patrol 순서 = fleet_custom 순서 = name `타입#i`로 1:1 매칭). 손실 미추정 완전 해소.
+- `r['friendly_ships_lost']`>0 → 해당 함정 `state='repair'`(기존 hp_frac<임계 전환 로직 재사용).
+- `cost += r['total_cost']`(실제 요격탄 비용). `won` = 적 격침≥1 && 아군 미전멸(실제 결과 기반).
+- ammo: A2 후속(당장은 기존 `_AMMO_PER_ENGAGEMENT` 근사 유지 — 정밀 hp가 핵심 가치).
+
+**하이브리드 임계값**: `enemy_fleet` 총 count ≥ `campaign_precise_min_threats`(기본 3)면 정밀,
+미만은 대리모델. 소규모 교전은 대리모델로 성능 절약(성능 예산제의 단순형).
+
+**3종세트 `enable_precise_engagement`**(기본 OFF·실험적): 체크박스 + cfg 빌드 + cfg 로드.
+OFF면 `_predict_engagement`+추상피해 경로 그대로 → **bit-identical**(캠페인 회귀 보존).
+
+**범위**: 이번 = A1 코어(단발 캠페인 정밀 교전). E1(병렬 MC)은 다음 마이너 — A1 검증(단발
+baseline 측정)으로 "정밀이 실제로 결과를 개선하는가" 먼저 확인 후 병렬로 규모 확대.
+
+**회귀/성능**: OFF bit-identical. ON 단발 캠페인 = 교전 3~9회 × 단발 수백ms ≈ 수초(감당 가능).
+MC는 E1 전까지 대리모델 유지 권장(정밀 MC는 병렬 필수).
+
+**알려진 근사 한계(A6에서 해소)**: 정밀 교전은 전술 단발을 매번 full hp에서 시작하므로,
+캠페인에서 이미 손상된(hp_frac<1) 함정도 전술상 100% hp로 참전 → 누적 손상이 전술에 반영
+안 됨(대리모델도 동일 한계). 실제 손상 함정은 더 빨리 격침돼야 정확. **A6(CampaignShip
+물리필드 → 전술 객체 상태 연동)에서 초기 hp 주입으로 해소** — 지금은 부모 무수정 원칙상
+run_v7_simulation에 초기 hp 인자가 없어 보류(code-review 2026-07-12 #1).
+
 ---
 
 ## 중 (현실성·정확도 소폭 개선, 손이 감)

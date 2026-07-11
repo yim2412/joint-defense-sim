@@ -1,7 +1,11 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.01.19 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.02.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.02.01 — 작전급 캠페인 정밀 교전(실측 손실·요격)]                       ║
+║  NEW-A  캠페인 교전을 학습 대리모델 근사 대신 실제 전술 시뮬로 해결          ║
+║         (규모 큰 교전만 정밀·소규모는 대리모델 = 하이브리드). 함정 손상이     ║
+║         추상 피해가 아닌 실측 손실·요격률·요격탄 비용이 됨. 기본 OFF·실험적.  ║
 ║  [v18.01.19 — 피아식별 오류(IFF) 정규 기능 승격]                            ║
 ║  MOD-A  다축 대량 포화에서 IFF 오사·교전 지연이 확실히 발현함을 확인해       ║
 ║         '실험적' 표기 제거(요격률 76→65%·오사 평균 1.5건, 기본 OFF 유지).    ║
@@ -1285,7 +1289,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.01.19"
+APP_VERSION = "v18.02.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6845,6 +6849,8 @@ class MainWindow(QMainWindow):
             self.chk_campaign_fog.setChecked(cfg.get('enable_campaign_fog', False))
         if hasattr(self, 'chk_air_campaign'):
             self.chk_air_campaign.setChecked(cfg.get('enable_air_campaign', False))
+        if hasattr(self, 'chk_precise_engage'):
+            self.chk_precise_engage.setChecked(cfg.get('enable_precise_engagement', False))
         if hasattr(self, 'chk_sead'):
             self.chk_sead.setChecked(cfg.get('enable_sead', False))
         if hasattr(self, 'chk_strategic_strike'):
@@ -7476,6 +7482,18 @@ class MainWindow(QMainWindow):
         )
         self.chk_air_campaign.setChecked(False)
 
+        # A1: 정밀 교전 — 캠페인 zone 교전을 대리모델 근사 대신 실제 전술 단발로 해결
+        self.chk_precise_engage = QCheckBox("정밀 교전 (실측 손실·요격) (실험적)")
+        self.chk_precise_engage.setToolTip(
+            "작전급 캠페인의 교전을 학습 대리모델 근사 대신 실제 전술 시뮬레이션으로 해결합니다.\n"
+            "규모가 큰 교전(적 3척/발 이상)마다 시간스텝 교전을 실제로 돌려 함정 손실·요격률·요격탄\n"
+            "비용을 근사가 아닌 실측으로 반영합니다(소규모 교전은 속도를 위해 대리모델 유지 — 하이브리드).\n"
+            "캠페인 결과의 함정 손상이 '추상 피해'가 아닌 실제 전술 교전 결과가 됩니다.\n"
+            "캠페인 모드와 함께 켜야 작동하며, 단발보다 느립니다(교전 수 × 전술 시뮬).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_precise_engage.setChecked(False)
+
         # v19.3: 방공망 제압(SEAD/DEAD) — 공군 작전급 하위 옵션
         self.chk_sead = QCheckBox("방공망 제압 SEAD/DEAD (실험적)")
         self.chk_sead.setToolTip(
@@ -7627,7 +7645,8 @@ class MainWindow(QMainWindow):
                     # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
                     # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
-                    self.chk_air_campaign, self.chk_sead, self.chk_strategic_strike,
+                    self.chk_air_campaign, self.chk_precise_engage,
+                    self.chk_sead, self.chk_strategic_strike,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7644,6 +7663,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_campaign)
         fl_env.addRow("",            self.chk_campaign_fog)
         fl_env.addRow("",            self.chk_air_campaign)
+        fl_env.addRow("",            self.chk_precise_engage)
         fl_env.addRow("",            self.chk_sead)
         fl_env.addRow("",            self.chk_strategic_strike)
         fl_env.addRow("",            self.chk_rl_policy)
@@ -9471,6 +9491,7 @@ class MainWindow(QMainWindow):
             'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
             'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개
             'enable_air_campaign': self.chk_air_campaign.isChecked(),  # v19.1 공군 작전급(제공권)
+            'enable_precise_engagement': self.chk_precise_engage.isChecked(),  # A1 캠페인 교전 정밀 전술 해결(실험적)
             'enable_sead': self.chk_sead.isChecked(),  # v19.3 방공망 제압(SEAD/DEAD)
             'enable_strategic_strike': self.chk_strategic_strike.isChecked(),  # v19.4 전략 폭격 & 기지 타격
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)

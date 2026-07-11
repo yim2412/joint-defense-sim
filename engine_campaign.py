@@ -51,6 +51,10 @@ _REROUTE_EPS           = 0.05    # 우회 보급 판정 최소 통제도 격차(
 # 완전 우세(1.0)→1.4·완전 열세(0.0)→0.6. win_p·score 둘 다 곱연산(사용자 합의 2026-07-08).
 _AIR_ENGAGE_BASE  = 0.60
 _AIR_ENGAGE_SLOPE = 0.80
+# A1 정밀 교전(enable_precise_engagement) — zone 교전을 대리모델 근사 대신 실제 전술
+# 단발 시뮬(run_v7_simulation)로 해결해 손실·요격·비용을 진짜 계산(추상 피해 제거).
+# 하이브리드: 적 규모 ≥ 임계값인 교전만 정밀, 소규모는 대리모델 유지(성능 예산제).
+_PRECISE_MIN_THREATS_DEFAULT = 3   # 이 미만 규모 교전은 대리모델(성능 절약)
 
 
 def _ship_strength(ship_type: str) -> float:
@@ -161,6 +165,11 @@ class CampaignEngine:
         if bool(cfg.get('enable_air_campaign', False)):
             from engine_airforce import AirCampaign
             self.air = AirCampaign(self.cfg)
+        # A1: 정밀 교전 — ON이면 규모 큰 교전을 실제 전술 단발로 해결(OFF면 대리모델 = bit-identical).
+        self.precise      = bool(cfg.get('enable_precise_engagement', False))
+        self.precise_min  = int(cfg.get('campaign_precise_min_threats',
+                                        _PRECISE_MIN_THREATS_DEFAULT))
+        self.n_precise    = 0   # 정밀 해결된 교전 수(투명성·결과 집계)
 
     # ── 초기화 ────────────────────────────────────────────────────────────────
     def _build_force(self) -> list:
@@ -418,6 +427,12 @@ class CampaignEngine:
             if not patrol:
                 continue   # 무방비 — SLOC 판정에서 차단 처리
             fleet_ships = [s.ship_type for s in patrol]
+            # A1: 정밀 교전 — 규모 큰 교전은 실제 전술 단발로 해결(손실·요격·비용 진짜 계산).
+            #   OFF거나 규모 미만이면 아래 대리모델 경로(기존과 완전 동일, rng 소비 불변).
+            n_threats = sum(int(e.get('count', 1)) for e in enemy_fleet)
+            if self.precise and n_threats >= self.precise_min:
+                self._resolve_precise(zone, patrol, enemy_fleet, n_threats, air_sups, cas_sup)
+                continue
             if self.model is None:
                 # 모델 부재 폴백: 전력 수 기반 조악 근사(캠페인은 여전히 동작)
                 win_p, score = 0.5, 0.5
@@ -460,20 +475,98 @@ class CampaignEngine:
             s.ammo_frac = max(0.0, s.ammo_frac - _AMMO_PER_ENGAGEMENT)   # v18.2: 탄약 소모
             # 함정별 피해에 소량 확률 분산(결정론: rng 사용)
             s.hp_frac = max(0.0, s.hp_frac - dmg * (0.5 + self.rng.random()))
-            if s.hp_frac < _HP_RETREAT_FRAC:
-                s.state = 'repair'
-                s.zone  = HOME_ZONE
-                # v18.2: 피해 심각도별 수리 기간 1~14일 (hp 낮을수록 길게)
-                # 진입 hp(<0.4) 범위를 손상도 0~1로 정규화 — 기존 (1-hp)는 진입 조건상 최소 8.8일로 쏠려
-                # '경상 1일' 티어가 도달 불가였고 72h 전역서 복귀 분기가 미발현했다(로직 감사 발견).
-                severity = min(1.0, max(0.0, (_HP_RETREAT_FRAC - s.hp_frac) / _HP_RETREAT_FRAC))
-                days = _REPAIR_DAYS_MIN + severity * (_REPAIR_DAYS_MAX - _REPAIR_DAYS_MIN)
-                s.repair_eta_h = int(round(days * 24))
+            self._retreat_if_damaged(s)
         if won:
             # 적 웨이브 격퇴(해당 zone 도달분 제거)
             for w in self.waves:
                 if w['alive'] and w['zone'] == zone and self.t_h >= w['arrive_h']:
                     w['alive'] = False
+
+    def _retreat_if_damaged(self, s):
+        """hp가 귀항 임계 미만이면 모항 수리 전환 + 손상 심각도별 수리기간(1~14일) 산정.
+        _apply_engagement(대리모델)·_resolve_precise(정밀) 공통. v18.2: 진입 hp(<0.4) 범위를
+        손상도 0~1로 정규화 — 기존 (1-hp)는 진입 조건상 최소 8.8일로 쏠려 '경상 1일' 티어가
+        도달 불가였고 72h 전역서 복귀 분기가 미발현했다(로직 감사 발견)."""
+        if s.hp_frac < _HP_RETREAT_FRAC:
+            s.state = 'repair'
+            s.zone  = HOME_ZONE
+            severity = min(1.0, max(0.0, (_HP_RETREAT_FRAC - s.hp_frac) / _HP_RETREAT_FRAC))
+            days = _REPAIR_DAYS_MIN + severity * (_REPAIR_DAYS_MAX - _REPAIR_DAYS_MIN)
+            s.repair_eta_h = int(round(days * 24))
+
+    def _resolve_precise(self, zone, patrol, enemy_fleet, n_enemy, air_sups=None, cas_sup=None):
+        """A1: zone 교전을 실제 전술 단발(run_v7_simulation)로 해결 — 손실·요격·비용 실측.
+        전술 단발은 매번 full hp에서 시작하므로 그 교전의 실제 피해분(1-최종hp)을
+        CampaignShip.hp_frac에서 차감(누적) → 대리모델의 '추상 피해'(score 기반)를 실제
+        전술 결과로 대체. 승패는 요격률(방어 성공)로 판정해 웨이브 격퇴에 반영(→통제도).
+        제공권(win_p) 보정은 정밀 경로에선 실제 교전이 대신하므로 생략, CAS 피해경감만 반영
+        (air_campaign 기본 OFF). 부모 엔진 무수정 — run_v7_simulation은 호출만."""
+        from engine_combat import run_v7_simulation, calculate_fleet_detect_ranges
+        tcfg = dict(self.cfg)
+        # 캠페인/전장/공군 라우팅 플래그 제거 → 순수 단발 교전으로 실행(라우터 오염 방지)
+        for k in ('enable_campaign_mode', 'enable_air_campaign', 'enable_battle_mode',
+                  'enable_campaign_fog', 'enable_precise_engagement'):
+            tcfg.pop(k, None)
+        # 아군: patrol 함정 → 임의 편성(name 유니크 '타입#i' — ship_subsystem_damage 키 충돌 방지)
+        fc = [{'name': f'{s.ship_type}#{i}', 'type': s.ship_type}
+              for i, s in enumerate(patrol)]
+        tcfg['fleet_custom'] = fc
+        tcfg['fleet_preset']     = '(직접 편성)'
+        # 탐지거리: '(직접 편성)'은 FLEET_PRESETS에 없어 자동계산이 1km로 폴백(요격 불가) →
+        # patrol 함정 센서 기준으로 직접 계산해 명시(detect_km_manual로 자동계산 우회).
+        ranges = calculate_fleet_detect_ranges('', self.weather, fleet_list=fc)
+        tcfg['detect_km']         = ranges['대공']
+        tcfg['surface_detect_km'] = ranges['대함']
+        tcfg['sub_detect_km']     = ranges['대잠']
+        tcfg['detect_km_manual']  = True
+        # 적: _active_enemy_in 반환 [{preset,count}]이 전술 fleet_cfg 원소와 형식 동일(무변환)
+        tcfg['enemy_fleet_mode'] = 'custom'
+        tcfg['enemy_fleet']      = [dict(e) for e in enemy_fleet]
+        tcfg['weather']          = self.weather
+        tcfg['mc_mode']          = True   # 로그·frames 억제
+        # 결정론: 문자열 hash는 PYTHONHASHSEED로 세션마다 달라짐 → 정수 조합으로 고정
+        zone_idx  = SLOC_ZONES.index(zone) if zone in SLOC_ZONES else 0
+        base_seed = int(self.cfg.get('campaign_seed', self.cfg.get('sim_seed', 0)) or 0)
+        tcfg['sim_seed'] = (base_seed * 100000 + self.t_h * 10 + zone_idx) & 0x7fffffff
+        r = run_v7_simulation(tcfg)
+        self.n_precise += 1
+
+        ssd = r.get('ship_subsystem_damage', {})
+        cas_relief = cas_sup.get(zone, 0.0) if cas_sup is not None else 0.0
+        for i, s in enumerate(patrol):
+            info = ssd.get(f'{s.ship_type}#{i}')
+            if info and info.get('max_hp'):
+                hp_frac = max(0.0, min(1.0, info['hp'] / info['max_hp']))
+                dmg = (1.0 - hp_frac) * (1.0 - cas_relief)   # 이번 교전 실제 피해분(CAS 경감)
+                s.hp_frac = max(0.0, s.hp_frac - dmg)
+            s.ammo_frac = max(0.0, s.ammo_frac - _AMMO_PER_ENGAGEMENT)
+            self._retreat_if_damaged(s)
+        self.cost_total += float(r.get('total_cost', 0.0))
+
+        ir     = float(r.get('intercept_rate', 0.0))
+        n_lost = int(r.get('friendly_ships_lost', 0))   # 유인함 손실만(무인정은 unmanned_lost)
+        # 아군 미전멸 = 유인 전투함이 남아있음. len(patrol)엔 무인함이 섞일 수 있어 유인 수로 비교.
+        n_manned = sum(1 for s in patrol
+                       if not SHIP_DB.get(s.ship_type, {}).get('is_unmanned', False))
+        won = (ir >= 0.5) and (n_lost < max(1, n_manned))   # 방어 성공(요격률) + 유인 미전멸
+        if won:
+            for w in self.waves:
+                if w['alive'] and w['zone'] == zone and self.t_h >= w['arrive_h']:
+                    w['alive'] = False
+        rec = {
+            't_h': self.t_h, 'zone': zone, 'precise': True, 'won': won,
+            'intercept_rate': round(ir, 3),
+            'n_friendly': len(patrol),
+            'n_enemy': n_enemy,
+            'friendly_lost': n_lost,
+            'enemy_killed': int(r.get('enemy_ships_destroyed', 0)),
+            'cost': round(float(r.get('total_cost', 0.0)), 1),
+        }
+        if air_sups is not None:
+            rec['air_sup'] = round(air_sups.get(zone, 0.5), 3)   # 투명성(정밀은 win_p 미보정)
+        if cas_relief > 0:
+            rec['cas_relief'] = round(cas_relief, 3)
+        self.engagements.append(rec)
 
     def _tick_sloc(self):
         """v18.5: 교통로별 연속 통제도(0~1) 갱신. target=아군전력/(아군+적전력),
@@ -549,6 +642,7 @@ class CampaignEngine:
             'mean_ammo':       round(sum(s.ammo_frac for s in self.ships) / nships, 3),
             'mean_fuel':       round(sum(s.fuel_frac for s in self.ships) / nships, 3),
             'n_engagements':   len(self.engagements),
+            'n_precise':       self.n_precise,   # A1: 실제 전술 단발로 해결된 교전 수(0=전부 대리모델)
             'engagements':     self.engagements,
             'cost_total':      round(self.cost_total, 1),
             'timeline':        {'control': self._tl_control, 'force': self._tl_force},

@@ -5466,9 +5466,12 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
 #  탐지거리 자동 계산 (함대 편성 + 날씨 + 데이터링크)
 # ════════════════════════════════════════════════════════════════════════════
 
-def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
+def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str,
+                                  fleet_list: list | None = None) -> dict:
     """
     함대 편성과 날씨를 기반으로 탐지거리를 자동 계산한다.
+    fleet_list(임의 편성 [{name,type}]) 주어지면 프리셋 대신 사용(A1 캠페인 정밀 교전
+    등 프리셋에 없는 편성용). 미지정 시 기존 동작 그대로 → 회귀 bit-identical.
 
     데이터링크 원칙:
       - 한국 해군 Link-16/Link-11 적용 — 편대 내 최고 성능 센서 기준 공유
@@ -5480,7 +5483,7 @@ def calculate_fleet_detect_ranges(fleet_preset_name: str, weather: str) -> dict:
       {'대공': 1140, '대함': 41, '대잠': 30,
        'leading_ship': 'KDX-III', 'radar_factor': 0.95, 'sonar_factor': 0.60}
     """
-    preset = FLEET_PRESETS.get(fleet_preset_name, [])
+    preset = fleet_list if fleet_list is not None else FLEET_PRESETS.get(fleet_preset_name, [])
     w = _make_physics_wx(weather)   # v9.13: Beaufort 물리값 적용
     rf = w.get('radar_factor', w.get('detect_range_factor', 1.0))
     sf = w.get('sonar_factor', w.get('detect_range_factor', 1.0))

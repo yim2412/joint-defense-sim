@@ -77,13 +77,14 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = sead = strike = None
+        chk = fog = air = sead = strike = precise = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
             elif '공군' in t:           air = c      # v19.1 공군 작전급(제공권)
             elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
             elif '전략' in t:           strike = c   # v19.4 전략 폭격 & 기지 타격
+            elif '정밀' in t:           precise = c  # A1 정밀 교전(실측 손실·요격)
             elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
@@ -107,12 +108,20 @@ def main():
             log(f"전략폭격 체크박스: {_txt(strike)!r} → 체크"); _act(strike); time.sleep(1)
         else:
             log("⚠ 전략폭격 체크박스 미포착 — 공군만 검증(v19.4 GUI 경로 미확인)")
+        # A1: 정밀 교전 토글 — 캠페인 교전을 실제 전술 단발로 해결하는 GUI 경로를 태운다
+        # (헤드리스가 못 잡는 exe 전용 버그 방지). 정밀은 내부적으로 공군 플래그를 제거하나
+        # 공군 층 tick은 별개라 제공권 배너는 그대로 떠야 한다.
+        if precise is not None:
+            log(f"정밀교전 체크박스: {_txt(precise)!r} → 체크"); _act(precise); time.sleep(1)
+        else:
+            log("⚠ 정밀교전 체크박스 미포착 — 대리모델만 검증(A1 GUI 경로 미확인)")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
             if air is not None: _st += f" 공군={air.get_toggle_state()}"
             if sead is not None: _st += f" SEAD={sead.get_toggle_state()}"
             if strike is not None: _st += f" 전략폭격={strike.get_toggle_state()}"
+            if precise is not None: _st += f" 정밀교전={precise.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")
@@ -163,7 +172,8 @@ def main():
                     # v19.5: CAS는 조건부(통제 붕괴 시 요청 발동) — 필수 아님. 발현되면 배너
                     # 형식만 확인, 미발현은 정상(기본 시나리오에서 통제 유지 시 요청 0).
                     _casmsg = " + 🛩 근접지원 배너 확인(발현)" if '근접지원' in blob else ""
-                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}{_casmsg}"); return 0
+                    _precmsg = " + 🎯 정밀교전 ON(캠페인 배너 정상)" if precise is not None else ""
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}{_casmsg}{_precmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프
