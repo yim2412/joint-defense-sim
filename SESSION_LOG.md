@@ -13,7 +13,20 @@
 
 ---
 
-## [2026-07-12] 종합감사 사각 5개 실제 보완 (사용자 "허점이 있다면?")  (HEAD: 커밋대기)
+## [2026-07-12] 신뢰성 하드닝 v18.02.04 (사용자 "성능보다 확실·실수없이")  (HEAD: 커밋대기)
+
+- **무엇을**: v20 전 신뢰성 우선 개선 — "조용히 틀림 → 시끄럽게 실패". code-review #2·#3 실제 해소.
+  ▸병렬 캠페인 MC 워커가 예측모델 로드 실패 시 조용한 win_p=0.5 폴백 대신 `RuntimeError` 중단
+  (`_campaign_mc_init(expect_model)`: 메인 성공했는데 워커만 실패=진짜 이상만 중단, 메인도
+  없으면 graceful=순차와 일관·model_loaded=False로 가시화). ▸대리모델 교전 rec에 `precise:False`
+  추가(정밀/대리 rec 스키마 자기기술화, 미래 소비자 KeyError 예방).
+- **검증**: 회귀 14 bit-identical(precise:False 무영향)·병렬MC 정상(initargs)·정적41·가드 로직
+  직접 검증(True→예외/False→graceful)·빌드 EXIT0(8분37초)·exe 캠페인 스모크 PASS(MC 병렬 10회
+  실행 확인, #5 정규식 수정도 실전 검증). APP_VERSION/헤더/changelog/변경이력 v18.02.04.
+- **다음**: v20.1 지상군. 남은 저값 note: cfg per-task 피클(#1 성능)·GUI abort 자동화(오래된 숙제).
+- **미커밋 주의**: 이 커밋으로 반영. engine_campaign.py·app_main.py 변경→빌드 완료·dist 갱신.
+
+## [2026-07-12] 종합감사 사각 5개 실제 보완 (사용자 "허점이 있다면?")  (HEAD: d97b57c→f90f8e4)
 
 - **무엇을**: 1차 종합감사(바로 아래 항목)가 ①코드로직을 `/code-review` 없이 수동 Grep만·
   ④통합MC를 n=16/20 소규모만 돌리고 "전부 PASS" 선언한 것을 사용자 질문이 드러냄 → 스스로

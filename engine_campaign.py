@@ -455,7 +455,7 @@ class CampaignEngine:
             self._apply_engagement(zone, patrol, enemy_fleet, won, score, cas_relief)
             self.cost_total += cost
             rec = {
-                't_h': self.t_h, 'zone': zone, 'win_p': round(win_p, 3),
+                't_h': self.t_h, 'zone': zone, 'precise': False, 'win_p': round(win_p, 3),
                 'won': won, 'score': round(score, 3),
                 'n_friendly': len(patrol), 'n_enemy': len(enemy_fleet),
             }
@@ -681,10 +681,17 @@ _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total'
 _MC_WORKER_MODEL = None
 
 
-def _campaign_mc_init():
-    """병렬 MC 워커 초기화 — forecast_model.pkl을 프로세스당 1회 로드."""
+def _campaign_mc_init(expect_model=True):
+    """병렬 MC 워커 초기화 — forecast_model.pkl을 프로세스당 1회 로드.
+    expect_model=True(메인 프로세스가 모델 로드 성공)인데 워커가 로드 실패하면 시끄럽게 중단:
+    조용한 win_p=0.5 폴백으로 수백~천 회 MC가 '거짓 분포'를 내는 것보다, 환경 이상(예: exe
+    워커의 _MEIPASS 경로 문제)을 즉시 드러내는 게 안전(신뢰성 우선). 메인도 모델이 없으면
+    (expect_model=False) 순차 경로와 일관되게 graceful 폴백 — result['model_loaded']=False로 이미 가시화."""
     global _MC_WORKER_MODEL
     _MC_WORKER_MODEL = load_forecast_model()
+    if expect_model and _MC_WORKER_MODEL is None:
+        raise RuntimeError("병렬 캠페인 MC 워커가 forecast_model 로드 실패 — "
+                           "조용한 win_p=0.5 폴백 방지 위해 중단(메인은 로드 성공)")
 
 
 def _campaign_mc_worker(args: tuple) -> dict:
@@ -725,8 +732,12 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         from concurrent.futures import ProcessPoolExecutor, as_completed
         n_workers = min(os.cpu_count() or 4, 8)
         done = 0
+        # 메인이 모델 로드에 성공했으면 워커도 성공해야 정상 — 워커만 실패하면 시끄럽게 중단
+        # (조용한 win_p=0.5 폴백으로 거짓 분포 방지). 메인도 없으면 graceful(순차와 일관).
+        expect_model = model is not None
         with ProcessPoolExecutor(max_workers=n_workers,
-                                 initializer=_campaign_mc_init) as pool:
+                                 initializer=_campaign_mc_init,
+                                 initargs=(expect_model,)) as pool:
             futs = [pool.submit(_campaign_mc_worker, (cfg, i)) for i in range(n)]
             for fut in as_completed(futs):
                 _accumulate(fut.result())
