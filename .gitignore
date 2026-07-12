@@ -36,3 +36,7 @@ build_*.log
 
 # 야간 자동 감사 로그(_audit_nightly.sh 누적) — 로컬 산출물, 커밋 불필요
 감사야간로그/
+
+# 백그라운드 작업 헬퍼 산출물
+_bgtask.meta
+_audit_*.log

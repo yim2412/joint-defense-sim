@@ -146,6 +146,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
 | `_audit_campaign_smoke.py` | exe GUI 스모크 자동화 — 작전급 캠페인 모드 (감사용) |
 | `_audit_scenario_smoke.py` | exe GUI 스모크 자동화 — 시나리오 저장·불러오기 왕복 (감사용) |
+| `_audit_compat.py` | 종합감사 ⑦ 하위호환 + ④ 통합 MC 수치 안정성 (구버전 cfg·정밀 병렬 MC, 감사용) |
 | `_audit_make_pdf.py` | 감사 보고서 PDF 생성기 |
 
 ### 강화학습(RL)·self-play (수동 실행)
