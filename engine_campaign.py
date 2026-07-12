@@ -739,11 +739,19 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
                                  initializer=_campaign_mc_init,
                                  initargs=(expect_model,)) as pool:
             futs = [pool.submit(_campaign_mc_worker, (cfg, i)) for i in range(n)]
-            for fut in as_completed(futs):
-                _accumulate(fut.result())
-                done += 1
-                if progress_cb and (done % 10 == 0 or done == n):
-                    progress_cb(done, n)
+            try:
+                for fut in as_completed(futs):
+                    _accumulate(fut.result())
+                    done += 1
+                    if progress_cb and (done % 10 == 0 or done == n):
+                        progress_cb(done, n)   # 중단 요청 시 여기서 예외(_SimCancelled 등)
+            except BaseException:
+                # 중단(abort)·오류로 루프를 빠져나갈 때 대기열 작업을 즉시 취소한다.
+                # 기본 __exit__의 shutdown(wait=True)는 제출된 전체 완료까지 대기 → 정밀 ON
+                # 대량 반복이면 중단이 수 분간 안 먹힌다. 실행 중 워커만 마무리하고 대기열은
+                # 버려 중단을 반응성 있게(신뢰성·UX).
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise
     else:
         for i in range(n):
             _accumulate(run_campaign(dict(cfg, campaign_seed=i), model=model))

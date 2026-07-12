@@ -13,7 +13,20 @@
 
 ---
 
-## [2026-07-12] 신뢰성 하드닝 v18.02.04 (사용자 "성능보다 확실·실수없이")  (HEAD: 커밋대기)
+## [2026-07-12] 중단 반응성 v18.02.05 (신뢰성 하드닝 계속)  (HEAD: 커밋대기)
+
+- **무엇을**: "더 개선?" → 조용한 폴백 클래스 전체 스캔(engine·app_main) = clean 확인(app_main
+  except:pass는 GPU온도·풀예열 등 정당한 선택기능, 캠페인 모델 폴백은 이미 model_loaded로 가시화).
+  스캔 중 발견한 **진짜 1건 수정**: 병렬 캠페인 MC 도중 중단 시 `ProcessPoolExecutor.__exit__`
+  기본 `shutdown(wait=True)`가 제출된 전체 완료까지 대기 → 정밀 ON 대량 반복이면 중단이 수 분
+  안 먹힘. `try/except BaseException → shutdown(wait=False, cancel_futures=True)`로 대기열 즉시
+  취소(실행 중 워커만 마무리).
+- **검증**: 헤드리스 중단까지 3.6s(전량 대기 대비 대폭 단축)·회귀14 정상경로 무영향·빌드 EXIT0
+  (4분49초)·exe 캠페인 스모크 PASS. APP_VERSION/헤더/changelog/변경이력 v18.02.05.
+- **다음**: v20.1 지상군. 신뢰성 남은 저값: cfg per-task 피클(#1 순수성능)·GUI abort 실클릭 자동화.
+- **미커밋 주의**: 이 커밋으로 반영. engine_campaign.py·app_main.py 변경→빌드 완료·dist 갱신.
+
+## [2026-07-12] 신뢰성 하드닝 v18.02.04 (사용자 "성능보다 확실·실수없이")  (HEAD: 3630bc5)
 
 - **무엇을**: v20 전 신뢰성 우선 개선 — "조용히 틀림 → 시끄럽게 실패". code-review #2·#3 실제 해소.
   ▸병렬 캠페인 MC 워커가 예측모델 로드 실패 시 조용한 win_p=0.5 폴백 대신 `RuntimeError` 중단
