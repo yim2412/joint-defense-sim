@@ -73,9 +73,25 @@ _KEYS = ['total_threats', 'intercepted_threats', 'friendly_hits', 'enemy_hits',
          'ashore_sm3_fired', 'thaad_fired', 'iff_failures', 'iff_fratricide',
          'ships_sunk_by_flood', 'intercept_rate', 'sim_time', 'total_channels']
 
+# 캠페인 정밀 교전(enable_precise_engagement) 회귀 — 전술 골든(위 CASES)은 정밀 OFF
+# 대리모델 경로만 보증하므로, 캠페인 zone 교전을 실제 전술 단발로 해결하는 _resolve_precise
+# 경로가 무감시였다(사각). 정밀 ON 캠페인은 결정론적(같은 campaign_seed→동일)이라 고정 seed
+# 스냅샷으로 골든에 봉인 → 향후 정밀 교전 로직이 조용히 바뀌면 회귀가 잡는다.
+_CAMPAIGN_BASE = dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                      enable_precise_engagement=True, campaign_horizon_h=72)
+CAMPAIGN_CASES = [
+    ('정밀ON-항모킬체인', dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단',
+                              enemy_fleet_preset='항모 킬 체인'), [1, 2]),
+]
+# 캠페인 결정론 지표 (float은 스냅샷·검사 양쪽 동일 라운딩이라 정확 일치)
+# mean_control 등은 소수3자리로 봉인 — 1자리면 4%p대 통제도 변화가 골든을 통과해 민감도 저하.
+_CKEYS = ['outcome', 'n_precise', 'n_engagements', 'surviving_ships',
+          'cost_total', 'mean_control', 'n_reassign', 'end_h']
+_CROUND = 3   # 캠페인 float 지표 라운딩 자리수(회귀 민감도)
+
 
 def snapshot() -> dict:
-    """전 케이스를 돌려 결과 지표를 dict로 반환."""
+    """전 케이스를 돌려 결과 지표를 dict로 반환 (전술 CASES + 캠페인 정밀 CAMPAIGN_CASES)."""
     out = {}
     for cname, cfg, seeds in CASES:
         for s in seeds:
@@ -84,6 +100,17 @@ def snapshot() -> dict:
             rec['n_alive_ships'] = sum(1 for sh in r.get('friendly_ships', []) if sh.alive)
             rec['n_alive_threats'] = sum(1 for et in r.get('enemy_ships', []) if et.alive)
             rec['n_threats_total'] = len(r.get('enemy_ships', []))
+            out[f'{cname}#{s}'] = rec
+    # 캠페인 정밀 교전 케이스 (모델 1회 로드 공유)
+    from engine_campaign import run_campaign, load_forecast_model
+    _cmodel = load_forecast_model()
+    for cname, cfg, seeds in CAMPAIGN_CASES:
+        for s in seeds:
+            r = run_campaign(dict(cfg, campaign_seed=s), model=_cmodel)
+            rec = {}
+            for k in _CKEYS:
+                v = r.get(k)
+                rec[k] = round(v, _CROUND) if isinstance(v, float) else v
             out[f'{cname}#{s}'] = rec
     return out
 
@@ -94,8 +121,12 @@ def do_update():
         json.dump(snap, f, ensure_ascii=False, indent=2)
     print(f'✅ 골든값 갱신: {len(snap)}개 케이스 → audit_regression_golden.json')
     for k, v in snap.items():
-        print(f'  {k}: 요격={v["intercepted_threats"]}/{v["total_threats"]}, '
-              f'아군손실={v["friendly_ships_lost"]}, 비용=${v["total_cost"]/1e6:.2f}M')
+        if 'intercepted_threats' in v:   # 전술 케이스
+            print(f'  {k}: 요격={v["intercepted_threats"]}/{v["total_threats"]}, '
+                  f'아군손실={v["friendly_ships_lost"]}, 비용=${v["total_cost"]/1e6:.2f}M')
+        else:                             # 캠페인 정밀 케이스(_CKEYS)
+            print(f'  {k}: outcome={v.get("outcome")}, n_precise={v.get("n_precise")}, '
+                  f'생존={v.get("surviving_ships")}, 비용=${v.get("cost_total",0)/1e6:.2f}M')
 
 
 def do_check() -> int:

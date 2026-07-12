@@ -154,7 +154,7 @@ flow += [P('4. 메타 회고 (감사 절차 자체 개선)', st_h2),
          P('이번 감사에서 식별·이행한 절차 개선:', st_body),
          P('• <b>_audit_compat.py 정본화(즉시 반영)</b> — 앞 세션의 즉석 검증 스크립트가 ▸틀린 프리셋 이름(\'중국 항모전단\'=미존재→단독 작전 폴백→교전 0) ▸if __name__==\'__main__\' 가드 누락(Windows spawn 자식 재import→BrokenProcessPool)으로 헛되이 FAIL을 냈다. 정확한 프리셋 키·main()+가드를 갖춘 _audit_compat.py를 ⑦+④ 정본 감사로 승격 → 캠페인/MC 검증 재발 방지.', st_body),
          P('• <b>빌드 스킵 판단 근거 명시</b> — 소스 .py 무변경 + 지난 빌드 EXIT0 + exe가 전 소스보다 최신이면 동일 소스 재빌드는 신호가 없어 생략(6분 절약). 대신 현행 exe에 GUI 스모크 3종을 돌려 번들 무결성을 실증. 스킵 근거를 ⑤ 판정에 기록.', st_body),
-         P('다음 숙제(지속) — exe에서 캠페인 MC 병렬 실행은 여전히 헤드리스로만 실증(전술 MC ProcessPoolExecutor 선례로 낮은 리스크). 필요 시 캠페인 MC 전용 GUI 스모크 신설. GUI abort(중단 클릭) 실제 자동화도 미해소.', st_meta),
+         P('사각 보완(2차 세션, 사용자 "허점?") — 1차 감사가 ①/④를 규칙보다 가볍게 하고 "전부 PASS" 선언한 점을 인정하고 5개 사각을 실제로 닫음: ①/code-review high를 누적 diff에 실제 실행(correctness0·경미5건, 값싼 2건 수정) ③정밀ON 회귀 골든 2케이스 봉인(12→14) ④대규모 MC(OFF n=300·ON n=200 병렬, 기준값 저장) ⑤exe 캠페인 MC 병렬 스모크 하드어서션(frozen exe 실증). 남은 note: cfg per-task 피클·rec 스키마 통일(값어치 낮음). GUI abort 자동화는 미해소.', st_meta),
          Spacer(1, 6*mm)]
 
 # ── 환경·커밋 정보 (재현성) ──

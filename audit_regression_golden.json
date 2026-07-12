@@ -334,5 +334,25 @@
     "n_alive_ships": 0,
     "n_alive_threats": 44,
     "n_threats_total": 57
+  },
+  "정밀ON-항모킬체인#1": {
+    "outcome": "win",
+    "n_precise": 3,
+    "n_engagements": 3,
+    "surviving_ships": 6,
+    "cost_total": 1412900000.0,
+    "mean_control": 1.0,
+    "n_reassign": 22,
+    "end_h": 72
+  },
+  "정밀ON-항모킬체인#2": {
+    "outcome": "win",
+    "n_precise": 3,
+    "n_engagements": 3,
+    "surviving_ships": 5,
+    "cost_total": 1418705000.0,
+    "mean_control": 1.0,
+    "n_reassign": 22,
+    "end_h": 72
   }
 }

@@ -172,7 +172,21 @@ def main():
                     # v19.5: CAS는 조건부(통제 붕괴 시 요청 발동) — 필수 아님. 발현되면 배너
                     # 형식만 확인, 미발현은 정상(기본 시나리오에서 통제 유지 시 요청 0).
                     _casmsg = " + 🛩 근접지원 배너 확인(발현)" if '근접지원' in blob else ""
-                    _precmsg = " + 🎯 정밀교전 ON(캠페인 배너 정상)" if precise is not None else ""
+                    # 사각⑤: 정밀교전 ON이면 캠페인 MC(반복 분석) 분포 배너가 실제로 떠야 한다.
+                    # 'campaign MC (N회)'는 monte_carlo_campaign이 끝까지 실행돼야만 렌더되므로,
+                    # 이 텍스트 존재 = 캠페인 MC 병렬 경로가 frozen exe에서 end-to-end 실행됐다는
+                    # 증거(정밀 ON은 임계 8, camp_n≥10이라 병렬). freeze_support 미비 시 여기서 실패.
+                    _precmsg = ""
+                    if precise is not None:
+                        if '캠페인 MC' not in blob:
+                            frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                    if any(k in t for k in ('통제도', '승', '전역', 'MC'))]
+                            log(f"🔴 정밀교전 ON인데 캠페인 MC 분포 배너 미표시 — MC 미실행/폴백? 조각: {frag[:4]}"); return 1
+                        import re as _re
+                        # UIA 텍스트 조각화·공백 변형에 견디게 유연 매칭('MC ... N회')
+                        _m = _re.search(r'MC\D*(\d+)\s*회', blob)
+                        _n = _m.group(1) if _m else '?'
+                        _precmsg = f" + 🎯 정밀교전 ON·캠페인 MC 병렬 {_n}회 실행 확인(exe end-to-end)"
                     log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}{_casmsg}{_precmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")

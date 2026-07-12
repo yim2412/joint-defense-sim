@@ -422,13 +422,19 @@ def chk_golden_coverage():
         return
     g = json.load(open(p, encoding='utf-8'))
     vals = defaultdict(set)
+    cnt = defaultdict(int)
     for rec in g.values():
         for k, v in rec.items():
             vals[k].add(round(v, 4) if isinstance(v, float) else v)
+            cnt[k] += 1
     # 골든이 의도적으로 미커버하는 알려진 사각(한국 단독·미편성 시나리오)
     KNOWN = {'ashore_sm3_fired', 'thaad_fired', 'usa_cost', 'usa_shots',
              'iff_failures', 'iff_fratricide'}
-    dead = sorted(k for k, s in vals.items() if len(s) == 1 and k not in KNOWN)
+    # 케이스 3개 미만에만 등장하는 지표(예: 소수 캠페인 보조 케이스의 _CKEYS)는 표본이
+    # 부족해 '전 케이스 동일=vacuous' 판정이 불가(2케이스가 우연히 같을 수 있음). 그 지표의
+    # 회귀 안전망은 골든 값 비교(do_check)가 이미 제공하므로 vacuous 판정에서만 제외한다.
+    dead = sorted(k for k, s in vals.items()
+                  if len(s) == 1 and k not in KNOWN and cnt[k] >= 3)
     check('③', '골든 커버리지(전 케이스 동일값 지표=회귀 사각)', not dead,
           f'미발현 지표 {dead} — 골든 8케이스가 이 경로를 안 밟음'
           f'(새 stats 키면 발현 케이스 추가, 아니면 KNOWN 등재)'
