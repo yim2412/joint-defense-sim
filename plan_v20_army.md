@@ -68,6 +68,8 @@
   - 계층: L-SAM=상층(~150km·고고도, THAAD급 한국형) · 천궁-II=하층 종말 점방어(~40km).
   - `enable_ashore` 기존 플래그 확장 or 별도 stock(lsam_stock·chungung_stock) — 3종세트 불필요(어쇼어
     자산 재고는 스핀박스/스탯, enable 토글 아님). **회귀: 신규 자산 stock=0 기본 → 기존 골든 bit-identical.**
+- **🟢 추가 재사용(검토 발견)**: 천궁-II/L-SAM을 **`is_shore_battery`(CSAM 계열) 해안 포대 타입**으로
+  넣으면 고정·불침·HP 저하·회피없음이 공짜 → **정밀 교전에서 적이 해안 포대를 때려 HP 저하하는 게 자동**.
 - **이 단계는 전술 단발/전장에서 바로 검증 가능**(캠페인 무관) — 회귀 골든에 천궁-II/L-SAM 발현 케이스 추가.
 
 **v20.2b — 연안 방공 캠페인 층** — 난이도 높음
@@ -79,18 +81,31 @@
   이면 `_resolve_precise`. ASBM 있어도 연안 SAM 없으면 정밀 강제 무의미(함대 자체 방어만) → proxy 유지.
 - **재고 추적**: CoastalSAMSite.stock을 캠페인 틱 간 유지 → 정밀 교전마다 tcfg stock으로 주입,
   전술 결과의 발사 수만큼 차감(CampaignShip.ammo 패턴). 소진 시 방어 저하.
+- **배치 설정(UI)**: zone별 연안 SAM 편성을 사용자가 지정(함대 프리셋과 동일 패턴 — 기본 프리셋
+  '연안 방공 강화' 제공 + 직접 편성). 미배치 zone은 CoastalSAMSite 없음(순수 함대 방어).
 - ASBM 없는 통상 교전은 기존 즉시예측/정밀 하이브리드(A1) 유지.
 
 **성능 경계(주의)**: ASBM+연안SAM zone은 항상 정밀 → MC n=1000 × ASBM 교전 수만큼 전술 단발 추가.
 72h 전역서 ASBM 교전 1~3회 가정 시 MC당 +1~3 정밀 sim → E1 병렬 필수(이미 있음). 착수 시 wall-time 측정.
 
 ### v20.3 해상 상륙작전 지원 (착수 2순위·핵심) — 난이도 높음
-- `AmphibiousForce`: 독도함 등 상륙함에 적재→목표 해안 이동→**교두보 확보** 임무체인(수송→항공 엄호→상륙).
-- v19.5 CAS 임무체인 구조 재사용. 상륙 성공/실패가 캠페인 outcome에 반영.
+- `AmphibiousForce`: LPH(독도함)/LPD/LST(기존 SHIP_DB 재사용)에 적재→목표 해안 이동→**교두보 확보**.
+- **3단계 임무체인 + 순차 곱연산(로드맵 지침)**: `수송(transit)` → `항공 엄호(air cover)` → `상륙(assault)`.
+  각 단계 성공 확률을 캠페인 상태에서 도출해 **곱**:
+  - P(수송) = f(해당 zone SLOC 통제도) — 교통로 뚫려야 상륙함 도달.
+  - P(엄호) = f(zone 제공권, v19 air) — 제공권 있어야 상륙 항공 엄호.
+  - P(상륙) = f(호위 함대 함포지원 + 적 연안 방어 강도) — 대안(opposed landing).
+  - 교두보 확보 = ∏ 단계확률 ≥ 임계 → 성공. 상태머신 embark→transit→assault→beachhead.
+- v19.5 CAS 임무체인(요청→배정→효과) 구조 재사용. 상륙 성공/실패가 캠페인 outcome에 가중 반영
+  (가중치 = 미결, 기준값 측정 후 튜닝).
 
 ### v20.4 지상군 캠페인 통합 (착수 3순위) — 난이도 중간
-- 도미노 연쇄: **지상방공 상실 → 제공권↓ → SLOC 압박**(v19 제공권→SLOC 피드백 확장).
+- **도미노의 실체 = 적 SEAD가 아군 연안 SAM을 전략 제압**: `CoastalSAMSite.suppression`을 적 SEAD
+  소티로 증가(v19.3 아군 SEAD→EnemyADSite 제압의 **정확한 거울**, 결정론·rng 불사용, 제압 상한·복구 재사용).
+  effective 방공 = assets × (1-suppression) → 연안 SAM 저하 → **제공권↓ → SLOC 압박** 연쇄
+  (v19 제공권→SLOC 피드백 확장). **이게 로드맵 "지상방공 상실→제공권→해상 교통로 도미노"의 실체.**
 - 보고서에 지상 임무 타임라인 추가.
+- (v20.2b의 CoastalSAMSite는 suppression=0 정적 방어 자산 → v20.4에서 동적 제압으로 살아남).
 
 ### v20.1 지상군 전력 DB & 기동 (착수 최후·대폭 축소) — 난이도 매우 높음
 - **전면 지상 기동전은 보류.** v20.2·v20.3에 필요한 **최소 전력 DB**(연안 SAM 기종·상륙군 부대)만.
@@ -105,8 +120,10 @@ class CoastalSAMSite:   # 연안 고정 방공 포대 (불침·기동 없음)
     name, zone,
     assets: dict         # {'SM-3': stock, 'THAAD': stock, 'L-SAM': stock, '천궁-II': stock}
                          #  (v20.2a 신규 L-SAM/천궁-II 포함 4계층) → 정밀 교전 tcfg 주입
-    strength, recovery_h # 피격 시 저하·복구 (v18 EnemyADSite 대칭)
     # 정밀 교전 실측 발사 수만큼 assets stock 차감(캠페인 틱 간 유지, CampaignShip.ammo 패턴)
+    # ── v20.4 도미노 전용(v20.2엔 미사용) ──
+    suppression, recovery_h  # 적 SEAD 제압도 0~1·복구(v19 EnemyADSite 거울, deterministic)
+                             #  effective = assets × (1-suppression). v20.2는 suppression=0 고정.
 
 class AmphibiousForce:  # 상륙군 부대 (v18 CampaignShip 상태머신 복제)
     name, state('embark'|'transit'|'assault'|'beachhead'), zone,
