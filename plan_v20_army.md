@@ -41,7 +41,7 @@
 
 | 요소 | 재사용 원천 | 신규 |
 |------|-------------|------|
-| 연안 SAM 포대 | **v18 `EnemyADSite`**(적 방공)·**v16 C-RAM 해안 포대**(고정·불침) | 아군판 `CoastalSAMSite`(ASBM 요격 특화) |
+| 연안 SAM 포대 | **v18 `EnemyADSite`**(고정·불침·저하/복구 상태) · 전술 어쇼어 SM-3/THAAD 요격 골격 | 아군판 `CoastalSAMSite` + **천궁-II/L-SAM 신규 요격 자산**(전술 `_bmd_asset_fire` 확장) |
 | 상륙 임무체인 | **v19.5 CAS 임무체인**(요청→배정→효과) | 수송→엄호→상륙 3단계 |
 | 상륙군 부대 | **v18 `CampaignShip` 상태머신**(대기·이동·수리) 복제 | 적재/상륙/교두보 상태 |
 | 도미노 연동 | **v19 제공권→SLOC 피드백** 구조 | 지상방공 상실→제공권↓ 경로 |
@@ -55,13 +55,34 @@
 > v18 인프라 재사용이 커 위험이 낮다. v20.1(전력 DB·기동)은 매우 높음·위험 큼이라 **대폭 축소 후 후순위**.
 
 ### v20.2 연안 방공망 (착수 1순위·핵심) — 난이도 높음
-- `CoastalSAMSite`(패트리엇·천궁): zone별 고정 포대, 함대 상공 방공 커버리지 + **DF-21D 대함탄도탄 요격**.
-- **ASBM 요격 = 전술엔진 정밀 전면(사용자 결정 2026-07-12)**: ASBM(DF-21D 등) 위협이 있는 zone 교전은
-  확률 가산이 아니라 **항상 전술 단발(run_v7_simulation)로 정밀 해결**한다. CoastalSAMSite를 전술 엔진의
-  **기존 연안 SAM 포대(ashore SM-3/THAAD/천궁, v13 지상 BMD 자산)로 매핑** — 새 탄도 물리 모델 없이
-  검증된 요격 로직 재사용. 무거워지지만(해당 교전 항상 정밀) 정확도 우선(사용자 방침 "성능보다 확실").
+> **⚠ 범위 확대(사용자 결정 2026-07-12): 천궁-II/L-SAM 신규 추가.** 전술 엔진 어쇼어 자산이
+> 현재 **SM-3(이지스 어쇼어)+THAAD 2종뿐**임을 코드 확인 → 한국형 BMD 하위/상위 계층을 **신규 요격
+> 로직으로 도입**해 4계층 방어로. 정확도 우선(사용자 "성능보다 확실"), 단 새 물리라 재사용 원칙 일부 완화.
+
+**v20.2 두 부분으로 분할(위험 통제):**
+
+**v20.2a — 어쇼어 BMD 계층 확장(전술 엔진)** — 난이도 높음
+- 전술 엔진 `_bmd_asset_fire`/`_ashore_defense`에 **천궁-II(KM-SAM II)·L-SAM** 신규 요격 자산 추가
+  (기존 owner_id −1=SM-3·−2=THAAD → −3=L-SAM·−4=천궁-II 확장). 각 자산 제원(pk·사거리·고도 envelope·
+  비용·쿨다운·재고 cfg 키)을 **공개 제원 기준 신설**(DB 현실성 감사 대상).
+  - 계층: L-SAM=상층(~150km·고고도, THAAD급 한국형) · 천궁-II=하층 종말 점방어(~40km).
+  - `enable_ashore` 기존 플래그 확장 or 별도 stock(lsam_stock·chungung_stock) — 3종세트 불필요(어쇼어
+    자산 재고는 스핀박스/스탯, enable 토글 아님). **회귀: 신규 자산 stock=0 기본 → 기존 골든 bit-identical.**
+- **이 단계는 전술 단발/전장에서 바로 검증 가능**(캠페인 무관) — 회귀 골든에 천궁-II/L-SAM 발현 케이스 추가.
+
+**v20.2b — 연안 방공 캠페인 층** — 난이도 높음
+- `CoastalSAMSite`: zone별 고정 포대. 자산 로스터 = {SM-3, THAAD, **L-SAM, 천궁-II**} 중 편성.
+- **ASBM 요격 = 전술엔진 정밀 전면**: ASBM(is_qbm·is_ballistic + 대함, 예 DF-21D) 위협이 있는 zone
+  교전은 확률 가산이 아니라 **항상 전술 단발(run_v7_simulation)로 정밀 해결**. CoastalSAMSite를 전술
+  tcfg에 어쇼어 자산(enable_ashore + 각 stock)으로 주입 → v20.2a의 요격 로직으로 실측.
+- **정밀 라우팅 트리거(_tick_engagements)**: `(적 규모≥3) OR (zone에 ASBM 위협 AND CoastalSAMSite 존재)`
+  이면 `_resolve_precise`. ASBM 있어도 연안 SAM 없으면 정밀 강제 무의미(함대 자체 방어만) → proxy 유지.
+- **재고 추적**: CoastalSAMSite.stock을 캠페인 틱 간 유지 → 정밀 교전마다 tcfg stock으로 주입,
+  전술 결과의 발사 수만큼 차감(CampaignShip.ammo 패턴). 소진 시 방어 저하.
 - ASBM 없는 통상 교전은 기존 즉시예측/정밀 하이브리드(A1) 유지.
-- v18 EnemyADSite(적 방공 대칭)·전술 ashore SAM 재사용. **이게 v20의 핵심 가치.**
+
+**성능 경계(주의)**: ASBM+연안SAM zone은 항상 정밀 → MC n=1000 × ASBM 교전 수만큼 전술 단발 추가.
+72h 전역서 ASBM 교전 1~3회 가정 시 MC당 +1~3 정밀 sim → E1 병렬 필수(이미 있음). 착수 시 wall-time 측정.
 
 ### v20.3 해상 상륙작전 지원 (착수 2순위·핵심) — 난이도 높음
 - `AmphibiousForce`: 독도함 등 상륙함에 적재→목표 해안 이동→**교두보 확보** 임무체인(수송→항공 엄호→상륙).
@@ -81,9 +102,11 @@
 
 ```
 class CoastalSAMSite:   # 연안 고정 방공 포대 (불침·기동 없음)
-    name, zone, sam_type('패트리엇'|'천궁'), coverage_km, intercept_pk,
-    asbm_capable(bool)   # DF-21D 대함탄도탄 요격 가능 여부
+    name, zone,
+    assets: dict         # {'SM-3': stock, 'THAAD': stock, 'L-SAM': stock, '천궁-II': stock}
+                         #  (v20.2a 신규 L-SAM/천궁-II 포함 4계층) → 정밀 교전 tcfg 주입
     strength, recovery_h # 피격 시 저하·복구 (v18 EnemyADSite 대칭)
+    # 정밀 교전 실측 발사 수만큼 assets stock 차감(캠페인 틱 간 유지, CampaignShip.ammo 패턴)
 
 class AmphibiousForce:  # 상륙군 부대 (v18 CampaignShip 상태머신 복제)
     name, state('embark'|'transit'|'assault'|'beachhead'), zone,
@@ -135,22 +158,29 @@ if self.army is not None:
 **✅ 결정됨:**
 - **지형 기동 = 배제 확정**: 연안 고정 포대 + 상륙 임무체인만(기동 없음). 전차·야포 지상 기동전은
   별 프로젝트로 보류 — 범위·위험 통제(로드맵 권고 + 사용자 선택).
-- **ASBM 요격 = 전술엔진 정밀 전면**: DF-21D 위협 zone 교전은 항상 전술 단발로 정밀 해결(확률 추상화
-  아님). CoastalSAMSite→전술 ashore SAM(SM-3/THAAD/천궁) 매핑으로 **기존 검증 로직 재사용**(새 물리 X).
-  무겁지만 정확도 우선(사용자 "성능보다 확실·실수 없이"). 4·5·6절에 반영.
+- **ASBM 요격 = 전술엔진 정밀 전면**: DF-21D(is_qbm·is_ballistic+대함) 위협 zone 교전은 항상 전술
+  단발로 정밀 해결(확률 추상화 아님). 무겁지만 정확도 우선(사용자 "성능보다 확실·실수 없이").
+- **요격 자산 = 천궁-II/L-SAM 신규 추가**(사용자 결정 2026-07-12): 전술 엔진 어쇼어가 SM-3+THAAD
+  2종뿐임을 코드 확인 → 한국형 BMD 하위(천궁-II)·상위(L-SAM) 계층을 **신규 요격 로직으로 도입**해
+  4계층. 재사용 원칙 일부 완화(새 물리)하되 v20.2를 **a(전술 엔진 계층 확장)+b(캠페인 층)로 분할**해
+  위험 통제. 신규 자산 stock=0 기본 → 기존 골든 bit-identical.
 
-**남은 미결(v20.2 착수 시점 확정):**
+**남은 미결(착수 시점 확정):**
+- **천궁-II·L-SAM 공개 제원 확정**: pk·사거리·고도 envelope·비용 = v20.2a 착수 시 공개 출처 대조
+  ([[project-db-realism]]). 개략: 천궁-II ~40km/저고도 종말 · L-SAM ~150km/고고도(THAAD급 한국형).
 - **상륙 실패의 outcome 가중**: 상륙 실패가 전역 패배에 얼마나 기여할지 = 기준값 측정 후 튜닝(v20.3).
-- **난이도·에포트**: 새 엔진 설계 = **매우 높음 → Opus/high**. v20.2부터 마이너 1개씩 순차.
+- **난이도·에포트**: 새 엔진 + 신규 요격 자산 = **매우 높음 → Opus/high**. v20.2a→b 순차.
 
 ---
 
 ## 9. 착수 요약 (다음 세션 재개점)
 
-1. **v20.2 연안 방공망**부터 (핵심·재사용 큼·낮은 위험). `engine_army.py` 신설 + `CoastalSAMSite` +
-   `enable_army_campaign`·`enable_coastal_sam` 3종세트 + 캠페인 접합(zone 방공 가산).
-2. → v20.3 상륙지원 → v20.4 도미노 통합 → v20.1 최소 전력 DB(대폭 축소).
-3. 각 단계 회귀 bit-identical(OFF)·code-review high·GUI 스모크·DB 현실성·기준값.
-4. **major 전환(v19→v20)이므로 블록 완료 시 종합 9영역 감사** 트리거.
+1. **v20.2a 어쇼어 BMD 계층 확장부터** (전술 엔진에 천궁-II·L-SAM 신규 요격 자산 — 캠페인 무관,
+   전술 단발/전장서 바로 검증). DB 현실성(공개 제원)·회귀 골든 신규 케이스·신규 자산 stock=0 기본 bit-identical.
+2. → **v20.2b 연안 방공 캠페인 층**: `engine_army.py` 신설 + `CoastalSAMSite`(4계층 자산) +
+   `enable_army_campaign`·`enable_coastal_sam` 3종세트 + 캠페인 접합 + **ASBM-정밀 라우팅**(트리거·재고추적).
+3. → v20.3 상륙지원(LPH/LPD/LST 재사용+교두보) → v20.4 도미노 통합 → v20.1 최소 전력 DB(대폭 축소).
+4. 각 단계 회귀 bit-identical(OFF/stock0)·code-review high·GUI 스모크(신규 `_audit_army_smoke.py`)·DB 현실성·기준값.
+5. **major 전환(v19→v20)이므로 블록 완료 시 종합 9영역 감사** 트리거.
 
 > 이 문서는 **설계(Phase 0)** — 구현 착수 전. 착수 시 8절 미결을 사용자와 합의 후 v20.2부터.
