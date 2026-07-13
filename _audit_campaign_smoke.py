@@ -77,10 +77,11 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = sead = strike = precise = army = coastal = amphib = None
+        chk = fog = air = sead = strike = precise = army = coastal = amphib = domino = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
+            elif '도미노' in t:         domino = c   # v20.4 적 방공망 제압 → 도미노
             elif '공군' in t:           air = c      # v19.1 공군 작전급(제공권)
             elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
             elif '전략' in t:           strike = c   # v19.4 전략 폭격 & 기지 타격
@@ -133,6 +134,11 @@ def main():
             log(f"상륙작전 체크박스: {_txt(amphib)!r} → 체크"); _act(amphib); time.sleep(1)
         else:
             log("⚠ 상륙작전 체크박스 미포착 — v20.3 GUI 경로 미확인")
+        # v20.4: 도미노(적 방공망 제압 → 제공권 → 해상 교통로) exe 경로를 태운다.
+        if domino is not None:
+            log(f"도미노 체크박스: {_txt(domino)!r} → 체크"); _act(domino); time.sleep(1)
+        else:
+            log("⚠ 도미노 체크박스 미포착 — v20.4 GUI 경로 미확인")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
@@ -143,6 +149,7 @@ def main():
             if army is not None: _st += f" 지상작전급={army.get_toggle_state()}"
             if coastal is not None: _st += f" 연안포대={coastal.get_toggle_state()}"
             if amphib is not None: _st += f" 상륙작전={amphib.get_toggle_state()}"
+            if domino is not None: _st += f" 도미노={domino.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")

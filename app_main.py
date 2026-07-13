@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.04.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.04.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.04.03 — 도미노: 방공망 제압 → 제공권 → 해상 교통로(로드맵 v20.4)]      ║
+║  NEW-A  연안 방공망이 제공권에 기여 — 살아있는 포대가 적 항공기 접근 억제.   ║
+║  NEW-B  적이 제공권을 쥐면 아군 연안 방공망을 제압(적 SEAD/DEAD) →           ║
+║         방공 기여 상실 → 제공권 추가 하락 → 해상 교통로 압박(연쇄).          ║
+║  NEW-C  제압된 포대는 요격탄 사격통제도 그만큼 상실 — 제압이 실제 요격에     ║
+║         반영. 아군이 제공권을 유지하면 방공망이 버팀(제압 미발생).           ║
 ║  [v18.04.02 — 해상 상륙작전: 교두보 확보(로드맵 v20.3)]                      ║
 ║  NEW-A  상륙 선단(독도함급·상륙함)이 목표 해안으로 이동해 교두보 확보 —      ║
 ║         적재→수송→항공 엄호→상륙 단계별 성공 확률을 곱해 진척 산출.          ║
@@ -1322,7 +1328,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.04.02"
+APP_VERSION = "v18.04.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6899,6 +6905,8 @@ class MainWindow(QMainWindow):
             self.cmb_coastal_preset.setCurrentText(cfg['coastal_sam_preset'])
         if hasattr(self, 'chk_amphibious'):
             self.chk_amphibious.setChecked(cfg.get('enable_amphibious', False))
+        if hasattr(self, 'chk_enemy_sead'):
+            self.chk_enemy_sead.setChecked(cfg.get('enable_enemy_sead', False))
         if hasattr(self, 'cmb_amphib_zone') and cfg.get('amphib_zone'):
             self.cmb_amphib_zone.setCurrentText(cfg['amphib_zone'])
         if hasattr(self, 'chk_strategic_strike'):
@@ -7608,6 +7616,20 @@ class MainWindow(QMainWindow):
         )
         self.chk_amphibious.setChecked(False)
 
+        # v20.4: 적 방공망 제압(도미노) — 지상 층 하위 옵션
+        self.chk_enemy_sead = QCheckBox("적 방공망 제압 → 도미노 (실험적)")
+        self.chk_enemy_sead.setToolTip(
+            "적이 제공권을 쥐면 아군 연안 방공 포대를 제압합니다(적 SEAD/DEAD).\n"
+            "제압된 포대는 방공 기여를 잃고, 그만큼 제공권이 더 떨어지며,\n"
+            "제공권 상실은 다시 해상 교통로 통제를 압박합니다 — 연쇄(도미노)입니다.\n"
+            "  연안 방공망 제압 → 제공권 하락 → 해상 교통로 압박 → 전역 패배\n"
+            "제압은 최대 85%까지만 진행되고, 적이 손을 놓으면 포대가 재전개됩니다(24시간).\n"
+            "반대로 아군이 제공권을 유지하면 포대가 제압당하지 않습니다.\n"
+            "지상 작전급·연안 방공 포대·공군 작전급과 함께 켜야 작동합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_enemy_sead.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7736,6 +7758,7 @@ class MainWindow(QMainWindow):
                     self.chk_air_campaign, self.chk_precise_engage,
                     self.chk_sead, self.chk_strategic_strike,
                     self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
+                    self.chk_enemy_sead,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7775,6 +7798,7 @@ class MainWindow(QMainWindow):
             "그 교통로의 통제도·제공권·호위 함정 수가 상륙 성공을 좌우합니다."
         )
         fl_env.addRow("상륙 목표 해안", self.cmb_amphib_zone)
+        fl_env.addRow("",            self.chk_enemy_sead)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9695,6 +9719,8 @@ class MainWindow(QMainWindow):
             # v20.3 해상 상륙작전(교두보 확보)
             'enable_amphibious':    self.chk_amphibious.isChecked(),
             'amphib_zone':          self.cmb_amphib_zone.currentText(),
+            # v20.4 도미노(적 방공망 제압 → 제공권 → 해상 교통로)
+            'enable_enemy_sead':    self.chk_enemy_sead.isChecked(),
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -11813,13 +11839,9 @@ class SplashWindow(QWidget):
              "v19.5 공군 통합 완료 후 지상 방공망(v20.2)과 연결되는 다전장 교전 구역 확정."),
             # ── v20.x — 육군 작전급 ────────────────────────────────────────────
             # 선행 필수: v18 완성
-            ("v20.1", "매우 높음", "지상군 전력 & 기동 모델",
-             "육군 전력: K2 흑표·K21·K9 자주포·천무·패트리엇·사드. "
-             "지형 기반 이동 속도·시야 계산. 상륙 → 내륙 진출 경로 모델링. "
-             "【범위】전면 지상전은 해전 시뮬 본령 밖 → 상륙·연안 접점에 필요한 최소 단위만."),
-            ("v20.4", "중간", "육군 작전 캠페인 통합",
-             "해·공 캠페인 엔진에 육군 임무 추가. 지상전 전황 → 해상 교통로·제공권 상호 영향. "
-             "지상 방공망 손실 → 제공권 → 해상 교통로 도미노 반영."),
+            ("v20.1", "중간", "지상 전력 DB 확충 (연안 BMD·근미래 플랫폼)",
+             "천궁-II·L-SAM은 도입 완료. 남은 것은 패트리엇 PAC-3·KDDX 차기 구축함·"
+             "KC-330 공중급유기·현무-II 지대지·해병 상륙부대 단위. 각 공개 제원 대조 후 추가."),
             # ── v21.x — 육해공 통합 합동작전 ──────────────────────────────────
             # 선행 필수: v17·v18·v19 전체 완성
             ("v21.1", "매우 높음", "합동작전 사령부 (JCS)",

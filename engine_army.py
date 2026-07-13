@@ -83,6 +83,21 @@ _ESCORT_FULL       = 3.0    # 호위 함정 3척이면 함포 지원 만점
 _ASSAULT_TIMEOUT_H = 48
 _ASSAULT_MIN_RATE  = 0.01   # 이 미만 진척은 '정체'로 계산
 
+# ── v20.4 도미노: 연안 방공 ↔ 제공권 ↔ 해상 교통로 ─────────────────────────
+# 도미노가 성립하려면 연안 방공망이 **제공권에 기여**해야 한다 — 살아있는 연안 SAM은
+# 적 항공기의 접근을 억제하기 때문. 그 연결이 있어야 비로소:
+#   적 SEAD → 연안 SAM 제압 → 방공 기여 상실 → 제공권↓ → 해상 교통로 압박
+# 의 연쇄가 돈다(v19.3 아군 SEAD → 적 IADS 제압의 정확한 거울).
+_COASTAL_AIRDEF_POWER = 4.0   # 완편·무피해 포대가 그 구역 아군 제공권 전력에 더하는 값
+                              #  (engine_airforce._BASE_AIR_THREAT=6.0과 같은 척도)
+# 적 SEAD — 적이 제공권을 쥘수록 우리 연안 방공망을 제압한다(결정론).
+#   제압/복구의 균형이 도미노의 성립 조건이다. 아군이 하늘을 쥐면(적 제공권 낮음) 제압이
+#   복구를 못 이겨 방공망이 버티고, 제공권을 내주면 제압이 축적돼 연쇄가 시작된다.
+#   손익분기: 적 제공권 ≈ 복구율/계수 = (1/48)/0.10 ≈ 0.21 — 적이 20% 이상 하늘을 잡아야 뚫린다.
+_ENEMY_SEAD_PER_EFFORT = 0.10   # 적 제공권 1.0당 틱당 제압 증가(보수적 — 과대평가 방지)
+_COASTAL_SUPPRESS_CAP  = 0.85   # 제압 상한 — 완전 무력화는 못 한다(v19.3과 동일한 보수 BDA)
+_COASTAL_RECOVERY_H    = 48     # 무대응 시 완전 복구까지 시간(포대 재전개·정비 — 항공기 재출격보다 느리다)
+
 # 상륙 성공/실패가 전역 승패에 기여하는 가중치. outcome은 (1-W)·교통로통제 + W·상륙점수.
 # 상륙 임무를 안 걸면 이 항 자체가 없다(기존 판정 그대로).
 AMPHIB_OUTCOME_W   = 0.35
@@ -110,9 +125,9 @@ class CoastalSAMSite:
         self.zone        = zone
         self.assets      = dict(assets)    # {자산명: 잔여 재고}
         self.initial     = dict(assets)    # 초기 재고(잔여율 계산용)
-        # v20.4 예약 — 적 SEAD 제압도. v20.2b에선 0 고정(정적 방어).
+        # v20.4: 적 SEAD 제압도(0=완전 활성 / 1=완전 제압). 무대응 시 recovery_h에 걸쳐 복구.
         self.suppression = 0.0
-        self.recovery_h  = 0
+        self.recovery_h  = _COASTAL_RECOVERY_H
 
     @property
     def total_remaining(self) -> int:
@@ -133,17 +148,25 @@ class CoastalSAMSite:
         ⚠ 먼저 지상 BMD 관련 키를 **전부 걷어낸다**. 사용자가 단발용으로 켜 둔 BMD 토글
         (예: enable_ashore + ashore_sm3_stock=24)이 tcfg에 묻어 오면, 포대가 보유하지 않은
         자산이 매 교전 공짜로 발사되고 재고 차감도 안 돼(차감은 포대 보유분만) 연안 방공
-        효과가 과대평가된다. 캠페인에서 지상 BMD의 유일한 권위는 이 포대다."""
+        효과가 과대평가된다. 캠페인에서 지상 BMD의 유일한 권위는 이 포대다.
+
+        ⚠ v20.4: 제압(suppression)된 만큼 **실제 교전 가용 재고도 줄인다**. 제압을 제공권에만
+        반영하고 요격에는 안 쓰면, 방공망이 85% 제압당해도 ASBM 정밀 교전에선 요격탄이 그대로
+        나가는 불일치가 생긴다(감사 발견)."""
         for en_key, stock_key in _ASSET_CFG_KEY.values():
             tcfg[en_key]    = False
             tcfg[stock_key] = 0
+        usable = 1.0 - max(0.0, min(1.0, self.suppression))
         for asset, stock in self.assets.items():
             key = _ASSET_CFG_KEY.get(asset)
             if not key or stock <= 0:
                 continue
+            avail = int(stock * usable)   # 제압된 포대는 그만큼 사격통제를 잃는다
+            if avail <= 0:
+                continue
             en_key, stock_key = key
             tcfg[en_key]    = True
-            tcfg[stock_key] = int(stock)
+            tcfg[stock_key] = avail
 
     def consume_abstract(self, n_threats: int) -> int:
         """대리모델(비정밀) 교전에서의 요격탄 소모 — 하층(싼 것)부터 차감.
@@ -264,6 +287,8 @@ class ArmyCampaign:
             self._build_sites()
         self.n_asbm_precise = 0    # ASBM 때문에 정밀 교전으로 강제된 횟수(투명성)
         self.n_intercepts   = 0    # 연안 포대가 발사한 총 요격탄 수
+        # v20.4 도미노 — 적 SEAD가 연안 방공망을 제압(OFF면 suppression 0 유지)
+        self.enemy_sead = bool(cfg.get('enable_enemy_sead', False))
         # v20.3 상륙작전 — enable_amphibious ON일 때만 편성(OFF면 상륙 항 자체가 없다)
         self.amphib_enabled = bool(cfg.get('enable_amphibious', False))
         self.landing: AmphibiousForce | None = None
@@ -297,9 +322,14 @@ class ArmyCampaign:
     def tick(self, t_h: int = 0, control: dict | None = None,
              air_sups: dict | None = None, escorts: dict | None = None):
         """1시간 틱.
-        연안 방공은 정적(재고는 교전에서만 소모) → 갱신 없음.
-        상륙작전은 3단계 곱연산으로 진척(v20.3).
-        v20.4에서 적 SEAD 제압도(suppression) 증가·복구가 여기 들어온다."""
+        v20.4: 적 SEAD가 연안 방공망을 제압(복구 → 제압 순, v19.3 아군 SEAD와 동형).
+        v20.3: 상륙작전 3단계 곱연산 진척.
+        연안 포대 재고는 교전에서만 소모(여기선 안 건드림).
+
+        air_sups는 **직전 틱의 제공권**이다(캠페인이 army → air 순으로 틱해 순환을 끊는다).
+        1틱 지연이 곧 도미노의 시간 구조 — 제공권을 잃고 나서 방공망이 제압당한다.
+        """
+        self._tick_enemy_sead(air_sups)
         lf = self.landing
         if lf is None or lf.done:
             return
@@ -317,6 +347,40 @@ class ArmyCampaign:
                 'p_aircover': round(lf.p_aircover, 3),
                 'p_assault': round(lf.p_assault, 3),
             })
+
+    def _tick_enemy_sead(self, air_sups: dict | None):
+        """v20.4: 적 SEAD/DEAD — 적이 제공권을 쥘수록 아군 연안 방공망을 제압한다.
+        v19.3(아군 SEAD → 적 IADS)의 정확한 거울: 결정론·제압 상한·무대응 복구.
+        enable_enemy_sead OFF면 무동작(suppression 0 유지 → v20.3 bit-identical)."""
+        if not self.sites:
+            return
+        # 공군 층이 없으면(air_sups=None) 제공권 개념 자체가 없다 → 도미노가 성립하지 않는다.
+        # 이때 제압만 돌리면 2단계(제공권 하락)가 없는 채로 포대가 이유 없이 무력화된다
+        # (감사 발견). 적 SEAD는 공군 작전급과 함께 켜야 의미가 있다.
+        for site in self.sites.values():
+            # 0) 복구 먼저 — 적이 손을 놓으면 포대가 재전개된다(v19.3과 같은 순서)
+            if site.suppression > 0:
+                site.suppression = max(0.0, site.suppression - 1.0 / site.recovery_h)
+            if not self.enemy_sead or air_sups is None:
+                continue
+            # 1) 제압 — 적 제공권(= 1 - 아군 제공권)에 비례. 아군이 하늘을 쥐면 제압 없음.
+            enemy_air = 1.0 - max(0.0, min(1.0, air_sups.get(site.zone, 0.5)))
+            if enemy_air > 0:
+                site.suppression = min(_COASTAL_SUPPRESS_CAP,
+                                       site.suppression + _ENEMY_SEAD_PER_EFFORT * enemy_air)
+
+    def air_defense(self) -> dict:
+        """v20.4: 구역별 연안 방공망이 아군 제공권에 더하는 전력.
+        살아있는(재고 있고 제압 안 된) 포대가 적 항공기 접근을 억제한다 —
+        **이 연결이 도미노의 첫 고리**다. 포대가 없거나 소진·제압되면 0.
+        공군 층(engine_airforce)이 제공권 격자를 갱신할 때 아군 전력에 가산한다."""
+        return {z: _COASTAL_AIRDEF_POWER * s.readiness for z, s in self.sites.items()}
+
+    def mean_suppression(self) -> float:
+        """연안 방공망 평균 제압도(0~1) — 도미노 진행 정도(보고서·결과)."""
+        if not self.sites:
+            return 0.0
+        return sum(s.suppression for s in self.sites.values()) / len(self.sites)
 
     # ── 상륙 조회 API ──────────────────────────────────────────────────────
     def landing_outcome_weight(self) -> float | None:
@@ -400,6 +464,9 @@ class ArmyCampaign:
             },
             'n_asbm_precise': self.n_asbm_precise,
             'coastal_intercepts': self.n_intercepts,
+            # v20.4 도미노 — 연안 방공망 제압도(적 SEAD)와 제공권 기여
+            'coastal_suppression': round(self.mean_suppression(), 3),
+            'coastal_airdef': {z: round(v, 2) for z, v in self.air_defense().items()},
         }
         lf = self.landing
         if lf is not None:   # v20.3 상륙작전

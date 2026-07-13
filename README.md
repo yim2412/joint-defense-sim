@@ -12,7 +12,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급 + 한국형 미사일방어 4계층 (v18.04)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급(연안방공·상륙·도미노) + 한국형 미사일방어 4계층 (v18.04)
 > **진행 중:** **작전급 캠페인 엔진** — 며칠 단위 전역을 1시간 단위로 진행, 교전은 학습된 예측 모델로 즉시 계산해 72시간 전역을 수초에 (해상 교통로 통제로 승패 판정)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -39,8 +39,8 @@
 | 영역 | 상태 | 내용 |
 |------|------|------|
 | 🌊 **해군 (Naval)** | ✅ 구현 중 | 이지스 기동전단 대공·대함·대잠 다층 방어 |
-| ✈️ **공군 (Air)** | 🔜 계획 | 제공권 교전·CAP·SEAD 등 항공 작전 통합 |
-| 🪖 **육군 (Land)** | 🔜 계획 | 지상 방공·해안 방어 등 지상 전력 연동 |
+| ✈️ **공군 (Air)** | ✅ 작전급 구현 | 제공권 격자 · CAP · 방공망 제압(SEAD) · 전략 폭격 · 근접 항공 지원(CAS) |
+| 🪖 **육군 (Land)** | ✅ 작전급 구현 | 연안 방공망(4계층 요격) · 해상 상륙작전(교두보 확보) · 방공망 제압 도미노 |
 
 ---
 
@@ -55,6 +55,7 @@
 - **전자전·EMCON·사이버전** — ARM 역탐지(레이더 방사 딜레마) · 능동 소나 핑 역탐지 · 전자 좌표 기만 · 사이버 침투(데이터링크 변조·CIC 마비)
 - **극초음속·미래 위협 대응** — HGV 활공 궤적 다층 요격(외기권 SM-3 ↔ 대기권 SM-6) · 무인기 군집(Swarm) 포화 소모전 · 자폭 무인수상정(USV) · 기뢰전(MIW)
 - **탄도탄 방어(BMD) 4계층** — 이지스 어쇼어 SM-3(중간단계) · THAAD(종말 고고도) · L-SAM(종말 상층) · 천궁-II(종말 하층 점방어). 탄도탄 종말 강하 궤적에 따라 접근 거리대별 순차 교전
+- **지상 작전급 — 연안 방공·상륙·도미노** — 해상 교통로별 연안 방공 포대(4계층 요격, 요격탄 재고가 전역 내내 이어짐) · 대함탄도탄 구역은 실제 전술 교전으로 실측 · 해상 상륙작전(수송→항공 엄호→상륙 곱연산으로 교두보 확보) · **방공망 제압 도미노**(적이 제공권을 쥐면 연안 방공망 제압 → 제공권 추가 하락 → 해상 교통로 압박)
 - **분산·연안 작전** — 분산해양작전(DMO) · 해안 C-RAM/SAM 연안 방어 · 항만 거점 복합 방어
 - **무인·자율 자산** — 무인 정찰 드론(수평선 너머 OTH 탐지 확장) · 무인 수상/수중정(USV·UUV — 소해·전방 피켓·무인 점방어)
 - **지속 전장 모드** (실험적) — 양측이 작전 목표(자산 방어·해역 통제 등)를 두고 시간 지평까지 겨루는 승/패 판정 엔진
@@ -246,6 +247,7 @@ expand to other force domains step by step.
 - **Electronic warfare · EMCON · cyber** — ARM counter-detection (radar-emission dilemma) · active-sonar ping counter-detection · electronic coordinate deception · cyber intrusion (datalink corruption, CIC blinding)
 - **Hypersonic & emerging threats** — layered interception of HGV glide trajectories (exo-atmospheric SM-3 ↔ endo-atmospheric SM-6) · drone-swarm saturation attrition · suicide unmanned surface vessels (USV) · mine warfare (MIW)
 - **4-layer ballistic missile defense (BMD)** — Aegis Ashore SM-3 (midcourse) · THAAD (terminal high-altitude) · L-SAM (terminal upper) · Cheongung-II (terminal lower point defense). Ballistic terminal descent lets each layer engage in sequence by approach range
+- **Ground operational layer — coastal air defense, amphibious assault, domino** — coastal SAM sites per sea line of communication (4-layer interception, interceptor stocks carry across the whole campaign) · anti-ship ballistic missile zones resolved by actual tactical engagement · amphibious assault (transit → air cover → assault, multiplied into beachhead progress) · **SEAD domino** (once the enemy holds the sky it suppresses coastal air defenses → air superiority falls further → sea lines come under pressure)
 - **Distributed & littoral operations** — Distributed Maritime Operations (DMO) · shore-based C-RAM/SAM littoral defense · combined harbor-stronghold defense
 - **Unmanned & autonomous assets** — unmanned reconnaissance drones (over-the-horizon detection extension) · unmanned surface/undersea vehicles (USV·UUV — minesweeping, forward picket, unmanned point defense)
 - **Persistent battle mode** (experimental) — a win/loss engine where both sides pursue operational objectives (asset defense, sea control, etc.) over a time horizon

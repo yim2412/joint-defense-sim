@@ -117,6 +117,7 @@ def chk_flag_triplet():
     camp_flags = {'enable_army_campaign': camp,   # v20.2b engine_campaign __init__에서 소비(지상 층)
                   'enable_coastal_sam':   army,   # v20.2b engine_army ArmyCampaign에서 소비(연안 포대)
                   'enable_amphibious':    army,   # v20.3 engine_army ArmyCampaign에서 소비(상륙작전)
+                  'enable_enemy_sead':    army,   # v20.4 engine_army 적 SEAD 제압(도미노)
                   'enable_campaign_mode': lau,   # app_main SimWorker 라우팅에서 소비
                   'enable_campaign_fog': camp,   # engine_campaign _tick_intel에서 소비
                   'enable_air_campaign': camp,   # v19.1 engine_campaign __init__에서 소비(공군 층)

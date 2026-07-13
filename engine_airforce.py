@@ -251,10 +251,14 @@ class AirCampaign:
         self.bases          = build_enemy_bases(cfg) if self.strike_enabled else []
         self._strike_acc    = 0.0   # 누적 전략폭격 소티
 
-    def tick(self, zone_threat: dict, support_req: dict | None = None):
+    def tick(self, zone_threat: dict, support_req: dict | None = None,
+             coastal_airdef: dict | None = None):
         """1시간 공군 틱. zone_threat: {zone: truth 위협도}(해군 캠페인이 제공).
         v19.5: support_req={zone: 지원 요청 우선도}(해군 통제 붕괴 신호). None이면 CAS 미발동
-        (하위호환·구버전 호출 정상) → v19.4와 완전 동일."""
+        (하위호환·구버전 호출 정상) → v19.4와 완전 동일.
+        v20.4: coastal_airdef={zone: 연안 방공망이 더하는 아군 제공권 전력}(지상 층이 제공).
+        살아있는 연안 SAM이 적 항공기 접근을 억제한다 — 적 SEAD가 이 포대를 제압하면
+        기여가 사라져 제공권이 떨어진다(도미노). None이면 가산 0 → v20.3과 동일."""
         self._tick_i += 1
         req = support_req or {}
         # 0) v19.3: 방공망 복구(무대응 시 suppression 감쇠) — SEAD 제압 전에 처리
@@ -303,8 +307,10 @@ class AirCampaign:
         # 5) 제공권 격자 갱신 — target = 아군 제공권 / (아군 + 적 대공위협[기저+웨이브+활성 방공망])
         zone_ad = self._zone_ad_threat()
         zone_target = {}
+        cad = coastal_airdef or {}
         for z in SLOC_ZONES:
-            fp = zone_power[z]
+            # v20.4: 연안 방공망 기여를 아군 제공권 전력에 가산(제압·소진되면 0 → 제공권↓)
+            fp = zone_power[z] + float(cad.get(z, 0.0))
             et = (_BASE_AIR_THREAT + float(zone_threat.get(z, 0.0)) * _WAVE_AIR_SCALE
                   + zone_ad.get(z, 0.0))
             zone_target[z] = 1.0 if (fp + et) <= 0 else fp / (fp + et)

@@ -432,7 +432,8 @@
     "coastal_intercepts": null,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": null
   },
   "정밀ON-항모킬체인#2": {
     "outcome": "win",
@@ -447,7 +448,8 @@
     "coastal_intercepts": null,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": null
   },
   "연안방공-ASBM#3": {
     "outcome": "win",
@@ -462,7 +464,8 @@
     "coastal_intercepts": 48,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": 0.0
   },
   "연안방공-ASBM#11": {
     "outcome": "win",
@@ -477,7 +480,8 @@
     "coastal_intercepts": 38,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": 0.0
   },
   "연안방공-포화패배#3": {
     "outcome": "loss",
@@ -492,7 +496,8 @@
     "coastal_intercepts": 11,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": 0.0
   },
   "캠페인-대리모델#5": {
     "outcome": "draw",
@@ -507,7 +512,8 @@
     "coastal_intercepts": null,
     "amphib_state": null,
     "amphib_progress": null,
-    "amphib_success": null
+    "amphib_success": null,
+    "coastal_suppression": null
   },
   "상륙-교두보확보#3": {
     "outcome": "win",
@@ -522,7 +528,8 @@
     "coastal_intercepts": 0,
     "amphib_state": "beachhead",
     "amphib_progress": 1.0,
-    "amphib_success": 1
+    "amphib_success": 1,
+    "coastal_suppression": 0.0
   },
   "상륙-교통로차단#3": {
     "outcome": "loss",
@@ -536,7 +543,40 @@
     "n_asbm_precise": 0,
     "coastal_intercepts": 0,
     "amphib_state": "assault",
-    "amphib_progress": 0.343,
-    "amphib_success": 0
+    "amphib_progress": 0.344,
+    "amphib_success": 0,
+    "coastal_suppression": 0.0
+  },
+  "도미노-제공권열세#3": {
+    "outcome": "loss",
+    "n_precise": 6,
+    "n_engagements": 6,
+    "surviving_ships": 0,
+    "cost_total": 250315000.0,
+    "mean_control": 0.49,
+    "n_reassign": 7,
+    "end_h": 33,
+    "n_asbm_precise": 6,
+    "coastal_intercepts": 22,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null,
+    "coastal_suppression": 0.85
+  },
+  "도미노-제공권우세#3": {
+    "outcome": "loss",
+    "n_precise": 6,
+    "n_engagements": 6,
+    "surviving_ships": 0,
+    "cost_total": 625315000.0,
+    "mean_control": 0.49,
+    "n_reassign": 7,
+    "end_h": 33,
+    "n_asbm_precise": 6,
+    "coastal_intercepts": 51,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null,
+    "coastal_suppression": 0.023
   }
 }

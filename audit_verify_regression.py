@@ -133,6 +133,22 @@ CAMPAIGN_CASES = [
                             enemy_fleet_preset='전면전 포화',
                             enable_army_campaign=True, enable_air_campaign=True,
                             enable_amphibious=True, amphib_zone='서해'), [3]),
+    # v20.4 도미노 — 제공권 열세(최소 방공)에서 적 SEAD가 연안 방공망을 제압 상한(0.85)까지
+    # 밀어붙여 방공 기여가 무너지는 연쇄를 봉인. 제압/복구 균형이 조용히 바뀌면 회귀가 잡는다.
+    ('도미노-제공권열세', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                              campaign_horizon_h=72,
+                              fleet_preset='기동전단 기본', enemy_fleet_preset='전면전 포화',
+                              enable_army_campaign=True, enable_coastal_sam=True,
+                              coastal_sam_preset='연안 방공 강화',
+                              enable_air_campaign=True, enable_enemy_sead=True,
+                              air_force_preset='최소 방공 (제공권 열세)'), [3]),
+    # 대조군: 같은 도미노 ON인데 제공권 우세(한미 연합)면 방공망이 버틴다(제압 ≈ 0).
+    ('도미노-제공권우세', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                              campaign_horizon_h=72,
+                              fleet_preset='기동전단 기본', enemy_fleet_preset='전면전 포화',
+                              enable_army_campaign=True, enable_coastal_sam=True,
+                              coastal_sam_preset='연안 방공 강화',
+                              enable_air_campaign=True, enable_enemy_sead=True), [3]),
 ]
 # 캠페인 결정론 지표 (float은 스냅샷·검사 양쪽 동일 라운딩이라 정확 일치)
 # mean_control 등은 소수3자리로 봉인 — 1자리면 4%p대 통제도 변화가 골든을 통과해 민감도 저하.
@@ -141,7 +157,9 @@ _CKEYS = ['outcome', 'n_precise', 'n_engagements', 'surviving_ships',
           # v20.2b: 연안 방공 — ASBM 정밀 강제 횟수·포대가 실제로 쏜 요격탄 수(재고 차감)
           'n_asbm_precise', 'coastal_intercepts',
           # v20.3: 상륙 — 최종 상태·교두보 진척(3단계 곱연산 결과)
-          'amphib_state', 'amphib_progress', 'amphib_success']
+          'amphib_state', 'amphib_progress', 'amphib_success',
+          # v20.4: 도미노 — 연안 방공망 제압도(적 SEAD)
+          'coastal_suppression']
 _CROUND = 3   # 캠페인 float 지표 라운딩 자리수(회귀 민감도)
 
 

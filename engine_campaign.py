@@ -219,20 +219,24 @@ class CampaignEngine:
             self._tick_fuel()           # v18.2: 초계 연료 소모 + 재보급 트리거
             self._tick_intel()          # v18.4: 적 위협 belief 갱신(탐지·감쇠)
             self._assign_missions()     # v18.3: belief 기반 동적 재배정(6h마다)
-            if self.air is not None:   # v19.1: 공군 제공권 격자 갱신
-                # v19.2: 교전 前에 갱신 → 현재 틱 제공권이 같은 틱 교전에 연동(win_p·score 보정)
-                # v19.5: 해군 지원요청(통제 붕괴 신호)을 함께 전달 → CAS 자동 요청·배정
-                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES},
-                              self._support_request())
-            if self.army is not None:   # v20.2b·v20.3: 지상 층 틱 — 교전 前 갱신
-                # 연안 방공은 정적(재고는 교전에서만 소모). 상륙작전은 3단계 곱연산 진척 —
-                # 교통로 통제(수송)·제공권(엄호)·호위 함정 수(함포 지원)를 넘긴다.
+            # v20.4 도미노: 지상 → 공군 순으로 틱한다(순서가 곧 인과).
+            #   지상은 **직전 틱 제공권**으로 적 SEAD 제압을 계산하고(1틱 지연 = 순환 차단),
+            #   공군은 **그 결과 살아남은 연안 방공 기여**를 받아 제공권을 갱신한다.
+            #   → 적 SEAD → 연안 SAM 제압 → 방공 기여 상실 → 제공권↓ → 해상 교통로 압박.
+            if self.army is not None:   # v20.2b·v20.3·v20.4: 지상 층 틱 — 교전 前 갱신
                 self.army.tick(
                     t_h=self.t_h,
                     control=self.control,
                     air_sups=(self.air.zone_superiority() if self.air is not None else None),
                     escorts=self._escort_counts(),
                 )
+            if self.air is not None:   # v19.1: 공군 제공권 격자 갱신
+                # v19.2: 교전 前에 갱신 → 현재 틱 제공권이 같은 틱 교전에 연동(win_p·score 보정)
+                # v19.5: 해군 지원요청(통제 붕괴 신호)을 함께 전달 → CAS 자동 요청·배정
+                self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES},
+                              self._support_request(),
+                              coastal_airdef=(self.army.air_defense()
+                                              if self.army is not None else None))
             self._tick_engagements()
             self._tick_sloc()
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
@@ -750,7 +754,9 @@ _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total'
                 # v20.2b: 연안 방공 — 없으면 반복 분석에서 이 지표가 통째로 소실된다
                 'n_asbm_precise', 'coastal_intercepts',
                 # v20.3: 상륙작전 — 교두보 확보율·평균 진척
-                'amphib_success', 'amphib_progress')
+                'amphib_success', 'amphib_progress',
+                # v20.4: 도미노 — 연안 방공망 평균 제압도 + 제공권(연쇄 2단계 관측)
+                'coastal_suppression', 'mean_air_superiority')
 
 # ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
 _MC_WORKER_MODEL = None
@@ -861,6 +867,9 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         # v20.3: 상륙 — 교두보 확보율(성공 비율)·평균 진척
         'amphib_success_rate':     round(acc['amphib_success'] * inv, 3),
         'amphib_progress_avg':     round(acc['amphib_progress'] * inv, 3),
+        # v20.4: 도미노 — 연안 방공망 평균 제압도(적 SEAD 진행 정도) + 제공권(연쇄 2단계)
+        'coastal_suppression_avg': round(acc['coastal_suppression'] * inv, 3),
+        'air_superiority_avg':     round(acc['mean_air_superiority'] * inv, 3),
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
         'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)
