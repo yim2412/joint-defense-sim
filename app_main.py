@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.04.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.04.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.04.04 — 전력 DB 확충: 패트리엇·KDDX·054B·KC-330(로드맵 v20.1)]         ║
+║  NEW-A  패트리엇 PAC-3 MSE — 종말 중층 요격체계. BMD가 5계층으로 확장.       ║
+║  NEW-B  KDDX 차기 구축함 — 통합 전기추진·통합 마스트 스텔스 구축함.          ║
+║  NEW-C  054B형 호위함(적) — 054A 발전형, 자체방어·근접방어 강화.             ║
+║  NEW-D  KC-330 시그너스 공중급유기 — 체공 연장으로 제공권 전력 상승.         ║
 ║  [v18.04.03 — 도미노: 방공망 제압 → 제공권 → 해상 교통로(로드맵 v20.4)]      ║
 ║  NEW-A  연안 방공망이 제공권에 기여 — 살아있는 포대가 적 항공기 접근 억제.   ║
 ║  NEW-B  적이 제공권을 쥐면 아군 연안 방공망을 제압(적 SEAD/DEAD) →           ║
@@ -1328,7 +1333,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.04.03"
+APP_VERSION = "v18.04.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6998,6 +7003,7 @@ class MainWindow(QMainWindow):
                                 ('chk_ashore', 'enable_ashore', False),
                                 ('chk_lsam',     'enable_lsam',     False),
                                 ('chk_chungung', 'enable_chungung', False),
+                                ('chk_patriot',  'enable_patriot',  False),
                                 ('chk_bal_descent', 'enable_ballistic_descent', False)]:
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, dflt))
@@ -7583,7 +7589,7 @@ class MainWindow(QMainWindow):
         self.chk_army_campaign = QCheckBox("지상 작전급 (연안 방공망) (실험적)")
         self.chk_army_campaign.setToolTip(
             "작전급 캠페인 모드에 지상 층을 얹습니다. 해상 교통로별로 연안 방공 포대를 배치해\n"
-            "함대 상공을 함께 방어합니다(이지스 어쇼어 SM-3·THAAD·L-SAM·천궁-II 4계층).\n"
+            "함대 상공을 함께 방어합니다(이지스 어쇼어 SM-3·THAAD·L-SAM·패트리엇 PAC-3·천궁-II 5계층).\n"
             "적 대함탄도탄(DF-21D 등)이 있는 교통로의 교전은 확률 근사가 아닌 실제 전술 교전으로\n"
             "해결해, 연안 포대의 요격탄이 실제로 몇 발 나가 몇 발을 막았는지 실측합니다.\n"
             "요격탄 재고는 전역 내내 이어지며(소진 시 방어 저하), 통상 교전에는 방공 보강으로 기여합니다.\n"
@@ -8275,6 +8281,16 @@ class MainWindow(QMainWindow):
         )
         bmdl.addRow("", self.chk_chungung)
         _wire_chk_color(self.chk_chungung, 13)
+
+        self.chk_patriot = QCheckBox("패트리엇 PAC-3 연동 (실험적)")
+        self.chk_patriot.setToolTip(
+            "한·미 연합 종말 중층 요격체계 패트리엇 PAC-3 MSE 연동.\n"
+            "탄도미사일·HGV를 종말 중층(고도 2~25km, 사거리 60km)에서 hit-to-kill 요격.\n"
+            "L-SAM(상층)과 천궁-II(하층 점방어) 사이를 메우는 계층.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        bmdl.addRow("", self.chk_patriot)
+        _wire_chk_color(self.chk_patriot, 13)
 
         self.chk_bal_descent = QCheckBox("탄도탄 종말 강하 (실험적)")
         self.chk_bal_descent.setToolTip(
@@ -9805,6 +9821,9 @@ class MainWindow(QMainWindow):
             'lsam_stock':      16 if self.chk_lsam.isChecked() else 0,
             'enable_chungung': self.chk_chungung.isChecked(),
             'chungung_stock':  32 if self.chk_chungung.isChecked() else 0,
+            # v20.1: 패트리엇 PAC-3 MSE — 발사대 4기 × 4셀(MSE는 셀당 1발) = 16발 포대 편제
+            'enable_patriot':  self.chk_patriot.isChecked(),
+            'patriot_stock':   16 if self.chk_patriot.isChecked() else 0,
             'enable_ballistic_descent': self.chk_bal_descent.isChecked(),
             # C&D 시간
             'cd_time_s':      10,
@@ -11839,9 +11858,6 @@ class SplashWindow(QWidget):
              "v19.5 공군 통합 완료 후 지상 방공망(v20.2)과 연결되는 다전장 교전 구역 확정."),
             # ── v20.x — 육군 작전급 ────────────────────────────────────────────
             # 선행 필수: v18 완성
-            ("v20.1", "중간", "지상 전력 DB 확충 (연안 BMD·근미래 플랫폼)",
-             "천궁-II·L-SAM은 도입 완료. 남은 것은 패트리엇 PAC-3·KDDX 차기 구축함·"
-             "KC-330 공중급유기·현무-II 지대지·해병 상륙부대 단위. 각 공개 제원 대조 후 추가."),
             # ── v21.x — 육해공 통합 합동작전 ──────────────────────────────────
             # 선행 필수: v17·v18·v19 전체 완성
             ("v21.1", "매우 높음", "합동작전 사령부 (JCS)",

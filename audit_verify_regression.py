@@ -63,17 +63,18 @@ CASES = [
     # 이지스 기동전단 + F-35A/KF-21/FA-50 3기종에서 항공 요격이 확실히 발현하는 시드.
     ('CAP상시초계',     dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='랴오닝 항모전단',
                              enable_f35a=True, enable_kf21=True, enable_fa50=True, enable_helo=True),     [2, 3]),
-    # v20.2a: 지상 BMD 4계층(SM-3·THAAD·L-SAM·천궁-II) + 탄도 종말 강하. 강하 모델이 없으면
-    # 탄도가 고도 1200km를 유지해 종말 계층이 영구 미발현하므로 두 기능을 함께 봉인한다.
-    # 북한 포화(40발)는 4계층이 모두 발사되는 시드 — 계층별 발사수가 골든에 박혀
+    # v20.2a+v20.1: 지상 BMD 5계층(SM-3·THAAD·L-SAM·패트리엇 PAC-3·천궁-II) + 탄도 종말 강하.
+    # 강하 모델이 없으면 탄도가 고도 1200km를 유지해 종말 계층이 영구 미발현하므로 함께 봉인한다.
+    # 북한 포화(40발)는 5계층이 모두 발사되는 시드 — 계층별 발사수가 골든에 박혀
     # 요격 고도창·사거리·사격통제 상한이 조용히 바뀌면 회귀가 잡는다.
-    ('BMD4계층-강하',   dict(_BASE, fleet_preset='이지스 기동전단',
+    ('BMD5계층-강하',   dict(_BASE, fleet_preset='이지스 기동전단',
                              enemy_fleet_preset='북한 포화 공격 (40발)',
                              enable_ballistic_descent=True, enable_hgv_glide=True,
                              enable_ashore=True, ashore_sm3_stock=24,
                              enable_thaad=True,  thaad_stock=24,
                              enable_lsam=True,   lsam_stock=16,
-                             enable_chungung=True, chungung_stock=32),                                  [3, 15]),
+                             enable_chungung=True, chungung_stock=32,
+                             enable_patriot=True, patriot_stock=16),                                    [3, 15]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
@@ -82,6 +83,7 @@ _KEYS = ['total_threats', 'intercepted_threats', 'friendly_hits', 'enemy_hits',
          'peak_concurrent_threats', 't_first_fire', 'total_missiles_fired',
          'kor_shots', 'usa_shots', 'kor_cost', 'usa_cost',
          'ashore_sm3_fired', 'thaad_fired', 'lsam_fired', 'chungung_fired',
+         'patriot_fired',   # v20.1: BMD 5계층
          'iff_failures', 'iff_fratricide',
          'ships_sunk_by_flood', 'intercept_rate', 'sim_time', 'total_channels']
 
@@ -95,7 +97,7 @@ CAMPAIGN_CASES = [
     ('정밀ON-항모킬체인', dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단',
                               enemy_fleet_preset='항모 킬 체인'), [1, 2]),
     # v20.2b: 지상 층(연안 방공망). ASBM(DF-21D) 구역은 규모와 무관하게 전술 정밀로 강제되고
-    # 연안 포대 4계층 자산이 tcfg에 주입돼 실측 요격 → 재고가 틱 간 차감된다. 이 케이스가
+    # 연안 포대 5계층 자산이 tcfg에 주입돼 실측 요격 → 재고가 틱 간 차감된다. 이 케이스가
     # 라우팅 트리거·자산 주입·재고 차감을 한꺼번에 봉인한다(기동전단 기본 = 포대 유무가
     # 전멸↔완승을 가르는 편성 — 연안 방공 효과가 binding인 시드).
     ('연안방공-ASBM', dict(weather='맑음 (주간)', enable_campaign_mode=True,

@@ -31,11 +31,15 @@ COASTAL_SAM_PRESETS: dict[str, dict] = {
     '연안 방공 기본': {   # 하층 위주 — 저비용 점방어
         '천궁-II': 32, 'L-SAM': 8,
     },
-    '연안 방공 강화': {   # 4계층 완편 — 한·미 통합 BMD
-        'SM-3 (어쇼어)': 16, 'THAAD 요격탄': 16, 'L-SAM': 16, '천궁-II': 32,
+    '연안 방공 강화': {   # 5계층 완편 — 한·미 통합 BMD
+        'SM-3 (어쇼어)': 16, 'THAAD 요격탄': 16, 'L-SAM': 16,
+        'PAC-3 MSE': 16, '천궁-II': 32,          # v20.1: 패트리엇(종말 중층) 추가
     },
-    '한국형 BMD (KAMD)': {   # 국산 계층만(어쇼어·THAAD 없이 자주 방어)
+    '한국형 BMD (KAMD)': {   # 국산 계층만(어쇼어·THAAD·패트리엇 없이 자주 방어)
         'L-SAM': 16, '천궁-II': 32,
+    },
+    '한미 연합 종말방어': {   # v20.1: 미측 종말 자산 위주(THAAD + 패트리엇)
+        'THAAD 요격탄': 16, 'PAC-3 MSE': 16, '천궁-II': 32,
     },
 }
 
@@ -45,6 +49,7 @@ _ASSET_CFG_KEY: dict[str, tuple[str, str]] = {
     'SM-3 (어쇼어)': ('enable_ashore',   'ashore_sm3_stock'),
     'THAAD 요격탄':  ('enable_thaad',    'thaad_stock'),
     'L-SAM':         ('enable_lsam',     'lsam_stock'),
+    'PAC-3 MSE':     ('enable_patriot',  'patriot_stock'),   # v20.1
     '천궁-II':       ('enable_chungung', 'chungung_stock'),
 }
 
@@ -53,6 +58,7 @@ _FIRED_STAT_KEY: dict[str, str] = {
     'ashore_sm3_fired': 'SM-3 (어쇼어)',
     'thaad_fired':      'THAAD 요격탄',
     'lsam_fired':       'L-SAM',
+    'patriot_fired':    'PAC-3 MSE',   # v20.1
     'chungung_fired':   '천궁-II',
 }
 
@@ -176,7 +182,8 @@ class CoastalSAMSite:
         결정론 — rng 미사용."""
         need = max(0, int(n_threats))
         used = 0
-        for asset in ('천궁-II', 'L-SAM', 'THAAD 요격탄', 'SM-3 (어쇼어)'):   # 하층 → 상층
+        for asset in ('천궁-II', 'PAC-3 MSE', 'L-SAM',
+                      'THAAD 요격탄', 'SM-3 (어쇼어)'):   # 하층(싼 것) → 상층
             if need <= 0:
                 break
             have = self.assets.get(asset, 0)

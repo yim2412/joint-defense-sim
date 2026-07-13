@@ -30,6 +30,9 @@ GRID_COLS = 6
 # ── 튜닝 상수 (v19.2에서 ON/OFF 기준값 측정 후 조정) ───────────────────────────
 _SUP_ALPHA       = 0.30    # 제공권 관성 계수 — 한 틱에 급변 방지(SLOC control α 선례)
 _AEW_MULT_PER    = 0.30    # E-737 조기경보기 1대당 CAP 효율 승수(직접 격추 아닌 통제 이득)
+# v20.1: 공중급유기 — 전투기 체공 시간 연장 → 지속 출격률 상승. 조기경보기(통제 이득)와
+# 다른 축이라 곱해서 함께 적용한다. AEW보다 보수적(급유는 체공만 늘릴 뿐 탐지·통제는 못 함).
+_TANKER_MULT_PER = 0.15    # KC-330 급유기 1대당 공군 전력 승수
 _STEALTH_BONUS   = 1.4     # 스텔스기(F-35A) 제공권 기여 배율(생존·침투 우위)
 # 적 대공 위협 = 기저(상시 적 전투기·SAM 공역 방어) + 웨이브 규모 환산.
 # 기저가 없으면 위협 없는 zone이 자동 제공권 1.0이 되어 열세 편성도 우세로 오판됨.
@@ -275,8 +278,10 @@ class AirCampaign:
         # 2b) v19.4: 전략폭격 — 전략폭격기가 최대 출항분담 기지에 누적 손상(결정론·보수적 BDA)
         if self.strike_enabled:
             self._apply_strike()
-        # 3) 조기경보 승수(체공 중인 E-737 수)
+        # 3) 지원기 승수 — 조기경보(통제 이득) × 공중급유(체공 연장). 서로 다른 축이라 곱한다.
         aew_mult = 1.0 + _AEW_MULT_PER * sum(1 for u in self.units if 'AEW' in u.missions)
+        aew_mult *= 1.0 + _TANKER_MULT_PER * sum(1 for u in self.units
+                                                 if 'TANKER' in u.missions)   # v20.1
         # 4) zone별 아군 제공권 전력 + 소티 집계 (+ v19.5 임무 타임라인 카운트)
         zone_power = {z: 0.0 for z in SLOC_ZONES}
         n_cap = n_sead = n_strike = n_cas = 0
@@ -382,8 +387,8 @@ class AirCampaign:
             ms = u.missions
             if u.role == 'isr' and 'recon' in ms:
                 u.mission = 'recon'; u.zone = None
-            elif u.role == 'aew':
-                u.mission = None                 # 통제 이득은 aew_mult로 반영
+            elif u.role in ('aew', 'tanker'):
+                u.mission = None                 # 통제·급유 이득은 aew_mult 승수로 반영(v20.1)
             elif sead_todo and 'SEAD' in ms:
                 u.zone = sead_todo.pop(0); u.mission = 'SEAD'   # 방공망 zone에 SEAD 차출
             elif cas_todo and 'CAS' in ms:

@@ -425,6 +425,19 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.10,'alt_change_m':0,'max_attempts':1},
          'self_defense_pk':0.28,'enemy_ciws_pk':0.22},  # NEW-F
 
+    # v20.1: 054B형(장카이 III) — 054A의 발전형. 공개 제원: 만재 5,000~6,000t(054A보다 15m 김),
+    #   전장 147m, VLS 32셀(HQ-16 방공 + Yu-8 대잠), 100mm H/PJ-87 함포, Type 1130 CIWS,
+    #   HHQ-10 단거리 SAM. 2025-01 1번함 뤄허(洛河) 취역. 054A 대비 방공·자체방어가 강화됐다.
+    '054B형 호위함':
+        {'category':'대함','type':'호위함','speed_ms':14.5,'altitude_m':20,
+         'missile_name':'YJ-83 대함미사일','missile_speed_ms':300,'missile_range_km':180,
+         'can_fire_missile':True,'rcs_m2':600.0,   # 054A(800)보다 스텔스 형상 개선
+         'missile_salvo_min':4,'missile_salvo_max':8,
+         'missile_terminal_evasion':0.88,
+         'evasion_profile':{'speed_boost_min':0.05,'speed_boost_max':0.10,'alt_change_m':0,'max_attempts':1},
+         # HHQ-10 + Type 1130 CIWS(11총열) → 054A보다 자체방어·근접방어가 확실히 강하다
+         'self_defense_pk':0.35,'enemy_ciws_pk':0.30},
+
     '052D형 구축함':
         {'category':'대함','type':'구축함','speed_ms':15.0,'altitude_m':25,
          'missile_name':'YJ-18 초음속 대함미사일','missile_speed_ms':1250,'missile_range_km':540,  # PHY-2: 속도 1000→1250m/s(Mach3.5 종말), 사거리 500→540km
@@ -947,6 +960,31 @@ SHIP_DB = {
             'CIWS-II (Phalanx)': 9999,
         },
     },
+    # ── 차기 구축함 (KDDX) ──────────────────────────────────────────────────
+    # v20.1: 한국형 차기 구축함. 공개 제원: 경하 ~6,000~7,100t(만재 ~8,000t), 통합마스트
+    #   (IRST·IFF 평면 배치 → RCS 저감), 전기추진(소음↓), 다기능 위상배열 레이더 +
+    #   탄도탄 탐지·추적('한국형 이지스'), VLS 64셀 = 전방 KVLS-I 48 + 후방 KVLS-II 16.
+    #   국산 체계라 SM 계열이 아니라 해궁·L-SAM 함대공(장거리)·홍상어를 싣는 편성으로 본다.
+    #   KDX-III보다 작고 채널 수도 적지만, 스텔스·전기추진으로 피탐·피격에 강하다.
+    'KDDX': {
+        'display':      '차기 구축함 (KDDX)',
+        'sensor_km':    {'대공': 500, '대함': 45, '대잠': 50},   # 다기능 위상배열(BMD 탐지 가능)
+        'max_channels': 16,
+        'eccm_factor':  0.65,  # 통합마스트 + 국산 전자전(SLQ-200 후속)
+        'role':         ['대공', '대함', '대잠', 'BMD'],
+        # VLS 64셀 = KVLS-I 48 + KVLS-II 16. 장거리 방공은 국산 함대공(L-SAM 함정형 상정)으로,
+        # 중·단거리는 해궁. 대잠은 홍상어(KVLS-I).
+        'default_inventory': {
+            'SM-6':             8,    # 장거리 방공(한미 상호운용 — 보수적 소량)
+            'SM-2 Block IIIB':  16,   # 중거리 방공
+            '해궁 (K-SAAM)':    24,   # 국산 단거리 함대공(KVLS-I 주력)
+            'RIM-116 RAM':      21,
+            '홍상어 (대잠)':     8,
+            '청상어 (경어뢰)':  12,
+            'Mk.46 경어뢰':      8,
+            'CIWS-II (Phalanx)': 9999,
+        },
+    },
     # ── 구축함 (KDX-II 충무공이순신급) ──────────────────────────────────────
     'KDX-II': {
         'display':      '구축함 (KDX-II 충무공이순신급)',
@@ -1298,6 +1336,8 @@ SHIP_SURVIVABILITY = {
     # ── 한국 해군 ──────────────────────────────────────────────────────────
     'KDX-III-B1': {'displacement_t': 11000, 'reserve_buoyancy': 0.45, 'compartments': 14, 'dc_rating': 0.0016},
     'KDX-III-B2': {'displacement_t': 12000, 'reserve_buoyancy': 0.46, 'compartments': 15, 'dc_rating': 0.0017},
+    # v20.1 KDDX: 경하 ~7,100t(만재 ~8,000t) — 공개 제원. 전기추진·구획 세분화로 손상통제 양호.
+    'KDDX':       {'displacement_t': 8000,  'reserve_buoyancy': 0.44, 'compartments': 14, 'dc_rating': 0.0016},
     'KDX-II':     {'displacement_t': 5500,  'reserve_buoyancy': 0.40, 'compartments': 12, 'dc_rating': 0.0014},
     'FFX-I':      {'displacement_t': 3200,  'reserve_buoyancy': 0.32, 'compartments': 9,  'dc_rating': 0.0011},
     'FFX-II':     {'displacement_t': 3600,  'reserve_buoyancy': 0.33, 'compartments': 10, 'dc_rating': 0.0012},
@@ -1341,6 +1381,8 @@ SHIP_POWER = {
     'KDX-III-B1': {'gen_kw': 9000, 'radar_kw': 1200, 'prop_ref_kw': 2500, 'laser_kw': 0},
     # B2 정조대왕급: 개량 SPY-1D(V). 국산 레이저 블록-III(함정용 목표 100kW) 탑재 계획 반영.
     'KDX-III-B2': {'gen_kw': 9000, 'radar_kw': 1300, 'prop_ref_kw': 2500, 'laser_kw': 100},
+    # v20.1 KDDX: 통합 전기추진(IPS) — 발전 여유가 커 함정용 레이저 운용에 유리한 설계.
+    'KDDX':       {'gen_kw': 10000, 'radar_kw': 1200, 'prop_ref_kw': 2200, 'laser_kw': 100},
     'KDX-II':     {'gen_kw': 4500, 'radar_kw': 600,  'prop_ref_kw': 1500, 'laser_kw': 0},
     'FFX-I':      {'gen_kw': 2800, 'radar_kw': 250,  'prop_ref_kw': 900,  'laser_kw': 0},
     'FFX-II':     {'gen_kw': 3200, 'radar_kw': 400,  'prop_ref_kw': 1000, 'laser_kw': 0},
@@ -1388,6 +1430,7 @@ SHIP_PROCUREMENT_USD = {
     # ── 한국 해군 ──────────────────────────────────────────────────────────
     'KDX-III-B1': 760_000_000,    # 세종대왕급 ~1조 300억원
     'KDX-III-B2': 950_000_000,    # 정조대왕급 ~1조 2,800억원 (개량형)
+    'KDDX':       700_000_000,    # 차기 구축함 — 척당 ~1조원 내외(사업비 기준 추정 범위 하단)
     'KDX-II':     300_000_000,    # 충무공이순신급 ~4,000억원
     'FFX-I':      230_000_000,    # 인천급 ~3,000억원
     'FFX-II':     260_000_000,    # 대구급 ~3,500억원
@@ -1422,6 +1465,7 @@ SHIP_ENDURANCE = {
     # ── 한국 해군 ──────────────────────────────────────────────────────────
     'KDX-III-B1': (5500, 18),   # 세종대왕급
     'KDX-III-B2': (5500, 18),   # 정조대왕급
+    'KDDX':       (5000, 18),   # 차기 구축함 (전장 ~155m급)
     'KDX-II':     (4500, 18),   # 충무공이순신급
     'FFX-I':      (4000, 15),   # 인천급
     'FFX-II':     (4500, 15),   # 대구급
@@ -1473,6 +1517,7 @@ ENEMY_PROCUREMENT_USD = {
     '056형 초계함':          160_000_000,
     '071형 상륙함':          300_000_000,
     '054A형 호위함':         350_000_000,
+    '054B형 호위함':         450_000_000,   # v20.1: 054A 발전형(대형화·방공 강화)
     '052C형 구축함 (HHQ-9)': 700_000_000,
     '우달로이급 구축함':     750_000_000,
     '슬라바급 순양함':       900_000_000,
@@ -1517,6 +1562,7 @@ ENEMY_MUNITION = {
     '022형 미사일 고속정':   8,
     '056형 초계함':          4,
     '054A형 호위함':         8,
+    '054B형 호위함':         10,   # v20.1: 만재 5~6천t(054A 4천t급)이라 피탄 내성↑
     '052C형 구축함 (HHQ-9)': 8,
     '052D형 구축함':         16,
     '055형 대형 구축함':     24,
@@ -1802,6 +1848,7 @@ _ECM_OVR = {
     'JH-7A (날치)':0.12,'MiG-29 (풀크럼)':0.08,'MiG-23 (플로거)':0.06,
     'J-7 (섬광)':0.03,'H-6 (폭격기)':0.05,
     '055형 대형 구축함':0.28,'052D형 구축함':0.22,'054A형 호위함':0.18,
+    '054B형 호위함':0.22,   # v20.1: HHQ-10 + Type 1130 CIWS → 054A(0.18)보다 요격 우수
     '056형 초계함':0.12,'022형 미사일 고속정':0.08,
     'P-800 오닉스 (야혼트)':0.08,'YJ-12 (초음속 순항)':0.06,
     # NEW-P1: 신규 추가 항목
@@ -2064,6 +2111,17 @@ AIR_FORCE_DB = {
         'cruise_ms': 230,
         'sortie_rate': 1.0,         # 장기 체공 1소티
         'sortie_cost_usd': 350_000,
+    },
+    # v20.1: 공중급유기 — 전투기의 체공 시간을 늘려 지속 출격률을 끌어올린다(직접 교전 없음).
+    #   A330 MRTT 기반. 공개 제원: 연료 111t 탑재, 5,000km 반경에서 33t 급유 /
+    #   1,800km 반경에서 120분 대기하며 40t 급유. 항속 7,400km. 공군 4대 보유(2018~19 도입).
+    'KC-330 시그너스': {
+        'side': 'ROK', 'role': 'tanker',
+        'missions': ['TANKER'],     # 급유 — 전 기체 소티율 승수(직접 격추 아님)
+        'combat_radius_km': 3700,   # 항속 7,400km의 절반(왕복 체공)
+        'cruise_ms': 240,
+        'sortie_rate': 1.0,         # 장기 체공 1소티
+        'sortie_cost_usd': 300_000,
     },
     'RQ-4 글로벌호크': {
         'side': 'ROK', 'role': 'isr',

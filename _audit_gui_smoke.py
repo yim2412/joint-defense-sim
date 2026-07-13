@@ -79,7 +79,7 @@ def main():
         # 2-b) --bmd: 지상 BMD 4계층 토글을 실제로 켠다(v20.2a). 체크박스는 CheckBox
         # control_type이며, 게임이 포그라운드여도 동작하도록 toggle()(커서 이동 없음) 사용.
         if '--bmd' in sys.argv:
-            want = ('이지스 어쇼어', 'THAAD', 'L-SAM', '천궁-II', '탄도탄 종말 강하')
+            want = ('이지스 어쇼어', 'THAAD', 'L-SAM', '천궁-II', '패트리엇', '탄도탄 종말 강하')
             hits = []
             for c in main.descendants(control_type='CheckBox'):
                 try:
@@ -94,7 +94,7 @@ def main():
                     except Exception as e:
                         log(f"  토글 실패: {t} ({e})")
             log(f"[BMD] 켠 토글 {len(hits)}개: {hits}")
-            if len(hits) < 5:
+            if len(hits) < 6:
                 log("[BMD] 신규 체크박스 일부 미발견 — UI 누락 의심"); return 1
             time.sleep(1)
 

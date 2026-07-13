@@ -409,6 +409,7 @@ _SAM_RCS: dict[str, float] = {
     'RIM-116 RAM':     0.0003,
     'L-SAM':           0.0010,
     '천궁-II':         0.0006,
+    'PAC-3 MSE':       0.0008,
 }
 
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
@@ -508,8 +509,19 @@ _CHUNGUNG_RANGE_M  = 20_000   # 대탄도탄 교전 사거리 20km
 _CHUNGUNG_ALT_MIN_M = 500     # 종말 점방어 — HGV 종말 침투고도(2km)까지 커버해야 최후 계층 의미
 _CHUNGUNG_ALT_MAX_M = 20_000  # 요격고도 15km 내외 + 유도탄 한계 20km
 
-# 한 위협에 지상 BMD가 동시 유도할 수 있는 최대 요격탄 수(4계층 각 1발 = 층별 교전 보장)
-_GROUND_BMD_MAX_SAMS = 4
+# 패트리엇 PAC-3 MSE(v20.1) — 공개 제원: hit-to-kill, 이중펄스 모터로 사거리·고도 확장,
+#   대탄도탄 교전 사거리 ~60km·요격 고도 ~25km, Mach 4.5+, 단가 $4.2M(FY2025 미 육군 예산 기준).
+#   천궁-II(하층 점방어)와 L-SAM(상층) 사이를 메우는 중층 — 한·미 연합 종말 방어.
+_PATRIOT_PK         = 0.80     # hit-to-kill + Ka대역 능동 탐색기(실전 교전 기록 보유)
+_PATRIOT_COST       = 4_200_000
+_PATRIOT_SPD_MS     = 1_600    # Mach 4.5+
+_PATRIOT_COOLDOWN_S = 3.0
+_PATRIOT_RANGE_M    = 60_000   # 대탄도탄 교전 사거리 60km
+_PATRIOT_ALT_MIN_M  = 2_000
+_PATRIOT_ALT_MAX_M  = 25_000   # 요격 고도 25km
+
+# 한 위협에 지상 BMD가 동시 유도할 수 있는 최대 요격탄 수(계층 각 1발 = 층별 교전 보장)
+_GROUND_BMD_MAX_SAMS = 5
 
 # 지상 BMD 자산 owner_id → 발사 통계 키
 _GROUND_BMD_STAT_KEY: dict[int, str] = {
@@ -517,6 +529,7 @@ _GROUND_BMD_STAT_KEY: dict[int, str] = {
     -2: 'thaad_fired',
     -3: 'lsam_fired',
     -4: 'chungung_fired',
+    -5: 'patriot_fired',
 }
 
 # 다층 방어 레이어 순서: 가장 먼저 교전하는 함정 유형부터 (BMD 우선 → 방공 우선)
@@ -1549,6 +1562,7 @@ class TimeStepEngine:
             # v20.2a: 한국형 BMD 계층 발사 횟수
             'lsam_fired':              0,
             'chungung_fired':          0,
+            'patriot_fired':           0,   # v20.1: 패트리엇 PAC-3 MSE
             # v12.6: IFF 오류
             'iff_failures':            0,
             'iff_fratricide':          0,
@@ -1585,12 +1599,14 @@ class TimeStepEngine:
             'THAAD 요격탄':    cfg.get('thaad_stock',        0),
             'L-SAM':           cfg.get('lsam_stock',         0),
             '천궁-II':         cfg.get('chungung_stock',     0),
+            'PAC-3 MSE':       cfg.get('patriot_stock',      0),   # v20.1
         }
         self._ground_last_fire: float  = -999.0  # 현무-4 마지막 발사
         self._ashore_last_fire: float  = -999.0  # 어쇼어 SM-3 마지막 발사
         self._thaad_last_fire:  float  = -999.0  # THAAD 마지막 발사
         self._lsam_last_fire:     float = -999.0  # L-SAM 마지막 발사
         self._chungung_last_fire: float = -999.0  # 천궁-II 마지막 발사
+        self._patriot_last_fire:  float = -999.0  # 패트리엇 PAC-3 마지막 발사(v20.1)
         self._ground_cost: float = 0.0
 
         # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
@@ -3216,13 +3232,14 @@ class TimeStepEngine:
 
     def _ashore_defense(self, sorted_missiles: list):
         """
-        지상 BMD 4계층 교전 — 탄도/HGV 전담.
+        지상 BMD 5계층 교전 — 탄도/HGV 전담.
 
         레이어 순서 (교전거리 내림차순 = 먼 층부터):
           1. 이지스 어쇼어 SM-3 — 중간단계 (고도 ≥ 40km, 사거리 500km)
           2. THAAD — 종말고고도 (고도 10~150km, 사거리 200km)
           3. L-SAM — 종말 상층 (고도 40~70km, 사거리 150km)          [v20.2a]
-          4. 천궁-II — 종말 하층 점방어 (고도 0.5~20km, 사거리 20km) [v20.2a]
+          4. 패트리엇 PAC-3 MSE — 종말 중층 (고도 2~25km, 사거리 60km) [v20.1]
+          5. 천궁-II — 종말 하층 점방어 (고도 0.5~20km, 사거리 20km) [v20.2a]
         함정 SM-3는 이 자산들이 소진되거나 실패한 경우의 최후 백업.
 
         ⚠ 사거리(dist_m)는 포대 기준(기함 위치로 추상화)이고 고도는 표적함 접근 기하로
@@ -3233,6 +3250,7 @@ class TimeStepEngine:
         enable_thaad    = self.cfg.get('enable_thaad',    False)
         enable_lsam     = self.cfg.get('enable_lsam',     False)
         enable_chungung = self.cfg.get('enable_chungung', False)
+        enable_patriot  = self.cfg.get('enable_patriot',  False)   # v20.1
         primary_pos     = self._primary().pos
 
         for m in sorted_missiles:
@@ -3313,7 +3331,27 @@ class TimeStepEngine:
                 self._lsam_last_fire = self.t
                 sams_on += 1
 
-            # ── 4차: 천궁-II (종말 하층 점방어 — 최후 계층) ──────────────────
+            # ── 4차: 패트리엇 PAC-3 MSE (종말 중층 — 한·미 연합) ─────────────
+            if (enable_patriot
+                    and self.ground_inv.get('PAC-3 MSE', 0) > 0
+                    and (self.t - self._patriot_last_fire) >= _PATRIOT_COOLDOWN_S
+                    and _PATRIOT_ALT_MIN_M <= alt <= _PATRIOT_ALT_MAX_M
+                    and dist_m <= _PATRIOT_RANGE_M
+                    and sams_on < max_sams):
+                self._fire_ground_sam(
+                    wpn_key  = 'PAC-3 MSE',
+                    target   = m, dist_m = dist_m,
+                    name     = 'PAC-3 MSE',
+                    pk       = _PATRIOT_PK,
+                    speed_ms = _PATRIOT_SPD_MS,
+                    cost     = _PATRIOT_COST,
+                    label    = '패트리엇',
+                    owner_id = -5,
+                )
+                self._patriot_last_fire = self.t
+                sams_on += 1
+
+            # ── 5차: 천궁-II (종말 하층 점방어 — 최후 계층) ──────────────────
             if (enable_chungung
                     and self.ground_inv.get('천궁-II', 0) > 0
                     and (self.t - self._chungung_last_fire) >= _CHUNGUNG_COOLDOWN_S
@@ -3426,7 +3464,8 @@ class TimeStepEngine:
         if (self.cfg.get('enable_ashore',   False)
                 or self.cfg.get('enable_thaad',    False)
                 or self.cfg.get('enable_lsam',     False)
-                or self.cfg.get('enable_chungung', False)):
+                or self.cfg.get('enable_chungung', False)
+                or self.cfg.get('enable_patriot',  False)):
             self._ashore_defense(sorted_missiles)
 
         for m in sorted_missiles:
@@ -5320,6 +5359,7 @@ class TimeStepEngine:
             'thaad_fired':       self.stats['thaad_fired'],
             'lsam_fired':        self.stats['lsam_fired'],
             'chungung_fired':    self.stats['chungung_fired'],
+            'patriot_fired':     self.stats['patriot_fired'],   # v20.1
             'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
             'carrier_status':    carrier_status,               # v10.6
             'coverage':          coverage,                     # v14.1: 3D 커버리지 돔
@@ -6377,7 +6417,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
-    lsam_fired: list = []; chungung_fired: list = []
+    lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
 
     step = max(1, n // 5)
@@ -6408,6 +6448,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         laser_kills.append(r.get('laser_kills', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
+        patriot_fired.append(r.get('patriot_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6479,6 +6520,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
+        'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -6498,7 +6540,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
-    lsam_fired: list = []; chungung_fired: list = []
+    lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -6523,6 +6565,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
         laser_kills.append(r.get('laser_kills', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
+        patriot_fired.append(r.get('patriot_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6548,6 +6591,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'ras_missiles_resupplied': ras_resupplied,
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
+                   'patriot_fired': patriot_fired,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
@@ -6565,7 +6609,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
-    lsam_fired: list = []; chungung_fired: list = []
+    lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
@@ -6589,6 +6633,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         laser_kills.append(r.get('laser_kills', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
+        patriot_fired.append(r.get('patriot_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6604,6 +6649,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'ras_missiles_resupplied': ras_resupplied,
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
+                   'patriot_fired': patriot_fired,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
@@ -6673,7 +6719,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
-    lsam_fired: list = []; chungung_fired: list = []
+    lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
@@ -6701,6 +6747,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 laser_kills.extend(bxs.get('laser_kills', []))
                 lsam_fired.extend(bxs.get('lsam_fired', []))
                 chungung_fired.extend(bxs.get('chungung_fired', []))
+                patriot_fired.extend(bxs.get('patriot_fired', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
@@ -6731,6 +6778,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             laser_kills.append(r.get('laser_kills', 0))
             lsam_fired.append(r.get('lsam_fired', 0))
             chungung_fired.append(r.get('chungung_fired', 0))
+            patriot_fired.append(r.get('patriot_fired', 0))
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6773,6 +6821,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
+        'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -7507,6 +7556,7 @@ def diagnose_vulnerabilities_v7(result: dict, mc: dict, cfg: dict) -> list:
             ('THAAD 요격탄',  'thaad_stock',       'THAAD'),
             ('L-SAM',         'lsam_stock',        'L-SAM'),
             ('천궁-II',       'chungung_stock',    '천궁-II'),
+            ('PAC-3 MSE',     'patriot_stock',     '패트리엇 PAC-3'),
         ]:
             init_stock = cfg.get(cfg_key, 0)
             if init_stock > 0:
