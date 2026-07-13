@@ -27,6 +27,7 @@ a = Analysis(
         ('forecast_features.py',     '.'),   # v15.2 특징화(빌더·GUI 공유)
         ('engine_campaign.py',       '.'),   # v18.1 작전급 캠페인 엔진
         ('engine_airforce.py',       '.'),   # v19.1 공군 작전급 층(제공권 격자)
+        ('engine_army.py',           '.'),   # v20.2b 지상 작전급 층(연안 방공망)
         ('ai_rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
         ('db_ocean_acoustic.py',   '.'),
@@ -45,6 +46,8 @@ a = Analysis(
         'engine_campaign',
         # v19.1 공군 작전급 층(engine_campaign이 지연 import)
         'engine_airforce',
+        # v20.2b 지상 작전급 층(engine_campaign이 지연 import + app_main이 프리셋 import)
+        'engine_army',
         'joblib',
         'sklearn',
         'sklearn.ensemble',

@@ -77,7 +77,7 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = sead = strike = precise = None
+        chk = fog = air = sead = strike = precise = army = coastal = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
@@ -85,6 +85,8 @@ def main():
             elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
             elif '전략' in t:           strike = c   # v19.4 전략 폭격 & 기지 타격
             elif '정밀' in t:           precise = c  # A1 정밀 교전(실측 손실·요격)
+            elif '지상 작전급' in t:    army = c     # v20.2b 지상 층(연안 방공망)
+            elif '연안 방공 포대' in t: coastal = c  # v20.2b 포대 실제 배치
             elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
@@ -115,6 +117,16 @@ def main():
             log(f"정밀교전 체크박스: {_txt(precise)!r} → 체크"); _act(precise); time.sleep(1)
         else:
             log("⚠ 정밀교전 체크박스 미포착 — 대리모델만 검증(A1 GUI 경로 미확인)")
+        # v20.2b: 지상 작전급(연안 방공망) — 캠페인 하위 옵션. 포대 배치까지 함께 켜서
+        # ASBM 정밀 라우팅·4계층 자산 주입·재고 차감의 exe 경로를 실제로 태운다.
+        if army is not None:
+            log(f"지상작전급 체크박스: {_txt(army)!r} → 체크"); _act(army); time.sleep(1)
+        else:
+            log("⚠ 지상작전급 체크박스 미포착 — v20.2b GUI 경로 미확인")
+        if coastal is not None:
+            log(f"연안포대 체크박스: {_txt(coastal)!r} → 체크"); _act(coastal); time.sleep(1)
+        else:
+            log("⚠ 연안포대 체크박스 미포착 — v20.2b GUI 경로 미확인")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
@@ -122,6 +134,8 @@ def main():
             if sead is not None: _st += f" SEAD={sead.get_toggle_state()}"
             if strike is not None: _st += f" 전략폭격={strike.get_toggle_state()}"
             if precise is not None: _st += f" 정밀교전={precise.get_toggle_state()}"
+            if army is not None: _st += f" 지상작전급={army.get_toggle_state()}"
+            if coastal is not None: _st += f" 연안포대={coastal.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")

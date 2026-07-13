@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.03.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.04.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.04.01 — 지상 작전급: 연안 방공망(로드맵 v20.2b)]                       ║
+║  NEW-A  작전급 캠페인에 지상 층 도입 — 해상 교통로별 연안 방공 포대가        ║
+║         함대 상공을 함께 방어(어쇼어 SM-3·THAAD·L-SAM·천궁-II 4계층).        ║
+║  NEW-B  적 대함탄도탄(DF-21D) 구역은 확률 근사 대신 실제 전술 교전으로       ║
+║         해결 — 연안 포대 요격탄이 몇 발 나가 몇 발을 막았는지 실측.          ║
+║  NEW-C  요격탄 재고가 전역 내내 이어짐 — 소진 시 방어 저하.                  ║
 ║  [v18.03.03 — 지상 BMD 사격통제 분리(다층 방어 정상화)]                      ║
 ║  BUG-1  함정 SAM이 위협당 동시유도 한도를 선점해 THAAD 등 지상 요격체계가    ║
 ║         발사 자체를 못 하던 문제 수정 — 지상 포대는 함정과 별개 사격통제.    ║
@@ -1310,7 +1316,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.03.03"
+APP_VERSION = "v18.04.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -1994,6 +2000,7 @@ try:
         generate_briefing,
         WEATHER_TRANSITION_DB, WEATHER_INTENSITY_LADDER,
     )
+    from engine_army import COASTAL_SAM_PRESETS   # v20.2b: 연안 방공 포대 편성(UI 콤보)
     _V7_OK = True
 except ImportError as e:
     _V7_OK = False
@@ -2001,6 +2008,7 @@ except ImportError as e:
     V7_ENEMY_FLEET_PRESETS = {}
     V7_RANDOM_CFG          = {}
     V7_MIXED_SCENARIOS     = {}
+    COASTAL_SAM_PRESETS    = {}
 
 # ── 스펙 DB import ────────────────────────────────────────────────────────────
 try:
@@ -6874,6 +6882,13 @@ class MainWindow(QMainWindow):
             self.chk_precise_engage.setChecked(cfg.get('enable_precise_engagement', False))
         if hasattr(self, 'chk_sead'):
             self.chk_sead.setChecked(cfg.get('enable_sead', False))
+        # v20.2b 지상 작전급(연안 방공망)
+        if hasattr(self, 'chk_army_campaign'):
+            self.chk_army_campaign.setChecked(cfg.get('enable_army_campaign', False))
+        if hasattr(self, 'chk_coastal_sam'):
+            self.chk_coastal_sam.setChecked(cfg.get('enable_coastal_sam', False))
+        if hasattr(self, 'cmb_coastal_preset') and cfg.get('coastal_sam_preset'):
+            self.cmb_coastal_preset.setCurrentText(cfg['coastal_sam_preset'])
         if hasattr(self, 'chk_strategic_strike'):
             self.chk_strategic_strike.setChecked(cfg.get('enable_strategic_strike', False))
         if hasattr(self, 'chk_rl_policy'):
@@ -7544,6 +7559,28 @@ class MainWindow(QMainWindow):
         )
         self.chk_strategic_strike.setChecked(False)
 
+        # v20.2b: 지상 작전급 층 — 연안 방공망(캠페인 모드 하위)
+        self.chk_army_campaign = QCheckBox("지상 작전급 (연안 방공망) (실험적)")
+        self.chk_army_campaign.setToolTip(
+            "작전급 캠페인 모드에 지상 층을 얹습니다. 해상 교통로별로 연안 방공 포대를 배치해\n"
+            "함대 상공을 함께 방어합니다(이지스 어쇼어 SM-3·THAAD·L-SAM·천궁-II 4계층).\n"
+            "적 대함탄도탄(DF-21D 등)이 있는 교통로의 교전은 확률 근사가 아닌 실제 전술 교전으로\n"
+            "해결해, 연안 포대의 요격탄이 실제로 몇 발 나가 몇 발을 막았는지 실측합니다.\n"
+            "요격탄 재고는 전역 내내 이어지며(소진 시 방어 저하), 통상 교전에는 방공 보강으로 기여합니다.\n"
+            "캠페인 모드와 함께 켜야 작동합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_army_campaign.setChecked(False)
+
+        self.chk_coastal_sam = QCheckBox("연안 방공 포대 배치 (실험적)")
+        self.chk_coastal_sam.setToolTip(
+            "해상 교통로(서해·대한해협·동해)마다 연안 방공 포대를 실제로 배치합니다.\n"
+            "끄면 지상 층이 있어도 포대가 없어 방어 기여가 없습니다(대조군).\n"
+            "지상 작전급과 함께 켜야 작동합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_coastal_sam.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7671,6 +7708,7 @@ class MainWindow(QMainWindow):
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
                     self.chk_air_campaign, self.chk_precise_engage,
                     self.chk_sead, self.chk_strategic_strike,
+                    self.chk_army_campaign, self.chk_coastal_sam,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7690,6 +7728,18 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_precise_engage)
         fl_env.addRow("",            self.chk_sead)
         fl_env.addRow("",            self.chk_strategic_strike)
+        fl_env.addRow("",            self.chk_army_campaign)
+        fl_env.addRow("",            self.chk_coastal_sam)
+        self.cmb_coastal_preset = NoScrollComboBox()
+        self.cmb_coastal_preset.addItems(list(COASTAL_SAM_PRESETS.keys()))
+        self.cmb_coastal_preset.setCurrentText('연안 방공 기본')
+        self.cmb_coastal_preset.setToolTip(
+            "교통로마다 배치할 연안 방공 포대의 편성입니다.\n"
+            "연안 방공 기본 — 천궁-II 32발 + L-SAM 8발 (하층 위주 저비용 점방어)\n"
+            "연안 방공 강화 — 4계층 완편 (어쇼어 SM-3·THAAD·L-SAM·천궁-II, 한·미 통합)\n"
+            "한국형 BMD (KAMD) — L-SAM 16발 + 천궁-II 32발 (국산 계층만 자주 방어)"
+        )
+        fl_env.addRow("연안 포대 편성", self.cmb_coastal_preset)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9603,6 +9653,10 @@ class MainWindow(QMainWindow):
             'enable_precise_engagement': self.chk_precise_engage.isChecked(),  # A1 캠페인 교전 정밀 전술 해결(실험적)
             'enable_sead': self.chk_sead.isChecked(),  # v19.3 방공망 제압(SEAD/DEAD)
             'enable_strategic_strike': self.chk_strategic_strike.isChecked(),  # v19.4 전략 폭격 & 기지 타격
+            # v20.2b 지상 작전급(연안 방공망) — ASBM 구역은 전술 정밀 교전으로 실측
+            'enable_army_campaign': self.chk_army_campaign.isChecked(),
+            'enable_coastal_sam':   self.chk_coastal_sam.isChecked(),
+            'coastal_sam_preset':   self.cmb_coastal_preset.currentText(),
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -11725,10 +11779,6 @@ class SplashWindow(QWidget):
              "육군 전력: K2 흑표·K21·K9 자주포·천무·패트리엇·사드. "
              "지형 기반 이동 속도·시야 계산. 상륙 → 내륙 진출 경로 모델링. "
              "【범위】전면 지상전은 해전 시뮬 본령 밖 → 상륙·연안 접점에 필요한 최소 단위만."),
-            ("v20.2", "높음", "연안 방공망 작전 연동",
-             "4계층 요격체계(이지스 어쇼어 SM-3·THAAD·L-SAM·천궁-II)는 도입 완료 — 남은 것은 작전급 연동. "
-             "구역별 연안 방공 포대 편성, 적 대함탄도탄(DF-21D 등) 위협 구역은 정밀 교전으로 해결. "
-             "지상 방공망 손실 시 제공권·해군 피해로 연쇄 — 해·공과 진짜 연결고리."),
             ("v20.3", "높음", "해상 상륙작전 지원",
              "상륙사단 → 독도함·상륙함 수송. 해군 함포 지원 + 공군 근접지원 + 육군 상륙 순서. "
              "교두보 확보 성공 여부 → 작전 목표 달성도. 각 단계 성공 확률을 순차 곱연산."),

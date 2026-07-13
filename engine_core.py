@@ -265,17 +265,19 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
+    # is_asbm: 대함 탄도미사일(항모 킬러) — 캠페인에서 이 위협이 있는 구역은 연안 방공
+    #   포대와 함께 전술 정밀 교전으로 해결한다(확률 추상화로 뭉개지 않음, v20.2b).
     'DF-21D (대함 탄도)':
         {'category':'대공','type':'탄도미사일','speed_ms':3400,'altitude_m':150000,
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
-         'can_fire_missile':False,'rcs_m2':0.1,
+         'can_fire_missile':False,'rcs_m2':0.1,'is_asbm':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
     'DF-26 (중장거리 탄도)':
         {'category':'대공','type':'탄도미사일','speed_ms':5000,'altitude_m':300000,  # LOW-3: 6000→5000 m/s (MRBM 종말 재진입)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':4000,
-         'can_fire_missile':False,'rcs_m2':0.05,
+         'can_fire_missile':False,'rcs_m2':0.05,'is_asbm':True,   # 대함 변형 보유(괌 킬러/항모 타격)
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},    # NEW-F
 
@@ -1736,6 +1738,11 @@ def normalize_enemy_db():
     }
     for _, e in ENEMY_DB.items():
         et = e.get('type','')
+        # is_ballistic 기본값을 type에서 자동 설정 — DB 필드와 엔진 판정을 일치시킨다.
+        # (전술 엔진은 이 필드가 아니라 type 문자열로 직접 판정하므로 교전 동작은 불변.
+        #  이 필드는 캠페인·지상 층이 DB를 조회할 때 쓰는 메타데이터.)
+        e.setdefault('is_ballistic', et == '탄도미사일')
+        e.setdefault('is_asbm', False)   # v20.2b: 대함 탄도(ASBM) — 캠페인 정밀 교전 라우팅 트리거
         e.setdefault('is_hgv', False)
         e.setdefault('is_qbm', False)
         e.setdefault('is_arm', False)

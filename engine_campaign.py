@@ -165,6 +165,13 @@ class CampaignEngine:
         if bool(cfg.get('enable_air_campaign', False)):
             from engine_airforce import AirCampaign
             self.air = AirCampaign(self.cfg)
+        # v20.2b 지상 작전급 층 — enable_army_campaign ON일 때만 생성(OFF면 v19 bit-identical).
+        # 연안 방공 포대가 ①대리모델 교전에 방공 가산 ②ASBM 구역은 전술 정밀 교전으로 강제하고
+        # 4계층 요격 자산을 주입해 실측(v18.03 로직 재사용, 새 물리 없음).
+        self.army = None
+        if bool(cfg.get('enable_army_campaign', False)):
+            from engine_army import ArmyCampaign
+            self.army = ArmyCampaign(self.cfg, SLOC_ZONES)
         # A1: 정밀 교전 — ON이면 규모 큰 교전을 실제 전술 단발로 해결(OFF면 대리모델 = bit-identical).
         self.precise      = bool(cfg.get('enable_precise_engagement', False))
         self.precise_min  = int(cfg.get('campaign_precise_min_threats',
@@ -217,6 +224,11 @@ class CampaignEngine:
                 # v19.5: 해군 지원요청(통제 붕괴 신호)을 함께 전달 → CAS 자동 요청·배정
                 self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES},
                               self._support_request())
+            if self.army is not None:   # v20.2b: 지상 층(연안 방공) 틱 — 교전 前 갱신
+                # v20.2b는 정적 방어(재고는 교전에서만 소모) → 인자 없이 호출.
+                # v20.4에서 적 SEAD 제압도 갱신에 zone 위협·제공권이 필요해지면 그때 넘긴다
+                # (지금 넘기면 no-op tick을 위해 매 틱 위협도 3회·제공권을 헛계산).
+                self.army.tick()
             self._tick_engagements()
             self._tick_sloc()
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
@@ -430,7 +442,15 @@ class CampaignEngine:
             # A1: 정밀 교전 — 규모 큰 교전은 실제 전술 단발로 해결(손실·요격·비용 진짜 계산).
             #   OFF거나 규모 미만이면 아래 대리모델 경로(기존과 완전 동일, rng 소비 불변).
             n_threats = sum(int(e.get('count', 1)) for e in enemy_fleet)
-            if self.precise and n_threats >= self.precise_min:
+            # v20.2b: ASBM(대함 탄도) 구역 + 연안 포대 존재 → 규모와 무관하게 정밀 강제.
+            #   대함탄도탄 요격은 확률 추상화로 뭉개지 않고 4계층 요격 로직으로 실측한다
+            #   (사용자 결정: 정확도 우선). 포대가 없으면 정밀로 돌려도 함대 자체 방어뿐 →
+            #   대리모델 유지(경제적). army OFF면 force_precise=False → 기존 경로 그대로.
+            asbm_forced = (self.army is not None
+                           and self.army.force_precise(zone, enemy_fleet))
+            if asbm_forced:
+                self.army.n_asbm_precise += 1
+            if asbm_forced or (self.precise and n_threats >= self.precise_min):
                 self._resolve_precise(zone, patrol, enemy_fleet, n_threats, air_sups, cas_sup)
                 continue
             if self.model is None:
@@ -449,6 +469,17 @@ class CampaignEngine:
                 factor = _AIR_ENGAGE_BASE + _AIR_ENGAGE_SLOPE * air_sup
                 win_p = min(1.0, max(0.0, win_p * factor))
                 score = min(1.0, max(0.0, score * factor))
+            # v20.2b: 연안 방공 가산(대리모델 전용 — 정밀 경로는 실제 요격을 계산하므로 제외).
+            #   ASBM 없는 통상 교전에서 포대가 함대 방공을 보강하는 효과. rng 소비 불변.
+            army_bonus = 0.0
+            if self.army is not None:
+                army_bonus = self.army.zone_defense_bonus(zone)
+                if army_bonus > 0:
+                    win_p = min(1.0, win_p + army_bonus)
+                    score = min(1.0, score + army_bonus)
+                    # 가산을 준 만큼 요격탄도 쓴다(위협당 1발 근사) — 안 그러면 포대가 재고를
+                    # 한 발도 안 쓰면서 전역 내내 최대 가산을 주는 비일관이 생긴다.
+                    self.army.consume_surrogate(zone, n_threats)
             won = self.rng.random() < win_p
             # v19.5: CAS 근접 엄호 피해경감(relief=0이면 dmg 불변 = v19.4 bit-identical)
             cas_relief = cas_sup.get(zone, 0.0) if cas_sup is not None else 0.0
@@ -463,6 +494,8 @@ class CampaignEngine:
                 rec['air_sup'] = round(air_sup, 3)   # 연동에 쓰인 제공권(투명성)
             if cas_relief > 0:
                 rec['cas_relief'] = round(cas_relief, 3)   # v19.5 CAS 피해경감(투명성)
+            if army_bonus > 0:
+                rec['coastal_bonus'] = round(army_bonus, 3)   # v20.2b 연안 방공 가산(투명성)
             self.engagements.append(rec)
 
     def _apply_engagement(self, zone, patrol, enemy_fleet, won, score, cas_relief=0.0):
@@ -528,8 +561,19 @@ class CampaignEngine:
         zone_idx  = SLOC_ZONES.index(zone) if zone in SLOC_ZONES else 0
         base_seed = int(self.cfg.get('campaign_seed', self.cfg.get('sim_seed', 0)) or 0)
         tcfg['sim_seed'] = (base_seed * 100000 + self.t_h * 10 + zone_idx) & 0x7fffffff
+        # v20.2b: 이 구역 연안 방공 포대의 4계층 자산을 어쇼어 자산으로 주입(잔여 재고 기준).
+        #   → v18.03의 검증된 요격 로직이 ASBM·탄도를 실측한다(새 물리 없음).
+        #   탄도 종말 강하도 함께 켠다 — 강하가 없으면 탄도가 중간단계 고도를 유지해
+        #   종말 요격층(THAAD·L-SAM·천궁-II)이 교전창에 진입조차 못 한다(v18.03.02 규명).
+        coastal = False
+        if self.army is not None:
+            coastal = self.army.inject_tactical(zone, tcfg)
+            if coastal:
+                tcfg['enable_ballistic_descent'] = True
         r = run_v7_simulation(tcfg)
         self.n_precise += 1
+        if coastal:
+            self.army.consume(zone, r)   # 실측 발사분만큼 포대 재고 차감(틱 간 유지)
 
         ssd = r.get('ship_subsystem_damage', {})
         cas_relief = cas_sup.get(zone, 0.0) if cas_sup is not None else 0.0
@@ -566,6 +610,14 @@ class CampaignEngine:
             rec['air_sup'] = round(air_sups.get(zone, 0.5), 3)   # 투명성(정밀은 win_p 미보정)
         if cas_relief > 0:
             rec['cas_relief'] = round(cas_relief, 3)
+        if coastal:
+            # v20.2b: 연안 포대가 실제로 쏜 계층별 요격탄(투명성 — 4계층 발현 확인용)
+            rec['coastal'] = {
+                'sm3':   int(r.get('ashore_sm3_fired', 0) or 0),
+                'thaad': int(r.get('thaad_fired', 0) or 0),
+                'lsam':  int(r.get('lsam_fired', 0) or 0),
+                'chungung': int(r.get('chungung_fired', 0) or 0),
+            }
         self.engagements.append(rec)
 
     def _tick_sloc(self):
@@ -649,6 +701,8 @@ class CampaignEngine:
         }
         if self.air is not None:   # v19.1: 공군 지표 병합(제공권·소티)
             result.update(self.air.summary())
+        if self.army is not None:  # v20.2b: 지상 지표 병합(연안 포대 재고·ASBM 정밀·요격탄)
+            result.update(self.army.status())
         return result
 
 
@@ -675,7 +729,9 @@ _MC_PARALLEL_MIN_PRECISE = 8    # 정밀 ON 병렬 임계
 _MC_PARALLEL_MIN_PROXY   = 64   # 대리모델 병렬 임계
 # 병렬 집계에 쓰는 축소 키(워커→메인 직렬화 최소화 — engagements 리스트 등 대형 필드 제외)
 _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total',
-                'n_reassign', 'n_reroute', 'n_missed', 'end_h', 'n_precise')
+                'n_reassign', 'n_reroute', 'n_missed', 'end_h', 'n_precise',
+                # v20.2b: 연안 방공 — 없으면 반복 분석에서 이 지표가 통째로 소실된다
+                'n_asbm_precise', 'coastal_intercepts')
 
 # ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
 _MC_WORKER_MODEL = None
@@ -780,6 +836,9 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         'n_missed_avg':    round(acc['n_missed'] * inv, 2),
         'end_h_avg':       round(acc['end_h'] * inv, 1),
         'n_precise_avg':   round(acc['n_precise'] * inv, 2),   # E1/A1: 평균 정밀 교전 수
+        # v20.2b: 연안 방공 — ASBM 때문에 정밀로 강제된 교전 수·포대가 쏜 요격탄(평균)
+        'n_asbm_precise_avg':      round(acc['n_asbm_precise'] * inv, 2),
+        'coastal_intercepts_avg':  round(acc['coastal_intercepts'] * inv, 1),
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
         'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)

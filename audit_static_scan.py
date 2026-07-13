@@ -113,7 +113,10 @@ def chk_flag_triplet():
     # 이라 위 engread가 오탐 → 소비처를 명시해 별도 검사(3종세트 무결성은 동일하게 요구).
     camp = rd('engine_campaign.py')
     air  = rd('engine_airforce.py')
-    camp_flags = {'enable_campaign_mode': lau,   # app_main SimWorker 라우팅에서 소비
+    army = rd('engine_army.py')
+    camp_flags = {'enable_army_campaign': camp,   # v20.2b engine_campaign __init__에서 소비(지상 층)
+                  'enable_coastal_sam':   army,   # v20.2b engine_army ArmyCampaign에서 소비(연안 포대)
+                  'enable_campaign_mode': lau,   # app_main SimWorker 라우팅에서 소비
                   'enable_campaign_fog': camp,   # engine_campaign _tick_intel에서 소비
                   'enable_air_campaign': camp,   # v19.1 engine_campaign __init__에서 소비(공군 층)
                   'enable_precise_engagement': camp,  # A1 engine_campaign __init__/_tick_engagements에서 소비(정밀 교전)

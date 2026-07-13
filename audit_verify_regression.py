@@ -94,11 +94,36 @@ _CAMPAIGN_BASE = dict(weather='맑음 (주간)', enable_campaign_mode=True,
 CAMPAIGN_CASES = [
     ('정밀ON-항모킬체인', dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단',
                               enemy_fleet_preset='항모 킬 체인'), [1, 2]),
+    # v20.2b: 지상 층(연안 방공망). ASBM(DF-21D) 구역은 규모와 무관하게 전술 정밀로 강제되고
+    # 연안 포대 4계층 자산이 tcfg에 주입돼 실측 요격 → 재고가 틱 간 차감된다. 이 케이스가
+    # 라우팅 트리거·자산 주입·재고 차감을 한꺼번에 봉인한다(기동전단 기본 = 포대 유무가
+    # 전멸↔완승을 가르는 편성 — 연안 방공 효과가 binding인 시드).
+    ('연안방공-ASBM', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                           campaign_horizon_h=72,
+                           fleet_preset='기동전단 기본', enemy_fleet_preset='항모 킬 체인',
+                           enable_army_campaign=True, enable_coastal_sam=True,
+                           coastal_sam_preset='한국형 BMD (KAMD)'), [3, 11]),
+    # 위 캠페인 케이스가 전부 win이라 패배 경로(전멸·통제 붕괴)가 골든에 없었다(정적 스캔
+    # chk_golden_coverage가 'outcome 전 케이스 동일값'으로 검출). 연안 포대가 있어도 위협이
+    # 압도해 무너지는 케이스를 넣어 loss 분기까지 봉인한다.
+    ('연안방공-포화패배', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                              campaign_horizon_h=72,
+                              fleet_preset='기동전단 기본', enemy_fleet_preset='전면전 포화',
+                              enable_army_campaign=True, enable_coastal_sam=True,
+                              coastal_sam_preset='한국형 BMD (KAMD)'), [3]),
+    # 순수 대리모델 캠페인(정밀 0회) — 골든의 캠페인 케이스가 전부 정밀 3회라 대리모델
+    # 교전 경로(_apply_engagement·추상 피해)가 무감시였다. n_precise=0 분기를 봉인한다.
+    ('캠페인-대리모델', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                            campaign_horizon_h=72,
+                            fleet_preset='이지스 기동전단',
+                            enemy_fleet_preset='랴오닝 항모전단'), [5]),
 ]
 # 캠페인 결정론 지표 (float은 스냅샷·검사 양쪽 동일 라운딩이라 정확 일치)
 # mean_control 등은 소수3자리로 봉인 — 1자리면 4%p대 통제도 변화가 골든을 통과해 민감도 저하.
 _CKEYS = ['outcome', 'n_precise', 'n_engagements', 'surviving_ships',
-          'cost_total', 'mean_control', 'n_reassign', 'end_h']
+          'cost_total', 'mean_control', 'n_reassign', 'end_h',
+          # v20.2b: 연안 방공 — ASBM 정밀 강제 횟수·포대가 실제로 쏜 요격탄 수(재고 차감)
+          'n_asbm_precise', 'coastal_intercepts']
 _CROUND = 3   # 캠페인 float 지표 라운딩 자리수(회귀 민감도)
 
 

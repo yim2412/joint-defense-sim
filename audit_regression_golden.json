@@ -427,7 +427,9 @@
     "cost_total": 1412900000.0,
     "mean_control": 1.0,
     "n_reassign": 22,
-    "end_h": 72
+    "end_h": 72,
+    "n_asbm_precise": null,
+    "coastal_intercepts": null
   },
   "정밀ON-항모킬체인#2": {
     "outcome": "win",
@@ -437,6 +439,56 @@
     "cost_total": 1418705000.0,
     "mean_control": 1.0,
     "n_reassign": 22,
-    "end_h": 72
+    "end_h": 72,
+    "n_asbm_precise": null,
+    "coastal_intercepts": null
+  },
+  "연안방공-ASBM#3": {
+    "outcome": "win",
+    "n_precise": 3,
+    "n_engagements": 3,
+    "surviving_ships": 3,
+    "cost_total": 1521330000.0,
+    "mean_control": 1.0,
+    "n_reassign": 12,
+    "end_h": 72,
+    "n_asbm_precise": 3,
+    "coastal_intercepts": 48
+  },
+  "연안방공-ASBM#11": {
+    "outcome": "win",
+    "n_precise": 3,
+    "n_engagements": 3,
+    "surviving_ships": 1,
+    "cost_total": 566665000.0,
+    "mean_control": 0.767,
+    "n_reassign": 8,
+    "end_h": 38,
+    "n_asbm_precise": 3,
+    "coastal_intercepts": 38
+  },
+  "연안방공-포화패배#3": {
+    "outcome": "loss",
+    "n_precise": 3,
+    "n_engagements": 3,
+    "surviving_ships": 0,
+    "cost_total": 29355000.0,
+    "mean_control": 0.678,
+    "n_reassign": 7,
+    "end_h": 26,
+    "n_asbm_precise": 3,
+    "coastal_intercepts": 11
+  },
+  "캠페인-대리모델#5": {
+    "outcome": "draw",
+    "n_precise": 0,
+    "n_engagements": 4,
+    "surviving_ships": 5,
+    "cost_total": 197400507.4,
+    "mean_control": 0.687,
+    "n_reassign": 10,
+    "end_h": 26,
+    "n_asbm_precise": null,
+    "coastal_intercepts": null
   }
 }
