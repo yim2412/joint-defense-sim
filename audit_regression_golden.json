@@ -429,7 +429,10 @@
     "n_reassign": 22,
     "end_h": 72,
     "n_asbm_precise": null,
-    "coastal_intercepts": null
+    "coastal_intercepts": null,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
   },
   "정밀ON-항모킬체인#2": {
     "outcome": "win",
@@ -441,7 +444,10 @@
     "n_reassign": 22,
     "end_h": 72,
     "n_asbm_precise": null,
-    "coastal_intercepts": null
+    "coastal_intercepts": null,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
   },
   "연안방공-ASBM#3": {
     "outcome": "win",
@@ -453,7 +459,10 @@
     "n_reassign": 12,
     "end_h": 72,
     "n_asbm_precise": 3,
-    "coastal_intercepts": 48
+    "coastal_intercepts": 48,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
   },
   "연안방공-ASBM#11": {
     "outcome": "win",
@@ -465,7 +474,10 @@
     "n_reassign": 8,
     "end_h": 38,
     "n_asbm_precise": 3,
-    "coastal_intercepts": 38
+    "coastal_intercepts": 38,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
   },
   "연안방공-포화패배#3": {
     "outcome": "loss",
@@ -477,7 +489,10 @@
     "n_reassign": 7,
     "end_h": 26,
     "n_asbm_precise": 3,
-    "coastal_intercepts": 11
+    "coastal_intercepts": 11,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
   },
   "캠페인-대리모델#5": {
     "outcome": "draw",
@@ -489,6 +504,39 @@
     "n_reassign": 10,
     "end_h": 26,
     "n_asbm_precise": null,
-    "coastal_intercepts": null
+    "coastal_intercepts": null,
+    "amphib_state": null,
+    "amphib_progress": null,
+    "amphib_success": null
+  },
+  "상륙-교두보확보#3": {
+    "outcome": "win",
+    "n_precise": 0,
+    "n_engagements": 6,
+    "surviving_ships": 6,
+    "cost_total": 380920656.2,
+    "mean_control": 0.677,
+    "n_reassign": 11,
+    "end_h": 45,
+    "n_asbm_precise": 0,
+    "coastal_intercepts": 0,
+    "amphib_state": "beachhead",
+    "amphib_progress": 1.0,
+    "amphib_success": 1
+  },
+  "상륙-교통로차단#3": {
+    "outcome": "loss",
+    "n_precise": 0,
+    "n_engagements": 7,
+    "surviving_ships": 3,
+    "cost_total": 1153010.1,
+    "mean_control": 0.044,
+    "n_reassign": 7,
+    "end_h": 69,
+    "n_asbm_precise": 0,
+    "coastal_intercepts": 0,
+    "amphib_state": "assault",
+    "amphib_progress": 0.343,
+    "amphib_success": 0
   }
 }

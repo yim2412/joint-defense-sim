@@ -224,11 +224,15 @@ class CampaignEngine:
                 # v19.5: 해군 지원요청(통제 붕괴 신호)을 함께 전달 → CAS 자동 요청·배정
                 self.air.tick({z: self._zone_threat_truth(z) for z in SLOC_ZONES},
                               self._support_request())
-            if self.army is not None:   # v20.2b: 지상 층(연안 방공) 틱 — 교전 前 갱신
-                # v20.2b는 정적 방어(재고는 교전에서만 소모) → 인자 없이 호출.
-                # v20.4에서 적 SEAD 제압도 갱신에 zone 위협·제공권이 필요해지면 그때 넘긴다
-                # (지금 넘기면 no-op tick을 위해 매 틱 위협도 3회·제공권을 헛계산).
-                self.army.tick()
+            if self.army is not None:   # v20.2b·v20.3: 지상 층 틱 — 교전 前 갱신
+                # 연안 방공은 정적(재고는 교전에서만 소모). 상륙작전은 3단계 곱연산 진척 —
+                # 교통로 통제(수송)·제공권(엄호)·호위 함정 수(함포 지원)를 넘긴다.
+                self.army.tick(
+                    t_h=self.t_h,
+                    control=self.control,
+                    air_sups=(self.air.zone_superiority() if self.air is not None else None),
+                    escorts=self._escort_counts(),
+                )
             self._tick_engagements()
             self._tick_sloc()
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
@@ -425,6 +429,14 @@ class CampaignEngine:
                 s.dest_zone     = dest
                 s.transit_eta_h = _TRANSIT_H
                 self._n_reassign += 1
+
+    def _escort_counts(self) -> dict:
+        """v20.3: 구역별 가용 호위 함정 수 — 상륙 단계의 함포 지원 강도."""
+        out = {z: 0 for z in SLOC_ZONES}
+        for s in self.ships:
+            if s.available and s.zone in out:
+                out[s.zone] += 1
+        return out
 
     def _tick_engagements(self):
         # v19.2: 공군 층 ON이면 zone별 제공권을 1회 조회(교전 win_p·score 보정에 사용).
@@ -659,11 +671,16 @@ class CampaignEngine:
         # v18.5: 평균 연속 통제도로 승패 — ≥0.70 win / ≥0.30 draw / else loss.
         # 조기 종료여도 avg 기반(§6-C ④). 단 실제 전멸(생존 0)은 통제도 무관 loss 강제.
         mean_control = sum(self.control.values()) / len(SLOC_ZONES)
+        # v20.3: 상륙 임무가 걸려 있으면 전역 목표가 '교통로 통제'만이 아니다 —
+        # 교두보 확보를 승패 점수에 가중 결합한다(가중치·부분점수 규칙은 engine_army 소관).
+        # 상륙 임무가 없으면 교통로 통제 그대로 → 기존 판정 bit-identical.
+        score_for_outcome = (self.army.outcome_blend(mean_control)
+                             if self.army is not None else mean_control)
         if surviving == 0:
             outcome = 'loss'
-        elif mean_control >= _CONTROL_WIN_THRESH:
+        elif score_for_outcome >= _CONTROL_WIN_THRESH:
             outcome = 'win'
-        elif mean_control >= _CONTROL_DRAW_THRESH:
+        elif score_for_outcome >= _CONTROL_DRAW_THRESH:
             outcome = 'draw'
         else:
             outcome = 'loss'
@@ -731,7 +748,9 @@ _MC_PARALLEL_MIN_PROXY   = 64   # 대리모델 병렬 임계
 _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total',
                 'n_reassign', 'n_reroute', 'n_missed', 'end_h', 'n_precise',
                 # v20.2b: 연안 방공 — 없으면 반복 분석에서 이 지표가 통째로 소실된다
-                'n_asbm_precise', 'coastal_intercepts')
+                'n_asbm_precise', 'coastal_intercepts',
+                # v20.3: 상륙작전 — 교두보 확보율·평균 진척
+                'amphib_success', 'amphib_progress')
 
 # ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
 _MC_WORKER_MODEL = None
@@ -839,6 +858,9 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         # v20.2b: 연안 방공 — ASBM 때문에 정밀로 강제된 교전 수·포대가 쏜 요격탄(평균)
         'n_asbm_precise_avg':      round(acc['n_asbm_precise'] * inv, 2),
         'coastal_intercepts_avg':  round(acc['coastal_intercepts'] * inv, 1),
+        # v20.3: 상륙 — 교두보 확보율(성공 비율)·평균 진척
+        'amphib_success_rate':     round(acc['amphib_success'] * inv, 3),
+        'amphib_progress_avg':     round(acc['amphib_progress'] * inv, 3),
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
         'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)

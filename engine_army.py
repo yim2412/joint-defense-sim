@@ -60,6 +60,37 @@ _FIRED_STAT_KEY: dict[str, str] = {
 # 정밀 교전은 전술 엔진이 실측하므로 이 가산을 쓰지 않는다(이중 계상 방지).
 _DEFENSE_BONUS_MAX = 0.15   # 완편 포대가 대리모델 win_p·score에 주는 최대 가산
 
+# ── v20.3 상륙작전 ──────────────────────────────────────────────────────────
+# 상륙 가능 함정(SHIP_DB) → 수송 능력(대대 상당). 독도함급이 가장 크다.
+AMPHIB_SHIP_LIFT: dict[str, float] = {
+    'LPH': 3.0,   # 강습상륙함(독도함급) — 헬기·공기부양정 동시 운용
+    'LPD': 2.0,   # 상륙함(San Antonio급)
+    'LST': 1.0,   # 상륙함(천왕봉급)
+}
+_EMBARK_H          = 6      # 적재 소요(시간)
+_TRANSIT_H         = 6      # 목표 해안까지 항해(시간)
+_ASSAULT_RATE      = 0.20   # 상륙 단계 틱당 기본 진척(3단계 곱을 곱해 실제 진척 산출)
+_BEACHHEAD_THRESH  = 1.0    # 진척 누적이 이 값에 도달하면 교두보 확보
+# 3단계 각각의 성공 확률 하한/기울기 — 곱연산이라 한 단계만 무너져도 상륙이 정체된다.
+_P_TRANSIT_BASE    = 0.15   # 교통로가 완전히 막혀도 최소 잠입 가능성
+_P_TRANSIT_SLOPE   = 0.85   # SLOC 통제도에 비례
+_P_AIRCOVER_BASE   = 0.20   # 제공권 0이어도 최소 엄호(함대 방공)
+_P_AIRCOVER_SLOPE  = 0.80   # 제공권에 비례
+_P_ASSAULT_BASE    = 0.10   # 무호위 강행 상륙(대안 상륙)
+_P_ASSAULT_SLOPE   = 0.90   # 호위 함대 함포 지원에 비례
+_ESCORT_FULL       = 3.0    # 호위 함정 3척이면 함포 지원 만점
+# 진척이 이 시간(h) 동안 임계 미만이면 상륙 실패(작전 중지) — 무한 정체 방지
+_ASSAULT_TIMEOUT_H = 48
+_ASSAULT_MIN_RATE  = 0.01   # 이 미만 진척은 '정체'로 계산
+
+# 상륙 성공/실패가 전역 승패에 기여하는 가중치. outcome은 (1-W)·교통로통제 + W·상륙점수.
+# 상륙 임무를 안 걸면 이 항 자체가 없다(기존 판정 그대로).
+AMPHIB_OUTCOME_W   = 0.35
+# 전역 종료 시점에 상륙이 아직 진행 중(assault)이면 진척을 그대로 인정하지 않는다.
+# 상륙의 작전 목표는 '교두보 확보'라는 이진 성과 — 90% 진척한 미완 상륙을 성공에 준하게
+# 쳐주면 교두보를 못 얻고도 승리 판정이 나온다(감사 발견). 미완은 절반만 인정.
+_AMPHIB_PARTIAL_CREDIT = 0.5
+
 
 def zone_has_asbm(enemy_fleet: list) -> bool:
     """구역 적 편성에 대함 탄도미사일(ASBM)이 있는가 — 정밀 교전 라우팅 트리거.
@@ -146,6 +177,81 @@ class CoastalSAMSite:
         return used
 
 
+class AmphibiousForce:
+    """상륙군 부대 — 상륙함에 적재돼 목표 해안으로 이동, 교두보를 확보한다.
+    (v18 CampaignShip 상태머신 복제: 상태 + ETA + 진척)
+
+    3단계 순차 곱연산(로드맵 지침): **수송 → 항공 엄호 → 상륙**.
+    각 단계 성공 확률을 캠페인 상태에서 도출해 곱한 값이 그 틱의 진척률이 된다.
+    한 단계만 무너져도(교통로 차단·제공권 상실·호위 전멸) 상륙이 정체된다 —
+    이게 상륙작전이 해·공 협조의 정점인 이유를 모델로 드러낸다.
+
+    결정론: rng 미사용(진척은 상태에서 결정론적으로 계산).
+    """
+    __slots__ = ('name', 'zone', 'state', 'lift', 'progress', 'eta_h',
+                 'stalled_h', 'p_transit', 'p_aircover', 'p_assault')
+
+    def __init__(self, name: str, zone: str, lift: float):
+        self.name      = name
+        self.zone      = zone      # 목표 해안(SLOC 구역)
+        self.state     = 'embark'  # embark → transit → assault → beachhead / failed
+        self.lift      = lift      # 수송 능력(대대 상당) — 상륙함 편성에서 산출
+        self.progress  = 0.0       # 교두보 확보 진척 0~1
+        self.eta_h     = _EMBARK_H
+        self.stalled_h = 0         # 진척이 멈춘 누적 시간
+        # 마지막 틱의 단계별 확률(보고서·투명성)
+        self.p_transit = self.p_aircover = self.p_assault = 0.0
+
+    @property
+    def done(self) -> bool:
+        return self.state in ('beachhead', 'failed')
+
+    def tick(self, control: float, air_sup: float, escort_n: int, coastal_def: float):
+        """1시간 틱.
+        control     — 목표 구역 SLOC 통제도(0~1): 상륙함이 해안에 도달할 수 있는가
+        air_sup     — 목표 구역 제공권(0~1): 상륙 선단을 엄호할 수 있는가
+        escort_n    — 목표 구역 호위 함정 수: 함포 지원(대안 상륙 제압)
+        coastal_def — 적 연안 방어 강도(0~1): 상륙 저항
+        """
+        if self.done:
+            return
+        if self.state == 'embark':
+            self.eta_h -= 1
+            if self.eta_h <= 0:
+                self.state = 'transit'
+                self.eta_h = _TRANSIT_H
+            return
+        if self.state == 'transit':
+            # 수송 단계 — 교통로가 막혀 있으면 항해가 지연된다(통제도에 반비례).
+            self.p_transit = _P_TRANSIT_BASE + _P_TRANSIT_SLOPE * max(0.0, min(1.0, control))
+            self.eta_h -= 1
+            if self.eta_h <= 0:
+                if self.p_transit < 0.35:
+                    # 교통로가 사실상 차단 — 선단이 접근하지 못하고 회항(작전 실패)
+                    self.state = 'failed'
+                else:
+                    self.state = 'assault'
+            return
+        # assault — 3단계 곱연산으로 교두보 진척
+        self.p_transit  = _P_TRANSIT_BASE  + _P_TRANSIT_SLOPE  * max(0.0, min(1.0, control))
+        self.p_aircover = _P_AIRCOVER_BASE + _P_AIRCOVER_SLOPE * max(0.0, min(1.0, air_sup))
+        escort = min(1.0, escort_n / _ESCORT_FULL)
+        self.p_assault  = (_P_ASSAULT_BASE + _P_ASSAULT_SLOPE * escort) \
+                          * (1.0 - max(0.0, min(1.0, coastal_def)))
+        rate = _ASSAULT_RATE * self.p_transit * self.p_aircover * self.p_assault
+        self.progress = min(1.0, self.progress + rate)
+        if self.progress >= _BEACHHEAD_THRESH:
+            self.state = 'beachhead'
+            return
+        # 정체 감시 — 진척이 사실상 멈춘 채 오래 끌면 작전 중지(무한 정체 방지)
+        if rate < _ASSAULT_MIN_RATE:
+            self.stalled_h += 1
+            if self.stalled_h >= _ASSAULT_TIMEOUT_H:
+                self.state = 'failed'
+        else:
+            self.stalled_h = 0
+
+
 class ArmyCampaign:
     """지상 층 진입점 (v19 AirCampaign 대칭). CampaignEngine이 조합해 호출."""
 
@@ -158,6 +264,12 @@ class ArmyCampaign:
             self._build_sites()
         self.n_asbm_precise = 0    # ASBM 때문에 정밀 교전으로 강제된 횟수(투명성)
         self.n_intercepts   = 0    # 연안 포대가 발사한 총 요격탄 수
+        # v20.3 상륙작전 — enable_amphibious ON일 때만 편성(OFF면 상륙 항 자체가 없다)
+        self.amphib_enabled = bool(cfg.get('enable_amphibious', False))
+        self.landing: AmphibiousForce | None = None
+        if self.amphib_enabled:
+            self.landing = self._build_landing()
+        self.landing_log: list = []   # 상륙 임무 타임라인(보고서)
 
     def _build_sites(self):
         """구역별 포대 편성. cfg['coastal_sam_zones'] = {zone: 프리셋명} 이면 구역별 지정,
@@ -170,11 +282,67 @@ class ArmyCampaign:
             if assets:
                 self.sites[z] = CoastalSAMSite(z, assets)
 
+    def _build_landing(self) -> 'AmphibiousForce | None':
+        """상륙 선단 편성 — 아군 함대의 상륙함(LPH·LPD·LST)에서 수송 능력을 산출.
+        cfg['amphib_ships'] = {'LPH': 1, 'LST': 2} 형태로 직접 지정 가능(없으면 기본 선단).
+        목표 해안은 cfg['amphib_zone'](없으면 첫 구역)."""
+        ships = self.cfg.get('amphib_ships') or {'LPH': 1, 'LST': 2}
+        lift = sum(AMPHIB_SHIP_LIFT.get(t, 0.0) * int(n) for t, n in ships.items())
+        if lift <= 0:
+            return None    # 상륙함이 없으면 상륙작전 불가
+        zone = self.cfg.get('amphib_zone') or (self.zones[0] if self.zones else '')
+        return AmphibiousForce('상륙 선단', zone, lift)
+
     # ── 틱 ────────────────────────────────────────────────────────────────
-    def tick(self, zone_threats: dict | None = None, air_sups: dict | None = None):
-        """1시간 틱. v20.2b는 정적 방어(재고는 교전에서만 소모) → 상태 갱신 없음.
-        v20.4에서 적 SEAD 제압도(suppression) 증가·복구가 여기 들어온다(그때 인자 사용)."""
-        return
+    def tick(self, t_h: int = 0, control: dict | None = None,
+             air_sups: dict | None = None, escorts: dict | None = None):
+        """1시간 틱.
+        연안 방공은 정적(재고는 교전에서만 소모) → 갱신 없음.
+        상륙작전은 3단계 곱연산으로 진척(v20.3).
+        v20.4에서 적 SEAD 제압도(suppression) 증가·복구가 여기 들어온다."""
+        lf = self.landing
+        if lf is None or lf.done:
+            return
+        z = lf.zone
+        prev = lf.state
+        lf.tick(control=(control or {}).get(z, 1.0),
+                air_sup=(air_sups or {}).get(z, 0.5),
+                escort_n=(escorts or {}).get(z, 0),
+                coastal_def=float(self.cfg.get('amphib_coastal_defense', 0.4)))
+        if lf.state != prev:
+            self.landing_log.append({
+                't_h': t_h, 'state': lf.state, 'zone': z,
+                'progress': round(lf.progress, 3),
+                'p_transit': round(lf.p_transit, 3),
+                'p_aircover': round(lf.p_aircover, 3),
+                'p_assault': round(lf.p_assault, 3),
+            })
+
+    # ── 상륙 조회 API ──────────────────────────────────────────────────────
+    def landing_outcome_weight(self) -> float | None:
+        """전역 승패에 결합할 상륙 점수(0~1). 상륙 임무가 없으면 None → 기존 판정 그대로.
+
+        - beachhead(교두보 확보) = 1.0 — 작전 목표 달성
+        - failed(회항·작전 중지)  = 0.0 — 진척을 전혀 인정하지 않음
+        - 그 외(전역 종료 시 아직 진행 중) = 진척 × 0.5 — 미완은 절반만 인정.
+          진척을 그대로 주면 교두보를 못 얻고도 승리 판정이 난다(감사 발견).
+        """
+        lf = self.landing
+        if lf is None:
+            return None
+        if lf.state == 'beachhead':
+            return 1.0
+        if lf.state == 'failed':
+            return 0.0
+        return max(0.0, min(1.0, lf.progress)) * _AMPHIB_PARTIAL_CREDIT
+
+    def outcome_blend(self, mean_control: float) -> float:
+        """전역 승패 점수 = (1-W)·교통로 통제 + W·상륙 점수.
+        상륙 임무가 없으면 교통로 통제 그대로(기존 판정 bit-identical)."""
+        w = self.landing_outcome_weight()
+        if w is None:
+            return mean_control
+        return (1.0 - AMPHIB_OUTCOME_W) * mean_control + AMPHIB_OUTCOME_W * w
 
     # ── 캠페인이 쓰는 조회 API ────────────────────────────────────────────
     def site_in(self, zone: str) -> CoastalSAMSite | None:
@@ -224,7 +392,7 @@ class ArmyCampaign:
 
     def status(self) -> dict:
         """보고서·결과 집계용."""
-        return {
+        out = {
             'coastal_sites': {
                 z: {'assets': dict(s.assets), 'initial': dict(s.initial),
                     'readiness': round(s.readiness, 3)}
@@ -233,3 +401,19 @@ class ArmyCampaign:
             'n_asbm_precise': self.n_asbm_precise,
             'coastal_intercepts': self.n_intercepts,
         }
+        lf = self.landing
+        if lf is not None:   # v20.3 상륙작전
+            out.update({
+                'amphib_enabled':  True,
+                'amphib_zone':     lf.zone,
+                'amphib_state':    lf.state,
+                'amphib_progress': round(lf.progress, 3),
+                'amphib_success':  1 if lf.state == 'beachhead' else 0,
+                'amphib_lift':     lf.lift,
+                'amphib_timeline': self.landing_log,
+                # 마지막 틱의 3단계 확률(어느 단계가 상륙을 막았는지 진단)
+                'amphib_p_transit':  round(lf.p_transit, 3),
+                'amphib_p_aircover': round(lf.p_aircover, 3),
+                'amphib_p_assault':  round(lf.p_assault, 3),
+            })
+        return out

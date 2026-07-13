@@ -1,7 +1,13 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.04.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.04.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.04.02 — 해상 상륙작전: 교두보 확보(로드맵 v20.3)]                      ║
+║  NEW-A  상륙 선단(독도함급·상륙함)이 목표 해안으로 이동해 교두보 확보 —      ║
+║         적재→수송→항공 엄호→상륙 단계별 성공 확률을 곱해 진척 산출.          ║
+║  NEW-B  한 단계만 무너져도 상륙 정체 — 교통로 차단 시 회항, 제공권 상실 시   ║
+║         엄호 실패, 적 연안 방어가 강하면 상륙 붕괴.                          ║
+║  NEW-C  교두보 확보 여부가 전역 승패 판정에 반영(교통로 통제와 함께 평가).   ║
 ║  [v18.04.01 — 지상 작전급: 연안 방공망(로드맵 v20.2b)]                       ║
 ║  NEW-A  작전급 캠페인에 지상 층 도입 — 해상 교통로별 연안 방공 포대가        ║
 ║         함대 상공을 함께 방어(어쇼어 SM-3·THAAD·L-SAM·천궁-II 4계층).        ║
@@ -1316,7 +1322,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.04.01"
+APP_VERSION = "v18.04.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2001,6 +2007,7 @@ try:
         WEATHER_TRANSITION_DB, WEATHER_INTENSITY_LADDER,
     )
     from engine_army import COASTAL_SAM_PRESETS   # v20.2b: 연안 방공 포대 편성(UI 콤보)
+    from engine_campaign import SLOC_ZONES        # v20.3: 상륙 목표 해안(UI 콤보)
     _V7_OK = True
 except ImportError as e:
     _V7_OK = False
@@ -2009,6 +2016,7 @@ except ImportError as e:
     V7_RANDOM_CFG          = {}
     V7_MIXED_SCENARIOS     = {}
     COASTAL_SAM_PRESETS    = {}
+    SLOC_ZONES             = []
 
 # ── 스펙 DB import ────────────────────────────────────────────────────────────
 try:
@@ -6889,6 +6897,10 @@ class MainWindow(QMainWindow):
             self.chk_coastal_sam.setChecked(cfg.get('enable_coastal_sam', False))
         if hasattr(self, 'cmb_coastal_preset') and cfg.get('coastal_sam_preset'):
             self.cmb_coastal_preset.setCurrentText(cfg['coastal_sam_preset'])
+        if hasattr(self, 'chk_amphibious'):
+            self.chk_amphibious.setChecked(cfg.get('enable_amphibious', False))
+        if hasattr(self, 'cmb_amphib_zone') and cfg.get('amphib_zone'):
+            self.cmb_amphib_zone.setCurrentText(cfg['amphib_zone'])
         if hasattr(self, 'chk_strategic_strike'):
             self.chk_strategic_strike.setChecked(cfg.get('enable_strategic_strike', False))
         if hasattr(self, 'chk_rl_policy'):
@@ -7581,6 +7593,21 @@ class MainWindow(QMainWindow):
         )
         self.chk_coastal_sam.setChecked(False)
 
+        # v20.3: 해상 상륙작전 — 지상 층 하위 옵션
+        self.chk_amphibious = QCheckBox("해상 상륙작전 (교두보 확보) (실험적)")
+        self.chk_amphibious.setToolTip(
+            "상륙 선단(독도함급 강습상륙함·상륙함)이 목표 해안으로 이동해 교두보를 확보합니다.\n"
+            "적재 → 수송 → 항공 엄호 → 상륙의 순서로 진행하며, 각 단계의 성공 확률을 곱해\n"
+            "그 시간의 교두보 진척이 정해집니다 — 한 단계만 무너져도 상륙이 멈춥니다.\n"
+            "  · 수송: 해상 교통로 통제도 (교통로가 막히면 선단이 해안에 못 닿습니다)\n"
+            "  · 엄호: 목표 구역 제공권 (공군 작전급과 함께 켜야 제공권이 계산됩니다)\n"
+            "  · 상륙: 호위 함대의 함포 지원 대 적 연안 방어 강도\n"
+            "교두보 확보 여부가 전역 승패 판정에 반영됩니다(교통로 통제와 함께 평가).\n"
+            "지상 작전급·캠페인 모드와 함께 켜야 작동합니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_amphibious.setChecked(False)
+
         self.chk_rl_policy = QCheckBox("AI 전술 (학습된 정책) (실험적)")
         self.chk_rl_policy.setToolTip(
             "지속 전장 모드에서 강화학습으로 훈련된 방어 정책이 전술을 자동 결정합니다.\n"
@@ -7708,7 +7735,7 @@ class MainWindow(QMainWindow):
                     self.chk_battle, self.chk_campaign, self.chk_campaign_fog,
                     self.chk_air_campaign, self.chk_precise_engage,
                     self.chk_sead, self.chk_strategic_strike,
-                    self.chk_army_campaign, self.chk_coastal_sam,
+                    self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
@@ -7740,6 +7767,14 @@ class MainWindow(QMainWindow):
             "한국형 BMD (KAMD) — L-SAM 16발 + 천궁-II 32발 (국산 계층만 자주 방어)"
         )
         fl_env.addRow("연안 포대 편성", self.cmb_coastal_preset)
+        fl_env.addRow("",            self.chk_amphibious)
+        self.cmb_amphib_zone = NoScrollComboBox()
+        self.cmb_amphib_zone.addItems(list(SLOC_ZONES))
+        self.cmb_amphib_zone.setToolTip(
+            "상륙 선단이 교두보를 확보할 목표 해안(해상 교통로)입니다.\n"
+            "그 교통로의 통제도·제공권·호위 함정 수가 상륙 성공을 좌우합니다."
+        )
+        fl_env.addRow("상륙 목표 해안", self.cmb_amphib_zone)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_sonar_emcon)
@@ -9657,6 +9692,9 @@ class MainWindow(QMainWindow):
             'enable_army_campaign': self.chk_army_campaign.isChecked(),
             'enable_coastal_sam':   self.chk_coastal_sam.isChecked(),
             'coastal_sam_preset':   self.cmb_coastal_preset.currentText(),
+            # v20.3 해상 상륙작전(교두보 확보)
+            'enable_amphibious':    self.chk_amphibious.isChecked(),
+            'amphib_zone':          self.cmb_amphib_zone.currentText(),
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
@@ -11779,9 +11817,6 @@ class SplashWindow(QWidget):
              "육군 전력: K2 흑표·K21·K9 자주포·천무·패트리엇·사드. "
              "지형 기반 이동 속도·시야 계산. 상륙 → 내륙 진출 경로 모델링. "
              "【범위】전면 지상전은 해전 시뮬 본령 밖 → 상륙·연안 접점에 필요한 최소 단위만."),
-            ("v20.3", "높음", "해상 상륙작전 지원",
-             "상륙사단 → 독도함·상륙함 수송. 해군 함포 지원 + 공군 근접지원 + 육군 상륙 순서. "
-             "교두보 확보 성공 여부 → 작전 목표 달성도. 각 단계 성공 확률을 순차 곱연산."),
             ("v20.4", "중간", "육군 작전 캠페인 통합",
              "해·공 캠페인 엔진에 육군 임무 추가. 지상전 전황 → 해상 교통로·제공권 상호 영향. "
              "지상 방공망 손실 → 제공권 → 해상 교통로 도미노 반영."),

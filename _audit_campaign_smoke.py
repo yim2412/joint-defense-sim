@@ -77,7 +77,7 @@ def main():
 
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
-        chk = fog = air = sead = strike = precise = army = coastal = None
+        chk = fog = air = sead = strike = precise = army = coastal = amphib = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
@@ -87,6 +87,7 @@ def main():
             elif '정밀' in t:           precise = c  # A1 정밀 교전(실측 손실·요격)
             elif '지상 작전급' in t:    army = c     # v20.2b 지상 층(연안 방공망)
             elif '연안 방공 포대' in t: coastal = c  # v20.2b 포대 실제 배치
+            elif '상륙작전' in t:       amphib = c   # v20.3 해상 상륙작전(교두보 확보)
             elif '캠페인' in t:         chk = c
         if chk is None:
             log("캠페인 체크박스 미포착(BLOCKED)"); return 2
@@ -127,6 +128,11 @@ def main():
             log(f"연안포대 체크박스: {_txt(coastal)!r} → 체크"); _act(coastal); time.sleep(1)
         else:
             log("⚠ 연안포대 체크박스 미포착 — v20.2b GUI 경로 미확인")
+        # v20.3: 상륙작전 — 지상 층 하위 옵션. 3단계 곱연산·교두보 판정의 exe 경로를 태운다.
+        if amphib is not None:
+            log(f"상륙작전 체크박스: {_txt(amphib)!r} → 체크"); _act(amphib); time.sleep(1)
+        else:
+            log("⚠ 상륙작전 체크박스 미포착 — v20.3 GUI 경로 미확인")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
@@ -136,6 +142,7 @@ def main():
             if precise is not None: _st += f" 정밀교전={precise.get_toggle_state()}"
             if army is not None: _st += f" 지상작전급={army.get_toggle_state()}"
             if coastal is not None: _st += f" 연안포대={coastal.get_toggle_state()}"
+            if amphib is not None: _st += f" 상륙작전={amphib.get_toggle_state()}"
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")

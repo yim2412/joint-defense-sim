@@ -117,13 +117,31 @@ CAMPAIGN_CASES = [
                             campaign_horizon_h=72,
                             fleet_preset='이지스 기동전단',
                             enemy_fleet_preset='랴오닝 항모전단'), [5]),
+    # v20.3: 상륙작전 — 3단계 곱연산(수송·엄호·상륙)이 교두보 확보로 이어지는 성공 경로를
+    # 봉인. 공군 ON(제공권=엄호 단계)이라야 교두보에 도달하므로 함께 켠다.
+    ('상륙-교두보확보', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                            campaign_horizon_h=72,
+                            fleet_preset='이지스 기동전단',
+                            enemy_fleet_preset='랴오닝 항모전단',
+                            enable_army_campaign=True, enable_air_campaign=True,
+                            enable_amphibious=True, amphib_zone='서해'), [3]),
+    # 상륙 실패 경로(교통로 차단 → 수송 단계 붕괴)도 봉인 — 성공만 있으면 게이팅이 조용히
+    # 풀려도 회귀가 못 잡는다.
+    ('상륙-교통로차단', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                            campaign_horizon_h=72,
+                            fleet_preset='기동전단 기본',
+                            enemy_fleet_preset='전면전 포화',
+                            enable_army_campaign=True, enable_air_campaign=True,
+                            enable_amphibious=True, amphib_zone='서해'), [3]),
 ]
 # 캠페인 결정론 지표 (float은 스냅샷·검사 양쪽 동일 라운딩이라 정확 일치)
 # mean_control 등은 소수3자리로 봉인 — 1자리면 4%p대 통제도 변화가 골든을 통과해 민감도 저하.
 _CKEYS = ['outcome', 'n_precise', 'n_engagements', 'surviving_ships',
           'cost_total', 'mean_control', 'n_reassign', 'end_h',
           # v20.2b: 연안 방공 — ASBM 정밀 강제 횟수·포대가 실제로 쏜 요격탄 수(재고 차감)
-          'n_asbm_precise', 'coastal_intercepts']
+          'n_asbm_precise', 'coastal_intercepts',
+          # v20.3: 상륙 — 최종 상태·교두보 진척(3단계 곱연산 결과)
+          'amphib_state', 'amphib_progress', 'amphib_success']
 _CROUND = 3   # 캠페인 float 지표 라운딩 자리수(회귀 민감도)
 
 
