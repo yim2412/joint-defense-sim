@@ -61,7 +61,7 @@
 - **지속 전장 모드** (실험적) — 양측이 작전 목표(자산 방어·해역 통제 등)를 두고 시간 지평까지 겨루는 승/패 판정 엔진
 - **3D 전장 시각화** — CesiumJS 위성 지구본 위에 함정·항공기·미사일 궤적·교전 이벤트를 재생(리플레이)
 - **몬테카를로 분석** — 표준 MC + LHS 고속 샘플링(멀티프로세싱 병렬) · 스트레스/Sobol 민감도/A·B 비교
-- **방대한 무기 체계 DB** — 적군 70종 · 아군 방어 14종 · 대함 타격 8종 · 함정 26종 · 항공 자산 9종 · 편대 프리셋 44종(아군 16 · 적군 28)
+- **방대한 무기 체계 DB** — 적군 70종 · 아군 방어 14종 · 대함 타격 8종 · 함정 26종 · 항공 자산 9종 · 편대 프리셋 46종(아군 17 · 적군 29)
 - **작전 시나리오 라이브러리 · 적정 편대 추천** — 교리 기반 시나리오 자동 설정 + 비용 대비 성능 편대 순위
 - **보고서 출력** — 교전 결과를 Excel(.xlsx) · PNG로 내보내기
 
@@ -253,7 +253,7 @@ expand to other force domains step by step.
 - **Persistent battle mode** (experimental) — a win/loss engine where both sides pursue operational objectives (asset defense, sea control, etc.) over a time horizon
 - **3D battlefield visualization** — ships, aircraft, missile trajectories, and engagement events replayed on a CesiumJS satellite globe
 - **Monte Carlo analysis** — standard MC + LHS fast sampling (multiprocessing) · stress / Sobol sensitivity / A·B comparison
-- **Extensive weapon-system DB** — 70 enemy threats · 14 friendly defenses · 8 surface-strike weapons · 26 ship classes · 9 air assets · 44 fleet presets (16 friendly · 28 enemy)
+- **Extensive weapon-system DB** — 70 enemy threats · 14 friendly defenses · 8 surface-strike weapons · 26 ship classes · 9 air assets · 46 fleet presets (17 friendly · 29 enemy)
 - **Operational scenario library & fleet recommendation** — doctrine-based scenario auto-setup + cost-effectiveness fleet ranking
 - **Report export** — engagement results to Excel (.xlsx) and PNG
 

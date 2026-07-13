@@ -557,7 +557,7 @@
     "n_asbm_precise": 0,
     "coastal_intercepts": 0,
     "amphib_state": "assault",
-    "amphib_progress": 0.344,
+    "amphib_progress": 0.366,
     "amphib_success": 0,
     "coastal_suppression": 0.0
   },
@@ -591,6 +591,6 @@
     "amphib_state": null,
     "amphib_progress": null,
     "amphib_success": null,
-    "coastal_suppression": 0.023
+    "coastal_suppression": 0.012
   }
 }
