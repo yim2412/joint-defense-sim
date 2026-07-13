@@ -1,7 +1,15 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.04.05 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.04.06 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.04.06 — v20 블록 종합 감사: 발견 6건 수정]                             ║
+║  BUG-1  무방비 구역에서 보유하지 않은 지상 요격체계가 발사되던 문제 해결.    ║
+║         (연안 방공 포대가 없거나 재고가 소진된 구역에서도 요격이 계속됨)     ║
+║  BUG-2  054B형 호위함이 SAM·근접방어를 전혀 발사하지 못하던 문제 해결.       ║
+║  BUG-3  YJ-21이 대함 탄도로 분류되지 않아 연안 방공 정밀 교전이 걸리지       ║
+║         않던 문제 해결.                                                      ║
+║  BUG-4  제압당한 포대가 요격 없이 요격탄만 소모하던 문제 해결.               ║
+║  NEW-A  결과 화면에 연안 방공망·상륙작전 현황 표시(요격탄·제압도·교두보).    ║
 ║  [v18.04.05 — 신규 전력의 편성 반영: KDDX·054B 편대 프리셋 + 급유기 편입]    ║
 ║  NEW-A  '차기 기동전단(KDDX)' 아군 편대 — 이지스 1 + KDDX 2.                 ║
 ║  NEW-B  '차세대 수상 전투단(054B)' 적 편대 — 054B형 중심 수상 전투단.        ║
@@ -1339,7 +1347,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.04.05"
+APP_VERSION = "v18.04.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -4824,6 +4832,26 @@ class EngagementAnalysisTab(QWidget):
                 if result.get('n_cas_requests', 0) > 0:   # v19.5: 근접 항공 지원(CAS)
                     _air_txt += (f"  ·  🛩 근접지원 {result.get('air_cas_sorties', 0)}소티 "
                                  f"/ 요청 {result.get('n_cas_requests', 0)}건")
+            # v20: 지상군 층 요약(연안 방공망·상륙작전) — 공군 블록과 대칭.
+            #   이 지표들이 결과에 안 보이면 연안 요격탄 소모·교두보 확보 여부를 사용자가
+            #   전혀 알 수 없다(승패 숫자만 간접적으로 움직임).
+            _army_txt = ''
+            _csites = result.get('coastal_sites') or {}
+            if _csites:
+                _rd = [f"{'🟢' if v['readiness'] >= 0.6 else '🟠' if v['readiness'] >= 0.3 else '🔴'}"
+                       f" {z} {v['readiness']*100:.0f}%" for z, v in _csites.items()]
+                _army_txt = ('        🛡 연안 방공: ' + '  '.join(_rd) +
+                             f"  (요격탄 {result.get('coastal_intercepts', 0)}발"
+                             f" · ASBM 정밀교전 {result.get('n_asbm_precise', 0)}회)")
+                _sup = result.get('coastal_suppression', 0) or 0
+                if _sup > 0.01:   # 적 SEAD 도미노가 실제로 작동했을 때만
+                    _army_txt += f"  ·  ⚠ 적 SEAD 제압 {_sup*100:.0f}%"
+            if result.get('amphib_enabled'):
+                _st = {'embark': '⚓ 승선', 'transit': '🚢 항해', 'assault': '🔥 상륙 중',
+                       'beachhead': '🚩 교두보 확보', 'failed': '❌ 상륙 실패'}
+                _amp = _st.get(result.get('amphib_state', ''), result.get('amphib_state', ''))
+                _army_txt += (f"        🏖 상륙({result.get('amphib_zone', '')}): {_amp}"
+                              f"  진척 {result.get('amphib_progress', 0)*100:.0f}%")
             mc = result.get('campaign_mc')
             if mc:
                 self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
@@ -4847,7 +4875,8 @@ class EngagementAnalysisTab(QWidget):
                 _sc = result.get('control', {})
                 _sl = [f"{'🟢' if v >= 0.7 else '🟠' if v >= 0.3 else '🔴'} {z} {v*100:.0f}%"
                        for z, v in _sc.items()]
-                self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl) + _air_txt)
+                self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl)
+                                     + _air_txt + _army_txt)
                 self._battle_panel.show()
                 return
             self._bp_outcome.setText(f"🗺 캠페인 결과:  {label}")
@@ -4873,7 +4902,7 @@ class EngagementAnalysisTab(QWidget):
             # v18.4: 전장의 안개 상태(적용 시에만)
             if result.get('fog_enabled'):
                 _logi += f"  ·  🌫 안개 ON (적 위치 과소평가 {result.get('n_missed', 0)}회)"
-            self._bp_obj.setText('      '.join(_sl) + '        ' + _logi + _air_txt)
+            self._bp_obj.setText('      '.join(_sl) + '        ' + _logi + _air_txt + _army_txt)
             self._battle_panel.show()
             return
 
@@ -9961,9 +9990,35 @@ class MainWindow(QMainWindow):
         # v19.5: CAS 근접 항공 지원 발동 시 소티·요청 표시
         cas = (f" · 🛩 근접지원 {result.get('air_cas_sorties', 0)}소티"
                if result.get('n_cas_requests', 0) > 0 else '')
+        # v20: 연안 방공망·상륙작전 — 교전 분석 탭 배너는 UIA 밖이라 스모크로 검증할 수 없다.
+        #   상태줄에도 요약을 띄워야 사용자에게 보이고 GUI 스모크가 감시할 수 있다(v18 교훈).
+        _csites = result.get('coastal_sites') or {}
+        coastal = ''
+        if _csites:
+            _rdy = (sum(v['readiness'] for v in _csites.values()) / len(_csites)) if _csites else 0.0
+            coastal = (f" · 🛡 연안 방공 {_rdy*100:.0f}%"
+                       f" (요격탄 {result.get('coastal_intercepts', 0)}발)")
+            _sup = result.get('coastal_suppression', 0) or 0
+            if _sup > 0.01:
+                coastal += f" · ⚠ 적 SEAD 제압 {_sup*100:.0f}%"
+        amphib = ''
+        if result.get('amphib_enabled'):
+            _st = {'embark': '승선', 'transit': '항해', 'assault': '상륙 중',
+                   'beachhead': '교두보 확보', 'failed': '상륙 실패'}
+            amphib = (f" · 🏖 상륙 {_st.get(result.get('amphib_state', ''), '-')}"
+                      f" {result.get('amphib_progress', 0)*100:.0f}%")
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
+            # v20: 연안 방공·상륙은 대표 전역이 아니라 MC 평균으로 표시(요격탄 평균·교두보 확보율).
+            _mc_coastal = ''
+            if _csites:
+                _mc_coastal = (f" · 🛡 연안 방공 요격탄 {mc.get('coastal_intercepts_avg', 0):.0f}발"
+                               f" (제압 {mc.get('coastal_suppression_avg', 0)*100:.0f}%)")
+            _mc_amphib = ''
+            if result.get('amphib_enabled'):
+                _mc_amphib = (f" · 🏖 상륙 교두보 확보율 {mc.get('amphib_success_rate', 0)*100:.0f}%"
+                              f" (평균 진척 {mc.get('amphib_progress_avg', 0)*100:.0f}%)")
             self._lbl_status.setText(
                 f"완료 ({elapsed:.1f}s) | 🗺 캠페인 MC {mc.get('n_runs', 0)}회: "
                 f"🟢승 {mc.get('win_rate', 0)*100:.0f}% · "
@@ -9972,7 +10027,8 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {mc.get('mean_control_avg', 0)*100:.0f}%±{mc.get('mean_control_std', 0)*100:.0f} · "
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
-                f"전역 {result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{cas}{warn}")
+                f"전역 {result.get('horizon_h', 72)}h"
+                f"{fog}{air}{sead}{strike}{cas}{_mc_coastal}{_mc_amphib}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -9981,7 +10037,8 @@ class MainWindow(QMainWindow):
                 f"평균 통제도 {result.get('mean_control', 0.0)*100:.0f}% · "
                 f"교전 {result.get('n_engagements', 0)}회 · "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
-                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h{fog}{air}{sead}{strike}{cas}{warn}")
+                f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h"
+                f"{fog}{air}{sead}{strike}{cas}{coastal}{amphib}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])

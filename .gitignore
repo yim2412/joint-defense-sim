@@ -38,5 +38,6 @@ build_*.log
 감사야간로그/
 
 # 백그라운드 작업 헬퍼 산출물
-_bgtask.meta
+# 백그라운드 폴링 메타(_bgtask·_bgbuild 등 전부 — gitignore는 인라인 주석 미지원)
+_bg*.meta
 _audit_*.log

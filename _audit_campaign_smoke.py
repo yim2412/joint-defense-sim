@@ -193,10 +193,24 @@ def main():
                         frag = [t for t in (_txt(c) for c in main_w.descendants())
                                 if any(k in t for k in ('제공권', '방공망', '전역'))]
                         log(f"🔴 전략폭격 ON인데 배너에 적 기지 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    # v20: 연안 방공 ON이면 포대 현황(잔여율·요격탄)이 배너에 떠야 한다.
+                    #   지상군 지표가 결과에서 소비되지 않아 사용자가 요격탄 소모·교두보 확보를
+                    #   전혀 볼 수 없던 문제(종합 감사 발견)를 스모크로 영구 감시한다.
+                    if coastal is not None and '연안 방공' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('제공권', '통제도', '전역'))]
+                        log(f"🔴 연안 방공 ON인데 배너에 포대 현황 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    # v20.3: 상륙 ON이면 상륙 단계·진척이 배너에 떠야 한다.
+                    if amphib is not None and '상륙' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('연안 방공', '제공권', '전역'))]
+                        log(f"🔴 상륙 ON인데 배너에 상륙 현황 미표시 — 배너 조각: {frag[:4]}"); return 1
                     _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
                     _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
                     _strmsg = " + 💥 적 기지 배너 확인" if strike is not None else ""
+                    _armymsg = " + 🛡 연안 방공 배너 확인" if coastal is not None else ""
+                    _ampmsg  = " + 🏖 상륙 배너 확인" if amphib is not None else ""
                     # v19.5: CAS는 조건부(통제 붕괴 시 요청 발동) — 필수 아님. 발현되면 배너
                     # 형식만 확인, 미발현은 정상(기본 시나리오에서 통제 유지 시 요청 0).
                     _casmsg = " + 🛩 근접지원 배너 확인(발현)" if '근접지원' in blob else ""
@@ -215,7 +229,8 @@ def main():
                         _m = _re.search(r'MC\D*(\d+)\s*회', blob)
                         _n = _m.group(1) if _m else '?'
                         _precmsg = f" + 🎯 정밀교전 ON·캠페인 MC 병렬 {_n}회 실행 확인(exe end-to-end)"
-                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}{_strmsg}{_casmsg}{_precmsg}"); return 0
+                    log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}"
+                        f"{_strmsg}{_armymsg}{_ampmsg}{_casmsg}{_precmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프

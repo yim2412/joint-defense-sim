@@ -113,6 +113,23 @@ AMPHIB_OUTCOME_W   = 0.35
 _AMPHIB_PARTIAL_CREDIT = 0.5
 
 
+def scrub_ground_bmd(tcfg: dict):
+    """전술 cfg에서 지상 BMD 관련 키를 전부 걷어낸다(비활성·재고 0).
+
+    연안 방공이 켜진 캠페인에서 **지상 BMD의 유일한 권위는 연안 포대**다. 사용자가 단발
+    탭에서 켜 둔 BMD 토글(예: enable_ashore + ashore_sm3_stock=24)이 캠페인 cfg에 실려
+    전술 교전으로 새어 들어가면, 포대가 보유하지도 않은 자산이 매 교전 공짜로 발사되고
+    재고 차감도 안 된다(차감은 포대 보유분만).
+
+    ⚠ 세척은 **포대 유무·재고 유무와 무관하게** 수행해야 한다. 포대가 없는 구역이나
+    재고가 소진된 포대의 구역만 골라 세척을 건너뛰면, 정작 '방어가 사라져야 할 상황'에서
+    UI 토글이 부활해 요격탄이 무한 리필된 것처럼 동작한다 — 재고 소진이 방어 저하로
+    이어진다는 v20.2b의 핵심 가치가 조용히 무력화된다(종합 감사 발견)."""
+    for en_key, stock_key in _ASSET_CFG_KEY.values():
+        tcfg[en_key]    = False
+        tcfg[stock_key] = 0
+
+
 def zone_has_asbm(enemy_fleet: list) -> bool:
     """구역 적 편성에 대함 탄도미사일(ASBM)이 있는가 — 정밀 교전 라우팅 트리거.
     enemy_fleet 원소 = {'preset': <ENEMY_DB 키>, 'count': n}."""
@@ -159,9 +176,7 @@ class CoastalSAMSite:
         ⚠ v20.4: 제압(suppression)된 만큼 **실제 교전 가용 재고도 줄인다**. 제압을 제공권에만
         반영하고 요격에는 안 쓰면, 방공망이 85% 제압당해도 ASBM 정밀 교전에선 요격탄이 그대로
         나가는 불일치가 생긴다(감사 발견)."""
-        for en_key, stock_key in _ASSET_CFG_KEY.values():
-            tcfg[en_key]    = False
-            tcfg[stock_key] = 0
+        scrub_ground_bmd(tcfg)   # 세척은 호출부(inject_tactical)에서도 항상 수행 — 여기선 멱등
         usable = 1.0 - max(0.0, min(1.0, self.suppression))
         for asset, stock in self.assets.items():
             key = _ASSET_CFG_KEY.get(asset)
@@ -431,10 +446,18 @@ class ArmyCampaign:
         return self.site_in(zone) is not None and zone_has_asbm(enemy_fleet)
 
     def inject_tactical(self, zone: str, tcfg: dict) -> bool:
-        """정밀 교전 tcfg에 구역 포대 자산 주입. 주입했으면 True."""
+        """정밀 교전 tcfg에 구역 포대 자산 주입. 주입했으면 True.
+
+        연안 방공이 켜져 있으면 **주입 여부와 무관하게 먼저 세척**한다. 포대가 없는 구역·
+        재고가 소진된 포대는 지상 BMD 기여가 0이어야 하는데, 세척을 건너뛰면 사용자의 단발
+        BMD 토글이 tcfg에 남아 그 구역에서 요격이 되살아난다(scrub_ground_bmd 참조).
+        연안 방공 OFF면 지상 BMD를 포대가 관장하지 않으므로 기존 동작(UI 토글 존중)을 유지."""
+        if not self.coastal_enabled:
+            return False
+        scrub_ground_bmd(tcfg)
         site = self.site_in(zone)
         if site is None:
-            return False
+            return False        # 세척만 하고 주입 없음 → 이 구역 지상 BMD 기여 0
         site.inject_into(tcfg)
         return True
 
@@ -446,11 +469,16 @@ class ArmyCampaign:
         self.n_intercepts += site.consume_from_result(result)
 
     def consume_surrogate(self, zone: str, n_threats: int):
-        """대리모델 교전에서 방공 가산을 준 만큼 요격탄도 소모(위협당 1발 근사)."""
+        """대리모델 교전에서 방공 가산을 준 만큼 요격탄도 소모(위협당 1발 근사).
+
+        제압분만큼 가용 재고를 깎는 정밀 경로(inject_into)와 'usable' 정의를 맞춘다.
+        제압을 무시하고 위협 수만큼 만발 차감하면, 사격통제를 잃어 가산은 거의 0인 포대가
+        요격탄만 태우는 불일치가 생긴다(종합 감사 발견)."""
         site = self.sites.get(zone)
         if site is None:
             return
-        self.n_intercepts += site.consume_abstract(n_threats)
+        usable = 1.0 - max(0.0, min(1.0, site.suppression))
+        self.n_intercepts += site.consume_abstract(int(n_threats * usable))
 
     def zone_defense_bonus(self, zone: str) -> float:
         """대리모델(비정밀) 교전에 주는 승률·점수 가산 (0~_DEFENSE_BONUS_MAX).

@@ -60,10 +60,13 @@ MODES = {
                    files=['engine_combat.py', 'engine_core.py'],
                    base=dict(_LIGHT, fleet_preset='기동전단 기본', sim_seed=1,
                              battle_horizon_s=1200)),
+    # v20: engine_army.py 추가 — 지상군 토글(coastal_sam·amphibious·enemy_sead)은
+    #   engine_army에서만 소비돼, 이 파일이 빠지면 v20 토글이 통째로 추출에서 누락된다.
     'campaign': dict(label='캠페인', run=_campaign_run,
-                     files=['engine_campaign.py', 'engine_airforce.py'],
+                     files=['engine_campaign.py', 'engine_airforce.py', 'engine_army.py'],
                      base=dict(_LIGHT, fleet_preset='기동전단 기본', campaign_seed=1,
-                               enable_air_campaign=True)),   # 공군층 활성(sead/strike 발현)
+                               enable_air_campaign=True,      # 공군층 활성(sead/strike 발현)
+                               enable_army_campaign=True)),   # 지상군층 활성(연안SAM·상륙·도미노 발현)
 }
 
 

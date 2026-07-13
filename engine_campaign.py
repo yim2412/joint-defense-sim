@@ -627,11 +627,12 @@ class CampaignEngine:
         if cas_relief > 0:
             rec['cas_relief'] = round(cas_relief, 3)
         if coastal:
-            # v20.2b: 연안 포대가 실제로 쏜 계층별 요격탄(투명성 — 4계층 발현 확인용)
+            # v20.2b: 연안 포대가 실제로 쏜 계층별 요격탄(투명성 — 5계층 발현 확인용)
             rec['coastal'] = {
                 'sm3':   int(r.get('ashore_sm3_fired', 0) or 0),
                 'thaad': int(r.get('thaad_fired', 0) or 0),
                 'lsam':  int(r.get('lsam_fired', 0) or 0),
+                'patriot': int(r.get('patriot_fired', 0) or 0),   # v20.1 PAC-3 MSE(중층)
                 'chungung': int(r.get('chungung_fired', 0) or 0),
             }
         self.engagements.append(rec)

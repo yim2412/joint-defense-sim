@@ -294,7 +294,9 @@ ENEMY_DB = {
     'YJ-21 (극초음속 대함)':
         {'category':'대공','type':'극초음속활공체','speed_ms':3400,'altitude_m':40000,  # Mach 10+ 활공 단계 (종말 급강하)
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':1500,
-         'can_fire_missile':False,'rcs_m2':0.05,'is_hgv':True,
+         # is_asbm: 이름·주석 그대로 '대함 탄도'인데 이 플래그만 빠져 있어, YJ-21만 있는 구역은
+         #   연안 포대가 있어도 정밀 교전 라우팅이 안 걸렸다(종합 감사 발견). DF-21D·DF-26과 기준 일치.
+         'can_fire_missile':False,'rcs_m2':0.05,'is_hgv':True,'is_asbm':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 

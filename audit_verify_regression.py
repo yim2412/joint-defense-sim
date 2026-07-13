@@ -75,6 +75,12 @@ CASES = [
                              enable_lsam=True,   lsam_stock=16,
                              enable_chungung=True, chungung_stock=32,
                              enable_patriot=True, patriot_stock=16),                                    [3, 15]),
+    # 종합 감사 발견 봉인 — 054B형은 적 함정 SAM 탑재표에 없어 SAM·CIWS를 한 발도 못 쏘고 있었다
+    # ("054A보다 방공이 강한 발전형"이라 선언된 함정이 실제로는 054A보다 약한 정체성 역전).
+    # 054B 중심 편대를 골든에 넣어, 적 능동방어(HHQ-16·HHQ-10)가 조용히 사라지면 회귀가 잡는다.
+    ('054B-차세대전투단', dict(_BASE, fleet_preset='이지스 기동전단',
+                               enemy_fleet_preset='차세대 수상 전투단 (054B)',
+                               enable_strike=True, haesong2_stock=16),                                 [3, 9]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
@@ -151,6 +157,30 @@ CAMPAIGN_CASES = [
                               enable_army_campaign=True, enable_coastal_sam=True,
                               coastal_sam_preset='연안 방공 강화',
                               enable_air_campaign=True, enable_enemy_sead=True), [3]),
+    # 종합 감사 발견 봉인 — **포대가 없는 구역의 지상 BMD 누출**.
+    #   기존 캠페인 케이스는 전 구역에 포대를 깔아 '포대 없는 구역' 분기를 한 번도 안 지났다.
+    #   그 사각에서, 사용자가 단발 탭에 켜 둔 BMD 토글(enable_ashore 등)이 전술 cfg로 새어
+    #   무방비 구역에서 유령 요격탄이 발사됐다(비용 $1.46B → $3.21B로 2.2배 부풀려짐).
+    #   서해만 방어 + 정밀 교전 ON + 단발 BMD 토글 ON = 그 누출 경로를 정확히 밟는 편성.
+    ('연안방공-무방비구역', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                                campaign_horizon_h=72,
+                                fleet_preset='이지스 기동전단',
+                                enemy_fleet_preset='항모 킬 체인',
+                                enable_army_campaign=True, enable_coastal_sam=True,
+                                coastal_sam_zones={'서해': '한국형 BMD (KAMD)',
+                                                   '대한해협': '없음', '동해': '없음'},
+                                enable_precise_engagement=True,
+                                enable_ashore=True, ashore_sm3_stock=24,
+                                enable_thaad=True, thaad_stock=12), [3]),
+    # 종합 감사 발견 봉인 — YJ-21(함발 극초음속 대함탄도)에 ASBM 표시가 빠져 있어, YJ-21만
+    #   있는 구역은 연안 포대가 있어도 정밀 교전으로 강제되지 않았다(대리모델로 흘러 요격 미실측).
+    #   '극초음속 포화 공격' = DF-17 + YJ-21 → DF-21D가 없으므로 이 누락이 그대로 드러나는 편성.
+    ('연안방공-YJ21라우팅', dict(weather='맑음 (주간)', enable_campaign_mode=True,
+                                 campaign_horizon_h=72,
+                                 fleet_preset='이지스 기동전단',
+                                 enemy_fleet_preset='극초음속 포화 공격',
+                                 enable_army_campaign=True, enable_coastal_sam=True,
+                                 coastal_sam_preset='연안 방공 강화'), [3]),
 ]
 # 캠페인 결정론 지표 (float은 스냅샷·검사 양쪽 동일 라운딩이라 정확 일치)
 # mean_control 등은 소수3자리로 봉인 — 1자리면 4%p대 통제도 변화가 골든을 통과해 민감도 저하.

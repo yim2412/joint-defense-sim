@@ -666,6 +666,14 @@ ENEMY_SHIP_SAM_LOADOUT = {
         {'name': 'HHQ-10',    'stock': 24},
         {'name': '1130-CIWS', 'stock': 9999},
     ],
+    # v20.1의 054B가 이 표에 없으면 SAM·CIWS를 한 발도 못 쏜다(sam_max=0) — DB·스펙시트가
+    #   "054A보다 방공이 강한 발전형"이라 선언한 함정이 실제 교전에선 054A보다 약해지는
+    #   정체성 역전이 생긴다(종합 감사 발견). 공개 제원: H/AKJ-16 VLS 32셀 + HHQ-10 + Type 1130.
+    '054B형 호위함': [
+        {'name': 'HHQ-16',    'stock': 32},
+        {'name': 'HHQ-10',    'stock': 24},
+        {'name': '1130-CIWS', 'stock': 9999},
+    ],
     '056형 초계함': [
         {'name': 'HHQ-10',    'stock':  8},
         {'name': '1130-CIWS', 'stock': 9999},
@@ -3269,7 +3277,7 @@ class TimeStepEngine:
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
                 and s.owner_id < 0
             )
-            max_sams = _GROUND_BMD_MAX_SAMS   # 4계층 각 1발 기회
+            max_sams = _GROUND_BMD_MAX_SAMS   # 5계층 각 1발 기회
 
             # ── 1차: 이지스 어쇼어 SM-3 (중간단계) ──────────────────────────
             if (enable_ashore
