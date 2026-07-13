@@ -1,7 +1,16 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.02.05 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.03.03 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.03.03 — 지상 BMD 사격통제 분리(다층 방어 정상화)]                      ║
+║  BUG-1  함정 SAM이 위협당 동시유도 한도를 선점해 THAAD 등 지상 요격체계가    ║
+║         발사 자체를 못 하던 문제 수정 — 지상 포대는 함정과 별개 사격통제.    ║
+║  [v18.03.02 — 탄도탄 종말 강하]                                              ║
+║  NEW-A  탄도미사일이 중간단계 고도를 유지한 채 돌입하던 것을 종말 강하       ║
+║         궤적으로 교정 — 다층 방어가 접근 거리대별로 순차 교전.               ║
+║  [v18.03.01 — 한국형 미사일방어 L-SAM·천궁-II]                               ║
+║  NEW-A  L-SAM(종말 상층)·천궁-II(종말 하층 점방어) 요격체계 도입 —           ║
+║         이지스 어쇼어 SM-3·THAAD와 함께 4계층 탄도탄 방어망 구성.            ║
 ║  [v18.02.05 — 캠페인 반복 분석 중단 반응성 개선(신뢰성)]                     ║
 ║  BUG-1  병렬 반복 분석 도중 '중단'이 대기 중인 전체 반복 완료까지 먹히지     ║
 ║         않던 문제 수정 — 대기열을 즉시 취소해 중단이 즉각 반응.              ║
@@ -1301,7 +1310,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.02.05"
+APP_VERSION = "v18.03.03"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6951,7 +6960,10 @@ class MainWindow(QMainWindow):
         # 공격 임무·BMD 자산 복원 — 체크박스는 있으나 복원이 누락돼 있던 3종(감사 자동검사로 발견)
         for attr, key, dflt in [('chk_strike', 'enable_strike', True),
                                 ('chk_thaad',  'enable_thaad',  False),
-                                ('chk_ashore', 'enable_ashore', False)]:
+                                ('chk_ashore', 'enable_ashore', False),
+                                ('chk_lsam',     'enable_lsam',     False),
+                                ('chk_chungung', 'enable_chungung', False),
+                                ('chk_bal_descent', 'enable_ballistic_descent', False)]:
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, dflt))
         # 전술 모드·적/AI 전술·난이도·혼합 시나리오 복원 — 빌드엔 있으나 복원 누락됐던 5종(로직 감사 발견, 재현성)
@@ -8134,6 +8146,37 @@ class MainWindow(QMainWindow):
         )
         bmdl.addRow("", self.chk_thaad)
         _wire_chk_color(self.chk_thaad, 13)
+
+        self.chk_lsam = QCheckBox("L-SAM 연동 (실험적)")
+        self.chk_lsam.setToolTip(
+            "한국형 미사일방어(KAMD) 상층 요격체계 L-SAM 연동.\n"
+            "탄도미사일·HGV를 종말 상층(고도 40~70km, 사거리 150km)에서 요격.\n"
+            "THAAD와 PAC-3 사이를 메우는 계층 — 3단 hit-to-kill.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        bmdl.addRow("", self.chk_lsam)
+        _wire_chk_color(self.chk_lsam, 13)
+
+        self.chk_chungung = QCheckBox("천궁-II 연동 (실험적)")
+        self.chk_chungung.setToolTip(
+            "한국형 미사일방어(KAMD) 하층 종말 점방어 천궁-II 연동.\n"
+            "탄도미사일·HGV를 종말 하층(고도 3~20km, 사거리 20km)에서 요격.\n"
+            "상층 요격을 누출한 위협에 대한 최후 방어선 — 유도탄 단가가 낮아 소모전에 유리.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        bmdl.addRow("", self.chk_chungung)
+        _wire_chk_color(self.chk_chungung, 13)
+
+        self.chk_bal_descent = QCheckBox("탄도탄 종말 강하 (실험적)")
+        self.chk_bal_descent.setToolTip(
+            "탄도미사일의 종말 강하 궤적을 교전에 반영.\n"
+            "미적용 시 탄도탄이 중간단계 고도(화성-15 기준 1200km)를 유지한 채 돌입해\n"
+            "종말 요격층(THAAD·L-SAM·천궁-II)이 교전창에 진입하지 못하고 SM-3만 교전한다.\n"
+            "적용 시 정점 → 종말 급강하로 다층 방어가 단계별로 순차 교전.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        bmdl.addRow("", self.chk_bal_descent)
+        _wire_chk_color(self.chk_bal_descent, 13)
 
 
         # ── C&D 시간 설정 (고정값) ────────────────────────────────────────
@@ -9639,6 +9682,12 @@ class MainWindow(QMainWindow):
             'ashore_sm3_stock': 24 if self.chk_ashore.isChecked() else 0,
             'enable_thaad':    self.chk_thaad.isChecked(),
             'thaad_stock':     24 if self.chk_thaad.isChecked() else 0,
+            # v20.2a: 한국형 BMD 계층 — 천궁-II 32발 = 발사대 4기 × 8셀(포대 편제)
+            'enable_lsam':     self.chk_lsam.isChecked(),
+            'lsam_stock':      16 if self.chk_lsam.isChecked() else 0,
+            'enable_chungung': self.chk_chungung.isChecked(),
+            'chungung_stock':  32 if self.chk_chungung.isChecked() else 0,
+            'enable_ballistic_descent': self.chk_bal_descent.isChecked(),
             # C&D 시간
             'cd_time_s':      10,
             'confirm_time_s': 3,
@@ -11676,9 +11725,9 @@ class SplashWindow(QWidget):
              "육군 전력: K2 흑표·K21·K9 자주포·천무·패트리엇·사드. "
              "지형 기반 이동 속도·시야 계산. 상륙 → 내륙 진출 경로 모델링. "
              "【범위】전면 지상전은 해전 시뮬 본령 밖 → 상륙·연안 접점에 필요한 최소 단위만."),
-            ("v20.2", "높음", "지상 방공망 모델",
-             "패트리엇·천궁·사드·현무-II 지대지. 지상 방공망이 해군·공군 작전 구역에 영향. "
-             "적 대함탄도탄(DF-21D 등) → 해상 교통로 위협 연동. "
+            ("v20.2", "높음", "연안 방공망 작전 연동",
+             "4계층 요격체계(이지스 어쇼어 SM-3·THAAD·L-SAM·천궁-II)는 도입 완료 — 남은 것은 작전급 연동. "
+             "구역별 연안 방공 포대 편성, 적 대함탄도탄(DF-21D 등) 위협 구역은 정밀 교전으로 해결. "
              "지상 방공망 손실 시 제공권·해군 피해로 연쇄 — 해·공과 진짜 연결고리."),
             ("v20.3", "높음", "해상 상륙작전 지원",
              "상륙사단 → 독도함·상륙함 수송. 해군 함포 지원 + 공군 근접지원 + 육군 상륙 순서. "

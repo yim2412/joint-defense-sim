@@ -407,6 +407,8 @@ _SAM_RCS: dict[str, float] = {
     'ESSM Block II':   0.0005,
     '해궁 (K-SAAM)':   0.0005,
     'RIM-116 RAM':     0.0003,
+    'L-SAM':           0.0010,
+    '천궁-II':         0.0006,
 }
 
 # ── v9.12: 해역 매핑 및 지형 레이더 음영 페널티 ─────────────────────────────
@@ -468,6 +470,54 @@ _THAAD_COOLDOWN_S  = 3.0
 _THAAD_RANGE_M     = 200_000  # 200km 방어 반경
 _THAAD_ALT_MIN_M   = 10_000   # 종말 하한 10km
 _THAAD_ALT_MAX_M   = 150_000  # 종말 상한 150km
+
+# ── v20.2a: 탄도미사일 종말 강하 ────────────────────────────────────────────
+# 이 모델 이전에는 탄도 고도가 비행 내내 상수라 ICBM이 고도 1200km를 유지한 채 함대에
+# 명중했고, 종말 요격층(THAAD·L-SAM·천궁-II)이 교전창에 진입할 수 없었다(SM-3 단독 방어).
+# 강하각 일정 근사: 고도 = 잔여 수평거리 × tan(강하각), DB 정점고도를 상한으로 캡.
+#   재진입체의 종말 강하각은 대략 40~50° → tan≈1.0(고도 ≈ 잔여거리). 이 기하 덕분에 각
+#   요격층이 자기 사거리에서 자기 고도창을 만난다(SM-3 ≥40km·THAAD 10~150km·L-SAM
+#   40~70km·천궁-II ≤20km가 거리와 1:1 대응).
+#   ⚠ 비행 진행도(p) 기반 곡선은 실패했다 — DB 정점고도(화성-15 1200km, 로프티드 시험궤도
+#   값)가 스폰 거리(~877km)보다 커서 강하각이 54°로 과도해지고, 고도가 L-SAM 창에 들어올
+#   땐 이미 사거리 밖(164km > 150km)이라 하위 계층이 영구 미발현했다(실측).
+# enable_ballistic_descent OFF면 무동작.
+_BALLISTIC_DESCENT_TAN = 1.0
+
+# ── v20.2a: 한국형 BMD 계층 (L-SAM 상층 / 천궁-II 하층) ─────────────────────
+# L-SAM(장거리 지대공) — 공개 제원: 사거리 150km·요격고도 50~60km·Mach 4~5,
+#   3단 hit-to-kill(IIR 탐색기 + DACS). PAC-3와 THAAD 사이 중간 계층.
+#   ALT_MIN을 40km로 잡은 것은 SM-3(≥40km 외기권)와 교전창을 맞물리게 하기 위함 —
+#   보도 요격고도(50~60km)는 유효 요격점이고, 교전 개시 하한은 그보다 낮다.
+_LSAM_PK           = 0.80     # 국산 신형 hit-to-kill — THAAD(0.85) 소폭 하회로 보수 설정
+_LSAM_COST         = 3_000_000   # 단가 미공개. THAAD($3M)급 가정 (PAC-3 $4M·천궁-II $1M 사이)
+_LSAM_SPD_MS       = 1_500    # Mach 4~5
+_LSAM_COOLDOWN_S   = 4.0
+_LSAM_RANGE_M      = 150_000  # 사거리 150km
+_LSAM_ALT_MIN_M    = 40_000
+_LSAM_ALT_MAX_M    = 70_000   # 요격 상한 (보도 50~60km + 여유)
+
+# 천궁-II(KM-SAM Block-II) — 공개 제원: 대탄도탄 교전 사거리 ~20km·요격고도 ~15km,
+#   (대항공기 제원은 사거리 50km·고도 20km이나 여기 대상은 탄도·HGV뿐이라 대탄도탄 값 사용)
+#   400kg급 hit-to-kill, 유도탄 단가 약 $1M(PAC-3의 1/4). 최후 종말 점방어 계층.
+_CHUNGUNG_PK       = 0.75     # 하층 종말 — 고속 강하 표적이라 상층 자산보다 낮게
+_CHUNGUNG_COST     = 1_000_000
+_CHUNGUNG_SPD_MS   = 1_400    # Mach 4급
+_CHUNGUNG_COOLDOWN_S = 2.0    # 점방어 — 연속 교전 빠름
+_CHUNGUNG_RANGE_M  = 20_000   # 대탄도탄 교전 사거리 20km
+_CHUNGUNG_ALT_MIN_M = 500     # 종말 점방어 — HGV 종말 침투고도(2km)까지 커버해야 최후 계층 의미
+_CHUNGUNG_ALT_MAX_M = 20_000  # 요격고도 15km 내외 + 유도탄 한계 20km
+
+# 한 위협에 지상 BMD가 동시 유도할 수 있는 최대 요격탄 수(4계층 각 1발 = 층별 교전 보장)
+_GROUND_BMD_MAX_SAMS = 4
+
+# 지상 BMD 자산 owner_id → 발사 통계 키
+_GROUND_BMD_STAT_KEY: dict[int, str] = {
+    -1: 'ashore_sm3_fired',
+    -2: 'thaad_fired',
+    -3: 'lsam_fired',
+    -4: 'chungung_fired',
+}
 
 # 다층 방어 레이어 순서: 가장 먼저 교전하는 함정 유형부터 (BMD 우선 → 방공 우선)
 LAYER_ORDER    = ['KDX-III-B2', 'KDX-III-B1', 'KDX-II', 'FFX-III', 'FFX-II', 'FFX-I']
@@ -1413,6 +1463,7 @@ class TimeStepEngine:
         # 고도가 변해, 같은 HGV가 비행 단계별로 다른 요격 층(외기권 SM-3 → 대기권 내
         # SM-6 Block IB)으로 전환된다. 기본 OFF면 altitude_m 고정 → 회귀 bit-identical.
         self._hgv_glide        = bool(cfg.get('enable_hgv_glide', False))
+        self._bal_descent      = bool(cfg.get('enable_ballistic_descent', False))
         # v16.12 정찰 드론(A-1): 무인 ISR 드론이 수평선 너머(OTH) 표적을 함대 데이터링크로
         # 중계 → 생존 중 함대 실효 레이더 탐지거리에 recon_detect_bonus_km 가산.
         # 기본 OFF면 recon 역할 드론이 편성 안 돼 _recon_bonus_km=0 유지 → 회귀 bit-identical.
@@ -1495,6 +1546,9 @@ class TimeStepEngine:
             # v9.11: 지상 BMD 자산 발사 횟수
             'ashore_sm3_fired':        0,
             'thaad_fired':             0,
+            # v20.2a: 한국형 BMD 계층 발사 횟수
+            'lsam_fired':              0,
+            'chungung_fired':          0,
             # v12.6: IFF 오류
             'iff_failures':            0,
             'iff_fratricide':          0,
@@ -1529,10 +1583,14 @@ class TimeStepEngine:
             '현무-4 (ASBM)':   cfg.get('hyunmoo4_stock',    0),
             'SM-3 (어쇼어)':   cfg.get('ashore_sm3_stock',  0),
             'THAAD 요격탄':    cfg.get('thaad_stock',        0),
+            'L-SAM':           cfg.get('lsam_stock',         0),
+            '천궁-II':         cfg.get('chungung_stock',     0),
         }
         self._ground_last_fire: float  = -999.0  # 현무-4 마지막 발사
         self._ashore_last_fire: float  = -999.0  # 어쇼어 SM-3 마지막 발사
         self._thaad_last_fire:  float  = -999.0  # THAAD 마지막 발사
+        self._lsam_last_fire:     float = -999.0  # L-SAM 마지막 발사
+        self._chungung_last_fire: float = -999.0  # 천궁-II 마지막 발사
         self._ground_cost: float = 0.0
 
         # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
@@ -2563,6 +2621,7 @@ class TimeStepEngine:
                 m.update(DT)                  # 기존 완벽 정조준 이동
 
         self._hgv_glide_update()   # v16.2: 활공 HGV 교전 고도 갱신(이동 후, OFF면 무동작)
+        self._ballistic_descent_update()   # v20.2a: 탄도 종말 강하(OFF면 무동작)
 
         # v10.8: 해류 연동 — 수상함·잠수함 위치에 해류 벡터 누적
         if self.cfg.get('enable_current', False) and _get_current_vector:
@@ -3083,6 +3142,24 @@ class TimeStepEngine:
             p = max(0.0, min(1.0, 1.0 - m.pos.dist_to(tgt.pos) / init))
             m.altitude_m = self._hgv_glide_alt(p, m._peak_alt_m)
 
+    def _ballistic_descent_update(self):
+        """v20.2a: 탄도미사일의 교전 고도를 표적까지 잔여거리에 따라 강하시킨다.
+        강하각 일정 근사(고도 = 잔여거리 × tan) + DB 정점고도 캡.
+        이로써 SM-3(≥40km) → THAAD(10~150km) → L-SAM(40~70km) → 천궁-II(≤20km)가
+        접근 거리대별로 순차 교전창을 갖는다.
+        enable_ballistic_descent OFF면 무동작(altitude_m 고정 → 회귀 bit-identical)."""
+        if not self._bal_descent:
+            return
+        for m in self.missiles:
+            if not (m.alive and m.is_ballistic):
+                continue
+            tgt = m.target
+            if not (tgt and hasattr(tgt, 'pos')):
+                continue
+            rem  = m.pos.dist_to(tgt.pos)
+            peak = getattr(m, '_peak_alt_m', 0.0)
+            m.altitude_m = max(0.0, min(peak, rem * _BALLISTIC_DESCENT_TAN))
+
     def _arm_radar_off_check(self):
         """ARM 탐지 시 표적 함정 레이더 일시 차단 (ARM 회피 전술, 8초).
         각 ARM 미사일당 레이더 OFF는 한 번만 트리거.
@@ -3111,13 +3188,16 @@ class TimeStepEngine:
     def _fire_ground_sam(self, wpn_key: str, target, dist_m: float,
                          name: str, pk: float, speed_ms: float,
                          cost: float, label: str, owner_id: int):
-        """지상 BMD 자산 SAM 발사 (어쇼어/THAAD 공용). owner_id: -1=어쇼어, -2=THAAD."""
+        """지상 BMD 자산 SAM 발사 (4계층 공용).
+        owner_id: -1=어쇼어 SM-3, -2=THAAD, -3=L-SAM, -4=천궁-II."""
         self.ground_inv[wpn_key] -= 1
         self._ground_cost += cost
         self.stats['total_missiles_fired'] += 1
         if self.stats['t_first_fire'] < 0:
             self.stats['t_first_fire'] = self.t
-        stat_key = 'ashore_sm3_fired' if owner_id == -1 else 'thaad_fired'
+        stat_key = _GROUND_BMD_STAT_KEY.get(owner_id)
+        if stat_key is None:   # 새 지상 자산 추가 시 통계 키 등록 누락을 조용히 넘기지 않는다
+            raise ValueError(f'지상 BMD 통계 키 미등록: owner_id={owner_id} ({name})')
         self.stats[stat_key] += 1
         sam = MissileObj(
             mtype    = 'friendly_sam',
@@ -3136,16 +3216,24 @@ class TimeStepEngine:
 
     def _ashore_defense(self, sorted_missiles: list):
         """
-        이지스 어쇼어(SM-3) + THAAD 지상 BMD 교전 — 탄도/HGV 전담.
+        지상 BMD 4계층 교전 — 탄도/HGV 전담.
 
-        레이어 순서:
+        레이어 순서 (교전거리 내림차순 = 먼 층부터):
           1. 이지스 어쇼어 SM-3 — 중간단계 (고도 ≥ 40km, 사거리 500km)
           2. THAAD — 종말고고도 (고도 10~150km, 사거리 200km)
-        함정 SM-3는 이 두 자산이 소진되거나 실패한 경우의 최후 백업.
+          3. L-SAM — 종말 상층 (고도 40~70km, 사거리 150km)          [v20.2a]
+          4. 천궁-II — 종말 하층 점방어 (고도 0.5~20km, 사거리 20km) [v20.2a]
+        함정 SM-3는 이 자산들이 소진되거나 실패한 경우의 최후 백업.
+
+        ⚠ 사거리(dist_m)는 포대 기준(기함 위치로 추상화)이고 고도는 표적함 접근 기하로
+        정해지므로, 함대가 넓게 분산(DMO)해 표적이 기함에서 멀면 사거리 짧은 천궁-II는
+        고도창을 만족해도 사거리에서 탈락할 수 있다(최후 계층이 구조적으로 희소).
         """
-        enable_ashore = self.cfg.get('enable_ashore', False)
-        enable_thaad  = self.cfg.get('enable_thaad',  False)
-        primary_pos   = self._primary().pos
+        enable_ashore   = self.cfg.get('enable_ashore',   False)
+        enable_thaad    = self.cfg.get('enable_thaad',    False)
+        enable_lsam     = self.cfg.get('enable_lsam',     False)
+        enable_chungung = self.cfg.get('enable_chungung', False)
+        primary_pos     = self._primary().pos
 
         for m in sorted_missiles:
             if not m.alive or getattr(m, 'intercepted', False):
@@ -3155,11 +3243,15 @@ class TimeStepEngine:
 
             dist_m = m.pos.dist_to(primary_pos)
             alt    = m.altitude_m
+            # v20.2a: 지상 BMD는 함정과 별개 사격통제 — 함정 SAM 유도 수와 무관하게
+            # 자체 상한을 갖는다(owner_id<0 = 지상 자산). 이전처럼 함정·지상을 합산하면
+            # 함정 SM-6가 상한을 선점해 종말 계층(THAAD·L-SAM·천궁-II)이 영구 차단된다.
             sams_on = sum(
                 1 for s in self.missiles
                 if s.alive and s.target is m and s.mtype == 'friendly_sam'
+                and s.owner_id < 0
             )
-            max_sams = 3 if m.is_hgv else 2
+            max_sams = _GROUND_BMD_MAX_SAMS   # 4계층 각 1발 기회
 
             # ── 1차: 이지스 어쇼어 SM-3 (중간단계) ──────────────────────────
             if (enable_ashore
@@ -3199,6 +3291,46 @@ class TimeStepEngine:
                     owner_id = -2,
                 )
                 self._thaad_last_fire = self.t
+                sams_on += 1
+
+            # ── 3차: L-SAM (종말 상층 — 한국형 BMD) ──────────────────────────
+            if (enable_lsam
+                    and self.ground_inv.get('L-SAM', 0) > 0
+                    and (self.t - self._lsam_last_fire) >= _LSAM_COOLDOWN_S
+                    and _LSAM_ALT_MIN_M <= alt <= _LSAM_ALT_MAX_M
+                    and dist_m <= _LSAM_RANGE_M
+                    and sams_on < max_sams):
+                self._fire_ground_sam(
+                    wpn_key  = 'L-SAM',
+                    target   = m, dist_m = dist_m,
+                    name     = 'L-SAM',
+                    pk       = _LSAM_PK,
+                    speed_ms = _LSAM_SPD_MS,
+                    cost     = _LSAM_COST,
+                    label    = 'L-SAM',
+                    owner_id = -3,
+                )
+                self._lsam_last_fire = self.t
+                sams_on += 1
+
+            # ── 4차: 천궁-II (종말 하층 점방어 — 최후 계층) ──────────────────
+            if (enable_chungung
+                    and self.ground_inv.get('천궁-II', 0) > 0
+                    and (self.t - self._chungung_last_fire) >= _CHUNGUNG_COOLDOWN_S
+                    and _CHUNGUNG_ALT_MIN_M <= alt <= _CHUNGUNG_ALT_MAX_M
+                    and dist_m <= _CHUNGUNG_RANGE_M
+                    and sams_on < max_sams):
+                self._fire_ground_sam(
+                    wpn_key  = '천궁-II',
+                    target   = m, dist_m = dist_m,
+                    name     = '천궁-II',
+                    pk       = _CHUNGUNG_PK,
+                    speed_ms = _CHUNGUNG_SPD_MS,
+                    cost     = _CHUNGUNG_COST,
+                    label    = '천궁-II',
+                    owner_id = -4,
+                )
+                self._chungung_last_fire = self.t
                 sams_on += 1
 
     def _target_sort_key(self, obj, primary_pos):
@@ -3291,7 +3423,10 @@ class TimeStepEngine:
         )
 
         # 지상 BMD 선제 교전 (어쇼어 SM-3 → THAAD, 함정 SM-3보다 우선)
-        if self.cfg.get('enable_ashore', False) or self.cfg.get('enable_thaad', False):
+        if (self.cfg.get('enable_ashore',   False)
+                or self.cfg.get('enable_thaad',    False)
+                or self.cfg.get('enable_lsam',     False)
+                or self.cfg.get('enable_chungung', False)):
             self._ashore_defense(sorted_missiles)
 
         for m in sorted_missiles:
@@ -4822,6 +4957,9 @@ class TimeStepEngine:
         # v16.2: 활공 HGV는 altitude_m이 이미 실제 비행 고도(활공→종말) → 그대로 표시
         if self._hgv_glide and getattr(m, 'is_hgv', False):
             return m.altitude_m
+        # v20.2a: 종말 강하 탄도도 altitude_m이 실제 비행 고도 → 그대로 표시(교전=표시 정합)
+        if self._bal_descent and getattr(m, 'is_ballistic', False):
+            return m.altitude_m
         if (m.is_ballistic or m.is_hgv) and getattr(m, '_init_dist', 0) > 0:
             target = m.target
             if target and hasattr(target, 'pos'):
@@ -5180,6 +5318,8 @@ class TimeStepEngine:
             'ground_remaining':   dict(self.ground_inv),         # v9.4 / v9.11
             'ashore_sm3_fired':  self.stats['ashore_sm3_fired'],
             'thaad_fired':       self.stats['thaad_fired'],
+            'lsam_fired':        self.stats['lsam_fired'],
+            'chungung_fired':    self.stats['chungung_fired'],
             'phase_times':       dict(self._phase_times),      # v8.26: 단계별 소요시간
             'carrier_status':    carrier_status,               # v10.6
             'coverage':          coverage,                     # v14.1: 3D 커버리지 돔
@@ -6237,6 +6377,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    lsam_fired: list = []; chungung_fired: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
 
     step = max(1, n // 5)
@@ -6265,6 +6406,8 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        lsam_fired.append(r.get('lsam_fired', 0))
+        chungung_fired.append(r.get('chungung_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6334,6 +6477,8 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         'mean_ras_resupplied':      float(np.mean(ras_resupplied)) if ras_resupplied else 0.0,
         'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
+        'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
+        'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -6353,6 +6498,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    lsam_fired: list = []; chungung_fired: list = []
     outcomes: list = []; fscores: list = []
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
@@ -6375,6 +6521,8 @@ def _mc_batch_worker(args: tuple) -> tuple:
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        lsam_fired.append(r.get('lsam_fired', 0))
+        chungung_fired.append(r.get('chungung_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6399,6 +6547,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'unmanned_lost': unmanned_lost,
                    'ras_missiles_resupplied': ras_resupplied,
                    'laser_kills': laser_kills,
+                   'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
@@ -6416,6 +6565,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    lsam_fired: list = []; chungung_fired: list = []
     outcomes: list = []; fscores: list = []
     for sample in samples:
         run_cfg = dict(cfg_base)
@@ -6437,6 +6587,8 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        lsam_fired.append(r.get('lsam_fired', 0))
+        chungung_fired.append(r.get('chungung_fired', 0))
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6451,6 +6603,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'unmanned_lost': unmanned_lost,
                    'ras_missiles_resupplied': ras_resupplied,
                    'laser_kills': laser_kills,
+                   'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'outcome': outcomes, 'friendly_score': fscores}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
@@ -6520,6 +6673,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    lsam_fired: list = []; chungung_fired: list = []
     outcomes: list = []; fscores: list = []
 
     n_workers = min(os.cpu_count() or 4, 8)
@@ -6545,6 +6699,8 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 unmanned_lost.extend(bxs.get('unmanned_lost', []))
                 ras_resupplied.extend(bxs.get('ras_missiles_resupplied', []))
                 laser_kills.extend(bxs.get('laser_kills', []))
+                lsam_fired.extend(bxs.get('lsam_fired', []))
+                chungung_fired.extend(bxs.get('chungung_fired', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
@@ -6573,6 +6729,8 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             unmanned_lost.append(r.get('unmanned_lost', 0))
             ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
             laser_kills.append(r.get('laser_kills', 0))
+            lsam_fired.append(r.get('lsam_fired', 0))
+            chungung_fired.append(r.get('chungung_fired', 0))
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
@@ -6613,6 +6771,8 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_unmanned_lost':       float(np.mean(unmanned_lost)) if unmanned_lost else 0.0,
         'mean_ras_resupplied':      float(np.mean(ras_resupplied)) if ras_resupplied else 0.0,
         'mean_laser_kills':         float(np.mean(laser_kills)) if laser_kills else 0.0,
+        'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
+        'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -7345,6 +7505,8 @@ def diagnose_vulnerabilities_v7(result: dict, mc: dict, cfg: dict) -> list:
         for asset, cfg_key, label in [
             ('SM-3 (어쇼어)', 'ashore_sm3_stock', '이지스 어쇼어'),
             ('THAAD 요격탄',  'thaad_stock',       'THAAD'),
+            ('L-SAM',         'lsam_stock',        'L-SAM'),
+            ('천궁-II',       'chungung_stock',    '천궁-II'),
         ]:
             init_stock = cfg.get(cfg_key, 0)
             if init_stock > 0:
