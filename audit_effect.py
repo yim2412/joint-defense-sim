@@ -24,8 +24,13 @@ from engine_combat import run_v7_simulation
 # 토글 → (효과 입증 시나리오 cfg, 관찰 지표들). baselines/쇼케이스 근거.
 _BASE = dict(enemy_fleet_mode='preset', weather='흐림', sim_seed=7)
 PROBES = {
+    # ⚠ 적 편대는 드론이 **없는** 것을 쓴다. 종전엔 '무인기 군집 포화'(이미 자폭 드론 48대를
+    # 포함)를 썼는데, 이 토글은 편대 말미에 드론을 **추가로** 얹으므로 ON/OFF가 '48대 vs
+    # 96대'였다 — 이미 포화된 상태의 미세 델타라, 아군 생존이 조금만 좋아져도(v20.5 회피 기동
+    # 기본 ON) 델타가 0으로 무너져 멀쩡한 토글이 '죽은 토글'로 오판됐다. 드론 없는 편대에서
+    # '0대 vs 48대'를 재야 이 토글이 실제로 군집을 만드는지 검사할 수 있다.
     'enable_drone_swarm': (
-        dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='무인기 군집 포화',
+        dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='수상함 편대전',
              drone_swarm_size=48),
         ['intercept_rate', 'friendly_hits']),
     'enable_dmo': (

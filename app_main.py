@@ -1,7 +1,21 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.04 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.06 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.06 — 함정 회피 기동을 기본 ON으로 승격 (레이더 침묵과 짝)]         ║
+║  NEW-A  실제 함대는 항주한다 — 정지한 함대가 비물리. 게다가 이 기동은        ║
+║         레이더 침묵과 짝이었다: ARM 회피는 '레이더를 끈 동안 함정이 움직여   ║
+║         생긴 조준 좌표 이격'으로 명중을 깎는데, 함대가 서 있으면 이격이 0    ║
+║         이라 레이더를 꺼도 ARM이 같은 좌표로 날아왔다(레이더 OFF 전술이      ║
+║         켜나 마나 결과가 같은 죽은 기능이었다). 둘 다 켜야 실제 교리인       ║
+║         '방사 중단 + 침로 변경'이 성립 — ARM 회피 6.3회 발현, SEAD 포화서   ║
+║         피격 9.48→4.92·손실 1.88→0.76척.                                    ║
+║  [v18.05.05 — 함정 회피 기동이 함속의 20~50배로 순간이동하던 문제 해결]     ║
+║  BUG-1  회피 기동이 매 초 300~800m를 무작위 방향으로 순간이동했다(583~      ║
+║         1555kts = 구축함 전속 30kts의 20~50배). 함대가 매 초 순간이동해      ║
+║         교전 기하가 망가지니, 회피를 켤수록 오히려 요격률이 떨어지고 피격이  ║
+║         늘었다(설명은 '피탄율을 낮춥니다'인데 실제로는 순손해). 전속 30kts   ║
+║         지그재그 침로로 정정 — 이제 켜면 피탄이 실제로 준다.                ║
 ║  [v18.05.04 — 요격 확률에 표적의 속도·레이더 반사면적 반영 (표적 난이도)]   ║
 ║  NEW-A  요격 Pk가 발사한 SAM의 성능뿐이라, 마하 3·RCS 0.02m²의 대방사       ║
 ║         미사일이 아음속 대형 표적과 똑같은 확률로 맞았다(ARM 24발 중 22.5발  ║
@@ -1389,7 +1403,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.04"
+APP_VERSION = "v18.05.06"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7053,7 +7067,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'chk_ras_rearm'):
             self.chk_ras_rearm.setChecked(cfg.get('enable_ras_rearm', False))
         if hasattr(self, 'chk_ship_evasion'):
-            self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', False))
+            self.chk_ship_evasion.setChecked(cfg.get('enable_ship_evasion', True))  # v20.5: 기본 ON 승격
         if hasattr(self, 'chk_radar_off'):
             self.chk_radar_off.setChecked(cfg.get('enable_radar_off', True))
         if hasattr(self, 'chk_dmo'):
@@ -8145,10 +8159,13 @@ class MainWindow(QMainWindow):
         )
 
         self.chk_ship_evasion = QCheckBox("함정 회피 기동")
-        self.chk_ship_evasion.setChecked(False)
+        self.chk_ship_evasion.setChecked(True)
         self.chk_ship_evasion.setToolTip(
             "적 대함미사일이 15km 이내 접근 시\n"
-            "아군 함정이 지그재그 회피 기동으로 피탄율을 낮춥니다."
+            "아군 함정이 지그재그 회피 기동으로 침로를 바꿉니다.\n"
+            "레이더 OFF 전술과 짝을 이룹니다 — 레이더를 끈 동안 함정이 이동해야\n"
+            "적 대방사미사일이 낡은 조준 좌표로 유도돼 빗나갑니다(방사 중단 + 침로 변경).\n"
+            "회피 기동만 켜면 교전 기하가 흐트러져 요격률이 다소 떨어집니다(기동의 대가)."
         )
 
         self.chk_radar_off = QCheckBox("레이더 OFF 전술")
