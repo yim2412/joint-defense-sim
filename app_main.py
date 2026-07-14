@@ -1,7 +1,16 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.06 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.07 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.07 — 표적 난이도(속도·RCS)를 정규 기능으로 승격 + 기본 ON]         ║
+║  NEW-A  요격 확률이 표적의 속도·크기를 전혀 보지 않던 것이 비물리 —         ║
+║         마하 3·RCS 0.02m² 대방사미사일이 아음속 대형 표적과 똑같은 확률로   ║
+║         요격됐다(ARM 24발 중 94% 격추). '반영률 0'이 명백한 오류라 기본     ║
+║         OFF 유지가 곧 오류 유지. 전 시나리오에서 요격률이 일관되게 내려가고 ║
+║         역효과 없음을 확인(랴오닝 0.224→0.197 · 입체포화 0.777→0.678 ·      ║
+║         SEAD 0.845→0.610 · 수상함 0.172→0.138, 손실 +0.2척 이내).           ║
+║         탄도·극초음속은 속도 벌점 면제(SM-3·THAAD의 요격 확률은 이미        ║
+║         마하 10급 탄도 기준값 — 이중 계상 방지). 골든 36 전면 갱신.         ║
 ║  [v18.05.06 — 함정 회피 기동을 기본 ON으로 승격 (레이더 침묵과 짝)]         ║
 ║  NEW-A  실제 함대는 항주한다 — 정지한 함대가 비물리. 게다가 이 기동은        ║
 ║         레이더 침묵과 짝이었다: ARM 회피는 '레이더를 끈 동안 함정이 움직여   ║
@@ -1403,7 +1412,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.06"
+APP_VERSION = "v18.05.07"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7013,7 +7022,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'chk_esm_arm'):
             self.chk_esm_arm.setChecked(cfg.get('enable_esm_arm', False))
         if hasattr(self, 'chk_target_difficulty'):
-            self.chk_target_difficulty.setChecked(cfg.get('enable_target_difficulty', False))
+            # v18.05.07 기본 ON 승격 — 구버전 시나리오 파일(키 없음)도 정규 동작으로 로드
+            self.chk_target_difficulty.setChecked(cfg.get('enable_target_difficulty', True))
         if hasattr(self, 'chk_sonar_emcon'):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
         if hasattr(self, 'chk_cyber'):
@@ -7750,15 +7760,17 @@ class MainWindow(QMainWindow):
         self.chk_esm_arm.setChecked(False)
 
         self.chk_target_difficulty = QCheckBox(
-            "표적 난이도 — 고속·소형 표적일수록 요격 어려움 (실험적)")
+            "표적 난이도 — 고속·소형 표적일수록 요격 어려움")
         self.chk_target_difficulty.setToolTip(
             "요격 확률에 표적의 속도와 레이더 반사면적(RCS)을 반영합니다.\n"
             "초음속·소형 표적(대방사미사일·초음속 대함미사일 등)은 종말 유도와 근접 신관\n"
             "여유가 줄어 요격이 어려워집니다. 아음속 대함미사일급 표적이 기준(변화 없음)이며,\n"
             "그보다 크거나 느린 표적의 요격률은 낮아지지 않습니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "탄도·극초음속 표적은 속도 벌점에서 면제됩니다 — SM-3·THAAD 같은 요격 전용\n"
+            "체계의 요격 확률은 애초에 마하 10급 탄도를 기준으로 매긴 값이기 때문입니다.\n"
+            "기본값 ON — 끄면 표적의 속도·크기를 무시한 요격이 됩니다 (비교·검증용)"
         )
-        self.chk_target_difficulty.setChecked(False)
+        self.chk_target_difficulty.setChecked(True)
 
         self.chk_sonar_emcon = QCheckBox("능동 소나 핑 역탐지 (실험적)")
         self.chk_sonar_emcon.setToolTip(
@@ -9852,7 +9864,7 @@ class MainWindow(QMainWindow):
             'enable_enemy_sead':    self.chk_enemy_sead.isChecked(),
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
-            'enable_target_difficulty': self.chk_target_difficulty.isChecked(),  # v20.5: 요격 Pk에 표적 속도·RCS 반영(실험적)
+            'enable_target_difficulty': self.chk_target_difficulty.isChecked(),  # v20.5: 요격 Pk에 표적 속도·RCS 반영(v18.05.07 정규·기본 ON)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
             'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
             'enable_hgv_glide': self.chk_hgv_glide.isChecked(),  # v16.2: 극초음속 활공 궤적(실험적)

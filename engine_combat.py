@@ -1481,8 +1481,10 @@ class TimeStepEngine:
         # v16.1 ESM→ARM 역탐지: 아군 레이더 방사 중일 때만 적 ESM이 포착 → ARM 실시간 유도.
         # 레이더 OFF면 마지막 포착 위치(stale)로 유도돼 명중 급감. 기본 OFF면 기존 동작 보존.
         self._emcon_arm        = bool(cfg.get('enable_esm_arm', False))
-        # v20.5(B-2) 표적 난이도: 요격 Pk에 표적 속도·RCS를 반영. 기본 OFF면 기존 동작 보존.
-        self._target_difficulty = bool(cfg.get('enable_target_difficulty', False))
+        # v20.5(B-2) 표적 난이도: 요격 Pk에 표적 속도·RCS를 반영. v18.05.07에서 정규 승격·기본 ON
+        # — 표적의 속도·크기를 전혀 보지 않는 요격(마하 3 소형 ARM = 아음속 대형 표적)이 비물리라
+        # 기본 OFF 자체가 오류였다. 토글은 비교·디버그용으로 유지.
+        self._target_difficulty = bool(cfg.get('enable_target_difficulty', True))
         # v16.01.03 능동 소나 핑 역탐지: 능동 소나로 적 잠수함을 탐지하면 잠수함도 핑을 역탐지해
         # 은닉 해제·어뢰 반격 앞당김 + 회피 기동(접촉 급감). 기본 OFF면 기존 동작 보존.
         self._sonar_emcon      = bool(cfg.get('enable_sonar_emcon', False))
