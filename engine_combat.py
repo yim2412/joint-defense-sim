@@ -3494,8 +3494,18 @@ class TimeStepEngine:
         is_radar_off = self.t < primary_ship.radar_off_until
 
         # (A) 적 대함 미사일 요격 — 긴급도 순 정렬
+        # ⚠ 어뢰 제외(v20.5 B-3): 어뢰는 **수중** 표적이다. 함대공 미사일(SM-2·SM-6·해궁)과
+        # CIWS는 대공 무기라 물속을 달리는 어뢰를 요격할 수 없다. 그런데 과거에는 어뢰가
+        # mtype=='enemy_strike'라는 이유로 이 목록에 섞여 들어와, 레이더가 "어뢰를 포착"하고
+        # SM-2가 "어뢰를 격추"했다(로그로 확인). 그 결과 **잠수함이 쏜 어뢰가 전부 SAM에
+        # 요격돼 아군 피격이 사실상 0**이었고(대잠 시나리오 피격 0.00~0.02), 잠수함 위협 자체가
+        # 무력했다 — 그래서 능동 소나 EMCON 딜레마("핑을 켜면 들킨다")도 성립할 수 없었다.
+        # 들켜봤자 잠수함이 아무것도 못 하니 숨을 이유가 없었던 것.
+        # 어뢰 대응은 대공 요격이 아니라 **기만기(enable_decoy)·회피 기동(enable_evasion)**이
+        # 담당한다(_check_hits에 이미 구현돼 있다).
         sorted_missiles = sorted(
-            [m for m in self.missiles if m.alive and m.mtype == 'enemy_strike'],
+            [m for m in self.missiles
+             if m.alive and m.mtype == 'enemy_strike' and not m.is_torpedo],
             key=_urgency, reverse=True
         )
 
@@ -4919,10 +4929,17 @@ class TimeStepEngine:
                             and not m.is_ballistic and not m.is_hgv):
                         m.pk_base = max(0.0, m.pk_base * _CYBER_JAM_PK)
                     # 포팅 B: 음향 기만기 AN/SLQ-25 — 어뢰 전용
+                    # v20.5(B-3): 성공 시 어뢰를 **무력화 처리**한다. 과거에는 continue만 해서
+                    # ①어뢰가 살아남아 다음 틱에 또 판정 → 기만기를 반복 소모했고 ②막아낸 것이
+                    # intercepted_threats에 안 잡혀 **요격률(방어 성공률)에 반영되지 않았다**.
+                    # 어뢰는 SAM으로 못 잡으므로(수중), 기만기·회피가 곧 어뢰 방어의 성패다.
                     if m.is_torpedo and self.cfg.get('enable_decoy', True):
                         if tgt.decoy_stock > 0:
                             tgt.decoy_stock -= 1
                             if random.random() < DECOY_PK:
+                                m.alive = False
+                                m.intercepted = True
+                                self.stats['intercepted_threats'] += 1
                                 self._log(
                                     f"[기만기] {tgt.name} 기만기 성공 — {m.name} 회피 "
                                     f"(잔여 {tgt.decoy_stock}발)")
@@ -4931,6 +4948,9 @@ class TimeStepEngine:
                     if m.is_torpedo and self.cfg.get('enable_evasion', True):
                         # 추진 피탄 시 speed_factor만큼 회피 기동 성공률 저하
                         if random.random() < SHIP_EVASION_PK * tgt.speed_factor:
+                            m.alive = False
+                            m.intercepted = True
+                            self.stats['intercepted_threats'] += 1
                             self._log(f"[회피] {tgt.name} 회피 기동 성공 — {m.name}")
                             continue
                     # 서브시스템 피해 롤 (enable_subsystem_damage=True 시)
