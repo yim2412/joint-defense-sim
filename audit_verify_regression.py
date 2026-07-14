@@ -82,6 +82,28 @@ CASES = [
     ('ARM역탐지-SEAD', dict(_BASE, fleet_preset='기동전단 기본',
                             enemy_fleet_preset='전자전 SEAD 제압',
                             enable_esm_arm=True),                                    [3, 11]),
+    # v20.5(B-2 잔여) — 표적 난이도(요격 Pk에 표적 속도·RCS 반영). 그전까지 요격 Pk는
+    # 발사한 SAM의 pk_base뿐이라, 마하 3·RCS 0.02m²의 대방사미사일이 아음속 대형 표적과
+    # 똑같은 확률로 맞았다(ARM 24발 중 22.5발 요격 = 94%). 고속·소형 표적이 다시 잘 맞도록
+    # 조용히 퇴행하면 회귀가 잡도록, ARM과 초음속 대함미사일이 함께 날아오는 편성에서 봉인한다.
+    ('표적난이도-고속소형', dict(_BASE, fleet_preset='기동전단 기본',
+                                 enemy_fleet_preset='전자전 SEAD 제압',
+                                 enable_esm_arm=True,
+                                 enable_target_difficulty=True),                     [3, 11]),
+    # v20.5(B-2 잔여) — 표적 난이도 × 탄도. 속도 계수는 탄도·극초음속 표적에 **면제**된다:
+    # SM-3·THAAD의 pk_base는 이미 마하 10급 탄도를 상대로 매긴 값이라, 거기 속도 페널티를
+    # 또 곱하면 요격 전용 계층이 자기 설계 표적에 벌점을 받는 이중 계상이 된다. 면제가
+    # 조용히 풀리면 상층 발사수·비용이 흔들리므로(요격률만 보면 다층이 흡수해 안 드러난다)
+    # 5계층 발사수를 그대로 봉인한다.
+    ('표적난이도-탄도면제', dict(_BASE, fleet_preset='이지스 기동전단',
+                                 enemy_fleet_preset='BMD 탄도 포화',
+                                 enable_target_difficulty=True,
+                                 enable_ballistic_descent=True, enable_hgv_glide=True,
+                                 enable_ashore=True, ashore_sm3_stock=24,
+                                 enable_thaad=True,  thaad_stock=24,
+                                 enable_lsam=True,   lsam_stock=16,
+                                 enable_chungung=True, chungung_stock=32,
+                                 enable_patriot=True, patriot_stock=16),             [2, 18]),
     # 감사 후속 — 'BMD 탄도 포화' 프리셋의 규모 현실화(HGV 1발 → 4발, 총 7 → 20발)를 봉인.
     # 과거 편성은 상층 SM-3가 단독으로 전부 처리해 하위 4계층이 발사조차 못 했다(다층 요격을
     # 평가할 수 없는 '포화'). 이 프리셋 자체가 골든에 없어 편성이 바뀌어도 회귀가 bit-identical로

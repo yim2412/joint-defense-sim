@@ -1,7 +1,16 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.03 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.04 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.04 — 요격 확률에 표적의 속도·레이더 반사면적 반영 (표적 난이도)]   ║
+║  NEW-A  요격 Pk가 발사한 SAM의 성능뿐이라, 마하 3·RCS 0.02m²의 대방사       ║
+║         미사일이 아음속 대형 표적과 똑같은 확률로 맞았다(ARM 24발 중 22.5발  ║
+║         요격 = 94% → 레이더를 끌 이유 자체가 없었다). 속도(교전 기하)·       ║
+║         RCS(레이더 방정식)를 Pk에 반영. 아음속 대함미사일급이 기준(무변).    ║
+║         SEAD 포화 시 요격률 0.826→0.566·손실 0.36→1.88척. 기본 OFF(실험적).  ║
+║  BUG-1  탄도·극초음속 표적은 속도 보정에서 면제. SM-3·THAAD의 명중률은        ║
+║         이미 마하 10급 탄도를 상대로 매긴 값이라, 속도 벌점을 또 매기면       ║
+║         요격 전용 계층이 자기 설계 표적에 벌점을 받는 이중 계상이 된다.       ║
 ║  [v18.05.03 — 함대공 미사일이 수중 어뢰를 요격하던 문제 해결]               ║
 ║  BUG-1  레이더가 어뢰를 포착하고 SM-2·SM-6·해궁이 격추하고 있었다(수중       ║
 ║         표적인데). 어뢰가 전부 요격돼 잠수함 위협이 무력화 — 대잠 피격 0.    ║
@@ -1380,7 +1389,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.03"
+APP_VERSION = "v18.05.04"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3717,6 +3726,7 @@ class ShowcaseCompareWorker(QThread):
 # 켜진 실험적/전술 토글을 각각 OFF로 되돌려 같은 고정 시드로 단발 재실행 → 요격률·피격 델타.
 _IMPACT_TOGGLES = [
     ('enable_esm_arm',               'ESM→ARM 역탐지'),
+    ('enable_target_difficulty',     '표적 난이도(속도·RCS)'),
     ('enable_sonar_emcon',           '능동 소나 역탐지'),
     ('enable_hgv_glide',             '극초음속 활공 다층요격'),
     ('enable_asw_forward',           '대잠 항공 전진 초계'),
@@ -6988,6 +6998,8 @@ class MainWindow(QMainWindow):
             self.chk_rl_policy.setChecked(cfg.get('enable_rl_policy', False))
         if hasattr(self, 'chk_esm_arm'):
             self.chk_esm_arm.setChecked(cfg.get('enable_esm_arm', False))
+        if hasattr(self, 'chk_target_difficulty'):
+            self.chk_target_difficulty.setChecked(cfg.get('enable_target_difficulty', False))
         if hasattr(self, 'chk_sonar_emcon'):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
         if hasattr(self, 'chk_cyber'):
@@ -7723,6 +7735,17 @@ class MainWindow(QMainWindow):
         )
         self.chk_esm_arm.setChecked(False)
 
+        self.chk_target_difficulty = QCheckBox(
+            "표적 난이도 — 고속·소형 표적일수록 요격 어려움 (실험적)")
+        self.chk_target_difficulty.setToolTip(
+            "요격 확률에 표적의 속도와 레이더 반사면적(RCS)을 반영합니다.\n"
+            "초음속·소형 표적(대방사미사일·초음속 대함미사일 등)은 종말 유도와 근접 신관\n"
+            "여유가 줄어 요격이 어려워집니다. 아음속 대함미사일급 표적이 기준(변화 없음)이며,\n"
+            "그보다 크거나 느린 표적의 요격률은 낮아지지 않습니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_target_difficulty.setChecked(False)
+
         self.chk_sonar_emcon = QCheckBox("능동 소나 핑 역탐지 (실험적)")
         self.chk_sonar_emcon.setToolTip(
             "대잠전 EMCON 딜레마: 능동 소나(디핑·소노부이)로 적 잠수함을 탐지하면 잠수함도\n"
@@ -7834,7 +7857,8 @@ class MainWindow(QMainWindow):
                     self.chk_sead, self.chk_strategic_strike,
                     self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
                     self.chk_enemy_sead,
-                    self.chk_rl_policy, self.chk_esm_arm, self.chk_sonar_emcon,
+                    self.chk_rl_policy, self.chk_esm_arm, self.chk_target_difficulty,
+                    self.chk_sonar_emcon,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
 
@@ -7876,6 +7900,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_enemy_sead)
         fl_env.addRow("",            self.chk_rl_policy)
         fl_env.addRow("",            self.chk_esm_arm)
+        fl_env.addRow("",            self.chk_target_difficulty)
         fl_env.addRow("",            self.chk_sonar_emcon)
         fl_env.addRow("",            self.chk_cyber)
         fl_env.addRow("",            self.chk_hgv_glide)
@@ -9810,6 +9835,7 @@ class MainWindow(QMainWindow):
             'enable_enemy_sead':    self.chk_enemy_sead.isChecked(),
             'enable_rl_policy': self.chk_rl_policy.isChecked(),  # 학습된 정책이 전장 전술 자동 결정(실험적)
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
+            'enable_target_difficulty': self.chk_target_difficulty.isChecked(),  # v20.5: 요격 Pk에 표적 속도·RCS 반영(실험적)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
             'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
             'enable_hgv_glide': self.chk_hgv_glide.isChecked(),  # v16.2: 극초음속 활공 궤적(실험적)
