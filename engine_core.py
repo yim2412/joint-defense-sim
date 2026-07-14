@@ -807,11 +807,17 @@ FRIENDLY_DB = {
          # LOW-6: Pk mean 0.905→0.75 (SM-6 실전 교전 Pk 과대 평가 수정)
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     'SM-2 Block IIIB':
-        {'speed_ms':1190,'range_km':170,'cost_usd':400000,'stock':48,
+        # 단가 $400K → $770K: 공개 단가의 1/2 이하라 비용 지표가 낙관 편향이었다.
+        # 미 해군은 Block IIIB 신규 생산을 끝내고 전환 킷으로 넘어가 신품 단가 공개값이
+        # 없으므로, SM-2 계열 공개 단가 중 최저인 Block IIIAZ $770K를 쓴다(전환 킷
+        # Block IIIC $2.53M은 상한). 과대 추정을 피하는 보수적 선택.
+        {'speed_ms':1190,'range_km':170,'cost_usd':770000,'stock':48,
          'category':['대공','대함'],
          'pk_dist':{'alpha':16,'beta':4,'mean':0.800},'requires_illuminator':True},
     'RIM-116 RAM':
-        {'speed_ms':680,'range_km':9,'cost_usd':150000,'stock':21,
+        # 단가 $150K → $950K: 공개값의 1/6이었다(미 국방예산 $950K, 타 출처 $905K~$998K,
+        # 일본 FMS 51발 $55.3M → 발당 $1.08M로 수렴).
+        {'speed_ms':680,'range_km':9,'cost_usd':950000,'stock':21,
          'category':['대공','대함','근접'],
          'pk_dist':{'alpha':9,'beta':3,'mean':0.750},'requires_illuminator':False},
     '홍상어 (대잠)':
