@@ -1,7 +1,21 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.10 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.11 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.11 — 스탠드오프 교전: 적이 자기 미사일 사거리에서 쏜다 (기본 ON)]  ║
+║  NEW-A  적 수상함 스폰 거리가 **아군 탐지거리**로 정의돼 있었다 = 순환.     ║
+║         적이 어디서 싸울지가 내 레이더 성능에 좌우된다 → 사거리 540km의     ║
+║         YJ-18을 실은 052D가 44km까지 다가와 쏘고 있었다(비물리). ARM은 이미 ║
+║         자기 사거리 90%에서 발사 — 그 선례를 수상함에 적용. 적이 멀리서     ║
+║         쏘니 미사일 비행시간↑ → 요격 기회↑: 수상함 편대전 요격률           ║
+║         0.411→0.724 · 피격 18.0→9.3 · 손실 4.3→1.6척. 랴오닝은 아군        ║
+║         해성-II(250km)가 비로소 닿아 적 격침 0→4.0척. 골든 전면 갱신.       ║
+║  BUG-1  MQ-9B 해상 탐지 120→370km(SeaVue 공개 200해리). 40,000ft 수평선만  ║
+║         455km라 120km는 제원 대비 과소였다.                                 ║
+║  DEL-A  정찰 드론(v20.5 B-5) 음성 확정 — 탐지를 370km로 키우고 스탠드오프   ║
+║         무대를 만들어도 적 격침 무변(+0.00). 병목이 탐지가 아니라 **적      ║
+║         함대 방공망**(052D·055가 해성-II를 요격)이라서다. 물리적으로 정상   ║
+║         인 교전 = 음성이 곧 현실 반영. B 트랙 종료.                         ║
 ║  [v18.05.10 — 대잠 접촉 유지(datum 성장): EMCON 딜레마가 성립하게 만듦]     ║
 ║  NEW-A  대잠 항공 탐지확률이 97%로 사실상 고정 = 탐지 보장이었다. 뿌리는    ║
 ║         datum(표정 오차)을 1500m로 **고정**해 항공기가 잠수함 위치를 늘     ║
@@ -1435,7 +1449,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.10"
+APP_VERSION = "v18.05.11"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7051,6 +7065,9 @@ class MainWindow(QMainWindow):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
         if hasattr(self, 'chk_asw_contact_limit'):
             self.chk_asw_contact_limit.setChecked(cfg.get('enable_asw_contact_limit', False))
+        if hasattr(self, 'chk_standoff_spawn'):
+            # v18.05.11 기본 ON 승격 — 구버전 시나리오(키 없음)도 정규 동작으로 로드
+            self.chk_standoff_spawn.setChecked(cfg.get('enable_standoff_spawn', True))
         if hasattr(self, 'chk_cyber'):
             self.chk_cyber.setChecked(cfg.get('enable_cyber_warfare', False))
         if hasattr(self, 'chk_hgv_glide'):
@@ -7821,6 +7838,20 @@ class MainWindow(QMainWindow):
         )
         self.chk_asw_contact_limit.setChecked(False)
 
+        self.chk_standoff_spawn = QCheckBox(
+            "스탠드오프 교전 — 적 수상함이 자기 미사일 사거리에서 발사")
+        self.chk_standoff_spawn.setToolTip(
+            "적 수상함이 자기 대함미사일 사거리에서 발사합니다(현대 해전의 스탠드오프 교리).\n"
+            "이 항목이 없으면 적 함대의 출발 거리가 '아군 레이더 탐지거리'로 정해져,\n"
+            "사거리 540km의 YJ-18을 실은 052D형이 44km까지 다가와서 쏘게 됩니다 —\n"
+            "적이 어디서 싸울지가 내 레이더 성능에 좌우되는 셈이라 비현실적입니다.\n"
+            "  · 적이 원거리에서 쏘므로 미사일 비행 시간이 길어져 요격 기회가 늘어납니다\n"
+            "  · 대신 적 함대가 수평선 너머에 있어 눈에 보이지 않습니다 —\n"
+            "    해상 초계 무인기의 광역 정찰이 비로소 값을 하게 됩니다\n"
+            "기본값 ON — 끄면 적이 자기 사거리를 버리고 접근합니다 (비교·검증용)"
+        )
+        self.chk_standoff_spawn.setChecked(True)
+
         self.chk_cyber = QCheckBox("사이버전 — 데이터링크 변조·전투정보실 마비·레이더 교란 반격 (실험적)")
         self.chk_cyber.setToolTip(
             "적 사이버 공격과 아군 반격을 모델링합니다. 일정 주기마다 침투를 시도해 성공하면\n"
@@ -7925,6 +7956,7 @@ class MainWindow(QMainWindow):
                     self.chk_enemy_sead,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_target_difficulty,
                     self.chk_sonar_emcon, self.chk_asw_contact_limit,
+                    self.chk_standoff_spawn,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
 
@@ -7969,6 +8001,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_target_difficulty)
         fl_env.addRow("",            self.chk_sonar_emcon)
         fl_env.addRow("",            self.chk_asw_contact_limit)
+        fl_env.addRow("",            self.chk_standoff_spawn)
         fl_env.addRow("",            self.chk_cyber)
         fl_env.addRow("",            self.chk_hgv_glide)
         fl_env.addRow("",            self.chk_asw_forward)
@@ -9913,6 +9946,7 @@ class MainWindow(QMainWindow):
             'enable_target_difficulty': self.chk_target_difficulty.isChecked(),  # v20.5: 요격 Pk에 표적 속도·RCS 반영(v18.05.07 정규·기본 ON)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
             'enable_asw_contact_limit': self.chk_asw_contact_limit.isChecked(),  # v20.5: 대잠 datum 성장·접촉 단절(실험적)
+            'enable_standoff_spawn': self.chk_standoff_spawn.isChecked(),  # v20.5: 적 수상함 스탠드오프 발사(기본 ON)
             'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
             'enable_hgv_glide': self.chk_hgv_glide.isChecked(),  # v16.2: 극초음속 활공 궤적(실험적)
             'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(정규)

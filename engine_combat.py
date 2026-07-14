@@ -1513,6 +1513,13 @@ class TimeStepEngine:
         # 끊는 행위(EMCON 회피)가 아무 이득이 없다 → 능동 소나 딜레마가 성립 못 함.
         # 기본 OFF면 기존 동작 보존(실험적).
         self._asw_contact_limit = bool(cfg.get('enable_asw_contact_limit', False))
+        # v20.5(B-5) 스탠드오프 교전: 적 수상함이 아군 탐지거리가 아니라 **자기 대함미사일
+        # 사거리**에서 발사한다(현대 해전 교리). 기존엔 적 스폰 거리가 아군 탐지거리로
+        # 정의돼 있어, 탐지를 넓히면 적도 그만큼 멀리서 나타나는 순환이었다 — 그래서 정찰
+        # 드론의 탐지 확장이 구조적으로 무효였다.
+        # v18.05.11 기본 ON 승격 — 사거리 540km의 YJ-18을 실은 052D가 44km까지 다가와 쏘는
+        # 것 자체가 비물리라, 기본 OFF 유지가 곧 오류 유지다. 토글은 비교·검증용으로 유지.
+        self._standoff_spawn = bool(cfg.get('enable_standoff_spawn', True))
         # v16.1 ASW 전진 초계: 대잠 항공기가 함대 수동 대기 대신 전개 사거리 안의 잠수함으로
         # 전진(transit) → 탐지권 도착 후 교전. 기본 OFF면 기존(기함 기준 탐지) 보존.
         self._asw_forward      = bool(cfg.get('enable_asw_forward', False))
@@ -2029,7 +2036,18 @@ class TimeStepEngine:
                 elif info.get('category') == '대잠':
                     start_m = sub_det_km * 1000
                 elif info.get('category') == '대함':
-                    start_m = surface_det_km * 1000
+                    # v20.5(B-5): 적 수상함이 **아군 탐지거리**에서 출발하는 건 순환이다 —
+                    # 적이 어디서 출발하는지가 내 레이더 성능에 좌우된다. 그래서 탐지를 아무리
+                    # 넓혀도(정찰 드론) 적은 늘 '내가 막 볼 수 있는 거리'에 나타나, 탐지 확장이
+                    # 구조적으로 무효였다. 실제로는 적이 **자기 대함미사일 사거리에서 발사**한다
+                    # (052D는 사거리 540km의 YJ-18을 갖고도 44km까지 다가와 쏘고 있었다).
+                    # ARM이 이미 같은 원리를 쓴다(사거리 90% 지점 스폰) — 그 선례를 따른다.
+                    # OFF면 기존 동작(아군 탐지거리) 그대로 → bit-identical.
+                    if self._standoff_spawn and info.get('can_fire_missile'):
+                        _rng_km = info.get('missile_range_km', 0) or 0
+                        start_m = max(surface_det_km, _rng_km * 0.9) * 1000
+                    else:
+                        start_m = surface_det_km * 1000
                 elif info.get('is_arm'):
                     # v16.01.02: ARM은 발사 항공기의 SEAD 발사점(사거리 근처)에서 출발.
                     # 대공 탐지거리(~880km) 스폰은 비현실(요격 시간 8배) → 사거리 90%에서 스폰.

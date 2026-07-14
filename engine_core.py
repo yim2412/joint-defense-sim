@@ -2076,7 +2076,11 @@ FRIENDLY_AIRCRAFT_DB = {
         'base_name':    '군산기지',
         'base_dist_km': 300,
         'aircraft_role':'recon',
-        'recon_detect_bonus_km': 120, # 고고도 MALE 해상 레이더 광역 OTH 중계
+        # v20.5(B-5): 120km는 공개 제원 대비 과소였다. MQ-9B SeaGuardian은 SeaVue 해상
+        # 감시 레이더(공개 탐지 200+ 해리 ≈ 370km)를 싣고 고도 40,000ft에서 운용한다
+        # (그 고도의 레이더 수평선만 약 455km라 수평선이 아니라 레이더 성능이 상한).
+        # 대함 탐지 44km → 414km로, 적의 스탠드오프 발사 거리를 실제로 덮게 된다.
+        'recon_detect_bonus_km': 370, # SeaVue 해상 레이더 공개 탐지 200해리 ≈ 370km
         'survive_prob':          0.96, # 고고도 체공 — 장거리 SAM엔 취약하나 상대적 우수
         'recon_roll_s':          300,
         'weather_limits': _P3C_WX,    # 태풍만 불가
