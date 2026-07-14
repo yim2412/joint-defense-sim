@@ -446,11 +446,86 @@ def chk_golden_coverage():
           if dead else f'OK(알려진 사각 {len(KNOWN)}개 제외 전 지표 케이스 간 변별)')
 
 
+def chk_preset_desc():
+    """⑥ 위생: 적 편대 프리셋의 UI 툴팁 설명에 적힌 수량 == 실제 편성 수량.
+
+    편성을 상향하면서 툴팁 텍스트를 함께 고치지 않으면, 사용자는 화면에서 실제와 다른
+    편성을 본다(2026-07-14 감사 후속에서 3건 적발: 'A2/AD 항공 포화' 설명 J-16×4인데
+    실제 6 · '항모 킬 체인' 설명이 YJ-21 4발을 통째로 누락 · '전면전 포화' 설명 6발인데
+    실제 20발). 사람 기억이 아니라 도구로 잡는다.
+
+    툴팁이 '이름 × N' 형태로 수량을 밝힌 항목만 대조한다. 설명은 축약·별칭 표기라
+    ('052D형 구축함'을 '052D'로, 'DF-17 (극초음속 활공)'을 'DF-17 (HGV)'로) 이름 전체가
+    아니라 **식별 토큰**으로 느슨하게 매칭한다:
+      · 설명을 '+'로 잘라 세그먼트(예 '055형 × 1')로 만들고, '×'가 없는 세그먼트는
+        수량 미표기(예 항모 '랴오닝(CV-16)')이므로 대조 대상에서 뺀다.
+      · DB 키의 선두 토큰(→ 없으면 괄호 안 별칭. '북한 순항미사일 (화살-2)'는 설명에
+        '화살-2'로 적힌다)을 세그먼트에서 찾는다.
+      · '형'·'급' 접미와 공백은 표기 흔들림이라 양쪽 모두 지우고 비교한다('052D형'↔'052D').
+    """
+    try:
+        import importlib
+        ec = importlib.import_module('engine_core')
+    except Exception as e:
+        check('⑥', '적 편대 프리셋 설명 = 실제 편성', True, f'(스킵: 엔진 import 실패 {e})')
+        return
+    src = rd('app_main.py')
+    m = re.search(r'_ENEMY_PRESET_TIPS\s*=\s*\{(.*?)\n    \}', src, re.S)
+    if not m:
+        check('⑥', '적 편대 프리셋 설명 = 실제 편성', True, '(스킵: 툴팁 dict 미발견)')
+        return
+    tips_src = m.group(1)
+
+    def norm(s):
+        return s.replace('형', '').replace('급', '').replace(' ', '').upper()
+
+    mism = []
+    for name, comp in ec.ENEMY_FLEET_PRESETS.items():
+        dm = re.search(r"'" + re.escape(name) + r"':\s*\n((?:\s*'[^']*'\s*\n?)+)", tips_src)
+        if not dm:
+            continue
+        desc = ' '.join(re.findall(r"'([^']*)'", dm.group(1)))
+        if '×' not in desc:
+            continue          # 수량을 밝히지 않은 설명 — 대조 대상 아님
+        segs = []             # [(정규화 세그먼트, 수량)] — 수량을 밝힌 것만
+        for seg in re.split(r'\+', desc.replace('\\n', ' ')):
+            q = re.search(r'×\s*(\d+)', seg)
+            if q:
+                segs.append((norm(seg), int(q.group(1))))
+        for c in comp:
+            head = re.split(r'[ (]', c['preset'])[0]                  # '055형 대형 구축함' → '055형'
+            am = re.search(r'\(([^)]+)\)', c['preset'])               # '(화살-2)' 같은 별칭
+            alias = am.group(1) if am else None
+            # 별칭은 식별자일 때만 쓴다 — '(항모)'·'(상급)' 같은 일반명사를 후보로 삼으면
+            # 설명의 산문 문장('항모 전력 포함…')에 헛매칭한다.
+            if alias and not re.search(r'[\d\-]', alias):
+                alias = None
+            hit = None
+            for cand in (head, alias):
+                if not cand:
+                    continue
+                for seg, n in segs:
+                    if norm(cand) in seg:
+                        hit = n
+                        break
+                if hit is not None:
+                    break
+            if hit is None:
+                # 이름은 나오는데 수량이 없으면(항모 '푸젠(CV-18) +' 처럼) 대조 대상이 아니다.
+                if norm(head) in norm(desc):
+                    continue
+                mism.append(f"[{name}] 설명에 {head} 누락(실제 ×{c['count']})")
+            elif hit != c['count']:
+                mism.append(f"[{name}] {head} 설명×{hit}≠실제×{c['count']}")
+    check('⑥', '적 편대 프리셋 설명 = 실제 편성', not mism,
+          '; '.join(mism) if mism else '수량 표기 프리셋 전부 실제 편성과 일치')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
                chk_spec_count, chk_div_guards, chk_mc_paths, chk_golden_coverage,
-               chk_plans_stale, chk_readme_coverage, chk_readme_counts,
+               chk_plans_stale, chk_readme_coverage, chk_readme_counts, chk_preset_desc,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
                chk_memory_freshness, chk_session_log_fresh):
         try:
