@@ -75,6 +75,19 @@ CASES = [
                              enable_lsam=True,   lsam_stock=16,
                              enable_chungung=True, chungung_stock=32,
                              enable_patriot=True, patriot_stock=16),                                    [3, 15]),
+    # 감사 후속 — 'BMD 탄도 포화' 프리셋의 규모 현실화(HGV 1발 → 4발, 총 7 → 20발)를 봉인.
+    # 과거 편성은 상층 SM-3가 단독으로 전부 처리해 하위 4계층이 발사조차 못 했다(다층 요격을
+    # 평가할 수 없는 '포화'). 이 프리셋 자체가 골든에 없어 편성이 바뀌어도 회귀가 bit-identical로
+    # 통과하던 사각이기도 했다. 5계층이 모두 발사되는 시드를 박아, 편성 규모나 요격 고도창이
+    # 조용히 바뀌어 다시 상층 단독 처리로 퇴행하면 회귀가 잡는다.
+    ('BMD포화-다층',    dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='BMD 탄도 포화',
+                             enable_ballistic_descent=True, enable_hgv_glide=True,
+                             enable_ashore=True, ashore_sm3_stock=24,
+                             enable_thaad=True,  thaad_stock=24,
+                             enable_lsam=True,   lsam_stock=16,
+                             enable_chungung=True, chungung_stock=32,
+                             enable_patriot=True, patriot_stock=16),                          [2, 18]),
     # 종합 감사 발견 봉인 — 054B형은 적 함정 SAM 탑재표에 없어 SAM·CIWS를 한 발도 못 쏘고 있었다
     # ("054A보다 방공이 강한 발전형"이라 선언된 함정이 실제로는 054A보다 약한 정체성 역전).
     # 054B 중심 편대를 골든에 넣어, 적 능동방어(HHQ-16·HHQ-10)가 조용히 사라지면 회귀가 잡는다.
