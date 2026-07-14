@@ -240,7 +240,17 @@ class AmphibiousForce:
         self.name      = name
         self.zone      = zone      # 목표 해안(SLOC 구역)
         self.state     = 'embark'  # embark → transit → assault → beachhead / failed
-        self.lift      = lift      # 수송 능력(대대 상당) — 상륙함 편성에서 산출
+        # 수송 능력(대대 상당) — 상륙함 편성에서 산출.
+        # ⚠ 의도적 미반영 (v20 종합감사 지적 → 2026-07-14 '고치지 않음'으로 종결):
+        #   lift는 ①상륙함이 없으면 작전 불가(lift<=0 게이트) ②결과 표시(amphib_lift)에만 쓰이고,
+        #   **교두보 진척 계산에는 들어가지 않는다** — LST 1척이든 LPH 3+LPD 2든 진척이 같다.
+        #   감사는 이를 '죽은 필드'로 지적했으나 고치지 않는다:
+        #     · **스케일 모델의 근거가 없다** — LPH 3척이 교두보 진척을 몇 배로 올리는지는 공개
+        #       교리에 없다. 지어내면 근거 없는 모델 부채가 된다.
+        #     · **실사용 영향이 0이다** — 상륙함 편성(cfg['amphib_ships'])은 UI에서 설정할 수
+        #       없어 항상 기본 선단이다. 새 스케일 모델을 만들어도 효과를 볼 사용자가 없다.
+        #   되살리려면 먼저 UI 편성 노출 + 규모→진척 관계의 교리 근거가 필요하다.
+        self.lift      = lift
         self.progress  = 0.0       # 교두보 확보 진척 0~1
         self.eta_h     = _EMBARK_H
         self.stalled_h = 0         # 진척이 멈춘 누적 시간
