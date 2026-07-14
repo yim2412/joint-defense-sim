@@ -3199,29 +3199,46 @@ class TimeStepEngine:
             m.altitude_m = max(0.0, min(peak, rem * _BALLISTIC_DESCENT_TAN))
 
     def _arm_radar_off_check(self):
-        """ARM 탐지 시 표적 함정 레이더 일시 차단 (ARM 회피 전술, 8초).
-        각 ARM 미사일당 레이더 OFF는 한 번만 트리거.
-        레이더 OFF 중 ARM은 유도 신호 소실로 빗나감 — _check_hits()에서 처리."""
+        """ARM 탐지 시 표적 함정 레이더 침묵 (ARM 회피 전술 — ARM이 지나갈 때까지 유지).
+
+        v20.5(B-2) 게이트 정정. 과거에는 ARM당 **한 번만** 8초 끄고 말았다. ARM이 120km
+        밖에 있을 때 8초 껐다가 다시 켜면, 초음속 ARM이 남은 100여 초를 날아오는 동안
+        레이더가 켜져 있어 **정작 명중 시점엔 회피가 작동하지 않았다** — ARM 명중 판정
+        (`_check_hits`)과 ESM 역탐지(`_arm_esm_update`)가 둘 다 '명중 순간 레이더 OFF'를
+        조건으로 보는데, 그 순간엔 이미 레이더가 복귀해 있었던 것. 그래서 ESM→ARM 역탐지
+        (`enable_esm_arm`)의 효과가 편성을 24발로 늘려도 **완전히 0**이었다(bit-identical).
+
+        실제 교리는 **ARM이 종말 유도 구간에 들어올 때 방사를 끊는 것**이고, 그 대가로
+        그 구간 동안 대공 탐지·교전이 저하되는 것이 EMCON 딜레마의 본질이다(대가는
+        `is_radar_off`로 이미 구현돼 있다).
+        → ARM이 **종말권(20km) 안에 살아 있는 동안** 침묵을 연장한다. ARM이 요격·소멸하면
+        갱신이 멈춰 off_dur 뒤 레이더가 자동 복귀한다.
+
+        ⚠ 침묵 구간을 넓게 잡으면(예: 과거 트리거 거리인 120km 내내) 레이더가 사실상 영구
+        침묵해 SAM 교전 자체가 불가능해지고 함대가 전멸한다(실측: 요격률 0.52→0.05).
+        그건 회피가 아니라 방어 포기다 — 그래서 종말 구간으로 좁힌다.
+        """
         if not self.cfg.get('enable_radar_off', True):
             return
-        off_dur  = 8.0
-        warn_m   = 120_000.0   # ARM이 120km 이내 접근 시 레이더 OFF 결심
+        off_dur  = 8.0         # 침묵 연장 단위 — ARM이 종말권에 살아 있는 한 매 틱 갱신된다
+        warn_m   = 20_000.0    # ARM 종말 유도 구간(20km) 진입 시 레이더 침묵
         for m in self.missiles:
             if not (m.alive and m.is_arm):
                 continue
-            if getattr(m, '_radar_off_triggered', False):
-                continue   # 이 ARM은 이미 레이더 OFF를 트리거했음
             tgt = m.target
             if not isinstance(tgt, FriendlyShipObj) or not tgt.alive:
                 continue
             dist_m = m.pos.dist_to(tgt.pos)
-            if dist_m < warn_m:
-                m._radar_off_triggered = True
-                tgt.radar_off_until = self.t + off_dur
+            if dist_m >= warn_m:
+                continue
+            if not getattr(m, '_radar_off_triggered', False):
+                m._radar_off_triggered = True     # 로그는 최초 1회만
                 self._log(
                     f"[레이더 OFF] {tgt.name} ARM {dist_m/1000:.0f}km 접근 탐지 — "
-                    f"레이더 {off_dur:.0f}초 차단 ({m.name})"
+                    f"ARM 통과까지 레이더 침묵 ({m.name})"
                 )
+            # ARM이 살아 있는 동안 침묵 유지(연장). 여러 ARM이면 가장 늦은 시각까지.
+            tgt.radar_off_until = max(tgt.radar_off_until, self.t + off_dur)
 
     def _fire_ground_sam(self, wpn_key: str, target, dist_m: float,
                          name: str, pk: float, speed_ms: float,

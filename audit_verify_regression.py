@@ -75,6 +75,13 @@ CASES = [
                              enable_lsam=True,   lsam_stock=16,
                              enable_chungung=True, chungung_stock=32,
                              enable_patriot=True, patriot_stock=16),                                    [3, 15]),
+    # v20.5(B-2) — ARM 대방사미사일 경로. 레이더 침묵이 ARM 명중 시점에 걸리도록 게이트를
+    # 고쳤다(과거엔 120km·8초·1회라 정작 명중 순간엔 레이더가 복귀해 있었다). 그 전까지
+    # ESM→ARM 역탐지(enable_esm_arm)는 ARM 24발을 퍼부어도 결과가 bit-identical, 즉 완전히
+    # 죽은 경로였다. 골든에 ARM 편성 자체가 없어 이 사각이 회귀에도 안 잡혔다 → 케이스 추가.
+    ('ARM역탐지-SEAD', dict(_BASE, fleet_preset='기동전단 기본',
+                            enemy_fleet_preset='전자전 SEAD 제압',
+                            enable_esm_arm=True),                                    [3, 11]),
     # 감사 후속 — 'BMD 탄도 포화' 프리셋의 규모 현실화(HGV 1발 → 4발, 총 7 → 20발)를 봉인.
     # 과거 편성은 상층 SM-3가 단독으로 전부 처리해 하위 4계층이 발사조차 못 했다(다층 요격을
     # 평가할 수 없는 '포화'). 이 프리셋 자체가 골든에 없어 편성이 바뀌어도 회귀가 bit-identical로
