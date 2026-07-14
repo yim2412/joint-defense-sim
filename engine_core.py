@@ -300,9 +300,14 @@ ENEMY_DB = {
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},
          'self_defense_pk':0.0,'enemy_ciws_pk':0.0},
 
-    # ⭐ QBM: SM-3 거의 무력화
+    # ⭐ QBM: SM-3 무력화 — 단, 그 이유는 '고도가 낮아서'가 아니라 SM-3가 외기권(≥100km)
+    # 전용이기 때문이다. 정점고도 50km는 공개값(이스칸데르-M급, 시험 50~60km).
+    # 과거 2,000m는 순항미사일 수준의 비현실 값이었고, 당시 SM-3 문턱이 40km로 낮게
+    # 잡혀 있어서 '2km라야 SM-3를 피한다'는 왜곡된 균형이 성립했다. 문턱을 실제
+    # 외기권(100km)으로 바로잡은 뒤에는 50km라도 SM-3에 잡히지 않는다(v18.04.10).
+    # 준탄도 궤적 특성상 50km 아래에서 평평해져 대기권 내 기동·종말 풀업을 한다.
     'KN-23 (북한 이스칸데르)':
-        {'category':'대공','type':'저고도기동탄도','speed_ms':1800,'altitude_m':2000,
+        {'category':'대공','type':'저고도기동탄도','speed_ms':1800,'altitude_m':50000,
          'missile_name':None,'missile_speed_ms':None,'missile_range_km':700,
          'can_fire_missile':False,'rcs_m2':0.15,'is_qbm':True,
          'evasion_profile':{'speed_boost_min':0,'speed_boost_max':0,'alt_change_m':0,'max_attempts':0},

@@ -462,7 +462,14 @@ _ASHORE_SM3_COST   = 35_000_000
 _ASHORE_SM3_SPD_MS = 3_000
 _ASHORE_COOLDOWN_S = 5.0
 _ASHORE_RANGE_M    = 500_000  # SM-3 최대 교전거리
-_ASHORE_ALT_MIN_M  = 40_000   # 중간단계 교전 하한 (40km)
+# SM-3 최소 교전고도 = 100km (v18.04.10 정정, 과거 40km).
+# SM-3는 외기권 전용 요격체다(대기권 밖 진공에서만 작동하는 유일한 스탠더드 미사일).
+# 공개 자료의 최소 교전고도는 100~120km이고, 대기권 경계(카르만선)가 100km다.
+# 과거 40km는 대기권 한복판이라, SM-3가 물리적으로 잡을 수 없는 저고도 표적
+# (KN-23 같은 준탄도 SRBM)까지 요격하게 만들었다. 함정 SM-3·지상 어쇼어·최후 폴백
+# 세 경로가 모두 이 상수를 참조한다(과거엔 각각 흩어져 하드코딩).
+_SM3_ALT_MIN_M     = 100_000
+_ASHORE_ALT_MIN_M  = _SM3_ALT_MIN_M   # 지상 어쇼어도 같은 물리 — 별도 값을 두지 않는다
 
 _THAAD_PK          = 0.85     # hit-to-kill 종말 단계
 _THAAD_COST        = 3_000_000
@@ -488,8 +495,11 @@ _BALLISTIC_DESCENT_TAN = 1.0
 # ── v20.2a: 한국형 BMD 계층 (L-SAM 상층 / 천궁-II 하층) ─────────────────────
 # L-SAM(장거리 지대공) — 공개 제원: 사거리 150km·요격고도 50~60km·Mach 4~5,
 #   3단 hit-to-kill(IIR 탐색기 + DACS). PAC-3와 THAAD 사이 중간 계층.
-#   ALT_MIN을 40km로 잡은 것은 SM-3(≥40km 외기권)와 교전창을 맞물리게 하기 위함 —
-#   보도 요격고도(50~60km)는 유효 요격점이고, 교전 개시 하한은 그보다 낮다.
+#   ALT_MIN 40km는 교전 개시 하한이다 — 보도 요격고도(50~60km)는 유효 요격점이고
+#   교전을 시작하는 하한은 그보다 낮다. (과거 주석은 이 값을 'SM-3의 40km 문턱과
+#   맞물리게 하기 위함'이라 적었으나, SM-3 문턱이 실제 외기권 100km로 정정된 뒤에도
+#   L-SAM 하한은 공개 제원에서 나온 값이므로 그대로 둔다 — 40~100km 구간은 L-SAM
+#   40~70km와 THAAD 10~150km가 함께 덮어 빈틈이 없다.)
 _LSAM_PK           = 0.80     # 국산 신형 hit-to-kill — THAAD(0.85) 소폭 하회로 보수 설정
 _LSAM_COST         = 3_000_000   # 단가 미공개. THAAD($3M)급 가정 (PAC-3 $4M·천궁-II $1M 사이)
 _LSAM_SPD_MS       = 1_500    # Mach 4~5
@@ -3798,10 +3808,9 @@ class TimeStepEngine:
         def ok(wpn):
             return ship.available(wpn) > 0
 
-        # HGV / 고고도 탄도 중간단계 → SM-3
+        # HGV / 고고도 탄도 중간단계 → SM-3 (외기권 ≥100km — _SM3_ALT_MIN_M 참조)
         # 어쇼어 활성·잔여 있으면 함정 SM-3 생략 (지상 자산이 우선 교전)
-        # 고고도(≥40km) 탄도·HGV 중간단계 = 외기권 → SM-3 (어쇼어 잔여 시 함정 SM-3 생략)
-        if ((is_hgv or is_ballistic) and alt >= 40_000) and dist_m <= 500_000:
+        if ((is_hgv or is_ballistic) and alt >= _SM3_ALT_MIN_M) and dist_m <= 500_000:
             ashore_covers = (
                 self.cfg.get('enable_ashore', False)
                 and self.ground_inv.get('SM-3 (어쇼어)', 0) > 0
@@ -3829,7 +3838,10 @@ class TimeStepEngine:
             return 'SM-2 Block IIIB'
         if dist_m <= 240_000 and ok('SM-6'):          return 'SM-6'
         if dist_m <= 240_000 and ok('SM-6 Block IB'): return 'SM-6 Block IB'
-        if dist_m <= 500_000 and ok('SM-3 Block IIA'): return 'SM-3 Block IIA'  # BUG-2
+        # 최후 폴백 SM-3 — 외기권 고도에서만. 과거엔 고도 조건이 없어, 대기권 내를 나는
+        # 저고도 표적(준탄도 SRBM·대함미사일)까지 SM-3가 요격했다(외기권 전용인데).
+        if (dist_m <= 500_000 and alt >= _SM3_ALT_MIN_M
+                and ok('SM-3 Block IIA')): return 'SM-3 Block IIA'
         return None
 
     def _select_aa_wpn(self, ship: FriendlyShipObj, et: EnemyThreatObj,
