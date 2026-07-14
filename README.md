@@ -176,6 +176,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `_asset_make_bg.py` | 홈 배경 이미지 생성 |
 | `_changelog_export.py` | app_changelog.json → `변경이력/` 유형별 정리 문서 생성 |
 | `_build_progress.py` | 빌드 진척 표시기 — PyInstaller 로그에서 실제 단계·경과·기준선 대비 판정 |
+| `audit_db_consistency.py` | DB 내부 모순 탐지 — 마하 표기↔속도, 요격 고도창↔위협 고도, 무기 사거리↔탐지거리 |
 | `asset_download_images.py` | DB 장비 사진 일괄 수집 |
 | `_bg_wait.sh` · `_bg_res.py` | 백그라운드 작업 1분 진행 보고 헬퍼(타임박스 폴링 + 작업 트리 전용 CPU/RAM 격리 측정) |
 
