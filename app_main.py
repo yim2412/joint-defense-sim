@@ -1,7 +1,12 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.04.10 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.01 — 극초음속 활공·탄도 종말 강하를 정규 기능으로 승격(기본 ON)]   ║
+║  NEW-A  둘 다 기본 ON. 고도가 고정되면 종말 요격층(L-SAM·패트리엇·천궁-II)  ║
+║         이 교전창에 영원히 진입하지 못해 발사 0발이었다 — 비물리 상태.       ║
+║         활공 ON 시 요격률 0.610→0.718(+0.108)·피격 5.18→3.63(극초음속 포화). ║
+║  BUG-1  과거 '실효 미미' 판정은 지상 방어 계층을 끄고 측정한 결과였다.       ║
 ║  [v18.04.10 — SM-3 외기권 요격 문턱·KN-23 정점고도 정정]                    ║
 ║  BUG-1  SM-3 최소 요격고도 40km → 100km. SM-3는 외기권 전용 요격체인데       ║
 ║         대기권 한복판의 저고도 표적까지 요격하고 있었다(최후 발사 경로엔     ║
@@ -1365,7 +1370,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.04.10"
+APP_VERSION = "v18.05.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -6978,7 +6983,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'chk_cyber'):
             self.chk_cyber.setChecked(cfg.get('enable_cyber_warfare', False))
         if hasattr(self, 'chk_hgv_glide'):
-            self.chk_hgv_glide.setChecked(cfg.get('enable_hgv_glide', False))
+            self.chk_hgv_glide.setChecked(cfg.get('enable_hgv_glide', True))   # v20.5: 기본 ON 승격
         if hasattr(self, 'chk_asw_forward'):
             self.chk_asw_forward.setChecked(cfg.get('enable_asw_forward', False))
         if hasattr(self, 'chk_weather_dyn'):
@@ -7057,7 +7062,7 @@ class MainWindow(QMainWindow):
                                 ('chk_lsam',     'enable_lsam',     False),
                                 ('chk_chungung', 'enable_chungung', False),
                                 ('chk_patriot',  'enable_patriot',  False),
-                                ('chk_bal_descent', 'enable_ballistic_descent', False)]:
+                                ('chk_bal_descent', 'enable_ballistic_descent', True)]:   # v20.5: 기본 ON 승격
             if hasattr(self, attr):
                 getattr(self, attr).setChecked(cfg.get(key, dflt))
         # 전술 모드·적/AI 전술·난이도·혼합 시나리오 복원 — 빌드엔 있으나 복원 누락됐던 5종(로직 감사 발견, 재현성)
@@ -7728,15 +7733,16 @@ class MainWindow(QMainWindow):
         )
         self.chk_cyber.setChecked(False)
 
-        self.chk_hgv_glide = QCheckBox("극초음속 활공 궤적 — 단계별 고도 변화·다층 요격 전환 (실험적)")
+        self.chk_hgv_glide = QCheckBox("극초음속 활공 궤적 — 단계별 고도 변화·다층 요격 전환")
         self.chk_hgv_glide.setToolTip(
             "극초음속 활공체(HGV)가 고정 고도가 아니라 마하 5+로 활공하며 고도를 낮추고\n"
-            "종말에 급강하합니다. 비행 단계에 따라 요격 층이 전환돼, 고고도(DF-17 등)는 먼저\n"
-            "외기권 SM-3로 교전하고 누출되면 강하 중 대기권 내 SM-6 Block IB로 재교전합니다.\n"
-            "활공·종말 횡기동으로 요격 명중률도 소폭 낮아집니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "종말에 급강하합니다. 강하하면서 지상 방어 계층의 요격 고도창을 차례로 통과해\n"
+            "L-SAM → 패트리엇 → 천궁-II로 다층 요격이 이어집니다.\n"
+            "끄면 고도가 고정돼(DF-17 60km) 하위 종말 계층이 교전창에 영원히 진입하지 못합니다.\n"
+            "활공·종말 횡기동으로 요격 명중률은 소폭 낮아집니다.\n"
+            "기본값 ON — 극초음속의 실제 비행 물리 (끄면 비교·디버그용)"
         )
-        self.chk_hgv_glide.setChecked(False)
+        self.chk_hgv_glide.setChecked(True)
 
         self.chk_asw_forward = QCheckBox("대잠 항공 전진 초계")
         self.chk_asw_forward.setToolTip(
@@ -8345,14 +8351,15 @@ class MainWindow(QMainWindow):
         bmdl.addRow("", self.chk_patriot)
         _wire_chk_color(self.chk_patriot, 13)
 
-        self.chk_bal_descent = QCheckBox("탄도탄 종말 강하 (실험적)")
+        self.chk_bal_descent = QCheckBox("탄도탄 종말 강하")
         self.chk_bal_descent.setToolTip(
             "탄도미사일의 종말 강하 궤적을 교전에 반영.\n"
-            "미적용 시 탄도탄이 중간단계 고도(화성-15 기준 1200km)를 유지한 채 돌입해\n"
-            "종말 요격층(THAAD·L-SAM·천궁-II)이 교전창에 진입하지 못하고 SM-3만 교전한다.\n"
-            "적용 시 정점 → 종말 급강하로 다층 방어가 단계별로 순차 교전.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "끄면 탄도탄이 중간단계 고도(화성-15 기준 1200km)를 유지한 채 돌입해\n"
+            "종말 요격층(THAAD·L-SAM·패트리엇·천궁-II)이 교전창에 진입하지 못한다.\n"
+            "켜면 정점 → 종말 급강하로 다층 방어가 단계별로 순차 교전.\n"
+            "기본값 ON — 탄도탄의 실제 비행 물리 (끄면 비교·디버그용)"
         )
+        self.chk_bal_descent.setChecked(True)
         bmdl.addRow("", self.chk_bal_descent)
         _wire_chk_color(self.chk_bal_descent, 13)
 

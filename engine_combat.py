@@ -1493,8 +1493,12 @@ class TimeStepEngine:
         # v16.2 극초음속 활공 궤적: HGV가 고정 고도가 아니라 활공(완만 하강)→종말 급강하로
         # 고도가 변해, 같은 HGV가 비행 단계별로 다른 요격 층(외기권 SM-3 → 대기권 내
         # SM-6 Block IB)으로 전환된다. 기본 OFF면 altitude_m 고정 → 회귀 bit-identical.
-        self._hgv_glide        = bool(cfg.get('enable_hgv_glide', False))
-        self._bal_descent      = bool(cfg.get('enable_ballistic_descent', False))
+        # v20.5: 둘 다 정규 승격 + 기본 ON. 활공·강하는 '선택적 전술 옵션'이 아니라 위협의
+        # 물리적 실제다 — OFF는 극초음속이 60km, 탄도가 1,200km 고도를 유지한 채 함대에
+        # 명중하는 비물리 상태이고, 그 상태에선 고도 교전창을 가진 종말 요격층(패트리엇·
+        # 천궁-II 등)이 구조적으로 영원히 발사하지 못한다. 토글은 비교·디버그용으로 남긴다.
+        self._hgv_glide        = bool(cfg.get('enable_hgv_glide', True))
+        self._bal_descent      = bool(cfg.get('enable_ballistic_descent', True))
         # v16.12 정찰 드론(A-1): 무인 ISR 드론이 수평선 너머(OTH) 표적을 함대 데이터링크로
         # 중계 → 생존 중 함대 실효 레이더 탐지거리에 recon_detect_bonus_km 가산.
         # 기본 OFF면 recon 역할 드론이 편성 안 돼 _recon_bonus_km=0 유지 → 회귀 bit-identical.
