@@ -199,6 +199,21 @@ _TDIFF_MIN      = 0.35    # 종합 계수 하한(요격 원천 불가 방지)
 # 끊어, ASW 재시도 탐지 보장을 차단한다(능동의 탐지 우위 ↔ 위치 노출 트레이드오프).
 _ASW_PING_EVADE_P   = 0.45    # 능동 핑 역탐지 후 잠수함 회피(접촉 단절) 성공 확률
 _ASW_CONTACT_LOST_S = 600.0   # 접촉 단절(잠항 도주) 지속 — 재탐지·재발사 불가
+# v20.5(B-3) 재탐색 제한: 'max_attempts회 실패 → 표적 포기'가 실제로 포기가 되게 하는 쿨다운.
+# 이 상수가 없으면 포기한 항공기가 다음 틱에 같은 잠수함을 처음 보듯 다시 3회 시도해
+# **사실상 탐지가 보장**되고, 그러면 EMCON 딜레마('능동을 켜면 들키지만 안 켜면 못 찾는다')가
+# 성립할 수 없다 — 잠수함이 접촉을 끊어도 시간만 지나면 반드시 재탐지되기 때문.
+# 900초 = 소노부이 패턴을 새로 전개하고 재접촉을 시도하는 데 드는 시간의 보수적 근사
+# (접촉 단절 600초보다 길어야 '끊고 도주'가 실제 이득이 된다).
+_ASW_GIVEUP_COOLDOWN_S = 900.0
+# v20.5(B-3) datum 성장(furthest-on circle) — 표준 대잠 교리 개념.
+# 항공 대잠 탐지확률은 '잠수함이 어디 있는지 얼마나 아는가'(datum 오차)에 좌우된다. 접촉이
+# 유지되는 동안은 오차가 작지만, 접촉이 끊기면 잠수함이 갈 수 있는 원이 **경과 시간 × 속도**로
+# 커져 소노부이 패턴이 그 원을 덮지 못하게 된다. 기존 코드는 datum을 1500m로 **고정**해
+# 항공기가 잠수함 위치를 항상 아는 셈이었고, 그래서 탐지확률이 상한 0.97에 붙어
+# **탐지가 사실상 보장**됐다 — 그러면 잠수함이 접촉을 끊어도(EMCON 회피) 아무 이득이 없다.
+# 임의 계수를 새로 만들지 않는다: 반경 = 잠수함 속도 × 마지막 접촉 이후 경과 시간.
+_ASW_DATUM_BASE_M = 1500.0   # 접촉 유지 중 표정 오차(기존 고정값 — 접촉 직후의 값으로 유지)
 _ASW_EVADE_JUMP_M   = 6000.0  # 회피 기동 위치 점프(datum 무효화)
 MAX_RESPONSE_TIME_S = 120  # 포팅 D: REQ-02 최대 허용 응답시간 (초)
 
@@ -1164,6 +1179,7 @@ class EnemyThreatObj:
     ambush_revealed       = _et_col('_et_ambush_revealed')
     counter_evade_until   = _et_col('_et_counter_evade_until')  # v16.01.03: 능동 핑 역탐지 회피 만기
     contact_lost_until    = _et_col('_et_contact_lost_until')   # v16.1: 능동 핑 노출→회피 잠항 도주(접촉 단절) 만기
+    last_contact_t        = _et_col('_et_last_contact_t')       # v20.5(B-3): 마지막 소나 접촉 시각(datum 갱신)
 
     # ── 메서드 ────────────────────────────────────────────────────────────────
     def take_hit(self, weapon_name: str, t: float):
@@ -1427,6 +1443,10 @@ class FriendlyAircraftObj:
         self._next_attempt: float = 0.0     # 다음 탐지 시도 가능 시각
         self._detect_fails: int   = 0       # 현재 표적 누적 탐지 실패 수
         self._search_target = None          # 현재 수색 중인 표적 (EnemyThreatObj)
+        # v20.5(B-3): 포기한 표적별 재접촉 금지 시각 {표적 uid: t_until}.
+        # 이게 없으면 '표적 포기'가 포기가 아니다 — 실패 카운터가 0으로 리셋된 채 idle로
+        # 돌아가므로 다음 틱에 같은 잠수함을 처음 보듯 다시 탐색해 사실상 무한 재탐색이 된다.
+        self._asw_giveup: dict = {}
         self._strike_cooldown_until: float = 0.0  # v10.6: AAS 교전 쿨다운
         # v16.12: 정찰 드론(aircraft_role='recon') 전용 상태
         self._recon_lost:      bool  = False  # 격추되면 True → 탐지 중계 중단
@@ -1488,6 +1508,11 @@ class TimeStepEngine:
         # v16.01.03 능동 소나 핑 역탐지: 능동 소나로 적 잠수함을 탐지하면 잠수함도 핑을 역탐지해
         # 은닉 해제·어뢰 반격 앞당김 + 회피 기동(접촉 급감). 기본 OFF면 기존 동작 보존.
         self._sonar_emcon      = bool(cfg.get('enable_sonar_emcon', False))
+        # v20.5(B-3) 대잠 재탐색 제한: '표적 포기' 후 재접촉 쿨다운을 실제로 적용한다.
+        # 이것이 없으면 대잠 항공기가 무한 재탐색해 탐지가 사실상 보장되고, 잠수함이 접촉을
+        # 끊는 행위(EMCON 회피)가 아무 이득이 없다 → 능동 소나 딜레마가 성립 못 함.
+        # 기본 OFF면 기존 동작 보존(실험적).
+        self._asw_contact_limit = bool(cfg.get('enable_asw_contact_limit', False))
         # v16.1 ASW 전진 초계: 대잠 항공기가 함대 수동 대기 대신 전개 사거리 안의 잠수함으로
         # 전진(transit) → 탐지권 도착 후 교전. 기본 OFF면 기존(기함 기준 탐지) 보존.
         self._asw_forward      = bool(cfg.get('enable_asw_forward', False))
@@ -1791,6 +1816,7 @@ class TimeStepEngine:
         self._et_ambush_revealed: list      = []
         self._et_counter_evade_until: list  = []   # v16.01.03: 능동 핑 역탐지 시 회피 기동 만기 시각
         self._et_contact_lost_until: list   = []   # v16.1: 능동 핑 노출 후 회피 잠항 도주(접촉 단절) 만기
+        self._et_last_contact_t: list       = []   # v20.5(B-3): 마지막 소나 접촉 시각(datum 성장 기준)
 
     def _new_threat(self, preset_name: str, pos: 'LatLon') -> EnemyThreatObj:
         """적 플랫폼 위협 1기 생성 — ENEMY_DB 파생값 계산 후 _et_* 컬럼에 행 추가, proxy 반환.
@@ -1852,6 +1878,7 @@ class TimeStepEngine:
         self._et_ambush_revealed.append(False)
         self._et_counter_evade_until.append(0.0)
         self._et_contact_lost_until.append(0.0)
+        self._et_last_contact_t.append(0.0)
 
         return EnemyThreatObj(self, len(self._et_uid) - 1)
 
@@ -4041,6 +4068,13 @@ class TimeStepEngine:
                 # v9.6: 기습 잠수함 은닉 중 — 아군 탐지·교전 불가
                 if et.is_sub and self.t < et.hidden_until:
                     continue
+                # v20.5(B-3): 능동 핑 노출 후 잠항 도주 중이면 **함정 소나도 접촉을 잃는다**.
+                # 이게 없으면 잠수함이 항공기를 따돌려도 함정이 계속 접촉을 유지해 datum이
+                # 갱신되고, 결국 항공기가 다시 찾아낸다 — 도주가 아무 이득이 없어진다.
+                # (OFF면 기존 동작 그대로: 함정은 도주 중에도 접촉 유지)
+                if (self._asw_contact_limit and et.is_sub
+                        and self.t < et.contact_lost_until):
+                    continue
 
                 dist_m   = ship.pos.dist_to(et.pos)
                 category = et.category
@@ -4059,6 +4093,8 @@ class TimeStepEngine:
                         if dist_m > detect_m:
                             continue
                     # res True → 탐지 성공, 통과
+                    if et.is_sub:
+                        et.last_contact_t = self.t   # v20.5(B-3): 접촉 유지 → datum 초기화
                 else:
                     if et.is_sub:
                         detect_m *= self._thermocline_factor(et)
@@ -4067,6 +4103,8 @@ class TimeStepEngine:
                             detect_m *= 0.30
                     if dist_m > detect_m:
                         continue
+                    if et.is_sub:
+                        et.last_contact_t = self.t   # v20.5(B-3): 접촉 유지 → datum 초기화
 
                 if et.is_ship:
                     en_route = sum(
@@ -4333,6 +4371,10 @@ class TimeStepEngine:
                 # v16.1: 능동 핑 노출 후 회피 잠항 도주 중 — 접촉 단절, 재탐지 불가
                 if self.t < et.contact_lost_until:
                     continue
+                # v20.5(B-3): 이 기체가 포기한 표적은 재접촉 쿨다운 동안 다시 붙잡지 않는다.
+                # (OFF면 _asw_giveup이 비어 있어 무조건 통과 → 기존 동작 bit-identical)
+                if self.t < ac._asw_giveup.get(id(et), 0.0):
+                    continue
                 # 이미 어뢰가 향하고 있으면 패스
                 if any(m.alive and m.target is et and m.mtype == 'friendly_strike'
                        for m in self.missiles):
@@ -4397,6 +4439,19 @@ class TimeStepEngine:
                 '박무 / 흐림': 0.90, '강우 / 강설': 0.80,
                 '폭풍':        0.65, '태풍':        0.50}.get(weather, 1.00)
 
+    def _asw_datum_m(self, et) -> float:
+        """항공 대잠 탐지의 표정 오차(datum) 반경 — 마지막 소나 접촉 이후 성장.
+
+        표준 대잠 교리의 furthest-on circle: 접촉이 끊긴 뒤 잠수함이 도달 가능한 반경은
+        (경과 시간 × 잠수함 속도)로 커진다. 접촉을 유지 중이면 기존 고정값과 같다.
+        enable_asw_contact_limit OFF면 기존 상수(1500m) 그대로 → bit-identical.
+        """
+        if not self._asw_contact_limit:
+            return _ASW_DATUM_BASE_M
+        elapsed = max(0.0, self.t - getattr(et, 'last_contact_t', 0.0))
+        v_sub   = max(getattr(et, 'speed_ms', 0.0) or 0.0, 1.0)
+        return _ASW_DATUM_BASE_M + v_sub * elapsed
+
     def _asw_detect_check(self, ac: 'FriendlyAircraftObj',
                           et: 'EnemyThreatObj',
                           primary: 'FriendlyShipObj'):
@@ -4408,9 +4463,12 @@ class TimeStepEngine:
         if self.cfg.get('enable_sonar_equation', False):
             # v12.3: dB 소나 방정식 — 디핑/소노부이 수동·능동 통합 Pd (날씨만 곱)
             sensor_key = 'dipping' if ac.info.get('asw_mode') == 'dipping' else 'sonobuoy'
-            # 항공기는 표적 상공으로 전개 — 함정 거리가 아닌 표정 오차 거리에서 탐지
-            # (datum 불확실성 ~1.5km). 정온 잠수함은 능동(디핑·소노부이)이 있어야 탐지.
-            pd, _ = self._sonar_eq_pd(et, 1500.0, sensor_key)
+            # 항공기는 표적 상공으로 전개 — 함정 거리가 아닌 표정 오차 거리에서 탐지.
+            # 정온 잠수함은 능동(디핑·소노부이)이 있어야 탐지.
+            # v20.5(B-3): datum을 1500m로 고정하면 항공기가 잠수함 위치를 늘 아는 셈이 되어
+            # 탐지확률이 상한(0.97)에 붙고 탐지가 사실상 보장된다 → EMCON 딜레마 성립 불가.
+            # 접촉이 끊긴 시간만큼 오차원이 커지게 한다(furthest-on circle).
+            pd, _ = self._sonar_eq_pd(et, self._asw_datum_m(et), sensor_key)
             if pd is not None:
                 prob = min(pd * wx_factor, 0.97)
             else:
@@ -4495,9 +4553,16 @@ class TimeStepEngine:
                 ac._asw_phase     = 'idle'
                 ac._search_target = None
                 ac._detect_fails  = 0
+                # v20.5(B-3): 포기를 실제 포기로 만든다 — 쿨다운 동안 이 표적 재탐색 금지.
+                # OFF면 기록만 안 해 기존(무한 재탐색) 동작 그대로 보존.
+                _giveup_s = 0.0
+                if self._asw_contact_limit:
+                    _giveup_s = _ASW_GIVEUP_COOLDOWN_S
+                    ac._asw_giveup[id(et)] = self.t + _giveup_s
                 self._log(
                     f"[대잠 탐지 실패] {ac.name} → {et.preset_name} "
                     f"{max_att}회 시도 모두 실패 (확률 {prob:.0%}) — 표적 포기"
+                    + (f" (재접촉 시도까지 {_giveup_s:.0f}초)" if _giveup_s else "")
                 )
             else:
                 ac._asw_phase     = 'cooldown'

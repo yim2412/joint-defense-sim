@@ -90,6 +90,16 @@ CASES = [
                                  enemy_fleet_preset='전자전 SEAD 제압',
                                  enable_esm_arm=True,
                                  enable_target_difficulty=True),                     [3, 11]),
+    # v20.5(B-3) — 대잠 접촉 유지(datum 성장) × 능동 소나 EMCON. 이 둘은 **짝**이다:
+    # datum을 고정하면 항공기가 잠수함 위치를 늘 아는 셈이라 탐지확률이 상한(0.97)에 붙어
+    # 탐지가 사실상 보장되고, 그러면 잠수함이 핑을 역탐지해 도주해도(EMCON) 아무 이득이 없다.
+    # 접촉이 끊긴 시간만큼 오차원이 커져야 도주가 실제 생존으로 이어진다. 이 연결이 조용히
+    # 풀리면 '토글은 켜져 있는데 효과가 0'인 상태로 되돌아가므로 아군 피격·손실로 봉인한다.
+    ('대잠접촉-EMCON',   dict(_BASE, fleet_preset='대잠전단',
+                                 enemy_fleet_preset='잠수함 복합 포화',
+                                 enable_helo=True, enable_p3c=True,
+                                 enable_sonar_emcon=True,
+                                 enable_asw_contact_limit=True),                     [4, 5]),
     # v20.5(B-2 잔여) — 표적 난이도 × 탄도. 속도 계수는 탄도·극초음속 표적에 **면제**된다:
     # SM-3·THAAD의 pk_base는 이미 마하 10급 탄도를 상대로 매긴 값이라, 거기 속도 페널티를
     # 또 곱하면 요격 전용 계층이 자기 설계 표적에 벌점을 받는 이중 계상이 된다. 면제가

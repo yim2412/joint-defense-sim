@@ -1,7 +1,21 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.08 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v18.05.10 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v18.05.10 — 대잠 접촉 유지(datum 성장): EMCON 딜레마가 성립하게 만듦]     ║
+║  NEW-A  대잠 항공 탐지확률이 97%로 사실상 고정 = 탐지 보장이었다. 뿌리는    ║
+║         datum(표정 오차)을 1500m로 **고정**해 항공기가 잠수함 위치를 늘     ║
+║         아는 셈이었던 것. 탐지가 보장되면 잠수함이 핑을 역탐지해 도주해도   ║
+║         이득이 0 → EMCON 딜레마가 성립 불가. → 마지막 접촉 이후 경과시간 × ║
+║         잠수함 속도로 오차원이 커지게(furthest-on circle, 표준 교리).       ║
+║         접촉 단절 중엔 함정 소나도 접촉을 잃어야 도주가 실제 생존이 된다.   ║
+║         EMCON 효과: 피격 +0.08→+0.12 · 손실 0.04→0.08척. OFF bit-identical.║
+║  ⚠ 잔여: 잠수함이 원거리 발사 후 이탈해 절대 피해 규모 자체가 작다.        ║
+║  [v18.05.09 — 레이저 음성 판정의 근거 수치 정정 (판정은 유지)]             ║
+║  BUG-1  직전 판정의 근거 측정에서 적 편대가 생성되지 않아(위협 0) '피격 0· ║
+║         손실 0'이 나왔다 — 레이저가 무용해서가 아니라 적이 없어서였다.     ║
+║         적이 실재하는 조건(요격률 0.410·피격 1.16)에서 재측정해도 레이저   ║
+║         격추 0·ON/OFF 동일 → 음성 판정은 유지, 근거 수치만 교체.           ║
 ║  [v18.05.08 — 레이저 효능 최종 판정: 음성 확정 종결 (v20.5 B-4)]            ║
 ║  DEL-A  _PLANS의 v17.2(레이저) 종결 제거. 재측정(표적난이도·회피기동 기본   ║
 ║         ON, 3시나리오×15시드): 레이저 격추 0.00·피격 0.00·손실 0.00 —       ║
@@ -1421,7 +1435,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.08"
+APP_VERSION = "v18.05.10"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -7035,6 +7049,8 @@ class MainWindow(QMainWindow):
             self.chk_target_difficulty.setChecked(cfg.get('enable_target_difficulty', True))
         if hasattr(self, 'chk_sonar_emcon'):
             self.chk_sonar_emcon.setChecked(cfg.get('enable_sonar_emcon', False))
+        if hasattr(self, 'chk_asw_contact_limit'):
+            self.chk_asw_contact_limit.setChecked(cfg.get('enable_asw_contact_limit', False))
         if hasattr(self, 'chk_cyber'):
             self.chk_cyber.setChecked(cfg.get('enable_cyber_warfare', False))
         if hasattr(self, 'chk_hgv_glide'):
@@ -7790,6 +7806,21 @@ class MainWindow(QMainWindow):
         )
         self.chk_sonar_emcon.setChecked(False)
 
+        self.chk_asw_contact_limit = QCheckBox(
+            "대잠 접촉 유지 — 접촉이 끊기면 잠수함을 놓친다 (실험적)")
+        self.chk_asw_contact_limit.setToolTip(
+            "대잠 항공 탐지에 표정 오차(datum)를 반영합니다. 실제 대잠전에서 잠수함의 추정\n"
+            "위치는 마지막 접촉 이후 시간이 흐를수록 넓어집니다(잠수함 속도 × 경과 시간).\n"
+            "  · 접촉을 유지하는 동안은 오차가 작아 소노부이·디핑소나가 잘 찾습니다\n"
+            "  · 잠수함이 잠항 도주해 접촉이 끊기면 수색 구역이 넓어져 탐지가 어려워집니다\n"
+            "  · 몇 차례 실패해 표적을 포기하면 재접촉 시도까지 시간이 걸립니다\n"
+            "이것이 없으면 대잠 항공기가 잠수함 위치를 늘 아는 셈이 되어 탐지가 사실상\n"
+            "보장되고, 능동 소나 역탐지(EMCON)를 켜도 잠수함이 숨을 방법이 없습니다.\n"
+            "능동 소나 핑 역탐지·소나 방정식과 함께 켜야 효과가 드러납니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_asw_contact_limit.setChecked(False)
+
         self.chk_cyber = QCheckBox("사이버전 — 데이터링크 변조·전투정보실 마비·레이더 교란 반격 (실험적)")
         self.chk_cyber.setToolTip(
             "적 사이버 공격과 아군 반격을 모델링합니다. 일정 주기마다 침투를 시도해 성공하면\n"
@@ -7893,7 +7924,7 @@ class MainWindow(QMainWindow):
                     self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
                     self.chk_enemy_sead,
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_target_difficulty,
-                    self.chk_sonar_emcon,
+                    self.chk_sonar_emcon, self.chk_asw_contact_limit,
                     self.chk_cyber, self.chk_hgv_glide, self.chk_asw_forward]:
             _wire_chk_color(chk, 13)
 
@@ -7937,6 +7968,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("",            self.chk_esm_arm)
         fl_env.addRow("",            self.chk_target_difficulty)
         fl_env.addRow("",            self.chk_sonar_emcon)
+        fl_env.addRow("",            self.chk_asw_contact_limit)
         fl_env.addRow("",            self.chk_cyber)
         fl_env.addRow("",            self.chk_hgv_glide)
         fl_env.addRow("",            self.chk_asw_forward)
@@ -9880,6 +9912,7 @@ class MainWindow(QMainWindow):
             'enable_esm_arm': self.chk_esm_arm.isChecked(),  # v16.1: 레이더 방사↔ESM/ARM 역탐지(실험적)
             'enable_target_difficulty': self.chk_target_difficulty.isChecked(),  # v20.5: 요격 Pk에 표적 속도·RCS 반영(v18.05.07 정규·기본 ON)
             'enable_sonar_emcon': self.chk_sonar_emcon.isChecked(),  # v16.1: 능동 소나 핑 역탐지(실험적)
+            'enable_asw_contact_limit': self.chk_asw_contact_limit.isChecked(),  # v20.5: 대잠 datum 성장·접촉 단절(실험적)
             'enable_cyber_warfare': self.chk_cyber.isChecked(),  # v16.3: 사이버전 침투(실험적)
             'enable_hgv_glide': self.chk_hgv_glide.isChecked(),  # v16.2: 극초음속 활공 궤적(실험적)
             'enable_asw_forward': self.chk_asw_forward.isChecked(),  # v16.1: 대잠 항공 전진 초계(정규)
@@ -12007,15 +12040,16 @@ class SplashWindow(QWidget):
              "새 기능을 만드는 것이 아니라 이미 만든 기능의 가치를 회수하는 작업이며, "
              "합동작전(v21) 같은 상위 층을 얹기 전에 아래 층이 제 값을 하는지 확인하는 순서다."),
             # ── v16.x — 전장 도메인 확장 (아래 v16.1은 미완 — v20.5에서 재조사) ──
-            ("v16.1", "높음", "대잠전 균형 (능동 소나 EMCON — v20.5에서 재조사)",
-             "전자전·능동 방사 역탐지(ESM→대방사미사일 유도, 능동 소나 핑 역탐지)와 대잠 항공 전진 초계는 "
-             "v16.01.01~04에서 구현 완료 — 전진 초계로 잠수함 격침·대잠 교전이 크게 늘었다. "
-             "남은 과제: 능동 소나 역탐지(EMCON 딜레마)의 효과가 결과에 드러나지 않는다. 검증 결과 단순 수치 조정으로는 "
-             "불가 — 대잠 항공기가 시간 내내 재탐색을 반복해 사실상 탐지가 보장되고, 위협 잠수함은 원거리에서 발사 후 "
-             "이탈하기 때문이다. 해결하려면 탐지가 보장되지 않는 구조적 대잠 모델 변경(소나 접촉 단절·소노부이 "
-             "지속시간/커버리지 한계·핑 노출 후 영구 회피)이 필요하다. "
-             "【v20.5 관점】이것도 '경쟁 경로가 제한 없이 표적을 처리해 해당 기능의 차례가 오지 않는' 구조로, "
-             "SM-3 사례와 같은 유형이다 — 대잠 항공 재탐색에 한계를 두어야 딜레마가 성립한다."),
+            ("v16.1", "중간", "대잠전 균형 (능동 소나 EMCON — 딜레마 성립, 피해 규모는 잔여)",
+             "능동 소나 역탐지의 효과가 결과에 드러나지 않던 문제의 뿌리를 규명해 해결했다(대잠 접촉 유지). "
+             "원인은 재탐색 횟수가 아니라 그 앞단이었다 — 잠수함의 추정 위치 오차를 1.5km로 고정해 둬서 "
+             "대잠 항공기가 잠수함이 어디 있는지 항상 아는 셈이었고, 그래서 탐지 확률이 97%로 사실상 고정돼 "
+             "탐지가 보장됐다. 탐지가 보장되면 잠수함이 핑을 역탐지해 도주해도 아무 이득이 없어 "
+             "EMCON 딜레마가 성립할 수 없다. 이제 접촉이 끊긴 시간만큼 수색 구역이 넓어져(잠수함 속도 × 경과 시간), "
+             "도주가 실제 생존으로 이어진다. "
+             "【남은 과제】딜레마는 성립했으나 효과의 절대 크기가 아직 작다 — 위협 잠수함이 원거리에서 발사한 뒤 "
+             "이탈해 애초에 아군 피해 규모 자체가 작기 때문이다. 잠수함의 교전 방식(접근·재공격·매복)을 "
+             "손대야 대잠전이 실제 균형을 갖는다."),
             # ── v17.x — 군수·미래 전장 ────────────────────────────────────────
             # v17.2 지향성 에너지 무기(레이저) = v20.5에서 **최종 판정 종결**(v18.05.08).
             #   재측정(표적 난이도·회피 기동 기본 ON 상태, 3시나리오×15시드): 레이저 격추 0.00 —
