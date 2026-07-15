@@ -50,6 +50,19 @@ SCENARIOS = [
     ('BMD탄도',  dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='BMD 탄도 포화',
                       enable_ashore=True, enable_thaad=True, enable_lsam=True,
                       enable_chungung=True, enable_patriot=True)),
+    # ── 부채17 청소 A+B(2026-07-15) 발현 무대 추가 ────────────────────────────
+    # A. BMD 하위계층은 20발 BMD탄도에선 상위층(SM-3·THAAD)이 흡수해 안 내려옴 → 40발 대량
+    #    포화라야 patriot/lsam/chungung까지 샌다(v18.04.07서 확인). ballistic_descent·isa 발현 무대.
+    ('대량탄도', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='북한 포화 공격 (40발)',
+                      enable_ashore=True, enable_thaad=True, enable_lsam=True,
+                      enable_chungung=True, enable_patriot=True)),
+    # A. hgv_glide는 극초음속 활공체(DF-17·YJ-21)가 있어야 단계별 고도강하 발현.
+    ('극초음속', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='극초음속 포화 공격',
+                      enable_ashore=True, enable_thaad=True, enable_lsam=True,
+                      enable_chungung=True, enable_patriot=True)),
+    # B. terrain(지형 레이더 음영)은 저고도 위협(alt<1000m)이라야 탐지거리 페널티가 결과에 드러남.
+    #    _BASE fleet_region='동해 북부'=EAST_SEA(페널티 0.78 최강). 연안 자폭드론·로켓·고속정 다수.
+    ('연안저고도', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='연안 포화 공격')),
 ]
 
 # ON/OFF 델타를 관찰할 지표(광범위 — 어느 하나라도 움직이면 '살아 있음'). 다양한 도메인 커버.

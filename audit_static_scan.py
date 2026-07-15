@@ -365,25 +365,29 @@ def chk_flag_consume_auto():
 # (초안 '33개'는 추정치. 실측 = engine_combat `.get()`/`cfg[]` 소비 50개 − PROBES 7 = 43.)
 # 항공기 자산 토글(f35a·kf21·helo 등)·캠페인/공군/육군 토글은 engine_combat 미소비라 자동 제외.
 EFFECT_DEBT = {
-    # ⚪ 카운터필요(15) — 첫 스캔 5시나리오에서 델타0. 대부분 무대 부족(BMD 하위계층=더 큰 탄도
-    #   포화 · terrain=지형 위치 · isa=고고도). ② 발현 카운터 시딩 + 적정 시나리오면 판정 가능.
-    'enable_anti_sam', 'enable_ashore', 'enable_asw_contact_limit', 'enable_ballistic_descent',
-    'enable_cec_preassign', 'enable_chungung', 'enable_decoy', 'enable_hgv_glide', 'enable_isa',
-    'enable_lsam', 'enable_minesweeping', 'enable_patriot', 'enable_selfdefense', 'enable_terrain',
+    # ⚪ 카운터필요(11) — 델타0. BMD 지상자산(ashore/thaad/lsam/chungung/patriot)·anti_sam은
+    #   40발 대량탄도·연안 무대서도 델타0 → 짝 기능/발사조건 미충족 추정, ② 카운터 시딩 후 판정.
+    #   나머지(decoy/selfdefense/cec_preassign=기본방어 흡수, asw/mine=대잠·기뢰 짝 기능).
+    'enable_anti_sam', 'enable_ashore', 'enable_asw_contact_limit',
+    'enable_cec_preassign', 'enable_chungung', 'enable_decoy',
+    'enable_lsam', 'enable_minesweeping', 'enable_patriot', 'enable_selfdefense',
     'enable_thaad',
     # ⬛ 전장전용(2) — 단발 스캐너 대상 밖. 전장 스모크에서 판정.
     'enable_battle_mode', 'enable_ras_rearm',
 }
 
-# ④ 스캐너가 살아있음 입증한 상환 완료 토글(첫 전수 스캔 2026-07-16). 재현: python audit_dead_toggle.py
+# ④ 스캐너가 살아있음 입증한 상환 완료 토글. 첫 전수 스캔 2026-07-16 + A+B 재스캔 2026-07-15
+#    (부채17 청소: ballistic_descent·hgv_glide·isa·terrain 발현 무대 추가로 델타 확인). 재현: python audit_dead_toggle.py
 EFFECT_ALIVE = {
-    'enable_asw_forward', 'enable_autonomous_engagement', 'enable_cec', 'enable_cec_jammed',
+    'enable_asw_forward', 'enable_autonomous_engagement', 'enable_ballistic_descent',
+    'enable_cec', 'enable_cec_jammed',
     'enable_current', 'enable_ecm', 'enable_esm_arm', 'enable_evap_duct', 'enable_evasion',
-    'enable_flooding', 'enable_iff', 'enable_laser_dew', 'enable_layered_defense',
+    'enable_flooding', 'enable_hgv_glide', 'enable_iff', 'enable_isa', 'enable_laser_dew',
+    'enable_layered_defense',
     'enable_multibearing', 'enable_munition_limit', 'enable_radar_off', 'enable_random_placement',
     'enable_recon_drone', 'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation',
     'enable_standoff_spawn', 'enable_strike', 'enable_subsystem_damage', 'enable_target_difficulty',
-    'enable_weather_dynamics',
+    'enable_terrain', 'enable_weather_dynamics',
 }
 
 
