@@ -3999,6 +3999,7 @@ class SimWorker(QThread):
                 batch_done_n = 0
                 _phase_acc: dict = {}   # v8.26: 배치별 단계 타이밍 누적
                 _extra_acc: dict = {}   # v12.4·v12.6: 침수·IFF 통계 누적
+                _feat_acc:  dict = {}   # 죽은 기능 방지 ②: 기능별 발동 횟수 누적(dict라 별도 병합)
                 # 슬라이딩 윈도우 제출 — 전체 배치를 한 번에 풀에 던지지 않고
                 # 실행 중 배치를 코어×2로 제한. 중단 시 미제출 배치는 아예 돌지 않아
                 # 즉시 멈춤 (글로벌 풀은 앱 공유라 shutdown으로 못 끊기 때문).
@@ -4026,7 +4027,11 @@ class SimWorker(QThread):
                         for k, v in sh.items(): all_ship.setdefault(k, []).extend(v)
                         for k, v in wz.items(): all_wzero[k] = all_wzero.get(k, 0) + v
                         for k, v in pt.items(): _phase_acc[k] = _phase_acc.get(k, 0.0) + v
-                        for k, v in xs.items(): _extra_acc.setdefault(k, []).extend(v)
+                        for k, v in xs.items():
+                            if k == 'feature_fires':   # dict(int) — extend 금지, 키별 합산
+                                for _fk, _fv in v.items(): _feat_acc[_fk] = _feat_acc.get(_fk, 0) + _fv
+                            else:
+                                _extra_acc.setdefault(k, []).extend(v)
                         done_count += len(rates)
                         batch_done_n += 1
                         self.batch_done.emit(batch_done_n, len(batches))
@@ -4077,6 +4082,7 @@ class SimWorker(QThread):
                     'mean_iff_failures':        float(np.mean(_extra_acc.get('iff_failures', [0]))),
                     'mean_iff_fratricide':      float(np.mean(_extra_acc.get('iff_fratricide', [0]))),
                     'mean_laser_kills':         float(np.mean(_extra_acc.get('laser_kills', [0]))),
+                    'feature_fires_total':      dict(_feat_acc),   # 죽은 기능 방지 ②: 기능별 총 발동
                 }
                 _bo = _extra_acc.get('outcome', [])
                 if _bo:   # 전장 모드 — 병렬 MC 승률 집계

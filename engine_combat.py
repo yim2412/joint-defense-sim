@@ -51,7 +51,7 @@ v7.0 패치 이력:
     - _compile(): remaining_inventory·total_channels·peak_concurrent_threats·t_first_fire 추가
 """
 
-import math, random, os, time as _time, dataclasses
+import math, random, os, time as _time, dataclasses, collections
 from typing import List, Optional
 
 import matplotlib
@@ -1653,6 +1653,10 @@ class TimeStepEngine:
             # v17.1: RAS 탄약 재보급된 주요 SAM 총 발수 (지속 전장 전용 — 단발은 0 유지)
             'ras_missiles_resupplied': 0,
         }
+        # 발현 카운터 — 기능별 '효과 경로 진입/발동' 횟수(순수 계측, RNG 소비 금지).
+        # 죽은 기능 방지 ②: ④ 스캐너가 ON/OFF 델타 0을 '발동0(무대없음)'과 '발동N(진짜음성)'으로
+        # 구분하는 진단력을 만든다. feature_fires는 회귀 비교 _KEYS 밖이라 bit-identical 보존.
+        self._feat_fire = collections.Counter()
         weather = cfg.get('weather', '맑음 (주간)')
         self.wx = _make_physics_wx(weather)  # v9.13: Beaufort 물리값 override
 
@@ -2238,6 +2242,12 @@ class TimeStepEngine:
             return
         self._log_entries.append((self.t, msg))
         self._tick_events.append(msg)
+
+    def _feat(self, name: str):
+        """발현 카운터 — 기능 효과 경로 발동 시 1회 호출(순수 계측). _log와 달리
+        MC 모드에서도 켠다(출력이 아니라 숫자라 비용 무시). RNG를 절대 건드리지 않아야
+        회귀 bit-identical 유지 — 조건 평가 없이 카운트만."""
+        self._feat_fire[name] += 1
 
     def _threat_origin_bearing(self):
         """v15.03: 함대 위치에서 적 세력 발진 좌표로의 접근 방위(rad). 해결 불가 시 None.
@@ -3377,6 +3387,7 @@ class TimeStepEngine:
                 continue
             if not getattr(m, '_radar_off_triggered', False):
                 m._radar_off_triggered = True     # 로그는 최초 1회만
+                self._feat('radar_off')           # 발현 카운터: ARM별 최초 레이더 침묵 유발
                 self._log(
                     f"[레이더 OFF] {tgt.name} ARM {dist_m/1000:.0f}km 접근 탐지 — "
                     f"ARM 통과까지 레이더 침묵 ({m.name})"
@@ -3886,6 +3897,7 @@ class TimeStepEngine:
         tgt.alive = False
         tgt.intercepted = True
         self.stats['laser_kills'] += 1
+        self._feat('laser_dew')  # 발현 카운터: 레이저 조사 격추 성공
         if isinstance(tgt, MissileObj):
             tgt.t_intercept = self.t
             # 아음속 미사일 격추는 SAM과 동일하게 intercepted_threats에 집계(집계 규약 일치)
@@ -4508,6 +4520,7 @@ class TimeStepEngine:
                     ac._asw_phase     = 'idle'
                     ac._search_target = None
                     ac._detect_fails  = 0
+                    self._feat('sonar_emcon')  # 발현 카운터: 핑 역탐지→회피 성공(접촉 단절, EMCON 이득)
                     if not self._mc_mode:
                         self._log(f"[접촉 단절] {et.name} 능동 핑 노출 — 회피 잠항 도주, "
                                   f"접촉 상실(어뢰 투하 무산)")
@@ -5609,6 +5622,7 @@ class TimeStepEngine:
             'carrier_status':    carrier_status,               # v10.6
             'coverage':          coverage,                     # v14.1: 3D 커버리지 돔
             'enemy_tactic_switches': self._adaptive_switches,  # v15.01.03: 적 전술 전환 횟수
+            'feature_fires':     dict(self._feat_fire),        # 죽은 기능 방지 ②: 기능별 발동 횟수
         }
 
     def _build_coverage(self) -> dict:
@@ -6667,6 +6681,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     laser_kills: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
+    feat_total = collections.Counter()        # 죽은 기능 방지 ②: 회차 합산 발동 횟수
 
     step = max(1, n // 5)
     if desc:
@@ -6700,6 +6715,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
+        feat_total.update(r.get('feature_fires', {}))
 
         # 무기별 소모량 (초기 재고 - 잔여 재고) + 소진 횟수 집계
         for wpn, remaining in r.get('remaining_inventory', {}).items():
@@ -6769,6 +6785,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
+        'feature_fires_total':      dict(feat_total),   # 죽은 기능 방지 ②: 기능별 총 발동 횟수
         **_battle_agg(outcomes, fscores, n),
     }
 
@@ -6790,6 +6807,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     laser_kills: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
+    feat_total = collections.Counter()        # 죽은 기능 방지 ②: 배치 합산 발동 횟수
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
         run_cfg = dict(cfg)
@@ -6817,6 +6835,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
+        feat_total.update(r.get('feature_fires', {}))
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             weapon_usage.setdefault(wpn, []).append(remaining)
             if remaining == 0:
@@ -6840,7 +6859,8 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'patriot_fired': patriot_fired,
-                   'outcome': outcomes, 'friendly_score': fscores}
+                   'outcome': outcomes, 'friendly_score': fscores,
+                   'feature_fires': dict(feat_total)}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
 
 
@@ -6859,6 +6879,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     laser_kills: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
+    feat_total = collections.Counter()        # 죽은 기능 방지 ②: 배치 합산 발동 횟수
     for sample in samples:
         run_cfg = dict(cfg_base)
         for j, (key, lo, hi, _) in enumerate(param_defs):
@@ -6885,6 +6906,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         _oc = r.get('outcome')
         if _oc:
             outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
+        feat_total.update(r.get('feature_fires', {}))
         for wpn, remaining in r.get('remaining_inventory', {}).items():
             weapon_usage.setdefault(wpn, []).append(remaining)
         for ship in r.get('friendly_ships', []):
@@ -6898,7 +6920,8 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'patriot_fired': patriot_fired,
-                   'outcome': outcomes, 'friendly_score': fscores}
+                   'outcome': outcomes, 'friendly_score': fscores,
+                   'feature_fires': dict(feat_total)}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
 
 
@@ -6969,6 +6992,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     laser_kills: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
+    feat_total = collections.Counter()        # 죽은 기능 방지 ②: 회차 합산 발동 횟수
 
     n_workers = min(os.cpu_count() or 4, 8)
     batch_size = max(1, n // n_workers)
@@ -6998,6 +7022,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 patriot_fired.extend(bxs.get('patriot_fired', []))
                 outcomes.extend(bxs.get('outcome', []))
                 fscores.extend(bxs.get('friendly_score', []))
+                feat_total.update(bxs.get('feature_fires', {}))
                 for k, v in bwu.items(): weapon_usage.setdefault(k, []).extend(v)
                 for k, v in bsh.items(): ship_hits_mc.setdefault(k, []).extend(v)
                 done += futs[fut]
@@ -7030,6 +7055,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             _oc = r.get('outcome')
             if _oc:
                 outcomes.append(_oc); fscores.append(r.get('friendly_score', 0.0))
+            feat_total.update(r.get('feature_fires', {}))
             for wpn, rem in r.get('remaining_inventory', {}).items():
                 weapon_usage.setdefault(wpn, []).append(rem)
             for ship in r.get('friendly_ships', []):
@@ -7070,6 +7096,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
+        'feature_fires_total':      dict(feat_total),   # 죽은 기능 방지 ②: 기능별 총 발동 횟수
         **_battle_agg(outcomes, fscores, n),
     }
 
