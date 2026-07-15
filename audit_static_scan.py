@@ -349,6 +349,63 @@ def chk_flag_consume_auto():
           f"엔진 소비하나 UI/화이트리스트 없음: {hidden}" if hidden else 'OK(상시ON은 화이트리스트로 명시)')
 
 
+# ── ① 죽은 기능 방지 커밋 게이트 (plan_dead_feature_prevention.md) ──────────────
+# 신규 enable_* 토글이 '효과 프로브(audit_effect.py) 없이' 커밋되는 걸 pre-commit에서 차단.
+# v20.5에서 죽어 있던 기능들(레이더 침묵·EMCON·레이저·정찰 드론)은 전부 '메커니즘 구현→
+# OFF면 기존과 동일→회귀 PASS→실험적·OFF 커밋' 경로로 태어났다. 그 관문은 '안 깨뜨린다'만
+# 보고 '실제로 뭔가 한다'는 안 봤다. 이 게이트가 그 강제 장치다.
+#
+# EFFECT_DEBT: 게이트 도입 시점(2026-07-16)에 이미 프로브가 없던 engine_combat 소비 토글.
+# 명시적 부채로 유예한다 — 이게 없으면 게이트를 켜는 순간 기존 49개 때문에 모든 커밋이 막힌다.
+# **이 목록은 줄어들 수만 있다**: ④ audit_dead_toggle.py가 '살아있음' 판정한 토글을 하나씩
+# 제거(부채 상환)한다. 새 토글을 여기 추가하는 건 금지 — 그게 이 게이트의 존재 이유다.
+# (계획서 초안의 '33개'는 어제 추정치. 실측 = engine_combat이 `.get()`/`cfg[]`로 소비하는
+#  50개 − 프로브 커버 7개 = 43.) 항공기 자산 토글(enable_f35a·kf21·helo 등)은 engine_combat
+#  본문에 문자열로만 등장할 뿐 `.get()`으로 직접 소비되지 않아(app_main이 편성 시 참조) 대상 밖.
+# 캠페인/공군/육군 전용 토글(enable_air_campaign 등)도 engine_combat 미소비라 자동 제외
+# — audit_effect 프로브는 단발 교전 전용이라 그 도메인은 캠페인 스모크가 따로 검증한다.
+EFFECT_DEBT = {
+    'enable_anti_sam', 'enable_ashore', 'enable_asw_contact_limit', 'enable_asw_forward',
+    'enable_autonomous_engagement', 'enable_ballistic_descent', 'enable_battle_mode',
+    'enable_cec', 'enable_cec_jammed', 'enable_cec_preassign', 'enable_chungung',
+    'enable_current', 'enable_decoy', 'enable_ecm', 'enable_esm_arm', 'enable_evap_duct',
+    'enable_evasion', 'enable_flooding',
+    'enable_hgv_glide', 'enable_iff', 'enable_isa', 'enable_laser_dew',
+    'enable_layered_defense', 'enable_lsam', 'enable_minesweeping', 'enable_multibearing',
+    'enable_munition_limit', 'enable_patriot', 'enable_radar_off',
+    'enable_random_placement', 'enable_ras_rearm', 'enable_recon_drone', 'enable_selfdefense',
+    'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation', 'enable_standoff_spawn',
+    'enable_strike', 'enable_subsystem_damage', 'enable_target_difficulty', 'enable_terrain',
+    'enable_thaad', 'enable_weather_dynamics',
+}
+
+
+def chk_effect_coverage():
+    """① 커밋 게이트 — engine_combat이 소비하는 신규 enable_* 토글은 효과 프로브
+    (audit_effect.py의 PROBES)가 있어야 한다. 없고 EFFECT_DEBT 유예 목록에도 없으면 FAIL
+    (= 프로브 없이 태어난 신규 죽은 기능 후보). 부채는 줄기만 하고 늘 수 없다."""
+    ev = rd('engine_combat.py')
+    consumed = set(re.findall(r"\.get\(['\"](enable_\w+)", ev)) | set(re.findall(r"cfg\[['\"](enable_\w+)", ev))
+    guard_count('①', '엔진 소비 플래그(효과커버 검사 기반)', len(consumed), 40)
+    ae = rd('audit_effect.py')
+    covered = set(re.findall(r"^\s*'(enable_\w+)'\s*:\s*\(", ae, re.M))  # PROBES 딕셔너리 키
+    guard_count('①', '효과 프로브 등재(PROBES)', len(covered), 5)
+    # (1) 신규 미커버 = 소비하나 프로브도 없고 부채 유예도 아님 → 게이트 위반
+    uncovered = sorted(consumed - covered - EFFECT_DEBT)
+    check('①', f'신규 토글 효과 프로브 필수(부채 {len(EFFECT_DEBT & consumed)}개 잔여)',
+          not uncovered,
+          f"프로브 없는 신규 토글 — audit_effect.py PROBES에 효과 프로브 추가 필요: {uncovered}"
+          if uncovered else f'OK(프로브 {len(covered)}개 커버 · 부채 유예 {len(EFFECT_DEBT & consumed)}개)')
+    # (2) 부채 상환 위생 — 프로브가 생겼는데 부채에 잔류하면 제거하라고 안내(부채는 줄어야 함)
+    repaid = sorted(EFFECT_DEBT & covered)
+    check('①', '부채 상환 반영(프로브 생기면 EFFECT_DEBT서 제거)', not repaid,
+          f"프로브가 생겼으니 EFFECT_DEBT에서 제거: {repaid}" if repaid else 'OK(중복 없음)')
+    # (3) 삭제된 토글 위생 — 부채에 있으나 이제 소비 안 함 → 목록 청소 안내
+    stale_debt = sorted(EFFECT_DEBT - consumed)
+    check('①', 'EFFECT_DEBT 유효성(삭제된 토글 잔류 없음)', not stale_debt,
+          f"이제 engine_combat이 소비 안 함 — EFFECT_DEBT서 제거: {stale_debt}" if stale_debt else 'OK')
+
+
 def chk_widget_dup():
     """① 위젯 attr 이름 충돌 — 같은 self.chk_XXX가 QCheckBox로 2번+ 정의되면 나중 정의가
     이겨 앞 위젯이 orphan(화면엔 보이나 참조 상실)이 된다. v19.4 chk_strike 충돌
@@ -524,6 +581,7 @@ def chk_preset_desc():
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
+               chk_effect_coverage,
                chk_spec_count, chk_div_guards, chk_mc_paths, chk_golden_coverage,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts, chk_preset_desc,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
