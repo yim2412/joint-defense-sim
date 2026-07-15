@@ -137,22 +137,28 @@
 ### ✅ A+B 완료 (2026-07-15, 부채 17→13)
 `audit_dead_toggle.SCENARIOS`에 3무대 추가(`대량탄도`=북한 40발+지상BMD자산 · `극초음속`=DF-17/YJ-21 20발 · `연안저고도`=연안 포화)하고 A+B 10토글 재스캔(206초).
 - **살아있음 4개 → EFFECT_ALIVE 이관**: `ballistic_descent`(대량탄도서 델타 5.5e7) · `hgv_glide`(극초음속서 friendly_hits) · `isa`(연안저고도) · `terrain`(연안저고도 델타 8.8e6). 정적 51/51 PASS + 게이트 검출력(terrain 제거 시 FAIL) 재확인.
-- **⚠ 예상 밖 — BMD 지상자산 6개(`ashore`·`thaad`·`lsam`·`chungung`·`patriot`·`anti_sam`)는 40발 대량탄도·연안 무대서도 여전히 델타0**. plan 초안의 "40발이면 하위계층까지 샌다" 가설이 **틀렸다**. METRICS에 `ashore_sm3_fired`·`thaad_fired` 등 발사 카운터가 이미 있는데도 0 = **지상 BMD가 아예 발사를 안 한다**(무대 부족이 아니라 발사 조건/짝 기능 미충족). → C그룹으로 이월, 카운터 시딩 전에 **왜 지상 BMD 발사 경로를 안 타는지 코드 규명 필요**(해상 SM-3가 다 흡수? 지상 자산 배치 위치/거리 게이트?).
 
-### 잔여 13 원인별 분류 (처방 다름)
+### ✅ A 규명 완료 (2026-07-15, 부채 13→8) — 원인은 '측정 결함'이었다
+**BMD 지상자산 6개가 40발 대량탄도서도 델타0이던 진짜 원인 = 스캐너 cfg가 UI 경로를 재현 못 함.**
+`ground_inv`는 `cfg['ashore_sm3_stock']` 등 **재고(*_stock)**로 채워지고(engine_combat 1677), 발사 조건이 `재고>0`을 본다. app_main UI는 체크박스 ON 시 재고를 자동 부여(24/24/16/32/16, app_main 10029~10039)하는데, **스캐너는 `enable_xxx` 토글만 켜고 재고를 0으로 뒀다** → 발사 원천 차단. **v18.05.08 레이저 오판(enemy_fleet_mode 누락)과 같은 유형 = 프로브 cfg가 실제 경로 미재현.**
+- **처방**: `audit_dead_toggle`에 `_BMD_GROUND`(토글+재고 짝) 신설, BMD 시나리오 3종에 적용.
+- **재스캔(121초) → BMD 5자산 전부 살아있음**: ashore(`ashore_sm3_fired+18`)·thaad(+24)·lsam(+4)·chungung(+12)·patriot(+14) 발사 카운터 확실. **EFFECT_ALIVE 이관, 부채 13→8**.
+- **⚠ 규칙 교훈**: 스캐너 시나리오는 토글뿐 아니라 **그 토글의 짝(재고·짝 기능)까지 UI와 동일하게** 줘야 발현. anti_sam만 남음(적 함정 SAM 몫이 작은 흡수형 추정 → C).
+
+### 잔여 8 원인별 분류 (처방 다름)
 
 | 그룹 | 토글 | 추정 원인 | 처방 |
 |------|------|-----------|------|
-| **A. BMD 지상자산·anti_sam** ⚠규명필요 | `ashore` `chungung` `lsam` `patriot` `thaad` `anti_sam` | 40발 대량탄도·연안 무대서도 델타0 + 발사카운터(`ashore_sm3_fired` 등) 0 → **지상 BMD가 아예 발사를 안 탐**. 무대 부족 아님 = 발사 조건/짝 기능/배치 게이트 문제 | **코드 규명 먼저**: 지상 BMD 발사 경로가 왜 안 도는지(해상 SM-3 흡수? 배치 위치/거리 게이트?) 추적 → 조건 충족 시나리오 or 짝 기능 켠 뒤 재스캔. anti_sam은 적 함정 SAM 몫이 작아 흡수형일 수도 → ② 카운터 시딩 |
-| **C. 기본 방어 흡수** | `decoy` `selfdefense` `cec_preassign` | 다른 방어가 몫을 흡수해 최종 지표 무변(델타0). ON/OFF가 결과에 안 드러남 | **② 카운터 시딩**(발동 지점에 `self._feat()`) → 발동N·델타0이면 '흡수형 정규기능'으로 EFFECT_ALIVE, 발동0이면 무대 규명 |
+| **C. 기본 방어 흡수** ◀다음 | `decoy` `selfdefense` `cec_preassign` `anti_sam` | 다른 방어가 몫을 흡수해 최종 지표 무변(델타0). ON/OFF가 결과에 안 드러남. anti_sam은 적 함정 SAM 몫이 작음 | **② 카운터 시딩**(발동 지점에 `self._feat()`) → 발동N·델타0이면 '흡수형 정규기능'으로 EFFECT_ALIVE, 발동0이면 무대 규명 |
 | **D. 대잠·기뢰** | `asw_contact_limit` `minesweeping` | 대잠/기뢰 시나리오에서 짝 기능·조건 미충족 추정 | 대잠 자산·기뢰 밀도 갖춘 시나리오로 재스캔 (`minesweeping`은 `enable_mine_threat`+UUV 짝 필요) |
 | **E. 전장 전용** | `battle_mode` `ras_rearm` | 단발 교전서 원리상 미발현 | **전장 모드 스캐너**(run_battle_simulation 기반) 별도 필요 or `_audit_campaign_smoke`에 편입 |
-| **B. 환경물리** ✅완료 | ~~`terrain` `isa`~~ | — | ✅ A+B 재스캔서 살아있음 입증 → EFFECT_ALIVE 이관 |
+| **A. BMD 지상자산** ✅완료 | ~~`ashore` `thaad` `lsam` `chungung` `patriot`~~ | — | ✅ 토글+재고(*_stock) 짝 주니 발현 → EFFECT_ALIVE |
+| **B. 환경물리** ✅완료 | ~~`terrain` `isa` `ballistic_descent` `hgv_glide`~~ | — | ✅ A+B 재스캔서 살아있음 입증 → EFFECT_ALIVE |
 
 ### 실행 순서 (권장)
-1. ~~**A+B**(시나리오 추가 → 재스캔)~~ ✅**완료** — 4개 상환(부채 17→13). B(terrain·isa)·ballistic_descent·hgv_glide 살아있음. **A의 BMD 지상자산 6개는 델타0으로 남음**(아래 2번으로 재분류).
-2. **A 규명**(다음 재개 지점): 지상 BMD 5자산+anti_sam이 왜 발사 경로를 안 타는지 **코드 추적**. `_ashore_intercept` 등 발사 게이트(배치 위치·해상 SM-3 흡수 순서) 확인. 조건 갖춘 무대/짝 기능 찾으면 재스캔, 진짜 흡수형이면 카운터 시딩으로 판정.
-3. **C**(카운터 시딩): 남은 흡수형(decoy·selfdefense·cec_preassign)에 `_feat()` 추가(회귀 bit-identical 재확인) → 재스캔으로 발동 여부 판정.
+1. ~~**A+B**(시나리오 추가 → 재스캔)~~ ✅**완료** — 4개 상환(부채 17→13). terrain·isa·ballistic_descent·hgv_glide 살아있음.
+2. ~~**A 규명**~~ ✅**완료** — 원인=측정 결함(토글 켰으나 재고 0). 재고 짝 주고 재스캔 → BMD 5자산 발현, **부채 13→8**.
+3. **C**(카운터 시딩) ◀**다음 재개 지점**: 흡수형(decoy·selfdefense·cec_preassign·anti_sam)에 `_feat()` 추가(회귀 bit-identical 재확인) → 재스캔으로 발동 여부 판정. 발동N·델타0이면 '흡수형 정규기능'으로 EFFECT_ALIVE.
 4. **D**(짝 기능 시나리오): 대잠·기뢰 무대 보강.
 5. **E**(전장 전용): 전장 스캐너는 별도 작업 — 우선순위 최하(단발 스캐너로 커버 불가가 정상).
 

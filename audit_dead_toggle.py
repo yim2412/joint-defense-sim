@@ -40,26 +40,33 @@ _SEEDED = {'enable_radar_off', 'enable_sonar_emcon', 'enable_laser_dew'}
 # 대표 시나리오 4종 — total_threats>0 이 보장되는 프리셋만(가드). 도메인을 서로 다르게 골라
 # '시나리오 복수' 가드를 충족(한 무대에만 맞는 토글이 다른 무대에서 죽은 걸로 오판되는 것 방지).
 # 대잠은 짝 기능(함재 헬기·초계기)을 켜야 sonar_emcon류가 발현하는 무대가 된다.
+# 지상 BMD 5자산 발현 짝 = 토글 + **재고(stock)**. ⚠ enable_xxx 토글만으론 발사 안 함 —
+# ground_inv가 cfg의 *_stock으로 채워지고(engine_combat 1677), 발사 조건이 재고>0을 본다.
+# app_main UI는 체크박스 ON 시 재고를 자동 부여(10029~10039). 스캐너도 같은 경로를 재현해야
+# 발현한다(안 그러면 토글만 켜고 재고 0 → 발사 0 → 델타0을 '죽음'으로 오판, v18.05.08 유형).
+_BMD_GROUND = dict(
+    enable_ashore=True,  enable_thaad=True, enable_lsam=True,
+    enable_chungung=True, enable_patriot=True,
+    ashore_sm3_stock=24, thaad_stock=24, lsam_stock=16, chungung_stock=32, patriot_stock=16,
+)
+
 SCENARIOS = [
     ('대공포화', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='입체 포화 (최강)')),
     ('수상함',   dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='수상함 편대전')),
     ('SEAD',     dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='전자전 SEAD 제압')),
     ('대잠',     dict(_BASE, fleet_preset='대잠전단',        enemy_fleet_preset='잠수함 복합 포화',
                       enable_helo=True, enable_p8a=True, enable_p3c=True)),
-    # BMD 5계층·탄도 종말강하·HGV 활공은 탄도 표적이 있어야 발현 — 지상 BMD 자산도 켠다.
+    # BMD 5계층·탄도 종말강하·HGV 활공은 탄도 표적이 있어야 발현 — 지상 BMD 자산+재고를 켠다.
     ('BMD탄도',  dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='BMD 탄도 포화',
-                      enable_ashore=True, enable_thaad=True, enable_lsam=True,
-                      enable_chungung=True, enable_patriot=True)),
+                      **_BMD_GROUND)),
     # ── 부채17 청소 A+B(2026-07-15) 발현 무대 추가 ────────────────────────────
     # A. BMD 하위계층은 20발 BMD탄도에선 상위층(SM-3·THAAD)이 흡수해 안 내려옴 → 40발 대량
     #    포화라야 patriot/lsam/chungung까지 샌다(v18.04.07서 확인). ballistic_descent·isa 발현 무대.
     ('대량탄도', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='북한 포화 공격 (40발)',
-                      enable_ashore=True, enable_thaad=True, enable_lsam=True,
-                      enable_chungung=True, enable_patriot=True)),
+                      **_BMD_GROUND)),
     # A. hgv_glide는 극초음속 활공체(DF-17·YJ-21)가 있어야 단계별 고도강하 발현.
     ('극초음속', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='극초음속 포화 공격',
-                      enable_ashore=True, enable_thaad=True, enable_lsam=True,
-                      enable_chungung=True, enable_patriot=True)),
+                      **_BMD_GROUND)),
     # B. terrain(지형 레이더 음영)은 저고도 위협(alt<1000m)이라야 탐지거리 페널티가 결과에 드러남.
     #    _BASE fleet_region='동해 북부'=EAST_SEA(페널티 0.78 최강). 연안 자폭드론·로켓·고속정 다수.
     ('연안저고도', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='연안 포화 공격')),
