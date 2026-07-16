@@ -41,3 +41,8 @@ build_*.log
 # 백그라운드 폴링 메타(_bgtask·_bgbuild 등 전부 — gitignore는 인라인 주석 미지원)
 _bg*.meta
 _audit_*.log
+
+# v21.4: 백그라운드 진행 보고 게이트(_bg_gate.py) 런타임 파일. meta는 위 _bg*.meta가 이미 커버.
+_bgtask.blocks
+_smoke*.log
+_x.log

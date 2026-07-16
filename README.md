@@ -182,6 +182,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `audit_db_consistency.py` | DB 내부 모순 탐지 — 마하 표기↔속도, 요격 고도창↔위협 고도, 무기 사거리↔탐지거리 |
 | `asset_download_images.py` | DB 장비 사진 일괄 수집 |
 | `_bg_wait.sh` · `_bg_res.py` | 백그라운드 작업 1분 진행 보고 헬퍼(타임박스 폴링 + 작업 트리 전용 CPU/RAM 격리 측정) |
+| `_bg_gate.py` | 위 진행 보고를 강제하는 훅 게이트 — 규약 없는 백그라운드 실행 거부(PreToolUse) + 작업 생존 중 턴 종료 차단(Stop). 조언은 무시되므로 관문으로 전환 |
 
 ### 디렉터리
 | 경로 | 역할 |
