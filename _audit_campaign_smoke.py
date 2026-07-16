@@ -78,9 +78,11 @@ def main():
         # 캠페인 + 전장의 안개(v18.4) 토글 — '안개'는 캠페인 하위 옵션이라 함께 켜서
         # 안개 ON GUI 경로(belief 배정·배너 표시)까지 실제로 태운다.
         chk = fog = air = sead = strike = precise = army = coastal = amphib = domino = None
+        joint = None
         for c in main_w.descendants(control_type='CheckBox'):
             t = _txt(c)
             if '안개' in t:            fog = c
+            elif '합동 화력' in t:      joint = c    # v21.2 합동 화력(육해공 협조 타격)
             elif '도미노' in t:         domino = c   # v20.4 적 방공망 제압 → 도미노
             elif '공군' in t:           air = c      # v19.1 공군 작전급(제공권)
             elif 'SEAD' in t:           sead = c     # v19.3 방공망 제압
@@ -139,6 +141,14 @@ def main():
             log(f"도미노 체크박스: {_txt(domino)!r} → 체크"); _act(domino); time.sleep(1)
         else:
             log("⚠ 도미노 체크박스 미포착 — v20.4 GUI 경로 미확인")
+        # v21.2: 합동 화력(육해공 협조 타격) exe 경로를 태운다. 짝 3중(공군·전략폭격)은
+        # 위에서 이미 켰으므로 여기서 켜면 실제로 발동한다 — 육군 지대지까지 참여시키려면
+        # 편성 콤보가 '없음'이 아니어야 하나, UIA 콤보 조작은 취약하므로 해군 순항미사일
+        # (편성에 따라 자동 탑재)+공군 폭격만으로도 층이 도는 것을 확인한다.
+        if joint is not None:
+            log(f"합동화력 체크박스: {_txt(joint)!r} → 체크"); _act(joint); time.sleep(1)
+        else:
+            log("⚠ 합동화력 체크박스 미포착 — v21.2 GUI 경로 미확인")
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
@@ -150,6 +160,7 @@ def main():
             if coastal is not None: _st += f" 연안포대={coastal.get_toggle_state()}"
             if amphib is not None: _st += f" 상륙작전={amphib.get_toggle_state()}"
             if domino is not None: _st += f" 도미노={domino.get_toggle_state()}"
+            if joint is not None: _st += f" 합동화력={joint.get_toggle_state()}"   # v21.2
             log(f"   토글 상태: {_st} (1=ON)")
         except Exception as e:
             log(f"   토글 상태 확인 실패: {e}")
@@ -205,12 +216,20 @@ def main():
                         frag = [t for t in (_txt(c) for c in main_w.descendants())
                                 if any(k in t for k in ('연안 방공', '제공권', '전역'))]
                         log(f"🔴 상륙 ON인데 배너에 상륙 현황 미표시 — 배너 조각: {frag[:4]}"); return 1
+                    # v21.2: 합동 화력 ON이면 군별 기여도가 배너에 떠야 한다. 지표를 결과
+                    #   dict에 넣기만 하고 화면이 소비하지 않으면 사용자는 협조 타격이
+                    #   일어났는지 볼 수 없다(v20 연안 방공이 겪은 문제 — 위 주석 참조).
+                    if joint is not None and '합동 화력' not in blob:
+                        frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                if any(k in t for k in ('적 기지', '제공권', '전역'))]
+                        log(f"🔴 합동 화력 ON인데 배너에 군별 기여도 미표시 — 배너 조각: {frag[:4]}"); return 1
                     _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
                     _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
                     _strmsg = " + 💥 적 기지 배너 확인" if strike is not None else ""
                     _armymsg = " + 🛡 연안 방공 배너 확인" if coastal is not None else ""
                     _ampmsg  = " + 🏖 상륙 배너 확인" if amphib is not None else ""
+                    _jointmsg = " + 🤝 합동 화력 배너 확인" if joint is not None else ""   # v21.2
                     # v19.5: CAS는 조건부(통제 붕괴 시 요청 발동) — 필수 아님. 발현되면 배너
                     # 형식만 확인, 미발현은 정상(기본 시나리오에서 통제 유지 시 요청 0).
                     _casmsg = " + 🛩 근접지원 배너 확인(발현)" if '근접지원' in blob else ""
@@ -230,7 +249,7 @@ def main():
                         _n = _m.group(1) if _m else '?'
                         _precmsg = f" + 🎯 정밀교전 ON·캠페인 MC 병렬 {_n}회 실행 확인(exe end-to-end)"
                     log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}"
-                        f"{_strmsg}{_armymsg}{_ampmsg}{_casmsg}{_precmsg}"); return 0
+                        f"{_strmsg}{_armymsg}{_ampmsg}{_jointmsg}{_casmsg}{_precmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프

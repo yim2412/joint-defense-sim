@@ -15,6 +15,7 @@ import random
 import numpy as np
 
 from engine_core import (SHIP_DB, FLEET_PRESETS, ENEMY_FLEET_PRESETS)
+from engine_joint import build_land_stock          # v21.2 함정 지상공격 재고
 from forecast_features import featurize, fleet_ships_from_preset
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
@@ -108,11 +109,14 @@ class CampaignShip:
     v18.2: 탄약·연료 재보급 상태 추가."""
     __slots__ = ('ship_type', 'zone', 'state', 'hp_frac', 'repair_eta_h',
                  'ammo_frac', 'fuel_frac', 'resupply_eta_h',
-                 'dest_zone', 'transit_eta_h')
+                 'dest_zone', 'transit_eta_h', 'land_stock')
 
     def __init__(self, ship_type: str, zone: str):
         self.ship_type      = ship_type
         self.zone           = zone
+        # v21.2: 지상공격 재고(현무-3C·토마호크) — 합동 화력 층만 소비한다. 대부분의
+        # 함정은 빈 dict(지상공격 능력 없음). 합동 화력 OFF면 아무도 안 건드림.
+        self.land_stock     = build_land_stock(ship_type, SHIP_DB)
         self.state          = 'patrol'   # patrol / repair / resupply / transit
         self.hp_frac        = 1.0
         self.repair_eta_h   = 0
@@ -161,10 +165,34 @@ class CampaignEngine:
         self._tl_force   = []   # 틱별 가용 전력 함정 수
         # 공군 작전급 층 — enable_air_campaign ON일 때만 생성(OFF면 v18 bit-identical).
         # v19.2부터 제공권이 해군 교전(win_p·score)에 연동됨(_tick_engagements).
+        # v21.2 합동 화력 — ON이면 적 기지(EnemyBase) 소유권을 **캠페인이 갖고** 공군 층과
+        # 공유한다(공군 폭격·해군 순항미사일·육군 지대지가 같은 표적을 때리므로 목록이
+        # 갈리면 안 된다). OFF면 표적을 만들지도 않아 공군이 지금처럼 자기 것을 소유
+        # → v20 캠페인과 bit-identical.
+        #
+        # ⚠ 짝 기능 3중 — 합동 화력은 아래가 **전부** 켜져야 값을 한다:
+        #   ①enable_strategic_strike : OFF면 EnemyBase가 아예 없다 = 때릴 표적이 없다
+        #   ②enable_air_campaign     : 기지 손상 → 적 출항능력 환산(enemy_output_factor)과
+        #                              기지 재건 틱이 **공군 층 소관**이다. 공군이 없으면
+        #                              표적을 때려도 결과에 반영될 통로가 없어 발동해도
+        #                              관측 효과 0 — 죽은 기능이 된다.
+        # 하나라도 빠지면 합동 화력을 생성하지 않는다(켜 놓고 아무 일도 안 하는 상태 금지).
+        self.joint       = None
+        self._joint_bases = None
+        _joint_on = (bool(cfg.get('enable_joint_fires', False))
+                     and bool(cfg.get('enable_strategic_strike', False))
+                     and bool(cfg.get('enable_air_campaign', False)))
+        if _joint_on:
+            from engine_airforce import build_enemy_bases
+            self._joint_bases = build_enemy_bases(self.cfg)
         self.air = None
         if bool(cfg.get('enable_air_campaign', False)):
             from engine_airforce import AirCampaign
-            self.air = AirCampaign(self.cfg)
+            self.air = AirCampaign(self.cfg, bases=self._joint_bases,
+                                   defer_strike=_joint_on)
+        if _joint_on:
+            from engine_joint import JointFires
+            self.joint = JointFires(self.cfg, self._joint_bases)
         # v20.2b 지상 작전급 층 — enable_army_campaign ON일 때만 생성(OFF면 v19 bit-identical).
         # 연안 방공 포대가 ①대리모델 교전에 방공 가산 ②ASBM 구역은 전술 정밀 교전으로 강제하고
         # 4계층 요격 자산을 주입해 실측(v18.03 로직 재사용, 새 물리 없음).
@@ -237,6 +265,15 @@ class CampaignEngine:
                               self._support_request(),
                               coastal_airdef=(self.army.air_defense()
                                               if self.army is not None else None))
+            # v21.2 합동 화력 — 공군 틱 **뒤**에 둔다(순서가 곧 인과): 공군이 기지 재건을
+            # 처리하고 소티를 배정한 뒤에야 그 폭격 화력을 거둬 해군·육군 화력과 합칠 수
+            # 있다. 교전 前이라 이번 틱 기지 손상이 같은 틱 적 출항능력에 반영된다
+            # (v19.2가 제공권을 교전 전에 갱신한 것과 같은 규약).
+            if self.joint is not None:
+                self.joint.tick(t_h=self.t_h, ships=self.ships,
+                                air_effort=(self.air.strike_effort()
+                                            if self.air is not None else 0.0),
+                                army=self.army)
             self._tick_engagements()
             self._tick_sloc()
             # v18.5: 틱별 평균 통제도(0~1) 시계열(단일 실행 시각화용, v18.7)
@@ -725,6 +762,8 @@ class CampaignEngine:
             result.update(self.air.summary())
         if self.army is not None:  # v20.2b: 지상 지표 병합(연안 포대 재고·ASBM 정밀·요격탄)
             result.update(self.army.status())
+        if self.joint is not None:  # v21.2: 합동 화력 지표 병합(군별 기여·협조 실적)
+            result.update(self.joint.summary())
         return result
 
 
@@ -757,7 +796,14 @@ _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total'
                 # v20.3: 상륙작전 — 교두보 확보율·평균 진척
                 'amphib_success', 'amphib_progress',
                 # v20.4: 도미노 — 연안 방공망 평균 제압도 + 제공권(연쇄 2단계 관측)
-                'coastal_suppression', 'mean_air_superiority')
+                'coastal_suppression', 'mean_air_superiority',
+                # v21.2: 합동 화력 — 적 기지 손상·출항능력이 이 층의 최종 산출이고,
+                # 발사수·협조 실적이 발현 증거다. ⚠ 스칼라만 넣는다 —
+                # joint_dmg_by_service·joint_dmg_share(dict)·joint_fire_log(list)는
+                # 아래 acc[k] += float(...)에서 TypeError가 난다.
+                'enemy_base_damage', 'enemy_output_factor',
+                'joint_navy_fired', 'joint_army_fired', 'joint_air_effort',
+                'joint_deconflict', 'joint_overkill_skip')
 
 # ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
 _MC_WORKER_MODEL = None
@@ -871,6 +917,16 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         # v20.4: 도미노 — 연안 방공망 평균 제압도(적 SEAD 진행 정도) + 제공권(연쇄 2단계)
         'coastal_suppression_avg': round(acc['coastal_suppression'] * inv, 3),
         'air_superiority_avg':     round(acc['mean_air_superiority'] * inv, 3),
+        # v21.2: 합동 화력 — 적 기지 손상·적 출항능력이 이 층의 최종 산출이고, 발사수·
+        # 협조 실적이 발현 증거다. _MC_ACC_KEYS에 넣는 것만으론 누적만 되고 **결과에
+        # 안 나온다** — 여기 노출까지 해야 반복 분석에서 보인다(집계와 노출은 별개).
+        'enemy_base_damage_avg':   round(acc['enemy_base_damage'] * inv, 3),
+        'enemy_output_factor_avg': round(acc['enemy_output_factor'] * inv, 3),
+        'joint_navy_fired_avg':    round(acc['joint_navy_fired'] * inv, 1),
+        'joint_army_fired_avg':    round(acc['joint_army_fired'] * inv, 1),
+        'joint_air_effort_avg':    round(acc['joint_air_effort'] * inv, 2),
+        'joint_deconflict_avg':    round(acc['joint_deconflict'] * inv, 2),
+        'joint_overkill_skip_avg': round(acc['joint_overkill_skip'] * inv, 2),
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
         'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)

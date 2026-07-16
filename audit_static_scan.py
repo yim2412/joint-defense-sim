@@ -134,16 +134,30 @@ def chk_flag_triplet():
 
 # ── ② DB: db_specsheet 항목수 == 엔티티 DB 항목수 합 ──────────────────────────────
 def chk_spec_count():
-    eng = rd('engine_core.py'); spec = rd('db_specsheet.py')
-    def topcount(src, name):
+    # v21.2: 개수 비교 → **집합 비교**로 교체. 개수만 보면 "A 누락 + B 유령"이 서로
+    # 상쇄돼 통과하는 사각이 있었다(실제로 현무-3C 스펙 추가 시 처음 드러남).
+    #
+    # 필수/허용을 나눈다:
+    #   · 필수(required) = DB 탭이 **화면에 나열**하는 DB. 스펙이 없으면 사용자가 빈
+    #     설명을 본다 → 반드시 커버.
+    #   · 허용(allowed)  = 위 + FRIENDLY_STRIKE_DB(engine_combat). 이 DB는 DB 탭이
+    #     나열하지 않으므로 스펙이 **없어도 무해**하지만, 있어도 유령이 아니다
+    #     (현무-3C처럼 지상공격 DB에만 있는 무기).
+    eng = rd('engine_core.py'); cmb = rd('engine_combat.py'); spec = rd('db_specsheet.py')
+    def topnames(src, name):
         mm = re.search(rf"^{name}\s*[:=].*?\{{(.*?)^\}}", src, re.S | re.M)
-        return len(re.findall(r"^\s{4}['\"]", mm.group(1), re.M)) if mm else None
-    entity = sum(topcount(eng, n) or 0 for n in
-                 ['ENEMY_DB', 'FRIENDLY_DB', 'SHIP_DB', 'FRIENDLY_AIRCRAFT_DB'])
-    sd = topcount(spec, 'SPEC_DETAIL_DB')
-    guard_count('②', 'DB 항목 파싱(엔티티/스펙)', min(entity, sd or 0), 50)  # vacuous 방지(0==0 차단)
-    check('②', 'db_specsheet 항목수 = 엔티티 DB 합', sd == entity,
-          f"SPEC_DETAIL_DB={sd} vs ENEMY+FRIENDLY+SHIP+AIRCRAFT={entity}")
+        return set(re.findall(r"^\s{4}['\"]([^'\"]+)['\"]", mm.group(1), re.M)) if mm else set()
+    required = set()
+    for n in ['ENEMY_DB', 'FRIENDLY_DB', 'SHIP_DB', 'FRIENDLY_AIRCRAFT_DB']:
+        required |= topnames(eng, n)
+    allowed = required | topnames(cmb, 'FRIENDLY_STRIKE_DB')
+    sd = topnames(spec, 'SPEC_DETAIL_DB')
+    guard_count('②', 'DB 항목 파싱(엔티티/스펙)', min(len(required), len(sd)), 50)  # vacuous 방지
+    missing = sorted(required - sd)   # 화면에 나오는데 스펙 없음 → 설명이 빈다
+    ghost   = sorted(sd - allowed)    # 어느 DB에도 없는 스펙 → 삭제된 항목의 잔재
+    check('②', 'db_specsheet 항목 = 엔티티 DB 항목(집합)', not missing and not ghost,
+          f"스펙누락={missing or '없음'} / 유령스펙={ghost or '없음'} "
+          f"(스펙 {len(sd)} · 필수 {len(required)} · 허용 {len(allowed)})")
 
 # ── ⑧ 수치: 전장 분모 변수 0 가드(max(1.0,..) / or 1.0) ──────────────────────
 def chk_div_guards():

@@ -57,8 +57,43 @@ PROBES = {
 }
 
 
+# ── 작전급 캠페인 전용 토글 (v21.2 신설) ─────────────────────────────────────
+# 캠페인 층(engine_campaign·airforce·army·joint) 토글은 **단발 전술 프로브로 못 잡는다**
+# — run_v7_simulation이 아니라 run_campaign을 타기 때문. 부채 청소 E에서 battle_mode·
+# ras_rearm이 겪은 것과 같은 상황이다.
+#
+# ⚠ 게이트 사각: audit_static_scan.chk_effect_coverage는 engine_combat.py가 소비하는
+#    플래그만 검사한다 → 캠페인 층 토글은 **자동 면제**돼 죽은 채 태어날 수 있다.
+#    그래서 여기에 캠페인 프로브를 둬 수동 측정이 아니라 **도구로 재현**되게 한다.
+_CAMPAIGN_BASE = dict(
+    enable_campaign_mode=True, campaign_horizon_h=72, campaign_seed=0,
+    enemy_fleet_mode='preset',
+    enemy_fleet_preset='입체 포화 (최강)',   # ⚠ 키 오타 시 웨이브 0 = 측정 무효(v16.12.03)
+)
+CAMPAIGN_PROBES = {
+    # 합동 화력 — 육해공이 같은 적 기지를 협조 타격.
+    #  ▸짝 기능(필수): enable_strategic_strike(표적인 적 기지가 생긴다) +
+    #    enable_air_campaign(기지 손상 → 적 출항능력 환산 통로). 하나만 빠져도 층 미생성.
+    #  ▸발현 무대: 한미 기동전단 강화(현무-3C 48 + 토마호크 32 = 지상공격 80발) +
+    #    최소 방공(전략폭격기 없음) → 폭격기 없이 해군·육군 화력만으로 적 항구 무력화.
+    #    이 무대에서 OFF는 적 기지를 때릴 수단이 아예 없어 출항능력 1.0(무손상)이다.
+    'enable_joint_fires': (
+        dict(_CAMPAIGN_BASE, fleet_preset='한미 기동전단 강화',
+             air_force_preset='최소 방공 (제공권 열세)',
+             army_fire_preset='현무 여단 (증강)',
+             enable_air_campaign=True, enable_strategic_strike=True,
+             enable_army_campaign=True),
+        ['enemy_output_factor', 'mean_control']),
+}
+
+
 def _run(cfg):
     return run_v7_simulation(dict(cfg))
+
+
+def _run_campaign(cfg):
+    from engine_campaign import run_campaign
+    return run_campaign(dict(cfg))
 
 
 def main():
@@ -69,6 +104,21 @@ def main():
         deltas = {m: (on.get(m, 0) or 0) - (off.get(m, 0) or 0) for m in metrics}
         changed = any(abs(d) > 1e-9 for d in deltas.values())
         if changed:
+            ok.append((flag, deltas))
+        else:
+            dead.append((flag, cfg.get('enemy_fleet_preset')))
+
+    for flag, (cfg, metrics) in CAMPAIGN_PROBES.items():
+        off = _run_campaign(dict(cfg, **{flag: False}))
+        on = _run_campaign(dict(cfg, **{flag: True}))
+        # ⚠ 측정 유효성 자가검사(v18.05.09): "모든 지표 0"은 결론이 아니라 측정 실패 신호.
+        #    프리셋 키가 한 글자만 틀려도 적 웨이브가 0개라 교전이 안 일어난다.
+        if not off.get('n_ships') or not off.get('n_engagements'):
+            print(f"  ★★ {flag}: 측정 무효 — 무대 미생성"
+                  f"(함정={off.get('n_ships')} 교전={off.get('n_engagements')})")
+            sys.exit(1)
+        deltas = {m: (on.get(m, 0) or 0) - (off.get(m, 0) or 0) for m in metrics}
+        if any(abs(d) > 1e-9 for d in deltas.values()):
             ok.append((flag, deltas))
         else:
             dead.append((flag, cfg.get('enemy_fleet_preset')))

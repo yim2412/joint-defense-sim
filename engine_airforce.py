@@ -241,7 +241,14 @@ class AirCampaign:
     소티율 가중 airpower로 모델링 — 각 CAP기가 매 틱 sortie_rate 만큼 제공권에 기여하고,
     누적 소티는 sortie_rate/24로 집계(실제 일일 출격수 규모). 정비·재무장 downtime은 v19.2."""
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, bases: list | None = None,
+                 defer_strike: bool = False):
+        """bases: v21.2 합동 화력이 켜지면 캠페인이 소유한 EnemyBase 목록을 **공유**받는다
+        (공군 폭격과 합동 화력이 같은 기지를 때리므로 목록이 갈리면 안 된다).
+        None이면 지금까지처럼 자기 것을 만든다 → 합동 화력 OFF는 bit-identical.
+
+        defer_strike: 합동 화력 ON이면 공군은 스스로 기지를 때리지 않고 화력을 그 층에
+        **위임**한다(이중 계상 방지). 소티 집계·표적 재건은 그대로 여기서 한다."""
         self.units    = build_air_force(cfg)
         self.grid     = AirSuperiorityGrid()
         self._cap_acc   = 0.0   # 누적 CAP 소티(sortie-equivalent)
@@ -262,8 +269,13 @@ class AirCampaign:
         self._sead_acc    = 0.0   # 누적 SEAD 소티
         # v19.4 전략 폭격 — enable_strategic_strike ON일 때만 적 기지 존재(OFF면 v19.3 완전 동일)
         self.strike_enabled = bool(cfg.get('enable_strategic_strike', False))
-        self.bases          = build_enemy_bases(cfg) if self.strike_enabled else []
+        # v21.2: 공유 표적을 받으면 그걸 쓰고, 없으면 자기 것 생성(기본 = 기존 동작)
+        if bases is not None:
+            self.bases = bases
+        else:
+            self.bases = build_enemy_bases(cfg) if self.strike_enabled else []
         self._strike_acc    = 0.0   # 누적 전략폭격 소티
+        self.defer_strike   = bool(defer_strike)   # v21.2: 폭격을 합동 화력 층에 위임
 
     def tick(self, zone_threat: dict, support_req: dict | None = None,
              coastal_airdef: dict | None = None):
@@ -287,7 +299,9 @@ class AirCampaign:
         if self.sead_enabled:
             self._apply_sead()
         # 2b) v19.4: 전략폭격 — 전략폭격기가 최대 출항분담 기지에 누적 손상(결정론·보수적 BDA)
-        if self.strike_enabled:
+        # v21.2: defer_strike면 합동 화력 층이 이 화력을 거둬 간다(strike_effort()) →
+        # 여기서 때리면 이중 계상. 소티 집계(_strike_acc)는 아래 4)에서 그대로 한다.
+        if self.strike_enabled and not self.defer_strike:
             self._apply_strike()
         # 3) 지원기 승수 — 조기경보(통제 이득) × 공중급유(체공 연장). 서로 다른 축이라 곱한다.
         aew_mult = 1.0 + _AEW_MULT_PER * sum(1 for u in self.units if 'AEW' in u.missions)
@@ -333,6 +347,14 @@ class AirCampaign:
         self.grid.update(zone_target)
         zs = self.grid.zone_superiority()
         self._tl_sup.append(round(sum(zs.values()) / len(SLOC_ZONES), 3))
+
+    def strike_effort(self) -> float:
+        """v21.2: 이번 틱 전략폭격 소티율 합 — 합동 화력 층이 거둬 간다.
+        _apply_strike가 쓰는 것과 **같은 집계**라 위임해도 화력 크기가 변하지 않는다.
+        전략폭격 OFF면 표적이 없으므로 0(짝 기능)."""
+        if not self.strike_enabled:
+            return 0.0
+        return sum(u.sortie_rate for u in self.units if u.mission == 'strike')
 
     def _zone_ad_threat(self) -> dict:
         """zone별 활성 방공망 위협 합(strength×(1-suppression))."""

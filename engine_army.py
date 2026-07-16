@@ -62,6 +62,23 @@ _FIRED_STAT_KEY: dict[str, str] = {
     'chungung_fired':   '천궁-II',
 }
 
+# ── v21.2 육군 지대지 화력 (합동 화력 지원용) ───────────────────────────────
+# 적 항구·비행장을 때리는 육군 몫. engine_joint(합동 화력 층)가 매 틱 fire_rounds()로
+# 거둬 간다 — 합동 화력이 꺼져 있으면 발사할 표적 자체가 없다(짝 기능).
+#
+# ⚠ 천무(K239)는 **의도적으로 제외**한다: 사거리 80km라 적 항구·비행장에 대부분 닿지
+# 않는다. _PLANS 문구엔 '천무·현무'가 있으나, 제원상 표적에 도달 못 하는 화력을 넣으면
+# 발동 0인 **죽은 기능**이 된다([[project-dead-feature-prevention]] — 무대 없는 기능은
+# 만들지 않는다). 육군 지대지는 사거리가 실제로 닿는 현무 계열로 한정한다.
+#
+# 편제 근사: 현무 대대 = 이동식 발사대(TEL) 다수. 재고는 발사탄 수(발).
+ARMY_FIRE_PRESETS: dict[str, dict] = {
+    '없음': {},
+    '현무 대대 (기본)': {'현무-2B': 24},          # 단일 대대 — 사거리 500km급
+    '현무 여단 (증강)': {'현무-2B': 48, '현무-2C': 24},   # 2C = 사거리 800km급
+}
+_ARMY_SALVO_PER_TICK = 2    # 1시간 틱당 발사탄 수 상한 — 재장전·재배치 소요 반영
+
 # 대리모델(비정밀) 교전에서 연안 방공이 주는 승률 가산 — 잔여 재고 비율에 비례.
 # 정밀 교전은 전술 엔진이 실측하므로 이 가산을 쓰지 않는다(이중 계상 방지).
 _DEFENSE_BONUS_MAX = 0.15   # 완편 포대가 대리모델 win_p·score에 주는 최대 가산
@@ -327,6 +344,11 @@ class ArmyCampaign:
         if self.amphib_enabled:
             self.landing = self._build_landing()
         self.landing_log: list = []   # 상륙 임무 타임라인(보고서)
+        # v21.2: 지대지 화력 재고 — 합동 화력 층(engine_joint)이 fire_rounds()로 소비.
+        # 합동 화력이 꺼져 있으면 아무도 부르지 않아 재고가 그대로 남는다(무동작).
+        self.fire_stock: dict = dict(
+            ARMY_FIRE_PRESETS.get(cfg.get('army_fire_preset', '없음'), {}))
+        self.n_fire_rounds = 0        # 누적 발사탄 수(투명성)
 
     def _build_sites(self):
         """구역별 포대 편성. cfg['coastal_sam_zones'] = {zone: 프리셋명} 이면 구역별 지정,
@@ -499,6 +521,26 @@ class ArmyCampaign:
             return 0.0
         return _DEFENSE_BONUS_MAX * site.readiness
 
+    def fire_rounds(self) -> int:
+        """v21.2: 이번 틱 지대지 발사탄 수 — 합동 화력 층(engine_joint)이 호출한다.
+        재고를 실제로 차감하므로 소진되면 0(화력이 무한하지 않다). 사거리가 긴 탄
+        (현무-2C 800km)부터 쓰는 대신, 표적이 전역 내에 있어 어느 탄이든 닿으므로
+        **재고가 많은 쪽부터** 소비해 특정 탄종이 먼저 마르는 편중을 피한다.
+        합동 화력이 꺼져 있으면 아무도 이 함수를 부르지 않는다 → 무동작."""
+        budget = _ARMY_SALVO_PER_TICK
+        fired  = 0
+        for wpn in sorted(self.fire_stock, key=lambda w: -self.fire_stock[w]):
+            if budget <= 0:
+                break
+            n = min(self.fire_stock[wpn], budget)
+            if n <= 0:
+                continue
+            self.fire_stock[wpn] -= n
+            budget -= n
+            fired  += n
+        self.n_fire_rounds += fired
+        return fired
+
     def status(self) -> dict:
         """보고서·결과 집계용."""
         out = {
@@ -513,6 +555,9 @@ class ArmyCampaign:
             'coastal_suppression': round(self.mean_suppression(), 3),
             'coastal_airdef': {z: round(v, 2) for z, v in self.air_defense().items()},
         }
+        if self.n_fire_rounds > 0 or self.fire_stock:   # v21.2 지대지 화력(편성 시만)
+            out['army_fire_rounds'] = self.n_fire_rounds
+            out['army_fire_stock']  = dict(self.fire_stock)
         lf = self.landing
         if lf is not None:   # v20.3 상륙작전
             out.update({

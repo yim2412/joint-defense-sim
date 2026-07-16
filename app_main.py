@@ -1,7 +1,23 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v18.05.13 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v21.01.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v21.01.01 — 합동 화력 지원: 육해공이 같은 적 기지를 협조 타격 (v21.2)]    ║
+║  NEW-A  engine_joint.py 신설(JointFires) — 적 기지(EnemyBase)를 공군 전략   ║
+║         폭격 단독이 아니라 해군 순항미사일·육군 지대지가 함께 타격. 표적    ║
+║         소유권을 CampaignEngine으로 올려 공군 층과 공유(AirCampaign(bases=  ║
+║         None, defer_strike=False) 기본인자 → OFF면 부모 무수정·bit-ident).  ║
+║  NEW-B  SHIP_DB 현무-3C 탑재 — KDX-III-B1 32(KVLS-I 48셀=현무32+홍상어16    ║
+║         공개값) · KDX-III-B2 16(KVLS-II). _select_strike_wpn(대함)에 없어   ║
+║         단발 교전 불활성 → 골든 38×29 무변 확인. 합동 화력만 소비.          ║
+║  NEW-C  engine_army 지대지 화력(ARMY_FIRE_PRESETS·fire_rounds) — 현무-2     ║
+║         계열. 천무는 사거리 80km라 표적 미도달 → 죽은 기능 방지 위해 제외.  ║
+║  NEW-D  audit_effect.CAMPAIGN_PROBES 신설 — 캠페인 전용 토글 ON/OFF 델타를  ║
+║         run_campaign으로 재는 틀 + 측정 유효성 자가검사(웨이브 0=즉시 실패).║
+║  BUG-1  chk_spec_count 개수 비교 → 집합 비교(누락+유령 상쇄 사각) + 필수    ║
+║         (DB 탭 노출)/허용(FRIENDLY_STRIKE_DB) 분리.                         ║
+║  ⚠ 설계 반례: (1-damage) 효과 체감을 얹었더니 합동이 공군 단독보다 기지를   ║
+║     덜 부수는 역설(0.267→0.191) → _BASE_DMG_CAP 0.80과 이중 계상이라 제거.  ║
 ║  [v18.05.13 — 다전장 연동(공군·지상·해군) 완료 검증 → v19.6 마감]           ║
 ║  UPD-A  공군·지상·해군 3개 작전급 층의 상호 연동이 이미 완성됨을 통합       ║
 ║         캠페인 MC로 검증(순해군 승률 0.10 → 공군·지상방공·전략폭격 단계별   ║
@@ -1461,7 +1477,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v18.05.13"
+APP_VERSION = "v21.01.01"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -2146,6 +2162,7 @@ try:
         WEATHER_TRANSITION_DB, WEATHER_INTENSITY_LADDER,
     )
     from engine_army import COASTAL_SAM_PRESETS   # v20.2b: 연안 방공 포대 편성(UI 콤보)
+    from engine_army import ARMY_FIRE_PRESETS     # v21.2: 육군 지대지 화력 편성(UI 콤보)
     from engine_campaign import SLOC_ZONES        # v20.3: 상륙 목표 해안(UI 콤보)
     _V7_OK = True
 except ImportError as e:
@@ -2155,6 +2172,7 @@ except ImportError as e:
     V7_RANDOM_CFG          = {}
     V7_MIXED_SCENARIOS     = {}
     COASTAL_SAM_PRESETS    = {}
+    ARMY_FIRE_PRESETS      = {}      # v21.2
     SLOC_ZONES             = []
 
 # ── 스펙 DB import ────────────────────────────────────────────────────────────
@@ -7060,6 +7078,13 @@ class MainWindow(QMainWindow):
         # v20.2b 지상 작전급(연안 방공망)
         if hasattr(self, 'chk_army_campaign'):
             self.chk_army_campaign.setChecked(cfg.get('enable_army_campaign', False))
+        if hasattr(self, 'chk_joint_fires'):   # v21.2 합동 화력 지원
+            self.chk_joint_fires.setChecked(cfg.get('enable_joint_fires', False))
+        if hasattr(self, 'cmb_joint_mode'):
+            self.cmb_joint_mode.setCurrentText(
+                '동시 공격' if cfg.get('joint_fire_mode') == 'simultaneous' else '시차 공격')
+        if hasattr(self, 'cmb_army_fire') and cfg.get('army_fire_preset'):
+            self.cmb_army_fire.setCurrentText(cfg['army_fire_preset'])
         if hasattr(self, 'chk_coastal_sam'):
             self.chk_coastal_sam.setChecked(cfg.get('enable_coastal_sam', False))
         if hasattr(self, 'cmb_coastal_preset') and cfg.get('coastal_sam_preset'):
@@ -7750,6 +7775,40 @@ class MainWindow(QMainWindow):
         )
         self.chk_strategic_strike.setChecked(False)
 
+        # v21.2: 합동 화력 지원 — 육해공이 같은 적 기지를 협조 타격(캠페인 모드 하위)
+        self.chk_joint_fires = QCheckBox("합동 화력 지원 (육해공 협조 타격) (실험적)")
+        self.chk_joint_fires.setToolTip(
+            "적 항구·비행장을 공군 전략폭격기만이 아니라 해군 순항미사일(현무-3C·토마호크)과\n"
+            "육군 지대지(현무-2)가 함께 협조 타격합니다.\n"
+            "공군 단독 폭격은 최우선 기지 한 곳에만 화력을 쏟아 나머지 기지를 방치하지만,\n"
+            "합동 화력은 한 기지가 무력화되면 남은 화력을 다음 기지로 넘겨 낭비를 막습니다.\n"
+            "전략폭격기가 없는 편성(제공권 열세)에서 특히 값합니다 — 폭격기 없이도\n"
+            "해군·육군 화력만으로 적 항구를 무력화해 적 함대의 출항 능력을 떨어뜨립니다.\n"
+            "전략 폭격 & 기지 타격, 공군 작전급과 **함께** 켜야 작동합니다\n"
+            "(적 기지가 없으면 때릴 표적이 없고, 공군 층이 없으면 기지 손상이 적 출항 능력에\n"
+            " 반영될 통로가 없습니다).\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_joint_fires.setChecked(False)
+
+        self.cmb_joint_mode = NoScrollComboBox()
+        self.cmb_joint_mode.addItems(['시차 공격', '동시 공격'])
+        self.cmb_joint_mode.setToolTip(
+            "시차 공격: 순항미사일과 폭격기를 시간차로 투입해 아군 오사를 피합니다.\n"
+            "동시 공격: 같은 시각에 집중해 적 방공망을 분산시키지만, 화력지원 협조수단 없이\n"
+            "폭격기가 미사일 궤적과 겹치면 유인 편대가 임무를 중단합니다(협조 미비 손실).\n"
+            "합동 화력 지원을 켜야 적용됩니다."
+        )
+
+        self.cmb_army_fire = NoScrollComboBox()
+        self.cmb_army_fire.addItems(list(ARMY_FIRE_PRESETS.keys()))
+        self.cmb_army_fire.setCurrentText('없음')
+        self.cmb_army_fire.setToolTip(
+            "합동 화력에 참여할 육군 지대지 화력(현무-2 계열) 편성입니다.\n"
+            "천무는 사거리 80km로 적 항구·비행장에 닿지 않아 편성에서 제외했습니다.\n"
+            "지상 작전급·합동 화력 지원과 함께 켜야 작동합니다."
+        )
+
         # v20.2b: 지상 작전급 층 — 연안 방공망(캠페인 모드 하위)
         self.chk_army_campaign = QCheckBox("지상 작전급 (연안 방공망) (실험적)")
         self.chk_army_campaign.setToolTip(
@@ -7972,7 +8031,7 @@ class MainWindow(QMainWindow):
                     self.chk_air_campaign, self.chk_precise_engage,
                     self.chk_sead, self.chk_strategic_strike,
                     self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
-                    self.chk_enemy_sead,
+                    self.chk_enemy_sead, self.chk_joint_fires,   # v21.2
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_target_difficulty,
                     self.chk_sonar_emcon, self.chk_asw_contact_limit,
                     self.chk_standoff_spawn,
@@ -8006,6 +8065,10 @@ class MainWindow(QMainWindow):
             "한국형 BMD (KAMD) — L-SAM 16발 + 천궁-II 32발 (국산 계층만 자주 방어)"
         )
         fl_env.addRow("연안 포대 편성", self.cmb_coastal_preset)
+        # v21.2 합동 화력 지원 — 육해공 협조 타격(전략 폭격·공군 작전급과 짝)
+        fl_env.addRow("",            self.chk_joint_fires)
+        fl_env.addRow("합동 화력 방식", self.cmb_joint_mode)
+        fl_env.addRow("육군 지대지 화력", self.cmb_army_fire)
         fl_env.addRow("",            self.chk_amphibious)
         self.cmb_amphib_zone = NoScrollComboBox()
         self.cmb_amphib_zone.addItems(list(SLOC_ZONES))
@@ -9953,6 +10016,12 @@ class MainWindow(QMainWindow):
             'enable_strategic_strike': self.chk_strategic_strike.isChecked(),  # v19.4 전략 폭격 & 기지 타격
             # v20.2b 지상 작전급(연안 방공망) — ASBM 구역은 전술 정밀 교전으로 실측
             'enable_army_campaign': self.chk_army_campaign.isChecked(),
+            # v21.2 합동 화력 지원 — 육해공 협조 타격
+            'enable_joint_fires': self.chk_joint_fires.isChecked(),
+            'joint_fire_mode': ('simultaneous'
+                                if self.cmb_joint_mode.currentText() == '동시 공격'
+                                else 'sequential'),
+            'army_fire_preset': self.cmb_army_fire.currentText(),
             'enable_coastal_sam':   self.chk_coastal_sam.isChecked(),
             'coastal_sam_preset':   self.cmb_coastal_preset.currentText(),
             # v20.3 해상 상륙작전(교두보 확보)
@@ -10198,6 +10267,21 @@ class MainWindow(QMainWindow):
                    'beachhead': '교두보 확보', 'failed': '상륙 실패'}
             amphib = (f" · 🏖 상륙 {_st.get(result.get('amphib_state', ''), '-')}"
                       f" {result.get('amphib_progress', 0)*100:.0f}%")
+        # v21.2: 합동 화력 ON이면 군별 기여도(누가 적 기지를 얼마나 무력화했나)를 띄운다.
+        #   지표를 결과 dict에 넣기만 하고 화면에서 소비하지 않으면 사용자는 협조 타격이
+        #   실제로 일어났는지 볼 수 없다 — v20 연안 방공이 겪은 그 문제(위 주석)를 반복 않는다.
+        joint = ''
+        if result.get('joint_fires'):
+            _sh = result.get('joint_dmg_share') or {}
+            joint = (f" · 🤝 합동 화력 (공군 {_sh.get('air', 0)*100:.0f}%"
+                     f"/해군 {_sh.get('navy', 0)*100:.0f}%"
+                     f"/육군 {_sh.get('army', 0)*100:.0f}%)"
+                     f" 순항 {result.get('joint_navy_fired', 0)}발"
+                     f"·지대지 {result.get('joint_army_fired', 0)}발")
+            if result.get('joint_deconflict', 0) > 0:
+                joint += f" · ⚠ 협조 미비 {result['joint_deconflict']}회"
+            if result.get('joint_army_unused'):
+                joint += " · ⚠ 육군 화력 미참여(지상 작전급 꺼짐)"
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
@@ -10210,6 +10294,12 @@ class MainWindow(QMainWindow):
             if result.get('amphib_enabled'):
                 _mc_amphib = (f" · 🏖 상륙 교두보 확보율 {mc.get('amphib_success_rate', 0)*100:.0f}%"
                               f" (평균 진척 {mc.get('amphib_progress_avg', 0)*100:.0f}%)")
+            # v21.2: 합동 화력도 대표 전역이 아니라 MC 평균으로(순항·지대지 평균 발사수).
+            _mc_joint = ''
+            if result.get('joint_fires'):
+                _mc_joint = (f" · 🤝 합동 화력 순항 {mc.get('joint_navy_fired_avg', 0):.0f}발"
+                             f"·지대지 {mc.get('joint_army_fired_avg', 0):.0f}발"
+                             f" (적 출항 {mc.get('enemy_output_factor_avg', 1)*100:.0f}%)")
             self._lbl_status.setText(
                 f"완료 ({elapsed:.1f}s) | 🗺 캠페인 MC {mc.get('n_runs', 0)}회: "
                 f"🟢승 {mc.get('win_rate', 0)*100:.0f}% · "
@@ -10219,7 +10309,7 @@ class MainWindow(QMainWindow):
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
                 f"전역 {result.get('horizon_h', 72)}h"
-                f"{fog}{air}{sead}{strike}{cas}{_mc_coastal}{_mc_amphib}{warn}")
+                f"{fog}{air}{sead}{strike}{cas}{_mc_coastal}{_mc_amphib}{_mc_joint}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -10229,7 +10319,7 @@ class MainWindow(QMainWindow):
                 f"교전 {result.get('n_engagements', 0)}회 · "
                 f"생존 함정 {result.get('surviving_ships', 0)}/{result.get('n_ships', 0)} · "
                 f"전역 {result.get('end_h', 0)}h/{result.get('horizon_h', 72)}h"
-                f"{fog}{air}{sead}{strike}{cas}{coastal}{amphib}{warn}")
+                f"{fog}{air}{sead}{strike}{cas}{coastal}{amphib}{joint}{warn}")
         # 교전 분석 탭 배너(_fill_battle_panel이 campaign 분기 렌더) + 해당 탭 착지
         self.tab_engagement.load_result(result)
         self._sidebar.mark_new_data([0])
@@ -12128,10 +12218,7 @@ class SplashWindow(QWidget):
              "육해공군 자산을 통합 지휘. 자원 충돌 해결(전투기 1대를 제공권·근접지원·방공망제압 중 어디에?). "
              "합동 교전구역 자동 분할. "
              "【현실성】완전 자동최적화는 현실에 없음(각 군 자율성) → 조정·충돌경고 수준이 현실적."),
-            ("v21.2", "높음", "합동 화력 지원",
-             "해군 함포·토마호크 + 공군 폭격 + 육군 천무·현무가 동일 표적에 협조 타격. "
-             "아군 오사 방지. 화력 효과 누적(첫 타격 손상 → 이후 타격 효과 보정). "
-             "시차 공격·동시 공격 선택."),
+            # v21.2 합동 화력 지원 = 구현 완료(v21.01.01) — 제거.
             ("v21.3", "중간", "합동 작전 시나리오 라이브러리",
              "육해공 통합 시나리오 3종: 한반도 전면전 72시간 · 대만해협 위기 · 독도·이어도 제한전. "
              "각 시나리오: 각 군 초기 전력 + 작전 목표 + 성공 판정 기준. 순수 군사 교육·분석 목적."),

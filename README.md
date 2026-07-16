@@ -12,7 +12,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급(연안방공·상륙·도미노) + 한국형 미사일방어 5계층 (v18.05)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급(연안방공·상륙·도미노) + 한국형 미사일방어 5계층 + 육해공 합동 화력(협조 타격) (v21.01)
 > **진행 중:** **작전급 캠페인 엔진** — 며칠 단위 전역을 1시간 단위로 진행, 교전은 학습된 예측 모델로 즉시 계산해 72시간 전역을 수초에 (해상 교통로 통제로 승패 판정)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -56,6 +56,7 @@
 - **극초음속·미래 위협 대응** — HGV 활공 궤적 다층 요격(외기권 SM-3 ↔ 대기권 SM-6) · 무인기 군집(Swarm) 포화 소모전 · 자폭 무인수상정(USV) · 기뢰전(MIW)
 - **탄도탄 방어(BMD) 5계층** — 이지스 어쇼어 SM-3(중간단계) · THAAD(종말 고고도) · L-SAM(종말 상층) · 패트리엇 PAC-3 MSE(종말 중층) · 천궁-II(종말 하층 점방어). 탄도탄 종말 강하 궤적에 따라 접근 거리대별 순차 교전
 - **지상 작전급 — 연안 방공·상륙·도미노** — 해상 교통로별 연안 방공 포대(5계층 요격, 요격탄 재고가 전역 내내 이어짐) · 대함탄도탄 구역은 실제 전술 교전으로 실측 · 해상 상륙작전(수송→항공 엄호→상륙 곱연산으로 교두보 확보) · **방공망 제압 도미노**(적이 제공권을 쥐면 연안 방공망 제압 → 제공권 추가 하락 → 해상 교통로 압박)
+- **육해공 합동 화력 — 협조 타격** — 적 항구·비행장을 공군 전략폭격기만이 아니라 해군 순항미사일(현무-3C·토마호크)·육군 지대지(현무-2)가 함께 타격 · 한 기지가 무력화되면 남은 화력을 다음 기지로 넘겨 낭비 방지 · 시차 공격(오사 회피) vs 동시 공격(방공망 분산, 협조 미비 시 폭격 편대 임무 중단) · **전략폭격기 없는 제공권 열세 편성에서도 해군·육군 화력만으로 적 출항 능력 무력화**
 - **분산·연안 작전** — 분산해양작전(DMO) · 해안 C-RAM/SAM 연안 방어 · 항만 거점 복합 방어
 - **무인·자율 자산** — 무인 정찰 드론(수평선 너머 OTH 탐지 확장) · 무인 수상/수중정(USV·UUV — 소해·전방 피켓·무인 점방어)
 - **지속 전장 모드** (실험적) — 양측이 작전 목표(자산 방어·해역 통제 등)를 두고 시간 지평까지 겨루는 승/패 판정 엔진
@@ -107,7 +108,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
 | `engine_campaign.py` | 작전급 캠페인 엔진 — 며칠 단위 전역을 1시간 단위로 진행 (전술 엔진을 교전 해결기로 호출) |
 | `engine_airforce.py` | 공군 작전급 층 — 한반도 격자 제공권 + 공군 전력 관리 (캠페인 엔진이 호출) |
-| `engine_army.py` | 지상 작전급 층 — 해상 교통로별 연안 방공 포대(5계층 요격) (캠페인 엔진이 호출) |
+| `engine_army.py` | 지상 작전급 층 — 해상 교통로별 연안 방공 포대(5계층 요격)·지대지 화력 (캠페인 엔진이 호출) |
+| `engine_joint.py` | 합동 화력 층 — 육해공이 같은 적 기지를 협조 타격 (캠페인 엔진이 호출) |
 | `db_specsheet.py` | DB 탭 스펙시트용 상세 설명 |
 | `ai_policy_infer.py` | 학습된 AI 전술 정책을 numpy만으로 추론 (exe 탑재) |
 | `forecast_features.py` | 예상 전황 특징화 — 편성·적·날씨를 학습 모델 입력 벡터로 변환 (exe 탑재) |
@@ -224,7 +226,7 @@ A project aiming to be a **joint air–land–sea integrated defense simulator**
 It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
 requirement (REQ) evaluation, and Excel/PNG report generation.
 
-> **Current stage:** Navy — Aegis task force integrated defense + air-force & ground operational layers + 5-layer Korean missile defense (v18.05)
+> **Current stage:** Navy — Aegis task force integrated defense + air-force & ground operational layers + 5-layer Korean missile defense + joint fires (coordinated strike) (v21.01)
 > **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
 > **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
 
@@ -251,6 +253,7 @@ expand to other force domains step by step.
 - **Hypersonic & emerging threats** — layered interception of HGV glide trajectories (exo-atmospheric SM-3 ↔ endo-atmospheric SM-6) · drone-swarm saturation attrition · suicide unmanned surface vessels (USV) · mine warfare (MIW)
 - **5-layer ballistic missile defense (BMD)** — Aegis Ashore SM-3 (midcourse) · THAAD (terminal high-altitude) · L-SAM (terminal upper) · Patriot PAC-3 MSE (terminal middle) · Cheongung-II (terminal lower point defense). Ballistic terminal descent lets each layer engage in sequence by approach range
 - **Ground operational layer — coastal air defense, amphibious assault, domino** — coastal SAM sites per sea line of communication (5-layer interception, interceptor stocks carry across the whole campaign) · anti-ship ballistic missile zones resolved by actual tactical engagement · amphibious assault (transit → air cover → assault, multiplied into beachhead progress) · **SEAD domino** (once the enemy holds the sky it suppresses coastal air defenses → air superiority falls further → sea lines come under pressure)
+- **Joint fires — coordinated strike** — enemy ports and airfields are struck not only by strategic bombers but by naval cruise missiles (Hyunmoo-3C, Tomahawk) and army surface-to-surface fires (Hyunmoo-2) together · once a base is neutralized the remaining firepower rolls over to the next one instead of being wasted · sequential strike (avoids fratricide) vs simultaneous strike (splits enemy air defenses, but manned bombers abort without fire support coordination) · **even a bomber-less force with air inferiority can degrade enemy sortie capacity through naval and army fires alone**
 - **Distributed & littoral operations** — Distributed Maritime Operations (DMO) · shore-based C-RAM/SAM littoral defense · combined harbor-stronghold defense
 - **Unmanned & autonomous assets** — unmanned reconnaissance drones (over-the-horizon detection extension) · unmanned surface/undersea vehicles (USV·UUV — minesweeping, forward picket, unmanned point defense)
 - **Persistent battle mode** (experimental) — a win/loss engine where both sides pursue operational objectives (asset defense, sea control, etc.) over a time horizon
@@ -288,7 +291,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `engine_combat.py` | Time-step bidirectional engagement engine_core |
 | `engine_campaign.py` | Operational campaign engine — multi-day theater in 1-hour ticks (calls the tactical engine as an engagement solver) |
 | `engine_airforce.py` | Air-force operational layer — Korean-theater air-superiority grid + air fleet management (called by the campaign engine) |
-| `engine_army.py` | Ground operational layer — coastal SAM sites (5-layer interception), amphibious assault, SEAD domino (called by the campaign engine) |
+| `engine_army.py` | Ground operational layer — coastal SAM sites (5-layer interception), amphibious assault, SEAD domino, surface-to-surface fires (called by the campaign engine) |
+| `engine_joint.py` | Joint fires layer — army, navy and air force strike the same enemy bases in coordination (called by the campaign engine) |
 | `app_main.py` | PyQt6 app_main — UI, sim workers, result/DB/plan tabs, the whole app |
 | `db_specsheet.py` | Detailed spec-sheet descriptions for the DB tab |
 | `app_changelog.json` | Patch history |

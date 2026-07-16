@@ -28,6 +28,7 @@ a = Analysis(
         ('engine_campaign.py',       '.'),   # v18.1 작전급 캠페인 엔진
         ('engine_airforce.py',       '.'),   # v19.1 공군 작전급 층(제공권 격자)
         ('engine_army.py',           '.'),   # v20.2b 지상 작전급 층(연안 방공망)
+        ('engine_joint.py',          '.'),   # v21.2 합동 화력 층(육해공 협조 타격)
         ('ai_rl_policy.npz',          '.'),
         ('jds_icon.ico',           '.'),
         ('db_ocean_acoustic.py',   '.'),
@@ -48,6 +49,8 @@ a = Analysis(
         'engine_airforce',
         # v20.2b 지상 작전급 층(engine_campaign이 지연 import + app_main이 프리셋 import)
         'engine_army',
+        # v21.2 합동 화력 층(engine_campaign이 import)
+        'engine_joint',
         'joblib',
         'sklearn',
         'sklearn.ensemble',
