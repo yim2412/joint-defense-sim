@@ -149,8 +149,8 @@
 
 | 그룹 | 토글 | 추정 원인 | 처방 |
 |------|------|-----------|------|
-| **C. 기본 방어 흡수** ◀다음 | `decoy` `selfdefense` `cec_preassign` `anti_sam` | 다른 방어가 몫을 흡수해 최종 지표 무변(델타0). ON/OFF가 결과에 안 드러남. anti_sam은 적 함정 SAM 몫이 작음 | **② 카운터 시딩**(발동 지점에 `self._feat()`) → 발동N·델타0이면 '흡수형 정규기능'으로 EFFECT_ALIVE, 발동0이면 무대 규명 |
-| **D. 대잠·기뢰** | `asw_contact_limit` `minesweeping` | 대잠/기뢰 시나리오에서 짝 기능·조건 미충족 추정 | 대잠 자산·기뢰 밀도 갖춘 시나리오로 재스캔 (`minesweeping`은 `enable_mine_threat`+UUV 짝 필요) |
+| **C. 기본 방어 흡수** ✅부분완료 | ~~`selfdefense` `cec_preassign`~~ · 🔴`decoy` `anti_sam` | 카운터 시딩 후 재스캔 | ✅selfdefense 발동43·델타 → 상환. ✅cec_preassign=enable_cec 레거시 별칭 → 별칭 상환. 🔴decoy 무대부재(어뢰 상류차단)→D로. 🔴anti_sam 원리상 불가(friendly_sam이 적함정 target 안 함)→판단필요 |
+| **D. 대잠·기뢰** ◀다음 | `asw_contact_limit` `minesweeping` `decoy` | 대잠/기뢰 시나리오에서 짝 기능·조건 미충족 추정 | 대잠 자산·기뢰 밀도 갖춘 시나리오로 재스캔 (`minesweeping`은 `enable_mine_threat`+UUV 짝, `decoy`는 어뢰가 함정 근접하는 무대=대잠 항공 OFF/잠수함 매복) |
 | **E. 전장 전용** | `battle_mode` `ras_rearm` | 단발 교전서 원리상 미발현 | **전장 모드 스캐너**(run_battle_simulation 기반) 별도 필요 or `_audit_campaign_smoke`에 편입 |
 | **A. BMD 지상자산** ✅완료 | ~~`ashore` `thaad` `lsam` `chungung` `patriot`~~ | — | ✅ 토글+재고(*_stock) 짝 주니 발현 → EFFECT_ALIVE |
 | **B. 환경물리** ✅완료 | ~~`terrain` `isa` `ballistic_descent` `hgv_glide`~~ | — | ✅ A+B 재스캔서 살아있음 입증 → EFFECT_ALIVE |
@@ -158,8 +158,8 @@
 ### 실행 순서 (권장)
 1. ~~**A+B**(시나리오 추가 → 재스캔)~~ ✅**완료** — 4개 상환(부채 17→13). terrain·isa·ballistic_descent·hgv_glide 살아있음.
 2. ~~**A 규명**~~ ✅**완료** — 원인=측정 결함(토글 켰으나 재고 0). 재고 짝 주고 재스캔 → BMD 5자산 발현, **부채 13→8**.
-3. **C**(카운터 시딩) ◀**다음 재개 지점**: 흡수형(decoy·selfdefense·cec_preassign·anti_sam)에 `_feat()` 추가(회귀 bit-identical 재확인) → 재스캔으로 발동 여부 판정. 발동N·델타0이면 '흡수형 정규기능'으로 EFFECT_ALIVE.
-4. **D**(짝 기능 시나리오): 대잠·기뢰 무대 보강.
+3. ~~**C**(카운터 시딩)~~ ✅**부분완료**(부채 8→6) — selfdefense 상환·cec_preassign 별칭 상환. decoy(무대부재)·anti_sam(원리상 불가)은 미상환.
+4. **D**(짝 기능 시나리오) ◀**다음 재개 지점**: 대잠(`asw_contact_limit`)·기뢰(`minesweeping`) + **decoy** 무대 보강 재스캔. decoy는 어뢰가 함정 근접하는 무대(대잠 항공 OFF/잠수함 매복)면 발동.
 5. **E**(전장 전용): 전장 스캐너는 별도 작업 — 우선순위 최하(단발 스캐너로 커버 불가가 정상).
 
 > **주의**: 재스캔 후 EFFECT_ALIVE 이관 시 반드시 `audit_static_scan.py` 51/51 PASS + 게이트 검출력 재확인(가짜 토글 FAIL). 시나리오 추가는 `total_threats>0` 가드 유지.

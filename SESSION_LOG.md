@@ -13,6 +13,29 @@
 
 ---
 
+## [2026-07-16] **세션 매듭** — 부채 청소 C 부분 완료 (8→6)  (HEAD: 8cbae80)
+
+- **한 것**: 흡수형 4토글에 `_feat()` 카운터 시딩 후 재스캔 판정. **2 상환 + 2 규명(미상환)**.
+  회귀 38×29 bit-identical(pre-commit 재확인). 정적 51/51.
+  - **selfdefense 상환**: 발동43·델타(friendly_hits+4·손실+1) → EFFECT_ALIVE.
+  - **cec_preassign 별칭 상환**: `enable_cec`(이미 ALIVE)의 레거시 폴백 별칭이었다. 3601
+    `get('enable_cec', get('enable_cec_preassign', True))`로 같은 cec_base 공유 → preassign 토글은
+    enable_cec가 cfg에 있으면 무효. UI는 enable_cec만 빌드. **A의 '측정 결함'과 동형** = 부채
+    목록이 실제 코드를 지배 못 하는 죽은 별칭을 추적. 카운터 키 `cec`로 정정.
+
+- **⚠ 규명 완료·미상환 2건 (다음 재개 = D)**:
+  - **decoy 무대 부재**: 어뢰 방어는 살아있음(v18.05.03 실적)이나 대잠 항공·함정이 어뢰를
+    상류 차단 → 함정 근접(decoy 교전권) 미도달. **standoff OFF로도 발동0.** D에서 어뢰 근접
+    무대(대잠 항공 OFF/잠수함 매복)로 재스캔하면 살릴 여지.
+  - **anti_sam 원리상 불가**: `friendly_sam`이 적 함정(is_ship)을 target하는 경로가 엔진에
+    없다(아군 SAM=대공 전용, 적 함정은 friendly_strike로 공격). `m.target is et`가 영원히 거짓.
+    **판단 필요**: 종결 vs mtype 버그 수정(후자는 selfdefense와 중복). → 사용자 방향 결정.
+
+- **판단**: changelog/APP_VERSION 생략(내부 진단 계측, exe 미표시). 엔진은 _feat 계측만 추가
+  (회귀 무영향). pre-commit이 정적+회귀 자동 게이트 → 게이트 검출력 실질 검증됨.
+
+---
+
 ## [2026-07-15] **세션 매듭** — 부채 청소 A 규명 완료 (13→8)  (HEAD: 커밋대기)
 
 - **한 것**: A+B 재스캔서 델타0으로 남던 **BMD 지상자산 6개의 원인 규명**. 코드 추적 결과 진짜
