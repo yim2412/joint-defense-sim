@@ -365,11 +365,6 @@ def chk_flag_consume_auto():
 # (초안 '33개'는 추정치. 실측 = engine_combat `.get()`/`cfg[]` 소비 50개 − PROBES 7 = 43.)
 # 항공기 자산 토글(f35a·kf21·helo 등)·캠페인/공군/육군 토글은 engine_combat 미소비라 자동 제외.
 EFFECT_DEBT = {
-    # ⚪ 카운터필요 — 발동0. decoy(어뢰 기만)는 C 재스캔서 발동0 → 어뢰 근접 무대 규명(D).
-    #   asw_contact_limit/minesweeping(대잠·기뢰 짝 기능). (anti_sam은 원리상 불가 → EFFECT_DEAD 종결.)
-    'enable_asw_contact_limit',
-    'enable_decoy',
-    'enable_minesweeping',
     # ⬛ 전장전용(2) — 단발 스캐너 대상 밖. 전장 스모크에서 판정.
     'enable_battle_mode', 'enable_ras_rearm',
 }
@@ -381,12 +376,17 @@ EFFECT_DEBT = {
 #    3601 `get('enable_cec', get('enable_cec_preassign', True))`로 같은 cec_base 경로 공유. UI는
 #    enable_cec만 빌드(app_main 9991), preassign은 구버전 cfg 로드 폴백뿐. 별칭 상환으로 이관.
 #    selfdefense는 카운터 시딩 후 재스캔서 발동43·델타(friendly_hits+4·손실+1) 확증 → 상환.
+#    D 청소 2026-07-16: asw_contact_limit(datum 성장)는 sonar_emcon(핑 역탐지 회피) 짝을 켠
+#    대잠EMCON 무대서 델타(intercept_rate+0.198) 확증 → 상환. 접촉 단절 이벤트가 있어야 발현.
+#    decoy(어뢰 기만)는 매복(is_ambush) 잠수함 '북한 잠수함 선제 기습'+대잠 항공 OFF 무대서
+#    발동3·델타 확증(원거리 발사 잠수함 무대선 어뢰 미도달이었다). minesweeping(기뢰 소해)은
+#    mine_density 0.8 기뢰전 무대서 mines_struck-2 델타 확증(0.5 접촉 2발은 시드편차에 묻힘).
 EFFECT_ALIVE = {
-    'enable_ashore', 'enable_asw_forward', 'enable_autonomous_engagement', 'enable_ballistic_descent',
+    'enable_ashore', 'enable_asw_contact_limit', 'enable_asw_forward', 'enable_autonomous_engagement', 'enable_ballistic_descent',
     'enable_cec', 'enable_cec_jammed', 'enable_cec_preassign', 'enable_chungung',
-    'enable_current', 'enable_ecm', 'enable_esm_arm', 'enable_evap_duct', 'enable_evasion',
+    'enable_current', 'enable_decoy', 'enable_ecm', 'enable_esm_arm', 'enable_evap_duct', 'enable_evasion',
     'enable_flooding', 'enable_hgv_glide', 'enable_iff', 'enable_isa', 'enable_laser_dew',
-    'enable_layered_defense', 'enable_lsam',
+    'enable_layered_defense', 'enable_lsam', 'enable_minesweeping',
     'enable_multibearing', 'enable_munition_limit', 'enable_patriot', 'enable_radar_off',
     'enable_random_placement',
     'enable_recon_drone', 'enable_selfdefense', 'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation',

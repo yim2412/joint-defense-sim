@@ -73,6 +73,19 @@ SCENARIOS = [
     # B. terrain(지형 레이더 음영)은 저고도 위협(alt<1000m)이라야 탐지거리 페널티가 결과에 드러남.
     #    _BASE fleet_region='동해 북부'=EAST_SEA(페널티 0.78 최강). 연안 자폭드론·로켓·고속정 다수.
     ('연안저고도', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='연안 포화 공격')),
+    # ── 부채 청소 D(2026-07-16) 대잠·기뢰 짝 무대 ────────────────────────────────
+    # D. minesweeping은 기뢰가 깔려야(enable_mine_threat) 소해 경감이 mines_struck에 드러남.
+    #    mine_density 0.8로 접촉 빈도 확보(0.5에선 접촉 2발 표본이라 소해 델타가 시드편차에 묻힘).
+    ('기뢰전', dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='연안 포화 공격',
+                    enable_mine_threat=True, mine_density=0.8)),
+    # D. decoy(어뢰 기만)는 어뢰가 함정 근접권까지 와야 발동. '잠수함 복합 포화'는 원거리 발사
+    #    잠수함 위주라 어뢰 미도달(C서 확인) → 매복(is_ambush) 잠수함이 근접 어뢰 반격하는
+    #    '북한 잠수함 선제 기습' 프리셋 + 대잠 항공 OFF(상류 차단 제거)로 어뢰를 함대까지 보낸다.
+    ('어뢰근접', dict(_BASE, fleet_preset='대잠전단', enemy_fleet_preset='북한 잠수함 선제 기습')),
+    # D. asw_contact_limit(datum 성장)는 '접촉 단절 중'에만 발현 → sonar_emcon(핑 역탐지 회피)이
+    #    짝으로 켜져야 단절 이벤트가 생긴다(v18.05.10 EMCON 딜레마 메커니즘). 대잠 항공 ON.
+    ('대잠EMCON', dict(_BASE, fleet_preset='대잠전단', enemy_fleet_preset='잠수함 복합 포화',
+                        enable_helo=True, enable_p8a=True, enable_p3c=True, enable_sonar_emcon=True)),
 ]
 
 # ON/OFF 델타를 관찰할 지표(광범위 — 어느 하나라도 움직이면 '살아 있음'). 다양한 도메인 커버.
