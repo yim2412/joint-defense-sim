@@ -11,6 +11,8 @@ engine_campaign.py — v18 작전급 캠페인 엔진 (v18.1 코어 루프 MVP)
 정본 설계 = plan_v18_campaign.md.
 """
 from __future__ import annotations
+import itertools
+import math
 import random
 import numpy as np
 
@@ -803,7 +805,17 @@ _MC_ACC_KEYS = ('mean_control', 'surviving_ships', 'n_engagements', 'cost_total'
                 # 아래 acc[k] += float(...)에서 TypeError가 난다.
                 'enemy_base_damage', 'enemy_output_factor',
                 'joint_navy_fired', 'joint_army_fired', 'joint_air_effort',
-                'joint_deconflict', 'joint_overkill_skip')
+                'joint_deconflict', 'joint_overkill_skip',
+                # v21.4: 군별 기여 비율의 스칼라판(dict인 joint_dmg_share는 위 사유로 제외돼
+                #   MC에서 소실됐다). 반복 분석에서도 '누가 얼마나' 평균이 남는다.
+                'joint_share_air', 'joint_share_navy', 'joint_share_army')
+
+# v21.4: 누락 키의 기본값. 대부분은 0이 옳지만 **적 출항능력은 1.0(무손상)이 옳다** —
+#   전략폭격 OFF면 _compile에 이 키가 아예 없는데(air.summary()가 strike_enabled일 때만
+#   넣는다), 0으로 채우면 '적 출항능력 0 = 완전 무력화'로 읽힌다. 실제 뜻은 '데이터 없음'
+#   이고 물리적 진실은 '적 기지 무손상 = 1.0'이다. v21.2가 심은 버그 — 폭격 OFF 캠페인
+#   MC가 enemy_output_factor_avg를 0.0으로 보고해 왔다(정반대로 읽히는 값).
+_MC_ACC_DEFAULTS = {'enemy_output_factor': 1.0}
 
 # ProcessPoolExecutor 워커 전역 — initializer로 모델 1회 로드(태스크마다 pkl 재직렬화 방지)
 _MC_WORKER_MODEL = None
@@ -827,7 +839,7 @@ def _campaign_mc_worker(args: tuple) -> dict:
     PyQt6 비의존 순수 함수(전술 _mc_batch_worker 선례)."""
     cfg, seed = args
     r = run_campaign(dict(cfg, campaign_seed=seed), model=_MC_WORKER_MODEL)
-    out = {k: r.get(k, 0) for k in _MC_ACC_KEYS}
+    out = {k: r.get(k, _MC_ACC_DEFAULTS.get(k, 0)) for k in _MC_ACC_KEYS}
     out['outcome'] = r.get('outcome', 'loss')
     return out
 
@@ -847,7 +859,9 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
     def _accumulate(r):
         outcomes[r['outcome']] = outcomes.get(r['outcome'], 0) + 1
         for k in _MC_ACC_KEYS:
-            acc[k] += float(r.get(k, 0) or 0)
+            _d = _MC_ACC_DEFAULTS.get(k, 0)
+            _v = r.get(k, _d)
+            acc[k] += float(_d if _v is None else _v)
         ctrl_list.append(float(r.get('mean_control', 0.0)))
 
     # E1: n이 크면 멀티프로세스 병렬(seed 독립 → 순차와 집계 동일, 정밀 교전 ON 시 큰 이득).
@@ -927,7 +941,179 @@ def monte_carlo_campaign(cfg: dict, n: int, model=None, progress_cb=None) -> dic
         'joint_air_effort_avg':    round(acc['joint_air_effort'] * inv, 2),
         'joint_deconflict_avg':    round(acc['joint_deconflict'] * inv, 2),
         'joint_overkill_skip_avg': round(acc['joint_overkill_skip'] * inv, 2),
+        # v21.4: 군별 직접 기여 비율(평균). 반사실 기여도(shapley_contribution)와 다른 값이다 —
+        #   이건 '누가 표적을 실제로 몇 대 때렸나'(직접 계상)이고, 반사실은 '그 군이 없었으면
+        #   전역 결과가 얼마나 나빠졌나'(대체 불가능성). 둘은 갈릴 수 있고 갈리는 게 정상.
+        'joint_share_air_avg':     round(acc['joint_share_air'] * inv, 3),
+        'joint_share_navy_avg':    round(acc['joint_share_navy'] * inv, 3),
+        'joint_share_army_avg':    round(acc['joint_share_army'] * inv, 3),
         'horizon_h':       int(cfg.get('campaign_horizon_h', CAMPAIGN_HORIZON_H_DEFAULT)),
         'fog_enabled':     bool(cfg.get('enable_campaign_fog', False)),
         'parallel':        bool(n >= parallel_min),            # E1: 병렬 실행 여부(투명성)
+    }
+
+
+# ── v21.4: 합동작전 통합 보고서 — 군별 기여도(반사실 분해) ──────────────────
+# **참가자 = 아군이 쓸 수 있는 수단**이지 '전장 도메인'이 아니다. 이 구분이 이 분석의
+# 전부다 — 캠페인 층의 플래그는 대개 **양측을 동시에** 켜고 끄기 때문이다(v21.4 착수 시
+# 실측으로 두 번 확인):
+#   ▸enable_air_campaign : 아군 공군 + **적 공군**을 함께 연다 → 제공권 열세 편성에선
+#     '공군 기여도 −0.111'(공중전이 열릴수록 해군이 손해)이라는, 참이지만 **묻지 않은
+#     질문의 답**이 나온다.
+#   ▸enable_sead : 아군 SEAD만이 아니라 **적 방공망(IADS) 자체를 생성**한다
+#     (`ad_sites = build_ad_sites(cfg) if sead_enabled`). "SEAD가 없었으면"이 실제로는
+#     "적 IADS도 없었으면"이 돼 반사실이 성립하지 않는다 → **참가자에서 제외**하고
+#     'SEAD 도메인 효과'로 따로 잰다(sead_domain_effect — 기여도가 아니라고 명시).
+# → 도메인은 전 연합에서 **상수로 고정**하고, 양측 혼입이 없는 아군 수단만 켜고 끈다.
+#   그래야 "그 수단이 없었으면 전역이 얼마나 나빠졌나"라는 _PLANS의 질문에 답한다.
+#
+# **해군은 참가자가 아니라 기준선**이다 — 캠페인 자체가 해군 전역이라 함정을 빼면
+# 전역이 성립하지 않는다(v19.6 단계별 MC의 출발점이 '순해군'이었던 이유).
+#
+# 합동 화력(enable_joint_fires)은 참가자에 넣지 않는다: 짝 3중이 모두 켜져야 층이
+# 생겨 '자유 연합' 가정을 깬다. cfg 설정대로 고정해 두면 strike+army 연합에서만 발현하는
+# **시너지**가 되고, Shapley가 그 몫을 참가자들에게 상호작용으로 배분한다(정확히 맞는 처리).
+_SHAPLEY_DOMAIN_FIXED = 'enable_air_campaign'   # 전장 자체(적 공군 포함) — 상수로 고정
+_SHAPLEY_PLAYERS = {
+    # 적 기지는 **수동 표적**일 뿐 — 켜면 아군이 때리는 것만 추가된다(양측 혼입 없음).
+    'strike': 'enable_strategic_strike',  # 전략폭격(적 기지 타격)
+    # 연안 방공·상륙·지대지 전부 아군 자산(적 SEAD 도미노는 enable_enemy_sead로 별개).
+    'army':   'enable_army_campaign',     # 지상 작전급
+}
+# 참가자가 아닌 '도메인' 토글 — 켜면 아군 수단과 적 위협이 함께 생긴다. 기여도로 읽으면
+# 안 되므로 보고서에서 절을 나눠 표기한다(사용자 결정, v21.4).
+_SHAPLEY_DOMAIN_PROBE = 'enable_sead'
+# 기여도를 재는 전역 결과 지표. _PLANS의 두 질문에 각각 답한다 —
+#   win_rate·mean_control = "교통로 방어에 얼마나 기여?"
+#   surviving = "공군 방공망제압이 해군 손실을 얼마나 줄였나?"(손실의 반사실)
+_SHAPLEY_METRICS = ('win_rate', 'mean_control', 'surviving', 'enemy_output_factor', 'cost')
+
+
+def _coalition_cfg(cfg: dict, subset: frozenset) -> dict:
+    """연합 S에 없는 참가자의 플래그를 끈 cfg 사본. cfg 원본은 건드리지 않는다.
+    전장 도메인은 전 연합에서 ON 고정 — 적 공군을 상수로 두어야 아군 수단의 순효과만 남는다."""
+    out = dict(cfg)
+    out[_SHAPLEY_DOMAIN_FIXED] = True
+    for name, flag in _SHAPLEY_PLAYERS.items():
+        out[flag] = (name in subset)
+    return out
+
+
+def _coalition_value(results: list) -> dict:
+    """연합 1개의 n회 결과 → 지표별 대표값(v(S))."""
+    n = len(results) or 1
+    inv = 1.0 / n
+    return {
+        'win_rate':            sum(1 for r in results if r.get('outcome') == 'win') * inv,
+        'mean_control':        sum(float(r.get('mean_control', 0) or 0) for r in results) * inv,
+        'surviving':           sum(float(r.get('surviving_ships', 0) or 0) for r in results) * inv,
+        # 적 출항능력은 낮을수록 아군에 좋다 → 기여도 부호가 뒤집혀 읽히지 않도록
+        # '무력화량(1-출항능력)'으로 뒤집어 담는다(모든 지표를 클수록 좋게 통일).
+        'enemy_output_factor': sum(1.0 - float(r.get('enemy_output_factor', 1) or 0)
+                                   for r in results) * inv,
+        'cost':                sum(float(r.get('cost_total', 0) or 0) for r in results) * inv,
+    }
+
+
+def shapley_contribution(cfg: dict, n: int = 30, model=None, progress_cb=None) -> dict:
+    """v21.4: 각 군이 전역 결과에 **얼마나 대체 불가능했는지**를 Shapley 값으로 분해.
+
+    직접 계상(joint_share_*)과 다른 질문에 답한다 — 직접 계상은 '누가 표적을 몇 대
+    때렸나'이고, 이건 '그 군이 없었으면 전역이 얼마나 나빠졌나'다. 둘은 갈릴 수 있다
+    (예: 공군이 한 발도 안 쐈어도 제공권을 잡아 해군을 살렸다면 직접 0·반사실 큼).
+
+    **왜 단계별이 아니라 Shapley인가**: v19.6에서 수동으로 한 단계별 MC(순해군→+공군
+    →+지상→+폭격)는 **넣는 순서에 값이 좌우된다** — 겹치는 기여를 먼저 들어온 군이
+    가져간다. 그대로 '공군 기여 4%'라고 보고하면 측정 설계가 결론을 만든다. Shapley는
+    전 순서의 평균이라 순서 의존이 원리적으로 사라진다. 비용은 2^3=8 연합으로 2배뿐.
+
+    **공통 난수(common random numbers)**: 모든 연합에 같은 시드 0…n-1을 쓴다. 연합 간
+    차이가 '층의 효과'만 남고 시드 운이 상쇄돼, 적은 n으로도 기여도가 안정된다.
+    """
+    if model is None:
+        model = load_forecast_model()
+    n = max(1, int(n))
+    players = list(_SHAPLEY_PLAYERS)
+    subsets = [frozenset(c) for k in range(len(players) + 1)
+               for c in itertools.combinations(players, k)]
+
+    # (연합 × 시드) 교차곱을 통째로 병렬화한다. 연합마다 monte_carlo_campaign을 부르면
+    # 서브셋당 n이 병렬 임계(_MC_PARALLEL_MIN_PROXY=64) 미만이라 전부 순차로 떨어진다.
+    tasks = [(_coalition_cfg(cfg, s), seed, ('C', si))
+             for si, s in enumerate(subsets) for seed in range(n)]
+    # SEAD 도메인 프로브 — 전체 연합에서 도메인만 ON/OFF(참가자가 아니므로 Shapley 밖).
+    grand_set = frozenset(players)
+    for flag_on in (True, False):
+        pcfg = dict(_coalition_cfg(cfg, grand_set), **{_SHAPLEY_DOMAIN_PROBE: flag_on})
+        tasks += [(pcfg, seed, ('D', flag_on)) for seed in range(n)]
+    buckets: dict = {}
+    for _, _, key in tasks:
+        buckets.setdefault(key, [])
+    total = len(tasks)
+    done = 0
+
+    import os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    n_workers = min(os.cpu_count() or 4, 8)
+    expect_model = model is not None
+    with ProcessPoolExecutor(max_workers=n_workers,
+                             initializer=_campaign_mc_init,
+                             initargs=(expect_model,)) as pool:
+        futs = {pool.submit(_campaign_mc_worker, (c, seed)): key for c, seed, key in tasks}
+        try:
+            for fut in as_completed(futs):
+                buckets[futs[fut]].append(fut.result())
+                done += 1
+                if progress_cb and (done % 10 == 0 or done == total):
+                    progress_cb(done, total)   # 중단 요청 시 여기서 예외
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)   # 대기열 즉시 취소(반응성)
+            raise
+
+    vals = {subsets[si]: _coalition_value(rs)
+            for (kind, si), rs in buckets.items() if kind == 'C'}
+    dom = {on: _coalition_value(rs) for (kind, on), rs in buckets.items() if kind == 'D'}
+
+    # Shapley: φ_i = Σ_{S⊆N\{i}} |S|!(k-|S|-1)!/k! · [v(S∪{i}) − v(S)]
+    k = len(players)
+    fact = math.factorial
+    shap = {p: {m: 0.0 for m in _SHAPLEY_METRICS} for p in players}
+    for p in players:
+        others = [q for q in players if q != p]
+        for r in range(len(others) + 1):
+            for combo in itertools.combinations(others, r):
+                S = frozenset(combo)
+                w = fact(r) * fact(k - r - 1) / fact(k)
+                for m in _SHAPLEY_METRICS:
+                    shap[p][m] += w * (vals[S | {p}][m] - vals[S][m])
+
+    empty, grand = frozenset(), frozenset(players)
+    # 효율성(efficiency): Σφ = v(N) − v(∅) 는 Shapley의 항등식이다. 어긋나면 구현 버그 —
+    # 조용히 틀린 기여도를 보고하느니 잔차를 노출해 검증 가능하게 남긴다.
+    resid = {m: round((vals[grand][m] - vals[empty][m])
+                      - sum(shap[p][m] for p in players), 6) for m in _SHAPLEY_METRICS}
+    return {
+        'mode':             'campaign_shapley',
+        'model_loaded':     model is not None,
+        'n_runs_per_coalition': n,
+        'n_coalitions':     len(subsets),
+        'n_total_runs':     total,
+        'players':          players,
+        'metrics':          list(_SHAPLEY_METRICS),
+        # 해군 = 기준선(참가자 아님). '공중·지상 전장은 존재하되(적 공군 포함) 아군은
+        # SEAD·폭격·육군화력을 일절 쓰지 않을 때' 해군이 단독으로 도달하는 전역 결과.
+        'navy_baseline':    {m: round(vals[empty][m], 3) for m in _SHAPLEY_METRICS},
+        'domain_fixed':     _SHAPLEY_DOMAIN_FIXED,   # 상수로 둔 전장(해석의 전제 — 투명성)
+        # ⚠ 기여도가 **아니다**. SEAD 토글은 아군 SEAD와 적 IADS를 함께 켜므로 이 값은
+        #   '그 도메인이 열렸을 때의 순효과'다. 보고서에서 절을 나눠 표기할 것.
+        'domain_probe':     _SHAPLEY_DOMAIN_PROBE,
+        'sead_domain_effect': {m: round(dom[True][m] - dom[False][m], 3)
+                               for m in _SHAPLEY_METRICS} if len(dom) == 2 else {},
+        'grand':            {m: round(vals[grand][m], 3) for m in _SHAPLEY_METRICS},
+        'shapley':          {p: {m: round(v, 3) for m, v in d.items()}
+                             for p, d in shap.items()},
+        # 원자료 공개(투명성) — 연합별 값을 남겨 기여도를 손으로 재검산할 수 있게 한다.
+        'coalitions':       {('+'.join(sorted(s)) if s else 'navy_only'):
+                             {m: round(v, 3) for m, v in d.items()} for s, d in vals.items()},
+        'efficiency_resid': resid,
     }

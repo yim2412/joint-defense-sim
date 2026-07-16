@@ -1,7 +1,24 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v21.01.01 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v21.02.02 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
+║  [v21.02.01~02 — 합동작전 통합 보고서: 군별 기여도 반사실 분해 (v21.4)]     ║
+║  NEW-A  engine_campaign.shapley_contribution — 각 군을 뺀 전역을 실제로     ║
+║         재실행해 기여도를 Shapley로 분해(단계별 MC의 순서 의존 제거).       ║
+║         (연합×시드) 교차곱 병렬화 — 연합마다 monte_carlo_campaign을 부르면  ║
+║         서브셋당 n<_MC_PARALLEL_MIN_PROXY(64)라 전부 순차로 떨어진다.       ║
+║         효율성 항등식 Σφ=v(N)−v(∅) 잔차를 결과에 노출(구현 자가검증).       ║
+║  NEW-B  enable_joint_report 3종 세트 + 배너·상태줄 표시. 상태줄에도 띄워야  ║
+║         GUI 스모크가 감시 가능(교전 분석 배너는 UIA 밖 — v20 교훈).         ║
+║  NEW-C  joint_share_{air,navy,army} — joint_dmg_share(dict)는 _MC_ACC_KEYS  ║
+║         가 스칼라만 받아 캠페인 MC에서 통째로 소실됐다. 스칼라판 추가.      ║
+║  BUG-1  _MC_ACC_DEFAULTS 신설 — 전략폭격 OFF면 enemy_output_factor 키가     ║
+║         없는데 누락=0으로 채워져 '적 출항능력 0%(완전 무력화)'로 정반대로   ║
+║         보고됐다(진실=무손상 1.0). v21.2가 심은 버그.                       ║
+║  ⚠ 설계 반례 2건(실측): ①enable_air_campaign은 적 공군도 함께 켜 '공군     ║
+║     기여도 −0.111'이 나온다 ②enable_sead는 적 IADS를 생성(build_ad_sites)   ║
+║     → 반사실 성립 불가. 캠페인 플래그는 '군'이 아니라 '도메인'을 연다 →     ║
+║     참가자를 양측 혼입 없는 strike·army로 한정, SEAD는 도메인 효과로 분리.  ║
 ║  [v21.01.01 — 합동 화력 지원: 육해공이 같은 적 기지를 협조 타격 (v21.2)]    ║
 ║  NEW-A  engine_joint.py 신설(JointFires) — 적 기지(EnemyBase)를 공군 전략   ║
 ║         폭격 단독이 아니라 해군 순항미사일·육군 지대지가 함께 타격. 표적    ║
@@ -1477,7 +1494,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v21.01.01"
+APP_VERSION = "v21.02.02"
 
 # ── GPU / CPU 온도 헬퍼 ──────────────────────────────────────────────────────
 _wmi_inst = None   # lazy-init
@@ -3972,6 +3989,21 @@ class SimWorker(QThread):
                 mc = monte_carlo_campaign(self.cfg, n=camp_n, model=model,
                                           progress_cb=_camp_cb)
                 result['campaign_mc'] = mc     # 결과 렌더가 분포 표시에 사용
+                # v21.4: 군별 기여도(반사실 분해) — 전역을 연합별로 다시 돌려야 나오므로
+                #   MC 뒤에 별도로 잰다. 반복수는 MC(최대 1000회)와 달리 30회로 묶는다 —
+                #   4연합+2도메인프로브 = 6배수가 곱해져 그대로 따라가면 분석이 수 분이 된다.
+                if self.cfg.get('enable_joint_report', False):
+                    from engine_campaign import shapley_contribution
+
+                    def _shap_cb(done, total):
+                        if self.isInterruptionRequested():
+                            raise _SimCancelled()
+                        self.progress_detail.emit(done, total, 0.0)
+                        self.progress.emit(f"군별 기여도 분석 {done}/{total}회…")
+
+                    shap_n = 10 if self.test_mode else min(camp_n, 30)
+                    result['joint_report'] = shapley_contribution(
+                        self.cfg, n=shap_n, model=model, progress_cb=_shap_cb)
                 self.finished.emit(result, mc)
                 return
 
@@ -4991,6 +5023,27 @@ class EngagementAnalysisTab(QWidget):
                 _amp = _st.get(result.get('amphib_state', ''), result.get('amphib_state', ''))
                 _army_txt += (f"        🏖 상륙({result.get('amphib_zone', '')}): {_amp}"
                               f"  진척 {result.get('amphib_progress', 0)*100:.0f}%")
+            # v21.4: 군별 기여도(반사실 분해). 각 군을 뺀 전역을 실제로 다시 돌린 결과라
+            #   '누가 몇 발 쐈나'(직접 계상)와 다른 값이다 — 여기 안 띄우면 사용자는
+            #   무엇이 전역을 이겼는지 끝내 알 수 없다.
+            _joint_txt = ''
+            _rep = result.get('joint_report') or {}
+            if _rep:
+                _lbl = {'strike': '💥 전략폭격', 'army': '🎖 지상 작전급'}
+                _shp, _base, _gr = _rep.get('shapley', {}), _rep.get('navy_baseline', {}), _rep.get('grand', {})
+                _parts = [f"{_lbl.get(p, p)} 승률 {v.get('win_rate', 0)*100:+.0f}%p"
+                          f"(통제 {v.get('mean_control', 0)*100:+.0f}%p)"
+                          for p, v in _shp.items()]
+                _joint_txt = (f"        📊 군별 기여도 (n={_rep.get('n_runs_per_coalition', 0)}"
+                              f"×{_rep.get('n_coalitions', 0)}연합):  "
+                              f"해군 단독 승률 {_base.get('win_rate', 0)*100:.0f}%"
+                              f" → 합동 {_gr.get('win_rate', 0)*100:.0f}%  ·  " + '  ·  '.join(_parts))
+                _sd = _rep.get('sead_domain_effect') or {}
+                if _sd:
+                    # 기여도 절과 분리해 표기 — 적 방공망을 함께 생성하는 토글이라 성격이 다르다
+                    _joint_txt += (f"        ⚠ 방공망 제압 {_sd.get('win_rate', 0)*100:+.0f}%p"
+                                   f" (통제 {_sd.get('mean_control', 0)*100:+.0f}%p) —"
+                                   f" 적 방공망 동반 생성이라 기여도가 아닌 전장 효과")
             mc = result.get('campaign_mc')
             if mc:
                 self._bp_outcome.setText(f"🗺 캠페인 MC ({mc.get('n_runs', 0)}회):  "
@@ -5015,7 +5068,7 @@ class EngagementAnalysisTab(QWidget):
                 _sl = [f"{'🟢' if v >= 0.7 else '🟠' if v >= 0.3 else '🔴'} {z} {v*100:.0f}%"
                        for z, v in _sc.items()]
                 self._bp_obj.setText(_logi + '        대표 전역(seed 0): ' + '  '.join(_sl)
-                                     + _air_txt + _army_txt)
+                                     + _air_txt + _army_txt + _joint_txt)
                 self._battle_panel.show()
                 return
             self._bp_outcome.setText(f"🗺 캠페인 결과:  {label}")
@@ -7080,6 +7133,8 @@ class MainWindow(QMainWindow):
             self.chk_army_campaign.setChecked(cfg.get('enable_army_campaign', False))
         if hasattr(self, 'chk_joint_fires'):   # v21.2 합동 화력 지원
             self.chk_joint_fires.setChecked(cfg.get('enable_joint_fires', False))
+        if hasattr(self, 'chk_joint_report'):   # v21.4 통합 보고서(군별 기여도)
+            self.chk_joint_report.setChecked(cfg.get('enable_joint_report', False))
         if hasattr(self, 'cmb_joint_mode'):
             self.cmb_joint_mode.setCurrentText(
                 '동시 공격' if cfg.get('joint_fire_mode') == 'simultaneous' else '시차 공격')
@@ -7791,6 +7846,21 @@ class MainWindow(QMainWindow):
         )
         self.chk_joint_fires.setChecked(False)
 
+        # v21.4: 합동작전 통합 보고서 — 군별 기여도(반사실 분해)
+        self.chk_joint_report = QCheckBox("합동작전 통합 보고서 (군별 기여도) (실험적)")
+        self.chk_joint_report.setToolTip(
+            "각 군이 전역 결과에 얼마나 대체 불가능했는지를 분해해 보고합니다.\n"
+            "전략폭격·지상 작전급을 각각 뺀 전역을 실제로 다시 돌려, 그 수단이 없었다면\n"
+            "전역이 얼마나 나빠졌을지를 잽니다(단순 집계가 아니라 반사실 비교).\n"
+            "넣는 순서에 따라 몫이 달라지는 단계별 비교와 달리, 모든 순서의 평균을 써\n"
+            "순서 의존이 없습니다. 겹치는 공로(합동 화력 시너지)는 각 군에 공평히 나눕니다.\n"
+            "⚠ 방공망 제압은 적 방공망도 함께 생성하므로 '기여도'가 아니라\n"
+            "  '전장이 열렸을 때의 순효과'로 따로 표기합니다.\n"
+            "캠페인 모드 전용 — 전역을 여러 번 더 돌리므로 분석 시간이 늘어납니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_joint_report.setChecked(False)
+
         self.cmb_joint_mode = NoScrollComboBox()
         self.cmb_joint_mode.addItems(['시차 공격', '동시 공격'])
         self.cmb_joint_mode.setToolTip(
@@ -8032,6 +8102,7 @@ class MainWindow(QMainWindow):
                     self.chk_sead, self.chk_strategic_strike,
                     self.chk_army_campaign, self.chk_coastal_sam, self.chk_amphibious,
                     self.chk_enemy_sead, self.chk_joint_fires,   # v21.2
+                    self.chk_joint_report,                       # v21.4
                     self.chk_rl_policy, self.chk_esm_arm, self.chk_target_difficulty,
                     self.chk_sonar_emcon, self.chk_asw_contact_limit,
                     self.chk_standoff_spawn,
@@ -8067,6 +8138,7 @@ class MainWindow(QMainWindow):
         fl_env.addRow("연안 포대 편성", self.cmb_coastal_preset)
         # v21.2 합동 화력 지원 — 육해공 협조 타격(전략 폭격·공군 작전급과 짝)
         fl_env.addRow("",            self.chk_joint_fires)
+        fl_env.addRow("",            self.chk_joint_report)   # v21.4
         fl_env.addRow("합동 화력 방식", self.cmb_joint_mode)
         fl_env.addRow("육군 지대지 화력", self.cmb_army_fire)
         fl_env.addRow("",            self.chk_amphibious)
@@ -10018,6 +10090,7 @@ class MainWindow(QMainWindow):
             'enable_army_campaign': self.chk_army_campaign.isChecked(),
             # v21.2 합동 화력 지원 — 육해공 협조 타격
             'enable_joint_fires': self.chk_joint_fires.isChecked(),
+            'enable_joint_report': self.chk_joint_report.isChecked(),   # v21.4
             'joint_fire_mode': ('simultaneous'
                                 if self.cmb_joint_mode.currentText() == '동시 공격'
                                 else 'sequential'),
@@ -10299,7 +10372,23 @@ class MainWindow(QMainWindow):
             if result.get('joint_fires'):
                 _mc_joint = (f" · 🤝 합동 화력 순항 {mc.get('joint_navy_fired_avg', 0):.0f}발"
                              f"·지대지 {mc.get('joint_army_fired_avg', 0):.0f}발"
-                             f" (적 출항 {mc.get('enemy_output_factor_avg', 1)*100:.0f}%)")
+                             f" (적 출항 {mc.get('enemy_output_factor_avg', 1)*100:.0f}%)"
+                             # v21.4: 직접 계상(누가 실제로 표적을 때렸나)의 MC 평균.
+                             #   반사실 기여도와 별개 값이라 나란히 둔다.
+                             f" 타격분담 공군 {mc.get('joint_share_air_avg', 0)*100:.0f}%"
+                             f"/해군 {mc.get('joint_share_navy_avg', 0)*100:.0f}%"
+                             f"/육군 {mc.get('joint_share_army_avg', 0)*100:.0f}%")
+            # v21.4: 반사실 기여도 요약. 상태줄에 띄워야 GUI 스모크가 감시할 수 있다
+            #   (교전 분석 탭 배너는 UIA 밖 — v20 교훈, 위 주석과 같은 사유).
+            _mc_report = ''
+            _rp = result.get('joint_report') or {}
+            if _rp:
+                _s = _rp.get('shapley', {})
+                _mc_report = (f" · 📊 군별 기여도 해군단독 "
+                              f"{_rp.get('navy_baseline', {}).get('win_rate', 0)*100:.0f}%"
+                              f"→합동 {_rp.get('grand', {}).get('win_rate', 0)*100:.0f}%"
+                              f" (전략폭격 {_s.get('strike', {}).get('win_rate', 0)*100:+.0f}%p"
+                              f"·지상 {_s.get('army', {}).get('win_rate', 0)*100:+.0f}%p)")
             self._lbl_status.setText(
                 f"완료 ({elapsed:.1f}s) | 🗺 캠페인 MC {mc.get('n_runs', 0)}회: "
                 f"🟢승 {mc.get('win_rate', 0)*100:.0f}% · "
@@ -10309,7 +10398,7 @@ class MainWindow(QMainWindow):
                 f"생존 {mc.get('surviving_avg', 0):.1f}/{result.get('n_ships', 0)} · "
                 f"평균 비용 ${mc.get('cost_avg', 0)/1e6:.0f}M · "
                 f"전역 {result.get('horizon_h', 72)}h"
-                f"{fog}{air}{sead}{strike}{cas}{_mc_coastal}{_mc_amphib}{_mc_joint}{warn}")
+                f"{fog}{air}{sead}{strike}{cas}{_mc_coastal}{_mc_amphib}{_mc_joint}{_mc_report}{warn}")
         else:
             oc = {'win': '🟢 승리', 'loss': '🔴 패배', 'draw': '🟡 무승부'}.get(
                 result.get('outcome'), result.get('outcome', '—'))
@@ -12170,19 +12259,12 @@ class SplashWindow(QWidget):
              "묶음 간 경계가 모호해지면 재조정."),
             # ── v15.x — AI & 자율화: v15.2 학습 즉시예측 구현 완료(v16.14.01),
             #    작전급 캠페인의 핵심 부품으로 연동 완료 → _PLANS에서 제거(이력은 changelog).
-            # ── v20.5 — 기능 유효성 재점검 (다음 착수 트랙) ────────────────────
-            ("v20.5", "높음", "요격 계층 유효성 재점검 — '효과 없음' 판정의 재조사",
-             "SM-3 최소 요격고도가 40km로 잘못 설정돼 있던 것을 바로잡자(외기권 100km), "
-             "그동안 '효과가 미미하다'고 판정했던 L-SAM·패트리엇·천궁-II의 기여도가 9배로 뛰었다. "
-             "원인은 그 무기들이 약해서가 아니라, SM-3가 물리적으로 요격할 수 없는 저고도 표적까지 "
-             "가로채 하위 계층의 몫을 빼앗고 있었기 때문이다. "
-             "즉 '효과 없음'은 기능의 성질이 아니라 다른 경로의 오류가 만든 증상일 수 있다. "
-             "같은 판정을 받은 기능들(극초음속 활공 궤적·대방사미사일 역탐지·능동 소나 역탐지·"
-             "함정 레이저·정찰 드론)을 같은 방법으로 다시 조사한다 — 상위 계층이 표적을 가로채는지, "
-             "교전 조건(고도·거리)이 실제 무기 제원과 맞는지, 위협 편성이 발현 가능한 규모인지. "
-             "새 기능을 만드는 것이 아니라 이미 만든 기능의 가치를 회수하는 작업이며, "
-             "합동작전(v21) 같은 상위 층을 얹기 전에 아래 층이 제 값을 하는지 확인하는 순서다."),
-            # ── v16.x — 전장 도메인 확장 (아래 v16.1은 미완 — v20.5에서 재조사) ──
+            # ── v20.5 기능 유효성 재점검 = 트랙 전체 완료(B-1~B-5·C) → 제거.
+            #    성과는 changelog·감사보고서에 있다(SM-3 외기권 문턱 정정으로 하위 BMD
+            #    계층 순증분 9배 회수 · 표적 난이도·HGV 활공·탄도 강하 정규 승격 ·
+            #    레이더 침묵↔회피 기동 짝 규명 · 스탠드오프 교전 기본 ON · 레이저는
+            #    음성 확정 종결). 남은 잔여(대잠 균형)는 아래 v16.1로 계속 추적.
+            # ── v16.x — 전장 도메인 확장 (아래 v16.1은 미완) ──────────────────
             ("v16.1", "중간", "대잠전 균형 (능동 소나 EMCON — 딜레마 성립, 피해 규모는 잔여)",
              "능동 소나 역탐지의 효과가 결과에 드러나지 않던 문제의 뿌리를 규명해 해결했다(대잠 접촉 유지). "
              "원인은 재탐색 횟수가 아니라 그 앞단이었다 — 잠수함의 추정 위치 오차를 1.5km로 고정해 둬서 "
@@ -12214,17 +12296,22 @@ class SplashWindow(QWidget):
             # 선행 필수: v18 완성
             # ── v21.x — 육해공 통합 합동작전 ──────────────────────────────────
             # 선행 필수: v17·v18·v19 전체 완성
-            ("v21.1", "매우 높음", "합동작전 사령부 (JCS)",
-             "육해공군 자산을 통합 지휘. 자원 충돌 해결(전투기 1대를 제공권·근접지원·방공망제압 중 어디에?). "
-             "합동 교전구역 자동 분할. "
+            ("v21.1", "중간", "합동작전 사령부 (JCS) — 자원 충돌 경고",
+             "전투기 1대를 제공권·근접지원·방공망제압 중 어디에 쓸지는 이미 위협과 요청에 따라 "
+             "자동 배정되고 있고, 교전구역도 이미 구역 단위로 나뉘어 있다. "
+             "남은 것은 각 군이 따로 배정한 결과가 서로 충돌해도 아무도 모른다는 점이다 — "
+             "같은 표적에 화력이 겹치거나, 한 자산에 임무가 몰리는 상황을 지휘부가 경고로 알린다. "
              "【현실성】완전 자동최적화는 현실에 없음(각 군 자율성) → 조정·충돌경고 수준이 현실적."),
             # v21.2 합동 화력 지원 = 구현 완료(v21.01.01) — 제거.
             ("v21.3", "중간", "합동 작전 시나리오 라이브러리",
              "육해공 통합 시나리오 3종: 한반도 전면전 72시간 · 대만해협 위기 · 독도·이어도 제한전. "
              "각 시나리오: 각 군 초기 전력 + 작전 목표 + 성공 판정 기준. 순수 군사 교육·분석 목적."),
-            ("v21.4", "중간", "합동작전 통합 보고서",
-             "육해공 전 전력 캠페인 결과 통합. 군별 기여도 분석(해군이 교통로 방어에 얼마나 기여? 공군 방공망제압이 해군 손실을 얼마나 줄였나?). "
-             "전역 비용·손실 대비 목표 달성률. 최적 전력 구성 추천."),
+            # v21.4 합동작전 통합 보고서 = 구현 완료(v21.02.01) — 제거.
+            #   군별 기여도는 각 군을 뺀 전역을 실제로 재실행해 분해(순서 의존 없는 평균).
+            #   ⚠ 남은 한계 2가지는 v21.4의 결함이 아니라 하위 층의 성질이라 여기 안 남긴다:
+            #     ①손실 지표가 편성 전반에서 둔감해 '손실을 얼마나 줄였나'가 0에 가깝다
+            #     ②캠페인 플래그가 아군·적을 함께 켜는 '도메인' 성격이라 방공망 제압은
+            #       기여도로 분해할 수 없다(분리 스위치 신설은 별도 seq).
             # ── 선택 트랙 — v20 완료 후 별도 판단 ────────────────────────────
             ("선택", "중간", "육해공 전력 DB 심화 확충",
              "육군 작전급(v20)까지 로드맵 완성 후, 각 도메인 전력 DB를 실측 제원 기준으로 확충. "

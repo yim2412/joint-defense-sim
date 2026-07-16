@@ -231,5 +231,13 @@ class JointFires:
             'joint_dmg_by_service': {k: round(v, 3) for k, v in self.dmg_by_service.items()},
             'joint_dmg_share': {k: (round(v / tot, 3) if tot > 0 else 0.0)
                                 for k, v in self.dmg_by_service.items()},
+            # v21.4: 위 dict는 캠페인 MC 집계(_MC_ACC_KEYS)가 스칼라만 받아 반복 분석에서
+            #   통째로 소실된다. 같은 값을 스칼라로도 내보내 MC 평균이 살아남게 한다.
+            'joint_share_air':     (round(self.dmg_by_service.get('air', 0.0) / tot, 3)
+                                    if tot > 0 else 0.0),
+            'joint_share_navy':    (round(self.dmg_by_service.get('navy', 0.0) / tot, 3)
+                                    if tot > 0 else 0.0),
+            'joint_share_army':    (round(self.dmg_by_service.get('army', 0.0) / tot, 3)
+                                    if tot > 0 else 0.0),
             'joint_fire_log':      self.fire_log,
         }
