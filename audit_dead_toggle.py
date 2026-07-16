@@ -35,7 +35,10 @@ from audit_static_scan import EFFECT_DEBT
 
 # ② 발현 카운터가 시딩된 토글 → feature_fires 키 매핑(enable_ 접두 제거 규칙과 일치).
 # 여기 없는 토글은 '카운터 미시딩'으로 분류(델타0이면 ⚪ = 카운터 추가 대상).
-_SEEDED = {'enable_radar_off', 'enable_sonar_emcon', 'enable_laser_dew'}
+_SEEDED = {'enable_radar_off', 'enable_sonar_emcon', 'enable_laser_dew',
+           # C 청소(2026-07-16): 흡수형 3토글 카운터 시딩 — decoy(어뢰 기만 성공)·
+           # selfdefense(적 CIWS 요격/채프·플레어 Pk 감쇠)·anti_sam(적 함정 SAM이 아군 SAM 요격).
+           'enable_decoy', 'enable_selfdefense', 'enable_anti_sam'}
 
 # 대표 시나리오 4종 — total_threats>0 이 보장되는 프리셋만(가드). 도메인을 서로 다르게 골라
 # '시나리오 복수' 가드를 충족(한 무대에만 맞는 토글이 다른 무대에서 죽은 걸로 오판되는 것 방지).

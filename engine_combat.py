@@ -3727,6 +3727,8 @@ class TimeStepEngine:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
+                if relay:
+                    self._feat('cec')  # 발현 카운터: 자체탐지 밖 위협을 CEC 중계로 교전
                 self._launch_friendly_sam(ship, wpn, m, dist_m, is_aa=False, cec_relay=relay)
                 self._vls_last_fire[id(ship)] = self.t
                 shots += 1
@@ -3791,6 +3793,8 @@ class TimeStepEngine:
                     continue
                 if ship.inventory.get(wpn, 0) <= 0:
                     continue
+                if relay:
+                    self._feat('cec')  # 발현 카운터: 자체탐지 밖 적기를 CEC 중계로 교전
                 self._launch_friendly_sam(ship, wpn, et, dist_m, is_aa=True, cec_relay=relay)
                 self._vls_last_fire[id(ship)] = self.t
                 shots += 1
@@ -4899,6 +4903,7 @@ class TimeStepEngine:
                     if random.random() < 0.30:
                         m.alive       = False
                         m.intercepted = True
+                        self._feat('anti_sam')  # 발현 카운터: 적 함정 CIWS가 아군 SAM 근접 요격
                         # 발사 함정 채널 해제
                         for ship in self.friendly_ships:
                             if id(ship) == m.owner_id:
@@ -4931,6 +4936,7 @@ class TimeStepEngine:
 
                 et.sam_inventory[sam_name] -= 1
                 et.sam_channels_used       += 1
+                self._feat('anti_sam')  # 발현 카운터: 적 함정 SAM이 아군 SAM 요격 발사
                 self.missiles.append(MissileObj(
                     mtype    = 'enemy_sam',
                     name     = sam_name,
@@ -5137,6 +5143,7 @@ class TimeStepEngine:
                                 m.alive = False
                                 m.intercepted = True
                                 self.stats['intercepted_threats'] += 1
+                                self._feat('decoy')  # 발현 카운터: 음향 기만기 어뢰 회피 성공
                                 self._log(
                                     f"[기만기] {tgt.name} 기만기 성공 — {m.name} 회피 "
                                     f"(잔여 {tgt.decoy_stock}발)")
@@ -5192,6 +5199,7 @@ class TimeStepEngine:
                     if self.cfg.get('enable_selfdefense', True):
                         ciws_pk = tgt.info.get('enemy_ciws_pk', 0.0)
                         if ciws_pk > 0 and random.random() < ciws_pk:
+                            self._feat('selfdefense')  # 발현 카운터: 적 자체방어 CIWS 요격 성공
                             self._log(f"[적 CIWS] {tgt.preset_name} CIWS 요격 — {m.name}")
                             continue
                         # v8.26: seeker 유형별 기만체계 차등 적용
@@ -5207,6 +5215,8 @@ class TimeStepEngine:
                                    tgt.info.get('self_defense_pk', 0.0) * 0.50)
                         else:  # acoustic 등 — 채프/플레어 무효
                             sdpk = 0.0
+                        if sdpk > 0:
+                            self._feat('selfdefense')  # 발현 카운터: 채프/플레어/DRFM로 아군 대함미사일 Pk 감쇠
                         eff_pk = m.pk_base * (1.0 - sdpk)
                     if random.random() < eff_pk:
                         tgt.take_hit(m.name, self.t)

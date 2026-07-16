@@ -365,11 +365,11 @@ def chk_flag_consume_auto():
 # (초안 '33개'는 추정치. 실측 = engine_combat `.get()`/`cfg[]` 소비 50개 − PROBES 7 = 43.)
 # 항공기 자산 토글(f35a·kf21·helo 등)·캠페인/공군/육군 토글은 engine_combat 미소비라 자동 제외.
 EFFECT_DEBT = {
-    # ⚪ 카운터필요(6) — 델타0. anti_sam(적 함정 SAM 몫 작음=흡수형 추정)·decoy/selfdefense/
-    #   cec_preassign(기본방어 흡수)·asw_contact_limit/minesweeping(대잠·기뢰 짝 기능). ② 카운터 시딩 후 판정.
+    # ⚪ 카운터필요 — 델타0/발동0. anti_sam(적 함정 SAM 몫 작음=흡수형 추정)·decoy(어뢰 기만)는
+    #   C 재스캔서 발동0 → 발현 무대 규명 대상. asw_contact_limit/minesweeping(대잠·기뢰 짝 기능).
     'enable_anti_sam', 'enable_asw_contact_limit',
-    'enable_cec_preassign', 'enable_decoy',
-    'enable_minesweeping', 'enable_selfdefense',
+    'enable_decoy',
+    'enable_minesweeping',
     # ⬛ 전장전용(2) — 단발 스캐너 대상 밖. 전장 스모크에서 판정.
     'enable_battle_mode', 'enable_ras_rearm',
 }
@@ -377,15 +377,19 @@ EFFECT_DEBT = {
 # ④ 스캐너가 살아있음 입증한 상환 완료 토글. 첫 전수 스캔 2026-07-16 + A+B/A 재스캔 2026-07-15
 #    (부채 청소: ballistic_descent·hgv_glide·isa·terrain 발현무대 + BMD 5자산 ashore/thaad/lsam/
 #     chungung/patriot는 토글+**재고(*_stock)** 짝을 줘야 발현). 재현: python audit_dead_toggle.py
+#    C 청소 2026-07-16: cec_preassign은 **enable_cec(이미 상환)의 레거시 폴백 별칭** — engine_combat
+#    3601 `get('enable_cec', get('enable_cec_preassign', True))`로 같은 cec_base 경로 공유. UI는
+#    enable_cec만 빌드(app_main 9991), preassign은 구버전 cfg 로드 폴백뿐. 별칭 상환으로 이관.
+#    selfdefense는 카운터 시딩 후 재스캔서 발동43·델타(friendly_hits+4·손실+1) 확증 → 상환.
 EFFECT_ALIVE = {
     'enable_ashore', 'enable_asw_forward', 'enable_autonomous_engagement', 'enable_ballistic_descent',
-    'enable_cec', 'enable_cec_jammed', 'enable_chungung',
+    'enable_cec', 'enable_cec_jammed', 'enable_cec_preassign', 'enable_chungung',
     'enable_current', 'enable_ecm', 'enable_esm_arm', 'enable_evap_duct', 'enable_evasion',
     'enable_flooding', 'enable_hgv_glide', 'enable_iff', 'enable_isa', 'enable_laser_dew',
     'enable_layered_defense', 'enable_lsam',
     'enable_multibearing', 'enable_munition_limit', 'enable_patriot', 'enable_radar_off',
     'enable_random_placement',
-    'enable_recon_drone', 'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation',
+    'enable_recon_drone', 'enable_selfdefense', 'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation',
     'enable_standoff_spawn', 'enable_strike', 'enable_subsystem_damage', 'enable_target_difficulty',
     'enable_terrain', 'enable_thaad', 'enable_weather_dynamics',
 }
