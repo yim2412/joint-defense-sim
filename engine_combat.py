@@ -4881,6 +4881,12 @@ class TimeStepEngine:
     def _enemy_anti_sam(self):
         """적 함정의 Anti-SAM 방어 — 아군 SAM이 접근 시 CIWS·SAM으로 요격.
         enable_anti_sam=False(기본)이면 즉시 반환 (기존 결과 완전 호환).
+
+        ⚠ 종결(2026-07-16, EFFECT_DEAD): 이 로직은 friendly_sam이 적 함정(is_ship)을 target하는
+        경우만 요격하는데, 아군 SAM은 대공 전용이라 적 함정을 target하는 경로가 엔진에 없다(적
+        함정 공격은 friendly_strike). 따라서 `m.target is et`가 영원히 거짓 → 발동 불가. 코드는
+        미래 '아군 SAM의 대함 2차 교전'(SM-6 대함 모드 등) 짝 기능이 생기면 되살릴 수 있게 보존.
+        노린 현실 교전(적 함정의 대함미사일 방어)은 이미 enable_selfdefense가 담당한다.
         """
         if not self.cfg.get('enable_anti_sam', False):
             return

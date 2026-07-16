@@ -365,9 +365,9 @@ def chk_flag_consume_auto():
 # (초안 '33개'는 추정치. 실측 = engine_combat `.get()`/`cfg[]` 소비 50개 − PROBES 7 = 43.)
 # 항공기 자산 토글(f35a·kf21·helo 등)·캠페인/공군/육군 토글은 engine_combat 미소비라 자동 제외.
 EFFECT_DEBT = {
-    # ⚪ 카운터필요 — 델타0/발동0. anti_sam(적 함정 SAM 몫 작음=흡수형 추정)·decoy(어뢰 기만)는
-    #   C 재스캔서 발동0 → 발현 무대 규명 대상. asw_contact_limit/minesweeping(대잠·기뢰 짝 기능).
-    'enable_anti_sam', 'enable_asw_contact_limit',
+    # ⚪ 카운터필요 — 발동0. decoy(어뢰 기만)는 C 재스캔서 발동0 → 어뢰 근접 무대 규명(D).
+    #   asw_contact_limit/minesweeping(대잠·기뢰 짝 기능). (anti_sam은 원리상 불가 → EFFECT_DEAD 종결.)
+    'enable_asw_contact_limit',
     'enable_decoy',
     'enable_minesweeping',
     # ⬛ 전장전용(2) — 단발 스캐너 대상 밖. 전장 스모크에서 판정.
@@ -394,6 +394,19 @@ EFFECT_ALIVE = {
     'enable_terrain', 'enable_thaad', 'enable_weather_dynamics',
 }
 
+# 종결(원리상 발동 불가로 규명 → 죽은 기능 확정). 레이저와 달리 '메커니즘 살아있음'이 아니라
+# **요격 대상이 엔진에 존재하지 않아** 발현 경로 자체가 없다. 코드는 미래 짝 기능이 생기면
+# 되살릴 수 있게 보존(삭제 아님) → EFFECT_DEBT(줄여야 할 부채)도 EFFECT_ALIVE(검증완료)도 아닌
+# 별도 상태. 게이트는 이 집합을 uncovered에서 면제(종결 규명이 곧 검증).
+#   anti_sam(2026-07-16 C 청소): _enemy_anti_sam은 friendly_sam이 적 함정(is_ship)을 target하는
+#   경우만 요격하는데, 아군 SAM은 대공 전용이라 적 함정을 target하는 경로가 엔진에 전혀 없다
+#   (적 함정 공격은 friendly_strike). `m.target is et`가 영원히 거짓 → 발동0 확정. 노린 현실
+#   교전(적 함정의 대함미사일 방어)은 이미 enable_selfdefense가 담당(중복). 되살리려면 '아군
+#   SAM의 대함 2차 교전'(SM-6 대함 모드 등)이 선행돼야 하나 로드맵·교리 근거 없어 종결.
+EFFECT_DEAD = {
+    'enable_anti_sam',
+}
+
 
 def chk_effect_coverage():
     """① 커밋 게이트 — engine_combat이 소비하는 신규 enable_* 토글은 커버(PROBES 정밀 프로브
@@ -406,18 +419,18 @@ def chk_effect_coverage():
     probes  = set(re.findall(r"^\s*'(enable_\w+)'\s*:\s*\(", ae, re.M))  # PROBES 딕셔너리 키
     guard_count('①', '효과 프로브 등재(PROBES)', len(probes), 5)
     covered = probes | EFFECT_ALIVE                                     # 검증 완료 = 커버
-    # (1) 신규 미커버 = 소비하나 커버(프로브·상환)도 없고 부채 유예도 아님 → 게이트 위반
-    uncovered = sorted(consumed - covered - EFFECT_DEBT)
-    check('①', f'신규 토글 검증 필수(부채 {len(EFFECT_DEBT & consumed)}·상환 {len(EFFECT_ALIVE & consumed)})',
+    # (1) 신규 미커버 = 소비하나 커버(프로브·상환)도, 부채 유예도, 종결(발동불가 규명)도 아님 → 위반
+    uncovered = sorted(consumed - covered - EFFECT_DEBT - EFFECT_DEAD)
+    check('①', f'신규 토글 검증 필수(부채 {len(EFFECT_DEBT & consumed)}·상환 {len(EFFECT_ALIVE & consumed)}·종결 {len(EFFECT_DEAD & consumed)})',
           not uncovered,
           f"검증 없는 신규 토글 — PROBES 추가 or audit_dead_toggle 스캔으로 EFFECT_ALIVE 등재: {uncovered}"
-          if uncovered else f'OK(프로브 {len(probes)}·상환 {len(EFFECT_ALIVE & consumed)}·부채 {len(EFFECT_DEBT & consumed)})')
-    # (2) 부채 상환 위생 — 이미 커버(프로브·상환)됐는데 부채에 잔류하면 제거하라고 안내
-    repaid = sorted(EFFECT_DEBT & covered)
+          if uncovered else f'OK(프로브 {len(probes)}·상환 {len(EFFECT_ALIVE & consumed)}·부채 {len(EFFECT_DEBT & consumed)}·종결 {len(EFFECT_DEAD & consumed)})')
+    # (2) 부채 상환 위생 — 이미 커버(프로브·상환·종결)됐는데 부채에 잔류하면 제거하라고 안내
+    repaid = sorted(EFFECT_DEBT & (covered | EFFECT_DEAD))
     check('①', '부채 상환 반영(커버되면 EFFECT_DEBT서 제거)', not repaid,
           f"이미 커버됨 — EFFECT_DEBT에서 제거: {repaid}" if repaid else 'OK(중복 없음)')
-    # (3) 삭제된 토글 위생 — 부채·상환에 있으나 이제 소비 안 함 → 목록 청소 안내
-    stale = sorted((EFFECT_DEBT | EFFECT_ALIVE) - consumed)
+    # (3) 삭제된 토글 위생 — 부채·상환·종결에 있으나 이제 소비 안 함 → 목록 청소 안내
+    stale = sorted((EFFECT_DEBT | EFFECT_ALIVE | EFFECT_DEAD) - consumed)
     check('①', 'EFFECT_DEBT/ALIVE 유효성(삭제된 토글 잔류 없음)', not stale,
           f"이제 engine_combat이 소비 안 함 — 목록서 제거: {stale}" if stale else 'OK')
 
