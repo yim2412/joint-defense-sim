@@ -364,10 +364,9 @@ def chk_flag_consume_auto():
 #   2026-07-16 첫 전수 스캔(636초)에서 26개 확증 → 부채 43→17. 이 목록은 늘어도 됨(검증 완료라서).
 # (초안 '33개'는 추정치. 실측 = engine_combat `.get()`/`cfg[]` 소비 50개 − PROBES 7 = 43.)
 # 항공기 자산 토글(f35a·kf21·helo 등)·캠페인/공군/육군 토글은 engine_combat 미소비라 자동 제외.
-EFFECT_DEBT = {
-    # ⬛ 전장전용(2) — 단발 스캐너 대상 밖. 전장 스모크에서 판정.
-    'enable_battle_mode', 'enable_ras_rearm',
-}
+# ✅ 전부 상환·종결(2026-07-16). 초기 부채 43 → A/B/C/D/E 청소로 0. 이 집합은 다시 채우지
+#    않는다(새 토글은 PROBES 또는 EFFECT_ALIVE로 검증하고 태어난다 — 부채는 늘 수 없다).
+EFFECT_DEBT = set()
 
 # ④ 스캐너가 살아있음 입증한 상환 완료 토글. 첫 전수 스캔 2026-07-16 + A+B/A 재스캔 2026-07-15
 #    (부채 청소: ballistic_descent·hgv_glide·isa·terrain 발현무대 + BMD 5자산 ashore/thaad/lsam/
@@ -381,6 +380,10 @@ EFFECT_DEBT = {
 #    decoy(어뢰 기만)는 매복(is_ambush) 잠수함 '북한 잠수함 선제 기습'+대잠 항공 OFF 무대서
 #    발동3·델타 확증(원거리 발사 잠수함 무대선 어뢰 미도달이었다). minesweeping(기뢰 소해)은
 #    mine_density 0.8 기뢰전 무대서 mines_struck-2 델타 확증(0.5 접촉 2발은 시드편차에 묻힘).
+#    E 청소 2026-07-16(전장 전용, 단발 스캐너 대상 밖 → run_battle_simulation 프로브로 확증):
+#    battle_mode는 _mc_run_one 라우터로 전장 엔진(전장 전용 지표 friendly_score·outcome 산출)을
+#    타는 걸 확인. ras_rearm은 소양함(AOE 화물 40발) 든 '이지스 기동전단'+대량 포화+3600s 전장서
+#    OFF=0→ON=40 재보급·friendly_score+0.05 확증. 부채 43→0 완전 상환(anti_sam만 EFFECT_DEAD).
 EFFECT_ALIVE = {
     'enable_ashore', 'enable_asw_contact_limit', 'enable_asw_forward', 'enable_autonomous_engagement', 'enable_ballistic_descent',
     'enable_cec', 'enable_cec_jammed', 'enable_cec_preassign', 'enable_chungung',
@@ -392,6 +395,8 @@ EFFECT_ALIVE = {
     'enable_recon_drone', 'enable_selfdefense', 'enable_ship_evasion', 'enable_sonar_emcon', 'enable_sonar_equation',
     'enable_standoff_spawn', 'enable_strike', 'enable_subsystem_damage', 'enable_target_difficulty',
     'enable_terrain', 'enable_thaad', 'enable_weather_dynamics',
+    # E 청소 2026-07-16: 전장 전용(단발 스캐너 대상 밖, 전장 프로브로 확증) —
+    'enable_battle_mode', 'enable_ras_rearm',
 }
 
 # 종결(원리상 발동 불가로 규명 → 죽은 기능 확정). 레이저와 달리 '메커니즘 살아있음'이 아니라
