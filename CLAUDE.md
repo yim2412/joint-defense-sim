@@ -18,7 +18,8 @@
 | `app_utils.py` | 런처의 비-GUI 유틸 계층 (GPU·CPU 계측, 워커 풀, Job Object, 리소스 경로, 로그·SQLite). **PyQt6를 import하지 않는다** — app_main→app_utils 단방향 유지용. `_GLOBAL_POOL`은 재할당 전역이라 이름 import 금지, `app_utils._GLOBAL_POOL`로 참조 |
 | `app_engine.py` | engine_*·db_specsheet import 계층(try/except 폴백, `_V7_OK`·`_SPEC_DB_OK`). **app_workers와 공유해 순환을 끊는 최하층** — 워커가 엔진 심볼을 쓰는데 import가 app_main에 있으면 app_workers→app_main 순환이 된다 |
 | `app_workers.py` | 백그라운드 워커(`SimWorker`·`FleetRecommendWorker`·`ShowcaseCompareWorker`·`CounterfactualWorker`·`_SysDataWorker`). 의존은 app_engine·app_utils·PyQt6뿐. `_GLOBAL_POOL`은 `app_utils._GLOBAL_POOL`로 참조 |
-| `app_theme.py` | 색상 팔레트·`_wire_chk_color`. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). `CHART_DPI`는 main()이 재할당하므로 app_main에 유지 |
+| `ui_charts.py` | 차트 렌더·교전 분석 탭(`MplCanvas`·`ChartRenderWorker`·`ChartPageWidget`·`EngagementAnalysisTab`·`_render_engagement_*`·`_render_battle_timeline`·`_render_campaign_report`). `_render_*`는 `_audit_render_smoke`가 `getattr(app_main, ...)`로 꺼내므로 **app_main이 반드시 재노출 import**할 것 |
+| `app_theme.py` | 색상 팔레트·`_wire_chk_color`·**`CHART_DPI`**. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). ⚠ `CHART_DPI`는 main()이 화면 크기로 재할당하는 전역 — 읽는 쪽·쓰는 쪽 모두 `app_theme.CHART_DPI`로 **모듈 경유**(이름 import하면 150 고정, DPI 자동감지가 조용히 죽음) |
 | `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN`. 의존은 PyQt6·numpy·`app_utils._res`·app_theme뿐 |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
 | `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |

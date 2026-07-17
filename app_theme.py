@@ -4,10 +4,15 @@ app_theme — 런처 UI의 색상 팔레트·체크박스 스타일 헬퍼.
 app_main.py에서 분리. 모든 UI 모듈(app_main·ui_widgets 등)이 이 모듈을 참조하므로
 **여기서 다른 앱 모듈을 import하면 즉시 순환**이 된다 — PyQt6 외 의존을 두지 말 것.
 
-⚠ `CHART_DPI`는 일부러 app_main.py에 남겼다. main()이 화면 크기로 **재할당**하는 전역이라,
-여기로 옮겨 이름 import하면 150에 고정돼 DPI 자동 감지가 조용히 죽는다.
-(같은 함정: app_utils._GLOBAL_POOL — 이름 import 금지, 모듈 경유 참조)
+⚠ **`CHART_DPI`는 재할당 전역이다.** main()이 화면 크기로 다시 대입하므로
+`from app_theme import CHART_DPI`로 받으면 **150에 고정돼 DPI 자동 감지가 조용히 죽는다.**
+읽는 쪽도 쓰는 쪽도 반드시 `app_theme.CHART_DPI`로 모듈 경유할 것.
+(같은 함정: `app_utils._GLOBAL_POOL`)
 """
+
+# 차트 렌더 DPI — main()이 화면 크기 기반으로 재할당 (min 150, max 300).
+# ui_charts·app_main이 함께 읽으므로 최하층인 여기 둔다(app_main에 두면 ui_charts→app_main 순환).
+CHART_DPI: int = 150
 
 # ── 색상 팔레트 ──────────────────────────────────────────────────────────────
 C_BG      = '#0d1117'
