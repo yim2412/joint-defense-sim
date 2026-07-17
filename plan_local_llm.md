@@ -35,6 +35,44 @@
 
 ---
 
+## 1-b. ✅ 스택 구축 완료 — 실측 결과 (2026-07-17 세션)
+
+**§6 ①~④ 전부 완료. 함정 2개 다 실측으로 확인됐고 둘 다 해소.**
+
+| 항목 | 결과 |
+|------|------|
+| Ollama 데몬 | 기동 OK · CUDA 인식(compute 8.6) · 여유 **8.9GiB** |
+| 모델 | `qwen2.5-coder:7b` (Q4_K_M · ctx 32768) · **`14b`가 3주 전부터 이미 있음**(9.0GB) |
+| Python 3.12 | **3.12.13** (uv 관리) · 시스템 3.14는 손대지 않음 |
+| aider | **0.86.2** (`uv tool install`) |
+| `num_ctx` | **32768 실측 확인** — serve 로그 `n_ctx = 32768` |
+| KV 캐시 | 1792 MiB (f16 · 28 layers) → 모델 4.7GB + KV 1.8GB = **8.5GB 여유 안**. **Q8 양자화 불필요** |
+| 연결 검증 | `aider --model ollama/qwen2.5-coder:7b` → 정상 응답 |
+
+### 계획서 예측이 빗나간 4곳 (다음 세션이 같은 가정을 반복하지 않도록)
+1. **winget이 이 PC에 없다.** AppInstaller 패키지는 있으나 `winget.exe` 실행 별칭이 없다.
+   → **uv로 전환**(사용자 결정). `irm https://astral.sh/uv/install.ps1 | iex` → `~/.local/bin`.
+   시스템 전역 오염 없음. **uv는 3초에 3.12+aider를 끝냈다** — winget보다 나은 경로였다.
+2. **Python 3.14 함정은 진짜였고, 증상이 예상과 달랐다.** `pip install aider-chat`이 "미지원"
+   에러를 내지 않는다 — pip이 **2023년 릴리스로 조용히 후퇴**(`openai==0.27.6`·`aiohttp==3.8.4`)한 뒤
+   그게 빌드 실패한다(`Cannot import 'setuptools.build_meta'`). **에러 메시지가 원인을 안 가리킨다.**
+3. **7B 기본 태그는 Q5가 아니라 Q4_K_M.** §3 표의 "7B Q5"는 틀림.
+4. **Q8 KV 양자화는 필요 없었다**(위 표) — f16으로도 32k가 VRAM에 들어간다.
+
+### 환경 재현 (새 세션·재부팅 후)
+```bash
+export PATH="/c/Users/준/.local/bin:$PATH"     # uv·aider
+export OLLAMA_API_BASE=http://127.0.0.1:11434
+ollama serve &                                  # 데몬은 재부팅 시 재기동 필요
+aider --model ollama/qwen2.5-coder:7b
+```
+- `num_ctx`는 **`.aider.model.settings.yml`**(repo 루트·커밋됨)이 담당. 7b·14b 둘 다 32768.
+  Modelfile 커스텀 태그를 만들 필요 없다.
+- aider 세션 산출물·serve 로그는 `.gitignore`에 등록됨(설정 yml만 커밋).
+- **검증은 로그로**: `grep "n_ctx" _ollama_serve.log` → `n_ctx = 32768`이어야 한다. 추측 금지.
+
+---
+
 ## 2. 🔴 핵심 발견 — 파일 크기가 편집 가능 여부를 정한다
 
 aider의 편집 단위는 **파일**이다(함수만 넣을 수 없다). 그래서 파일 토큰 수 = 편집 가능 여부.
@@ -119,7 +157,7 @@ py_compile → audit_static_scan (51항목) → audit_verify_regression (38×29)
 ### 우선순위
 | 순위 | 작업 | 왜 |
 |------|------|-----|
-| **1** | **로컬 스택 구축·검증** (§6) | 안 되면 나머지가 무의미. Python 3.14·num_ctx 함정도 여기서 드러남 |
+| ~~1~~ | ~~로컬 스택 구축~~ → **✅ 완료**(§1-b). 남은 건 **3단계 실전 테스트**(§6 — 사용자가 판정) | 함정 2개 다 실측 확인·해소 |
 | **2** | **`app_main.py` 분할** | 이게 없으면 **로컬 기능 추가가 원천 봉쇄**(§2). Claude가 있을 때 해야 함 |
 | **3** | **`CONVENTIONS.md`(3~4KB)** | `CLAUDE.md` 46KB는 로컬에 못 먹인다. 얇은 압축본 필요(버전·changelog·회귀 규칙만) |
 | **4** | **게이트 캠페인 확장**(프로브 9개) | 안전망 확장 = 로컬이 캠페인 층 건드려도 잡힘. **판단 필요 = Claude 몫** |

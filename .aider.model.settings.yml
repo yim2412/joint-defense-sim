@@ -1,0 +1,11 @@
+- name: ollama/qwen2.5-coder:7b
+  edit_format: diff
+  use_repo_map: true
+  extra_params:
+    num_ctx: 32768
+
+- name: ollama/qwen2.5-coder:14b
+  edit_format: diff
+  use_repo_map: true
+  extra_params:
+    num_ctx: 32768
