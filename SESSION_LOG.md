@@ -13,6 +13,44 @@
 
 ---
 
+## [2026-07-17] **세션 매듭** — 로컬 LLM 실측 종결 + app_main 분할 착수  (HEAD: 4f39412 이후 진행 중)
+
+- **한 것**: ①로컬 LLM 스택 구축·3층 실측(7B/14B/30B × aider/Claude Code) ②`app_main.py`
+  분할 착수 — 12,808 → 9,798줄(−3,010, 24%). 정본은 `plan_local_llm.md`(§1-b~1-f 신설).
+- **🔴 로컬 결론 — "Claude처럼 쓸 수 있나?" = 아니다.** 근거는 plan §1-f 표.
+  ▸**형식은 동급**(패턴 유추·네이밍·다중 위치 일관 수정·스타일). ▸**격차는 시간축 추론**
+  (플래그가 언제 리셋되나)·**심볼 실존**(`engine_core._log` 환각)·**에이전트 루프**·
+  **자기 보고 정직성**(도구 호출 0회로 아무것도 안 하고 "4가지 수정했다" 보고 ← 최대 위험).
+- **모델·하네스 확정**: **qwen3-coder:30b(MoE)** + **aider**. 30B는 60% CPU 오프로드에서도
+  35.6 t/s(14B 오프로드 2.34의 15배) — 웹 권고("MoE 말고 dense")는 이 PC에서 반대였다.
+  **7B는 탈락**(6k 파일도 SEARCH 환각). **에이전트(Claude Code+로컬)는 실패** — 역설적으로
+  **aider의 '파일 전체 강제'가 약한 모델의 안전벨트**였다(필요한 것만 읽기 = 판단 가능할 때만 강점).
+- **⚠ Claude가 밟은 함정 2개(재발 금지)**: ①`.aider.model.settings.yml`에 **비ASCII 넣지 말 것** —
+  aider가 cp949로 읽어 조용히 무시 → `num_ctx` 미적용 → 7분 실패를 "30B가 못한다"로 **오판 직전**.
+  ②Claude 가설("규칙을 안 줘서 환각")은 **반증됨** — prefill 44,544 = `CLAUDE.md` 자동로드 확인.
+- **🔴 분할의 핵심 교훈 — 재할당 전역이 주 지뢰**: `_GLOBAL_POOL`·`CHART_DPI` 둘 다 이름
+  import하면 **py_compile·정적51·회귀38×29 전부 PASS인데 기능만 조용히 죽는다**(예열 풀 미사용/
+  DPI 150 고정). **반드시 모듈 경유**(`app_utils._GLOBAL_POOL`·`app_theme.CHART_DPI`).
+  다음 조각에서도 **옮기기 전에 `global X` 재할당 여부를 먼저 grep**할 것.
+- **분할 방법론(다음 세션 그대로 재사용)**: ▸심볼은 **눈으로 고르지 말고 실행 기반 추출**
+  (`import mod; dir(mod)`) — 정규식은 한 줄 다중(`a, b, c`)을 놓쳐 33/47만 잡았고, 눈으로 골랐다
+  `STYLE_MAIN`·`_SPIN_UP/_DOWN`을 빠뜨려 round-trip이 잡았다. ▸**round-trip이 유일하게 기동을
+  검증**한다(정적은 import 누락을 전부 PASS시킴). ▸**워커는 실제 `run()`시켜 따로 검증**
+  (round-trip=MainWindow 생성만, 회귀=엔진 직접호출이라 둘 다 워커 경로를 안 지남).
+  ▸`_render_*`는 `_audit_render_smoke`가 `getattr(app_main,...)`로 꺼내므로 **재노출 import 필수**.
+  ▸구간을 자르면 **그 안의 남의 import가 딸려간다**(`from scenarios import SCENARIO_LIBRARY`가
+  ui_charts로 끌려가 NameError — round-trip이 잡음).
+- **완료 계층**(전부 단방향, 순환 0): `app_utils`(620) `app_workers`(568) `ui_charts`(1,285)
+  `ui_widgets`(510) `scenarios`(69) `app_engine`(58) `app_theme`(33).
+- **⚠ 다음 재개 지점**: ①**미커밋 있음** — `_render_*` 5개 ui_charts 이관 + SCENARIO_LIBRARY
+  import 복원. 검증 재실행부터. ②남은 1단계: `ui_dialogs`·`ui_monitor`(FloatingMonitor·
+  SysMonitorTab)·`app_launcher`(SplashWindow). ③**2단계 전 필수 = Task #4**:
+  `audit_static_scan`이 `rd('app_main.py')`로 체크박스를 긁으므로 MainWindow를 mixin으로 옮기면
+  `guard_count(30)` FAIL — **여러 파일 합쳐 읽도록 먼저 고칠 것**(vacuous 가드 덕에 조용히 안 깨짐).
+  ④2단계: MainWindow 4,952줄 → mixin 6개. ⑤**exe GUI 스모크 미검증**(빌드와 함께 마감에서).
+- **⚠ 도구 하드코딩 주의**: 새 모듈을 만들 때마다 `chk_resource_paths`의 `BUNDLED` 목록 +
+  README 파일구조표(한·영) + CLAUDE.md 표를 함께 갱신해야 한다(안 하면 pkl 로더 검사가 조용히 사각).
+
 ## [2026-07-17] **세션 매듭** — v21.4 통합 보고서 + 백그라운드 게이트 (v21.02.02)  (HEAD: 14fce8b)
 
 - **한 것**: ①**v21.4 군별 기여도**(`shapley_contribution`) — 각 군을 뺀 전역을 실제 재실행해
