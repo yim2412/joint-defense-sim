@@ -104,6 +104,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | 파일 | 역할 |
 |------|------|
 | `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과·DB·계획 탭 등 전체 앱 |
+| `app_utils.py` | 런처의 비-GUI 유틸 계층 — GPU·CPU 계측, 워커 풀, 리소스 경로, 로그·기록 |
 | `engine_core.py` | 핵심 DB(적/아군/함정), 물리 모델, 탐지·교전 로직 |
 | `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
 | `engine_campaign.py` | 작전급 캠페인 엔진 — 며칠 단위 전역을 1시간 단위로 진행 (전술 엔진을 교전 해결기로 호출) |
@@ -295,6 +296,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `engine_army.py` | Ground operational layer — coastal SAM sites (5-layer interception), amphibious assault, SEAD domino, surface-to-surface fires (called by the campaign engine) |
 | `engine_joint.py` | Joint fires layer — army, navy and air force strike the same enemy bases in coordination (called by the campaign engine) |
 | `app_main.py` | PyQt6 app_main — UI, sim workers, result/DB/plan tabs, the whole app |
+| `app_utils.py` | Non-GUI utility layer — GPU/CPU telemetry, worker pool, resource paths, logging |
 | `db_specsheet.py` | Detailed spec-sheet descriptions for the DB tab |
 | `app_changelog.json` | Patch history |
 | `app_main.spec` | PyInstaller build spec |

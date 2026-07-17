@@ -315,7 +315,8 @@ def chk_resource_paths():
     # 로드하면 exe(_internal/sys._MEIPASS)에서 못 찾아 조용히 폴백/실패한다.
     # (v17.01.02 캠페인 예측모델 폴백 버그를 메타회고로 굳힘 — 상대경로 joblib.load가 원인)
     # 경로를 '인자로 받는' 모듈(ai_policy_infer 등)은 호출측이 _res로 넘기므로 기본인자 패턴에 안 걸림.
-    BUNDLED = ['app_main.py', 'engine_core.py', 'engine_combat.py', 'engine_campaign.py',
+    BUNDLED = ['app_main.py', 'app_utils.py', 'engine_core.py', 'engine_combat.py',
+               'engine_campaign.py',
                'forecast_features.py', 'ai_policy_infer.py', 'db_specsheet.py']
     dflt = re.compile(r"""def\s+\w+\([^)]*=\s*['"][^'"/\\]+\.(?:pkl|npz|joblib|h5|model)['"]""")
     bad = []
