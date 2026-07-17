@@ -105,6 +105,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 |------|------|
 | `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과·DB·계획 탭 등 전체 앱 |
 | `app_utils.py` | 런처의 비-GUI 유틸 계층 — GPU·CPU 계측, 워커 풀, 리소스 경로, 로그·기록 |
+| `app_engine.py` | 엔진·스펙DB import 계층 (로드 실패 시 폴백 — 앱이 죽지 않게) |
+| `app_workers.py` | 백그라운드 워커 — 시뮬 실행, 편대 추천, 쇼케이스 비교, 시스템 계측 |
 | `app_theme.py` | 런처 UI 색상 팔레트·체크박스 스타일 헬퍼 |
 | `ui_widgets.py` | 재사용 위젯 — 게이지·수렴 곡선·요격률 히스토그램, 작업표시줄 진행률 |
 | `scenarios.py` | 시나리오 라이브러리 — 원클릭 추천 시나리오 프리셋 정의 |
@@ -300,6 +302,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `engine_joint.py` | Joint fires layer — army, navy and air force strike the same enemy bases in coordination (called by the campaign engine) |
 | `app_main.py` | PyQt6 app_main — UI, sim workers, result/DB/plan tabs, the whole app |
 | `app_utils.py` | Non-GUI utility layer — GPU/CPU telemetry, worker pool, resource paths, logging |
+| `app_engine.py` | Engine/spec-DB import layer with fallbacks (app survives a failed engine load) |
+| `app_workers.py` | Background workers — sim run, fleet recommendation, showcase compare, system telemetry |
 | `app_theme.py` | Launcher UI color palette and checkbox style helper |
 | `ui_widgets.py` | Reusable widgets — gauges, convergence curve, intercept-rate histogram, taskbar progress |
 | `scenarios.py` | Scenario library — one-click recommended scenario presets |

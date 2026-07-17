@@ -16,6 +16,8 @@
 | `engine_joint.py` | 합동 화력 층 (v21) — 육해공이 공유 표적(v19.4 `EnemyBase`)을 협조 타격. 표적 소유권은 캠페인이 갖고 공군 층과 공유. 짝 3중(`enable_joint_fires`+`enable_strategic_strike`+`enable_air_campaign`) 전부 ON이어야 생성. 캠페인이 조합 호출. `JointFires`·`build_land_stock` |
 | `app_main.py` | PyQt6 런처 — UI, 시뮬 워커, 결과 탭, DB 탭, 향후 계획 탭 등 전체 앱 |
 | `app_utils.py` | 런처의 비-GUI 유틸 계층 (GPU·CPU 계측, 워커 풀, Job Object, 리소스 경로, 로그·SQLite). **PyQt6를 import하지 않는다** — app_main→app_utils 단방향 유지용. `_GLOBAL_POOL`은 재할당 전역이라 이름 import 금지, `app_utils._GLOBAL_POOL`로 참조 |
+| `app_engine.py` | engine_*·db_specsheet import 계층(try/except 폴백, `_V7_OK`·`_SPEC_DB_OK`). **app_workers와 공유해 순환을 끊는 최하층** — 워커가 엔진 심볼을 쓰는데 import가 app_main에 있으면 app_workers→app_main 순환이 된다 |
+| `app_workers.py` | 백그라운드 워커(`SimWorker`·`FleetRecommendWorker`·`ShowcaseCompareWorker`·`CounterfactualWorker`·`_SysDataWorker`). 의존은 app_engine·app_utils·PyQt6뿐. `_GLOBAL_POOL`은 `app_utils._GLOBAL_POOL`로 참조 |
 | `app_theme.py` | 색상 팔레트·`_wire_chk_color`. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). `CHART_DPI`는 main()이 재할당하므로 app_main에 유지 |
 | `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN`. 의존은 PyQt6·numpy·`app_utils._res`·app_theme뿐 |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
