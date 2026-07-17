@@ -108,6 +108,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `app_engine.py` | 엔진·스펙DB import 계층 (로드 실패 시 폴백 — 앱이 죽지 않게) |
 | `app_workers.py` | 백그라운드 워커 — 시뮬 실행, 편대 추천, 쇼케이스 비교, 시스템 계측 |
 | `ui_charts.py` | 차트 렌더·교전 분석 탭 — 교전 깔때기·간트, 전장 타임라인, 캠페인 보고서, 3D 전장 뷰 |
+| `ui_dialogs.py` | 모달 다이얼로그 — 함대 편성 커스텀, 전술 의사결정, 시뮬 로그 열람 |
 | `app_theme.py` | 런처 UI 색상 팔레트·체크박스 스타일 헬퍼 |
 | `ui_widgets.py` | 재사용 위젯 — 게이지·수렴 곡선·요격률 히스토그램, 작업표시줄 진행률 |
 | `scenarios.py` | 시나리오 라이브러리 — 원클릭 추천 시나리오 프리셋 정의 |
@@ -306,6 +307,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `app_engine.py` | Engine/spec-DB import layer with fallbacks (app survives a failed engine load) |
 | `app_workers.py` | Background workers — sim run, fleet recommendation, showcase compare, system telemetry |
 | `ui_charts.py` | Chart rendering and engagement analysis tab — funnel/Gantt, battle timeline, campaign report, 3D view |
+| `ui_dialogs.py` | Modal dialogs — fleet customization, tactical decision pause, simulation log viewer |
 | `app_theme.py` | Launcher UI color palette and checkbox style helper |
 | `ui_widgets.py` | Reusable widgets — gauges, convergence curve, intercept-rate histogram, taskbar progress |
 | `scenarios.py` | Scenario library — one-click recommended scenario presets |

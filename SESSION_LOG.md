@@ -40,11 +40,16 @@
   ▸`_render_*`는 `_audit_render_smoke`가 `getattr(app_main,...)`로 꺼내므로 **재노출 import 필수**.
   ▸구간을 자르면 **그 안의 남의 import가 딸려간다**(`from scenarios import SCENARIO_LIBRARY`가
   ui_charts로 끌려가 NameError — round-trip이 잡음).
-- **완료 계층**(전부 단방향, 순환 0): `app_utils`(620) `app_workers`(568) `ui_charts`(1,285)
-  `ui_widgets`(510) `scenarios`(69) `app_engine`(58) `app_theme`(33).
-- **⚠ 다음 재개 지점**: ①**미커밋 있음** — `_render_*` 5개 ui_charts 이관 + SCENARIO_LIBRARY
-  import 복원. 검증 재실행부터. ②남은 1단계: `ui_dialogs`·`ui_monitor`(FloatingMonitor·
-  SysMonitorTab)·`app_launcher`(SplashWindow). ③**2단계 전 필수 = Task #4**:
+- **완료 계층**(전부 단방향, 순환 0): `ui_charts`(1,285) `app_utils`(620) `ui_dialogs`(586)
+  `app_workers`(568) `ui_widgets`(510) `scenarios`(69) `app_engine`(58) `app_theme`(33).
+  **app_main 12,808 → 9,217줄(−3,591, 28%).**
+- **⚠ 같은 함정에 두 번 당했다(3번 규칙의 유래)**: 직전 커밋 메시지에 "구간을 자르면 남의
+  import가 딸려간다"고 **적어놓고 바로 다음 조각에서 똑같이** 당했다(ui_dialogs 구간 안에
+  내가 앞서 만든 `app_workers`·`ui_charts` import 블록이 있었다). **경고를 적는 것과 그 경고를
+  따르는 것은 다른 일** — 그래서 CLAUDE.md '모듈 분할 규칙'에 기계적 절차로 박았다.
+- **⚠ 다음 재개 지점**: ①남은 1단계: `ui_monitor`(FloatingMonitor 1594~2040 ·
+  SysMonitorTab)·`app_launcher`(SplashWindow·SpecSheetPanel·_RoundPhoto·_HomeBg).
+  ②**2단계 전 필수 = Task #4**:
   `audit_static_scan`이 `rd('app_main.py')`로 체크박스를 긁으므로 MainWindow를 mixin으로 옮기면
   `guard_count(30)` FAIL — **여러 파일 합쳐 읽도록 먼저 고칠 것**(vacuous 가드 덕에 조용히 안 깨짐).
   ④2단계: MainWindow 4,952줄 → mixin 6개. ⑤**exe GUI 스모크 미검증**(빌드와 함께 마감에서).

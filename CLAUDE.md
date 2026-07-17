@@ -19,6 +19,7 @@
 | `app_engine.py` | engine_*·db_specsheet import 계층(try/except 폴백, `_V7_OK`·`_SPEC_DB_OK`). **app_workers와 공유해 순환을 끊는 최하층** — 워커가 엔진 심볼을 쓰는데 import가 app_main에 있으면 app_workers→app_main 순환이 된다 |
 | `app_workers.py` | 백그라운드 워커(`SimWorker`·`FleetRecommendWorker`·`ShowcaseCompareWorker`·`CounterfactualWorker`·`_SysDataWorker`). 의존은 app_engine·app_utils·PyQt6뿐. `_GLOBAL_POOL`은 `app_utils._GLOBAL_POOL`로 참조 |
 | `ui_charts.py` | 차트 렌더·교전 분석 탭(`MplCanvas`·`ChartRenderWorker`·`ChartPageWidget`·`EngagementAnalysisTab`·`_render_engagement_*`·`_render_battle_timeline`·`_render_campaign_report`). `_render_*`는 `_audit_render_smoke`가 `getattr(app_main, ...)`로 꺼내므로 **app_main이 반드시 재노출 import**할 것 |
+| `ui_dialogs.py` | 모달 다이얼로그(`FleetCustomDialog`·`TacticalDialog`·`SimLogDialog`). 의존은 app_theme·app_utils·app_engine·ui_widgets·ui_charts |
 | `app_theme.py` | 색상 팔레트·`_wire_chk_color`·**`CHART_DPI`**. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). ⚠ `CHART_DPI`는 main()이 화면 크기로 재할당하는 전역 — 읽는 쪽·쓰는 쪽 모두 `app_theme.CHART_DPI`로 **모듈 경유**(이름 import하면 150 고정, DPI 자동감지가 조용히 죽음) |
 | `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN`. 의존은 PyQt6·numpy·`app_utils._res`·app_theme뿐 |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
@@ -483,6 +484,34 @@ v12.06.01: [변경 내용 한 줄 요약]
 7. 신규 `stats` 키 추가 시 **MC 3개 경로에 동시 추가**: `monte_carlo_v7` · `_mc_batch_worker` · `monte_carlo_lhs` (누락 시 MC 모드에서 해당 통계 완전 소실)
 8. 신규 PyQt6 위젯 클래스 사용 시 `app_main.py` 상단 import 목록 확인 (누락 시 exe 실행 즉시 NameError로 창 소실)
 9. **신규 `enable_xxx` 토글은 발현 증거 3종(발현 델타·짝 기능·발현 무대) 없이 커밋 금지** — 효과 프로브(`audit_effect.py`)를 함께 만든다(없으면 pre-commit `chk_effect_coverage`가 FAIL). 정본 [[project-dead-feature-prevention]] · '실험적 도입' 절 참조. **죽은 채 커밋된 기능이 v20.5의 최대 부채였다.**
+
+### 모듈 분할 규칙 (app_main.py 분할 — 2026-07-17 실측 교훈)
+
+`app_main.py`를 계층별로 쪼개는 중이다(로컬 LLM 편집권 확보 — `plan_local_llm.md` §2).
+아래는 **실제로 당한 함정**이라 규칙으로 굳힌다.
+
+1. **재할당 전역은 이름 import 금지 — 모듈 경유**. `global X`로 재대입되는 전역을
+   `from mod import X` 하면 **import 시점 값이 복사**돼 재할당이 안 보인다. **py_compile·정적
+   51·회귀 38×29가 전부 PASS인데 기능만 조용히 죽는다.**
+   실제: `app_utils._GLOBAL_POOL`(예열 풀을 못 봐 매번 새 풀), `app_theme.CHART_DPI`(150 고정,
+   DPI 자동감지 사망). **옮기기 전에 `grep "global X"`로 재할당 여부를 먼저 확인할 것.**
+2. **심볼 목록은 눈으로 고르지 말고 실행 기반 추출**: `import mod; dir(mod)`.
+   정규식은 한 줄 다중(`a, b, c`)을 놓친다(실측 33/47). 눈으로 골랐다 `STYLE_MAIN`·
+   `_SPIN_UP/_DOWN`을 빠뜨려 round-trip이 잡았다.
+3. **구간을 자르면 그 안의 '남의 import'가 딸려간다.** 자르기 전에 구간 내 `^from `·`^import `를
+   먼저 뽑아 app_main에 남길 것. (`from scenarios import SCENARIO_LIBRARY`가 ui_charts로,
+   `app_workers`·`ui_charts` 블록이 ui_dialogs로 끌려가 NameError — **두 번 당했다**.)
+4. **기동 검증은 `_audit_roundtrip.py`가 유일하다.** 정적 스캔은 import 누락·NameError를
+   **전부 PASS시킨다**. 분할 조각마다 round-trip 필수.
+5. **워커는 실제 `run()`시켜 따로 검증**. round-trip은 `MainWindow` 생성만, 회귀는 엔진 직접
+   호출이라 **둘 다 워커 실행 경로를 안 지난다**.
+6. **`_render_*`는 app_main이 재노출 import**할 것 — `_audit_render_smoke`가
+   `getattr(app_main, ...)`로 꺼낸다.
+7. **새 모듈을 만들면 도구·문서를 함께 갱신**: `chk_resource_paths`의 `BUNDLED` 목록(안 넣으면
+   pkl 로더 검사가 조용히 사각) + README 파일구조표(한·영) + 이 표.
+8. **의존은 단방향**: `app_main → {app_engine, app_utils, app_theme, ui_widgets, ui_charts,
+   ui_dialogs, app_workers, scenarios}`. 하위 모듈에서 **app_main을 import하면 즉시 순환**이다.
+   워커가 엔진 심볼을 쓰므로 `app_engine`을 최하층으로 분리해 순환을 끊었다.
 
 ### 하위 호환 원칙
 
