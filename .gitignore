@@ -55,3 +55,4 @@ _x.log
 .aider*.log
 _ollama_serve.log
 .venv-aider/
+.aider*
