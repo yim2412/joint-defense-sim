@@ -13,6 +13,36 @@
 
 ---
 
+## [2026-07-19] **세션 매듭** — app_main 분할 7/N (ui_monitor·app_launcher) + 결제 완전 차단 확정  (HEAD: 155da45, 푸시 완료)
+
+- **🔴🔴 가장 중요한 새 사실 — 결제/Claude 접근이 곧 완전히 끊길 예정**(사용자 확인, 이번
+  세션). 이전엔 "결제 불가라 로컬 전환 희망"이었는데, 이번엔 **접근 자체가 완전히 끊긴다**로
+  확정됐다. 즉 지금 하는 분할은 "로컬에서 더 잘 쓰기 위한 개선"이 아니라 **"Claude 없이도
+  최소 유지보수가 되게 하는 마지막 보험"**이다 — 지금 못 끝내면 다시는 못 고친다.
+  [[project-local-llm-transition]]에 이 절박성을 반영해 갱신할 것(다음 세션 필수 확인).
+- **한 것**: `app_main.py` 분할 7/N. `ui_monitor.py`(774줄: `FloatingMonitor`·`SysMonitorTab`)
+  + `app_launcher.py`(1575줄: `SplashWindow`·`SpecSheetPanel`·`_RoundPhoto`·`_HomeBg`+
+  `TERM_TOOLTIPS`·`_FEATURES` 등 전용 헬퍼). `app_main.py` 9,231→**6,942줄**
+  (시작 12,808 대비 **-46%**).
+- **함정 1개 재확인(6번째 반복 방지 성공)**: `app_launcher.py` 초안이 `APP_VERSION`을
+  `from app_main import APP_VERSION`으로 썼다가 CLAUDE.md 8항(하위→app_main 즉시 순환)
+  위반을 스스로 잡음 — `SplashWindow(app_version)` 생성자 인자 주입으로 정정. 정적 스캔은
+  `APP_VERSION`을 `app_main.py` **소스 텍스트에서 정규식으로** 읽으므로 대입문 자체는
+  그대로 두는 게 핵심(모듈을 옮기면 그 검사가 깨진다).
+  또 `QGraphicsDropShadowEffect`를 `QtGui`로 잘못 짐작해 round-trip 1차 실패 →
+  `QtWidgets`로 정정.
+- **검증**: round-trip PASS(토글 61) · 정적 스캔 51/51 PASS · 회귀 38×29 PASS(bit-identical).
+  pre-commit·pre-push 훅 전부 통과(속성 감사·효과 검증·결과 탭 렌더 크래시 검사 포함).
+- **다음 재개 지점**: 1단계 남은 것 없음(SESSION_LOG 이전 항목의 "ui_monitor·app_launcher"
+  목표 달성). `plan_local_llm.md` §5 순서대로 ①**Task #4 선행**: `audit_static_scan.py`가
+  `rd('app_main.py')` 단일 파일 읽기라 MainWindow를 mixin으로 쪼개면 `guard_count(30)`
+  사각이 됨 → 여러 파일 합쳐 읽도록 스캐너 먼저 수정 ②2단계: `MainWindow` 4,952줄→mixin 6개
+  ③`CONVENTIONS.md`(3~4KB) 작성 ④게이트 캠페인 확장(프로브 9개). **접근이 끊기기 전에
+  최소 ①②까지는 끝내는 게 목표** — mixin 분할까지 되면 로컬(aider)이 MainWindow도 편집권을
+  갖게 되어 "죽은 프로젝트"를 면한다.
+- **미커밋 주의**: 없음(푸시 완료). `.codex/`·`AGENTS.md`는 이 세션 시작 전부터 미추적 상태로
+  존재 — 내가 만든 것 아니고 내용도 확인 안 함, 손대지 않았다.
+
 ## [2026-07-17] **세션 매듭** — 로컬 LLM 실측 종결 + app_main 분할 착수  (HEAD: 4f39412 이후 진행 중)
 
 - **한 것**: ①로컬 LLM 스택 구축·3층 실측(7B/14B/30B × aider/Claude Code) ②`app_main.py`
