@@ -13,6 +13,35 @@
 
 ---
 
+## [2026-07-19] **세션 매듭** — 게이트 캠페인 확장 완료 → plan_local_llm.md §5 전부 완료  (HEAD: e12db7d, 푸시 완료)
+
+- **한 것**: `audit_effect.CAMPAIGN_PROBES`에 9개 신설 + `chk_effect_coverage`가
+  `engine_combat.py`만 보던 사각을 `engine_campaign·airforce·army·joint` 4파일까지 확장.
+  이걸로 **plan_local_llm.md §5 우선순위(분할→헤더정리→CONVENTIONS→방화벽→게이트확장)가
+  전부 끝났다.**
+- **프로브 설계 과정에서 겪은 함정들**(전부 실측으로 규명, 이 프로젝트 반복 교훈 재확인):
+  1. `coastal_suppression`을 `enable_army_campaign`/`enable_coastal_sam` 자체의 효과
+     지표로 썼다가 델타 0 — 이 값은 **`enable_enemy_sead`(적 제압)에서만** 움직인다.
+     아군 자산 존재 자체를 재려면 `_n_coastal_sites`(코드 신규 파생지표, dict인
+     `coastal_sites`의 원소 수) 같은 "층이 아예 생겼는가" 지표가 필요했다.
+  2. `enable_enemy_sead`는 `enable_air_campaign`이 먼저 켜져 있어야 한다
+     (`air_sups=None`이면 무동작 — 코드 주석에 이미 "공군 작전급과 함께 켜야 의미가
+     있다"고 적혀 있었다, 읽었으면 바로 알 수 있었음).
+  3. `enable_campaign_fog`(안개) 재현에 가장 오래 걸림 — 소함대(1~2척)는 belief 갱신이
+     쌓이기 전에 `_all_ships_down()`(자원소진)으로 조기 종료, 전 구역을 커버하는
+     함대(3척+, zone 3개에 순환분산이라 3척부터 전 구역 커버)는 애초에 놓치는 zone이
+     없어 fog ON/OFF가 bit-identical. **두 극단 사이의 "부분 커버 + 장기 생존" 무대를
+     못 찾았다** — 수동 엔진 스텝 실행으로 메커니즘 자체는 살아있음(`_n_missed` 0→20
+     누적)을 확인한 뒤 EFFECT_ALIVE에 근거와 함께 수동 등재, 자동 프로브는 포기.
+     (v20.5 이후 반복된 "죽은 걸로 보이는 건 대부분 무대 문제" 패턴의 또 다른 사례 —
+     이번엔 실제로 자동화가 안 되는 무대였다는 게 다름.)
+- **검증**: `audit_effect.py` 등재 16개 토글 전부 효과 확인·정적 51/51 PASS(부채 0·
+  상환 43)·회귀 38×29 PASS·`audit_local_edit.py`(이 세션에서 만든 도구) 자체 검증 PASS.
+- **다음 재개 지점**: 로컬 전환 준비 골격 전부 완성. 여유 있을 때 `mixin_configpanel.py`
+  추가 분할(`_build_config_panel` 1,565줄) 가능(급하지 않음). 그 외엔 v21 합동작전
+  블록 재개 또는 사용자 지정 작업.
+- **미커밋 주의**: 없음(전부 커밋·푸시 완료).
+
 ## [2026-07-19] **세션 매듭** — 헤더 정리 + 로컬 자기보고 방화벽(audit_local_edit.py)  (HEAD: 025f8f8, 푸시 완료)
 
 - **한 것**: ①`app_main.py` 헤더 changelog 정리(1,761→300줄) ②`audit_local_edit.py` 신설
