@@ -27,6 +27,20 @@ def rd(name):
     with open(os.path.join(ROOT, name), encoding='utf-8') as f:
         return f.read()
 
+# app_main.py 분할로 MainWindow/SplashWindow 내용이 여러 파일에 흩어질 수 있다.
+# 체크박스(enable_xxx/chk_xxx)·_PLANS 등 "MainWindow·SplashWindow 소스 전체"를
+# 봐야 하는 검사는 rd('app_main.py') 단독 대신 이 함수를 써야 한다 — 안 그러면
+# 조각이 옮겨진 뒤 '못 찾음 → 빈 결과 → 위반 0건 → 조용히 PASS(또는 스킵)'로
+# 사각이 생긴다(2026-07-19 app_launcher.py 분할 때 chk_plans_stale이 실제로 이렇게
+# 사각났다 — _PLANS가 app_launcher.py로 옮겨졌는데 검사는 app_main.py만 읽어 매치
+# 실패 → 벌점 없이 통과). MainWindow를 mixin으로 더 쪼갤 때는 이 목록에 추가할 것.
+_APP_MAIN_SPLIT = ['app_main.py', 'app_launcher.py', 'ui_monitor.py']
+
+def rd_app():
+    """app_main.py + 분할된 조각(app_launcher·ui_monitor 등) 결합 소스.
+    MainWindow/SplashWindow 관련 정적 검사(체크박스·플래그·_PLANS)는 이걸 쓸 것."""
+    return '\n'.join(rd(f) for f in _APP_MAIN_SPLIT)
+
 results = []  # (영역, 이름, ok, 상세)
 def check(area, name, ok, detail=''):
     results.append((area, name, bool(ok), detail))
@@ -91,7 +105,7 @@ def chk_frame_guard():
 
 # ── ① 코드: v15 신규 enable 플래그 3종 세트 ──────────────────────────────────
 def chk_flag_triplet():
-    lau = rd('app_main.py'); ev = rd('engine_combat.py')
+    lau = rd_app(); ev = rd('engine_combat.py')
     # 블록에서 추가된 핵심 전장/전자전 플래그(추가 시 이 목록에 1줄 더한다)
     flags = ['enable_battle_mode', 'enable_munition_limit', 'enable_ship_evasion',
              'enable_esm_arm', 'enable_sonar_emcon', 'enable_asw_forward',  # v16.1 EMCON 3종
@@ -179,7 +193,7 @@ def chk_plans_stale():
     반영 없이 순수 미래형으로 남았는지, '보류' 라벨 항목이 잔존하는지 검사.
     (v16.x 작업 항목만 보고 상위 '진행 중'·'보류' 완료분을 놓친 빈틈에서 굳힘.)"""
     import json
-    lau = rd('app_main.py')
+    lau = rd_app()
     cl = json.load(open(os.path.join(ROOT, 'app_changelog.json'), encoding='utf-8'))
     # 진행 중 블록(changelog 최신 major)만 검사 — v15 이전은 로드맵 재편으로
     # changelog minor(전장 엔진)와 _PLANS 버전(미구현 AI 계획)이 번호만 같고 내용이
@@ -337,7 +351,7 @@ def chk_flag_restore_auto():
     복원은 개별 setChecked(cfg.get('enable_xxx')) 또는 for-루프 튜플 ('chk_x','enable_xxx')
     둘 다 인정. chk_flag_triplet의 하드코딩 목록(14개)이 놓치던 사각을 원천 제거 —
     새 토글이 추가돼도 자동으로 검사 대상이 된다(strike·thaad·ashore 복원 누락을 이 검사가 잡음)."""
-    lau = rd('app_main.py')
+    lau = rd_app()
     built = set(re.findall(r"['\"](enable_\w+)['\"]\s*:\s*self\.\w+\.isChecked\(\)", lau))
     restored = set(re.findall(r"setChecked\(\s*\w*\.?get\(['\"](enable_\w+)", lau))
     restored |= set(re.findall(r"\(['\"]chk_\w+['\"]\s*,\s*['\"](enable_\w+)['\"]\s*[,)]", lau))  # for-루프 튜플(2·3튜플 무관)
@@ -351,7 +365,7 @@ def chk_flag_consume_auto():
     """자동 추출 — 엔진(engine_combat·engine_campaign)이 소비하는 enable_ 플래그 중
     체크박스 빌드도 없고(사용자 제어 불가) 문서화 의도(_ALWAYS_ON 화이트리스트)도 없는
     '숨은 플래그'를 경고. 상시 ON이 의도된 내부 물리/기본값은 화이트리스트로 명시(오탐 방지)."""
-    lau = rd('app_main.py'); ev = rd('engine_combat.py') + rd('engine_campaign.py')
+    lau = rd_app(); ev = rd('engine_combat.py') + rd('engine_campaign.py')
     consumed = set(re.findall(r"\.get\(['\"](enable_\w+)", ev)) | set(re.findall(r"cfg\[['\"](enable_\w+)", ev))
     built_any = set(re.findall(r"['\"](enable_\w+)['\"]\s*:", lau))
     guard_count('①', '엔진 소비 플래그(숨은플래그 검사 기반)', len(consumed), 30)  # vacuous 방지(현 40+)
@@ -460,7 +474,7 @@ def chk_widget_dup():
     이겨 앞 위젯이 orphan(화면엔 보이나 참조 상실)이 된다. v19.4 chk_strike 충돌
     (전략폭격 위젯이 '공격 임무' 위젯에 묶여 기본 OFF 계약 위반)을 잡은 검사. 3종세트
     정규식은 문자열 존재만 봐서 이 충돌을 놓쳤다 → 위젯 정의 중복을 직접 검출."""
-    lau = rd('app_main.py')
+    lau = rd_app()
     defs = re.findall(r'self\.(chk_\w+)\s*=\s*QCheckBox', lau)
     dups = sorted({n for n in defs if defs.count(n) > 1})
     check('①', '체크박스 위젯 attr 중복정의 없음(orphan 방지)', not dups,
@@ -653,7 +667,7 @@ def main():
     print("-" * 64)
     # 커버리지 리포트 — "무엇을 보나/안 보나"를 수치로 가시화(사각 관리, BLIND_SPOTS.md)
     try:
-        lau = rd('app_main.py')
+        lau = rd_app()
         built = set(re.findall(r"['\"](enable_\w+)['\"]\s*:\s*self\.\w+\.isChecked\(\)", lau))
         nblind = 0
         try:

@@ -510,7 +510,11 @@ v12.06.01: [변경 내용 한 줄 요약]
 6. **`_render_*`는 app_main이 재노출 import**할 것 — `_audit_render_smoke`가
    `getattr(app_main, ...)`로 꺼낸다.
 7. **새 모듈을 만들면 도구·문서를 함께 갱신**: `chk_resource_paths`의 `BUNDLED` 목록(안 넣으면
-   pkl 로더 검사가 조용히 사각) + README 파일구조표(한·영) + 이 표.
+   pkl 로더 검사가 조용히 사각) + README 파일구조표(한·영) + 이 표 + `audit_static_scan.py`의
+   `_APP_MAIN_SPLIT` 목록(MainWindow·SplashWindow 콘텐츠가 새 조각으로 옮겨가면 여기 추가 —
+   안 넣으면 `rd('app_main.py')` 단독 스캔이 못 찾고 "위반 0건" → 조용히 PASS/스킵된다.
+   실제로 `app_launcher.py` 분할 때 `_PLANS`가 이렇게 사각났다가 `rd_app()` 도입으로 정정됨,
+   v21.02.02).
 8. **의존은 단방향**: `app_main → {app_engine, app_utils, app_theme, ui_widgets, ui_charts,
    ui_dialogs, app_workers, scenarios, ui_monitor, app_launcher}`. 하위 모듈에서
    **app_main을 import하면 즉시 순환**이다(`app_launcher`가 처음엔 `APP_VERSION`을
