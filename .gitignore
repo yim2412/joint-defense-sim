@@ -48,7 +48,7 @@ _smoke*.log
 _x.log
 
 # 로컬 LLM 전환(plan_local_llm): aider 세션 산출물·Ollama 데몬 로그.
-# .aider.model.settings.yml은 num_ctx 설정 정본이라 커밋 대상 — 여기서 제외하지 않는다.
+# .aider.model.settings.yml·.aider.conf.yml은 설정 정본이라 커밋 대상 — 아래 !예외로 유지.
 .aider.chat.history.md
 .aider.input.history
 .aider.tags.cache*
@@ -56,3 +56,5 @@ _x.log
 _ollama_serve.log
 .venv-aider/
 .aider*
+!.aider.model.settings.yml
+!.aider.conf.yml
