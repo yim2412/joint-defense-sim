@@ -84,7 +84,69 @@ CAMPAIGN_PROBES = {
              enable_air_campaign=True, enable_strategic_strike=True,
              enable_army_campaign=True),
         ['enemy_output_factor', 'mean_control']),
+
+    # 게이트 캠페인 확장(2026-07-19) — 나머지 9개 캠페인 토글. chk_effect_coverage를
+    # engine_campaign·airforce·army·joint까지 보게 넓히면서, 그 4파일이 소비하는
+    # enable_* 11개 중 이미 커버된 2개(enable_joint_fires 위, enable_ballistic_descent는
+    # EFFECT_ALIVE)를 뺀 9개 전부에 프로브를 채웠다.
+
+    # 지상 작전급 층 자체 — OFF면 self.army가 아예 None(어떤 지상 하위 지표도 안 생김).
+    # 짝 기능: enable_coastal_sam을 켜둬야 층이 생겼을 때 실제로 뭔가(포대) 생긴다 —
+    # 안 그러면 army는 있어도 sites={}라 "층 존재"와 "coastal_sam 존재"가 안 갈린다.
+    'enable_army_campaign': (
+        dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단', enable_coastal_sam=True),
+        ['_n_coastal_sites']),
+
+    # 연안 방공 포대 — army 층은 있어도(enable_army_campaign) OFF면 self.sites={}.
+    'enable_coastal_sam': (
+        dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단', enable_army_campaign=True),
+        ['_n_coastal_sites']),
+
+    # 상륙작전 — OFF면 self.landing=None → amphib_* 키 자체가 결과에 없음(=0 취급).
+    'enable_amphibious': (
+        dict(_CAMPAIGN_BASE, fleet_preset='독도함 상륙전단', enable_army_campaign=True),
+        ['amphib_progress']),
+
+    # 적 SEAD 도미노(연안 SAM 제압) — ①enable_army_campaign+enable_coastal_sam(제압 대상인
+    # 포대가 있어야) ②enable_air_campaign(제공권 개념 자체가 없으면 무동작, engine_army.py
+    # _tick_enemy_sead 주석 "공군 작전급과 함께 켜야 의미가 있다") ③아군 제공권 열세 무대
+    # (최소 방공)라야 적 제공권이 높아 제압이 실제로 쌓인다.
+    'enable_enemy_sead': (
+        dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단',
+             enable_army_campaign=True, enable_coastal_sam=True,
+             enable_air_campaign=True, air_force_preset='최소 방공 (제공권 열세)'),
+        ['coastal_suppression']),
+
+    # 공군 작전급 층 자체 — OFF면 self.air가 None → 제공권 지표 전부 결과에서 사라진다.
+    'enable_air_campaign': (
+        dict(_CAMPAIGN_BASE, fleet_preset='한미 기동전단 강화',
+             air_force_preset='한미 연합 공군 패키지'),
+        ['mean_air_superiority']),
+
+    # SEAD/DEAD(적 방공망 제압) — enable_air_campaign이 먼저 있어야 self.sead_enabled가
+    # 뜻을 갖는다(공군 층 자체가 없으면 검사 대상이 없음).
+    'enable_sead': (
+        dict(_CAMPAIGN_BASE, fleet_preset='한미 기동전단 강화',
+             air_force_preset='한미 연합 공군 패키지', enable_air_campaign=True),
+        ['n_ad_sites']),
+
+    # 전략폭격(적 기지 타격) — enable_air_campaign 선행 필요(폭격기가 날 공군 층 자체).
+    'enable_strategic_strike': (
+        dict(_CAMPAIGN_BASE, fleet_preset='한미 기동전단 강화',
+             air_force_preset='한미 연합 공군 패키지', enable_air_campaign=True),
+        ['n_enemy_bases']),
+
+    # A1 정밀 교전 — zone 대리모델 대신 실제 전술 단발로 해결한 교전 수(n_precise).
+    'enable_precise_engagement': (
+        dict(_CAMPAIGN_BASE, fleet_preset='이지스 기동전단'),
+        ['n_precise']),
 }
+
+# ⚠ enable_campaign_fog는 여기 없다 — 단일 프로브로 재현 시도했으나 재현 실패:
+#   소함대(1~2척)는 belief 갱신 전에 자원소진(_all_ships_down)으로 조기 종료돼 안개
+#   효과(zone 미탐지 누적)가 발현할 시간이 안 나오고, 전 구역을 커버하는 함대(3척+,
+#   교통로 3개에 순환분산)는 애초에 안 놓치는 zone이 없어 fog ON/OFF가 bit-identical.
+#   진짜 효과 무대(대형 함대·장기 horizon·부분 커버)를 못 찾음 — 수동 검증 대상으로 이관.
 
 
 def _run(cfg):
@@ -93,7 +155,10 @@ def _run(cfg):
 
 def _run_campaign(cfg):
     from engine_campaign import run_campaign
-    return run_campaign(dict(cfg))
+    r = run_campaign(dict(cfg))
+    # 파생 지표 — dict형 결과(coastal_sites 등)는 delta 계산이 안 되므로 카운트로 환산.
+    r['_n_coastal_sites'] = len(r.get('coastal_sites') or {})
+    return r
 
 
 def main():
@@ -135,7 +200,8 @@ def main():
     manual = ['enable_munition_limit(전장전용)', 'enable_ras_rearm(전장전용)',
               'enable_esm_arm', 'enable_sonar_emcon', 'enable_hgv_glide', 'enable_iff',
               'enable_laser_dew', 'enable_recon_drone', 'enable_autonomous_engagement',
-              'enable_asw_forward']
+              'enable_asw_forward',
+              'enable_campaign_fog(캠페인 전용 — 효과 무대 재현 실패, 위 주석 참조)']
     print(f"  ⓘ 수동 검증 대상(효과 엣지케이스·시나리오 의존, BLIND_SPOTS): {', '.join(manual)}")
 
     if dead:

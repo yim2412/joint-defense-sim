@@ -428,6 +428,12 @@ EFFECT_ALIVE = {
     'enable_terrain', 'enable_thaad', 'enable_weather_dynamics',
     # E 청소 2026-07-16: 전장 전용(단발 스캐너 대상 밖, 전장 프로브로 확증) —
     'enable_battle_mode', 'enable_ras_rearm',
+    # 게이트 캠페인 확장 2026-07-19: enable_campaign_fog는 CAMPAIGN_PROBES로 자동 재현
+    # 못 함(소함대=자원소진 조기종료로 미발현 시간부족, 대함대=전 구역 커버라 안개
+    # 자체가 안 걸림 — 진짜 발현 무대를 못 찾음) — 단, 엔진을 수동으로 틱 단위 실행해
+    # self.fog=True에서 _n_missed가 0→20으로 누적되고 False면 조기 return으로 항상
+    # 0임을 직접 확인(코드 경로 자체는 살아있음, audit_effect.py 주석 참조).
+    'enable_campaign_fog',
 }
 
 # 종결(원리상 발동 불가로 규명 → 죽은 기능 확정). 레이저와 달리 '메커니즘 살아있음'이 아니라
@@ -445,10 +451,15 @@ EFFECT_DEAD = {
 
 
 def chk_effect_coverage():
-    """① 커밋 게이트 — engine_combat이 소비하는 신규 enable_* 토글은 커버(PROBES 정밀 프로브
-    ∪ EFFECT_ALIVE 스캐너 확증)가 있어야 한다. 없고 EFFECT_DEBT 유예에도 없으면 FAIL
-    (= 검증 없이 태어난 죽은 기능 후보). 부채(EFFECT_DEBT)는 줄기만 하고 늘 수 없다."""
-    ev = rd('engine_combat.py')
+    """① 커밋 게이트 — engine_combat·캠페인 층(engine_campaign·airforce·army·joint)이
+    소비하는 신규 enable_* 토글은 커버(PROBES 정밀 프로브 ∪ EFFECT_ALIVE 스캐너 확증)가
+    있어야 한다. 없고 EFFECT_DEBT 유예에도 없으면 FAIL(= 검증 없이 태어난 죽은 기능 후보).
+    부채(EFFECT_DEBT)는 줄기만 하고 늘 수 없다.
+    ⚠ 2026-07-19 게이트 캠페인 확장: 원래 engine_combat.py만 봐서 캠페인 층 토글
+    (enable_air_campaign·enable_sead 등 11개)이 전부 자동 면제되던 사각을 메움
+    (audit_effect.CAMPAIGN_PROBES 9개 신설로 커버, patch_queue '게이트 캠페인 확장')."""
+    ev = (rd('engine_combat.py') + rd('engine_campaign.py') + rd('engine_airforce.py')
+          + rd('engine_army.py') + rd('engine_joint.py'))
     consumed = set(re.findall(r"\.get\(['\"](enable_\w+)", ev)) | set(re.findall(r"cfg\[['\"](enable_\w+)", ev))
     guard_count('①', '엔진 소비 플래그(효과커버 검사 기반)', len(consumed), 40)
     ae = rd('audit_effect.py')
