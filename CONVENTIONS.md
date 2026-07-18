@@ -42,14 +42,22 @@
 ## 작업 순서 (매번)
 ```
 1. 코드 수정
-2. python audit_static_scan.py     # 51개 정적 검사, 전부 PASS 필수
-3. python audit_verify_regression.py   # 엔진 손댔으면 특히 필수, 38케이스×29지표 PASS 필수
-4. git add <수정한 파일만>   # dist/build/ 제외
-5. git commit  (pre-commit 훅이 3·4를 다시 돌린다 — FAIL이면 원인 고치고 재시도)
+2. python audit_local_edit.py      # 실제 diff 기준으로 필요한 게이트를 알아서 골라 돌림
+3. git add <수정한 파일만>   # dist/build/ 제외
+4. git commit  (pre-commit 훅이 정적·회귀를 다시 돌린다 — FAIL이면 원인 고치고 재시도)
 ```
+- `audit_local_edit.py`가 "실제로 바뀐 파일 0개"라고 하면 **아무것도 한 게 없는 것이다.**
+  스스로 "수정했다"고 말했더라도 git diff가 비어 있으면 그 보고는 거짓이다 — 다시 시도하거나
+  왜 안 됐는지 사용자에게 그대로 보고한다. 안 되는 걸 됐다고 보고하는 게 가장 위험한 실수다
+  (plan_local_llm.md §1-e 실측 — 도구 호출 0회로 "4가지 수정했다"고 보고한 사례).
 - FAIL이 나오면 **`--no-verify`로 우회하지 않는다.** 원인을 고치거나, 못 고치겠으면 사용자에게 보고.
 - 의도된 엔진 변경으로 골든이 달라졌으면 `python audit_verify_regression.py --update` 후
   왜 달라졌는지 커밋 메시지에 한 줄 남긴다.
+- **`audit_local_edit.py`가 전부 PASS라고 나와도 "맞게 만들었다"는 증명이 아니다.** 게이트는
+  "기존을 안 깨뜨렸나"만 본다. 상태 플래그(`self.X = True`)를 추가했다면 **되돌리는 경로가
+  있는지**(매 틱 재대입인지, 한 번 세팅 후 영원히 True인지) 직접 diff를 눈으로 확인할 것 —
+  이건 게이트가 원리상 못 잡는다(과거 실측: 패턴을 절반만 베껴 플래그가 영구 True로 박힌
+  사례, py_compile·정적51·회귀38×29 전부 PASS인데 버그였다).
 
 ## 하지 말 것 (사용자/Claude 판단 영역)
 - 종합 9영역 감사, `/code-review`, 아키텍처 설계 변경 — 이런 건 시도하지 말고 그대로 보고한다.

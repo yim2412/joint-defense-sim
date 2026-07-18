@@ -156,6 +156,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `audit_static_scan.py` | 정적 위생 감사 스캐너 (자동추출·vacuous 가드·커버리지 리포트) |
 | `audit_property.py` | 속성 기반 감사 — 불변식(확률[0,1]·합=1·NaN 0·보존식·경계) 랜덤 검증 (독립 오라클) |
 | `audit_effect.py` | 토글 효과 검증 — 효과 입증 시나리오에서 ON/OFF 델타로 죽은 토글 탐지 |
+| `audit_local_edit.py` | 로컬 모델(aider) 세션 사후 검증 — git diff를 정본으로 삼아 자기보고 불일치 탐지 + 필요한 게이트 자동 실행 |
 | `audit_dead_toggle.py` | 죽은 토글 스캐너 (종합감사 전용) — EFFECT_DEBT 유예 목록을 전수로 ON/OFF 델타+발현 카운터 수집해 상환 여부 4분류 |
 | `audit_fuzz.py` | 수치 cfg 키 경계값 fuzzing — 극단값(0·음수·거대값) 자동 주입으로 크래시·NaN·확률범위 위반 탐지 |
 | `audit_pairwise.py` | 토글 쌍(pairwise) 조합 상호작용 감사 — 엔진 소비 토글 전수 쌍을 ON으로 단발·전장·캠페인 실행해 크래시·NaN·보존식 위반 탐지 |
