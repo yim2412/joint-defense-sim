@@ -111,6 +111,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `ui_dialogs.py` | 모달 다이얼로그 — 함대 편성 커스텀, 전술 의사결정, 시뮬 로그 열람 |
 | `app_theme.py` | 런처 UI 색상 팔레트·체크박스 스타일 헬퍼 |
 | `ui_widgets.py` | 재사용 위젯 — 게이지·수렴 곡선·요격률 히스토그램, 작업표시줄 진행률 |
+| `ui_monitor.py` | 실행 모니터 UI — 시뮬 진행 팝업, 시스템 자원 탭 |
+| `app_launcher.py` | 런처 진입 화면 — 사이드바·홈·도움말·DB 탭, 유닛 스펙시트 패널 |
 | `scenarios.py` | 시나리오 라이브러리 — 원클릭 추천 시나리오 프리셋 정의 |
 | `engine_core.py` | 핵심 DB(적/아군/함정), 물리 모델, 탐지·교전 로직 |
 | `engine_combat.py` | 시간 스텝 기반 양방향 교전 엔진 (아군 공격 무기 DB 포함). ※`v7`은 도입 당시 명칭이며 현재 주 엔진 |
@@ -310,6 +312,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `ui_dialogs.py` | Modal dialogs — fleet customization, tactical decision pause, simulation log viewer |
 | `app_theme.py` | Launcher UI color palette and checkbox style helper |
 | `ui_widgets.py` | Reusable widgets — gauges, convergence curve, intercept-rate histogram, taskbar progress |
+| `ui_monitor.py` | Run monitor UI — sim progress popup, system resource tab |
+| `app_launcher.py` | Launcher entry screen — sidebar/home/help/DB tabs, unit spec-sheet panel |
 | `scenarios.py` | Scenario library — one-click recommended scenario presets |
 | `db_specsheet.py` | Detailed spec-sheet descriptions for the DB tab |
 | `app_changelog.json` | Patch history |

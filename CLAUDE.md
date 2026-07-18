@@ -22,6 +22,8 @@
 | `ui_dialogs.py` | 모달 다이얼로그(`FleetCustomDialog`·`TacticalDialog`·`SimLogDialog`). 의존은 app_theme·app_utils·app_engine·ui_widgets·ui_charts |
 | `app_theme.py` | 색상 팔레트·`_wire_chk_color`·**`CHART_DPI`**. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). ⚠ `CHART_DPI`는 main()이 화면 크기로 재할당하는 전역 — 읽는 쪽·쓰는 쪽 모두 `app_theme.CHART_DPI`로 **모듈 경유**(이름 import하면 150 고정, DPI 자동감지가 조용히 죽음) |
 | `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN`. 의존은 PyQt6·numpy·`app_utils._res`·app_theme뿐 |
+| `ui_monitor.py` | 실행 모니터 UI(`FloatingMonitor`·`SysMonitorTab`). 의존은 PyQt6·app_theme·app_utils·app_workers(`SimWorker`)·ui_charts(`MplCanvas`)·ui_widgets뿐 |
+| `app_launcher.py` | 런처 진입 화면(`SplashWindow`·`SpecSheetPanel`·`_RoundPhoto`·`_HomeBg`). 의존은 PyQt6·app_theme·app_utils·app_engine·ui_charts뿐. `APP_VERSION`은 app_main 순환을 피하려고 `SplashWindow(app_version)` 생성자 인자로 주입(app_main의 `SplashWindow(APP_VERSION)` 호출부가 값을 넘김) |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
 | `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
@@ -510,8 +512,12 @@ v12.06.01: [변경 내용 한 줄 요약]
 7. **새 모듈을 만들면 도구·문서를 함께 갱신**: `chk_resource_paths`의 `BUNDLED` 목록(안 넣으면
    pkl 로더 검사가 조용히 사각) + README 파일구조표(한·영) + 이 표.
 8. **의존은 단방향**: `app_main → {app_engine, app_utils, app_theme, ui_widgets, ui_charts,
-   ui_dialogs, app_workers, scenarios}`. 하위 모듈에서 **app_main을 import하면 즉시 순환**이다.
-   워커가 엔진 심볼을 쓰므로 `app_engine`을 최하층으로 분리해 순환을 끊었다.
+   ui_dialogs, app_workers, scenarios, ui_monitor, app_launcher}`. 하위 모듈에서
+   **app_main을 import하면 즉시 순환**이다(`app_launcher`가 처음엔 `APP_VERSION`을
+   `from app_main import`하려다 이 규칙에 걸림 — 생성자 인자로 전달해 해결. v21.02.02
+   기준 `APP_VERSION`은 정적 스캔이 `app_main.py` 소스 텍스트를 직접 정규식으로 읽으므로
+   그 파일 안의 실제 대입문으로 유지). 워커가 엔진 심볼을 쓰므로 `app_engine`을 최하층으로
+   분리해 순환을 끊었다.
 
 ### 하위 호환 원칙
 
