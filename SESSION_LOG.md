@@ -13,7 +13,54 @@
 
 ---
 
-## [2026-07-19] **세션 매듭** — app_main 분할 7/N (ui_monitor·app_launcher) + 결제 완전 차단 확정  (HEAD: 155da45, 푸시 완료)
+## [2026-07-19] **세션 매듭** — app_main 분할 8/N (MainWindow mixin 6개 분리) 완료  (HEAD: c886af4, 푸시 완료)
+
+- **한 것**: `MainWindow`(4,952줄·116메서드 God-class)를 기능별 mixin 6개로 분리 —
+  `mixin_simlifecycle`(433줄·실행제어) · `mixin_configpanel`(2,644줄·설정패널) ·
+  `mixin_showcase`(276줄·쇼케이스) · `mixin_resultpanel`(1,137줄·결과탭) ·
+  `mixin_optimize`(80줄·최적화) · `mixin_export`(130줄·내보내기). `MainWindow`는 이제
+  다중상속(`SimLifecycleMixin, ConfigPanelMixin, ShowcaseMixin, ResultPanelMixin,
+  OptimizeMixin, ExportMixin, QMainWindow`) 껍데기만 남았다. **`app_main.py`
+  12,808→**1,745줄**(-86%, 이 세션 시작 대비)**.
+- **방법론**: 눈으로 안 고르고 AST로 정확한 method 경계(`lineno`/`end_lineno`) 추출 →
+  6그룹 매핑 → 그룹별 AST Collector로 외부 심볼 자동 탐지 → import 재구성. 이 방식이
+  분할 1~7/N의 "정규식이 한 줄 다중을 놓친다" 함정을 원천 차단했다(AST는 안 놓침).
+- **循環 함정 2건 선제 발견·해결** (app_launcher 때 겪은 패턴과 동일):
+  1. `AccordionSidebar`·`_HoverPopup`·`_install_hover`·`_install_section_popups`·
+     `_WrapCheckBox`·`_CfgSectionHeader`·`_expand/_collapse_fleet_custom`이 app_main.py에
+     남아있어 mixin이 참조하면 순환 → **ui_widgets.py로 선이관**(모듈 분할 8항 신설로
+     원칙화: "mixin이 쓸 app_main 잔존 헬퍼는 먼저 ui_widgets로 옮긴다").
+  2. `_crash_log_path`(2줄 함수)도 app_main.py 전용이라 순환 → app_utils.py로 이관.
+  3. `APP_VERSION` — app_launcher와 동일하게 `SimLifecycleMixin.__init__(app_version)`
+     생성자 인자로 주입, `MainWindow(APP_VERSION)`으로 생성.
+- **뜻밖의 부수 발견 — 잠재 NameError 버그 2건**: `_IMPACT_TOGGLES`(app_workers)와
+  `_LOG_CAT_COLOR`(ui_charts)가 app_main.py에서 **import 없이** 쓰이고 있었다(오래전부터,
+  f966f5d 이전에도 동일). AST dependency scan이 이걸 "undefined name"으로 잡아냄 →
+  mixin_optimize·mixin_resultpanel에 정식 import 추가하며 정정. 실제로 이 코드 경로가
+  실행됐다면 크래시였을 것 — mixin 분할이 아니었으면 계속 몰랐을 버그.
+  (사용자에게 언급 못 했으면 여기 기록: 회귀·round-trip이 이 경로를 안 밟아서 지금까지
+  안 잡혔던 것으로 보임 — 향후 감사에서 "실행 안 되는 self 없는 전역참조" 스캔 추가 고려.)
+- **QtGui/QtWidgets 오배치 2회 반복**: `QGraphicsDropShadowEffect`(분할7 때) ·
+  `QShortcut`(이번, QtGui인데 QtWidgets로 잘못 추정) — round-trip이 즉시 잡음. 패턴화할
+  가치: PyQt6에서 Shortcut·Drop관련 클래스는 QtGui에 있는 경우가 많다, 다음엔 먼저 확인.
+- **`audit_static_scan.py` 사전 대응**: `_APP_MAIN_SPLIT`에 mixin 6개 추가(직전 세션에
+  이미 만든 인프라 덕에 이번엔 처음부터 반영 — "다음 mixin 분할 때 여기 추가" 메모가
+  실제로 다음 세션 자신에게 배당금을 냈다).
+- **검증**: round-trip PASS(토글 61) · 정적 51/51 PASS · 회귀 38×29 PASS(bit-identical) ·
+  pre-commit·pre-push 훅 전부 통과(속성 감사·효과 검증·결과 탭 렌더 크래시 검사 포함).
+- **다음 재개 지점**: `plan_local_llm.md` §5 — ③`CONVENTIONS.md`(3~4KB, CLAUDE.md 46KB는
+  로컬 모델에 안 들어감) 작성 → ④게이트 캠페인 확장(프로브 9개, 캠페인 층 토글이
+  `chk_effect_coverage`에서 면제되는 사각 보완). 이 두 개가 끝나면 로컬 전환 준비의
+  핵심 골격은 완성 — **접근이 끊기기 전 최우선 순위**([[project-local-llm-transition]]).
+  분할 자체는 이제 MainWindow까지 끝나 로컬(aider)이 UI 코드 대부분을 편집 가능한 크기다.
+- **exe GUI 스모크 미검증**: 이번 세션은 mixin 정합성(round-trip·정적·회귀)만 확인했고
+  실제 exe 빌드+버튼 클릭 스모크는 안 함 — 다음 세션에서 빌드 후 스모크 1회 권장
+  (특히 설정 패널·결과 탭 렌더가 실제 화면에서 정상 동작하는지, mixin 분할이 위젯
+  레이아웃에 영향 없는지 확인).
+- **미커밋 주의**: 없음(전부 커밋·푸시 완료). `.codex/`·`AGENTS.md`는 여전히 미추적
+  상태로 남아있음(이 세션이 만든 게 아니라 손대지 않음).
+
+## [2026-07-17] **세션 매듭** — app_main 분할 7/N (ui_monitor·app_launcher) + 결제 완전 차단 확정  (HEAD: 155da45, 푸시 완료)
 
 - **🔴🔴 가장 중요한 새 사실 — 결제/Claude 접근이 곧 완전히 끊길 예정**(사용자 확인, 이번
   세션). 이전엔 "결제 불가라 로컬 전환 희망"이었는데, 이번엔 **접근 자체가 완전히 끊긴다**로
