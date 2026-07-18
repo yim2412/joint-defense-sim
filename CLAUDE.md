@@ -21,9 +21,15 @@
 | `ui_charts.py` | 차트 렌더·교전 분석 탭(`MplCanvas`·`ChartRenderWorker`·`ChartPageWidget`·`EngagementAnalysisTab`·`_render_engagement_*`·`_render_battle_timeline`·`_render_campaign_report`). `_render_*`는 `_audit_render_smoke`가 `getattr(app_main, ...)`로 꺼내므로 **app_main이 반드시 재노출 import**할 것 |
 | `ui_dialogs.py` | 모달 다이얼로그(`FleetCustomDialog`·`TacticalDialog`·`SimLogDialog`). 의존은 app_theme·app_utils·app_engine·ui_widgets·ui_charts |
 | `app_theme.py` | 색상 팔레트·`_wire_chk_color`·**`CHART_DPI`**. 모든 UI 모듈이 참조 → **여기서 앱 모듈 import 금지**(즉시 순환). ⚠ `CHART_DPI`는 main()이 화면 크기로 재할당하는 전역 — 읽는 쪽·쓰는 쪽 모두 `app_theme.CHART_DPI`로 **모듈 경유**(이름 import하면 150 고정, DPI 자동감지가 조용히 죽음) |
-| `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN`. 의존은 PyQt6·numpy·`app_utils._res`·app_theme뿐 |
+| `ui_widgets.py` | 재사용 위젯(`NoScrollComboBox`·`GaugeWidget`·`ConvergenceWidget`·`RateHistogramWidget`·`_TaskbarProgress`)+`STYLE_MAIN` + `AccordionSidebar`·`_HoverPopup`·`_install_hover`·`_install_section_popups`·`_WrapCheckBox`·`_CfgSectionHeader`·`_expand_fleet_custom`·`_collapse_fleet_custom`(MainWindow mixin 분할 때 app_main에서 이관 — mixin이 순환 없이 쓰려면 여기 있어야 함). 의존은 PyQt6·numpy·`app_utils._res`·app_theme·app_engine(`V7_SHIP_DB`·`_V7_OK`)뿐 |
 | `ui_monitor.py` | 실행 모니터 UI(`FloatingMonitor`·`SysMonitorTab`). 의존은 PyQt6·app_theme·app_utils·app_workers(`SimWorker`)·ui_charts(`MplCanvas`)·ui_widgets뿐 |
 | `app_launcher.py` | 런처 진입 화면(`SplashWindow`·`SpecSheetPanel`·`_RoundPhoto`·`_HomeBg`). 의존은 PyQt6·app_theme·app_utils·app_engine·ui_charts뿐. `APP_VERSION`은 app_main 순환을 피하려고 `SplashWindow(app_version)` 생성자 인자로 주입(app_main의 `SplashWindow(APP_VERSION)` 호출부가 값을 넘김) |
+| `mixin_simlifecycle.py` | `MainWindow` mixin — 실행 제어(`__init__`·`_build_ui`·`_run_sim`·`_on_finished`·`_on_error`·`closeEvent` 등). `app_version` 생성자 인자로 `APP_VERSION` 주입(app_launcher와 동일 패턴). 의존은 PyQt6·app_theme·app_utils·app_workers·ui_charts·ui_dialogs·ui_widgets·ui_monitor뿐 |
+| `mixin_configpanel.py` | `MainWindow` mixin — 설정 패널(`_build_config_panel`·`_restore_cfg`·`_build_cfg_from_ui`·시나리오/편대/툴팁/예보). 의존은 PyQt6·matplotlib·numpy·app_theme·app_utils·app_engine·ui_dialogs·ui_widgets·scenarios뿐 |
+| `mixin_showcase.py` | `MainWindow` mixin — 쇼케이스 탭·퀵스타트 배너. 의존은 PyQt6·app_theme·app_utils·app_workers·scenarios뿐 |
+| `mixin_resultpanel.py` | `MainWindow` mixin — 결과 탭 렌더(REQ·상태보드·로그·카드·등급·캠페인 보고). 의존은 PyQt6·matplotlib·app_theme·app_utils·app_engine·ui_charts·ui_widgets뿐 |
+| `mixin_optimize.py` | `MainWindow` mixin — 적정 편대 추천 최적화·토글 영향도(counterfactual) 분석. 의존은 PyQt6·app_theme·app_workers·ui_charts뿐 |
+| `mixin_export.py` | `MainWindow` mixin — Excel·PDF 보고서 내보내기. 의존은 PyQt6·matplotlib·app_theme·app_engine뿐 |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
 | `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
@@ -516,12 +522,21 @@ v12.06.01: [변경 내용 한 줄 요약]
    실제로 `app_launcher.py` 분할 때 `_PLANS`가 이렇게 사각났다가 `rd_app()` 도입으로 정정됨,
    v21.02.02).
 8. **의존은 단방향**: `app_main → {app_engine, app_utils, app_theme, ui_widgets, ui_charts,
-   ui_dialogs, app_workers, scenarios, ui_monitor, app_launcher}`. 하위 모듈에서
-   **app_main을 import하면 즉시 순환**이다(`app_launcher`가 처음엔 `APP_VERSION`을
-   `from app_main import`하려다 이 규칙에 걸림 — 생성자 인자로 전달해 해결. v21.02.02
-   기준 `APP_VERSION`은 정적 스캔이 `app_main.py` 소스 텍스트를 직접 정규식으로 읽으므로
-   그 파일 안의 실제 대입문으로 유지). 워커가 엔진 심볼을 쓰므로 `app_engine`을 최하층으로
-   분리해 순환을 끊었다.
+   ui_dialogs, app_workers, scenarios, ui_monitor, app_launcher, mixin_simlifecycle,
+   mixin_configpanel, mixin_showcase, mixin_resultpanel, mixin_optimize, mixin_export}`.
+   하위 모듈에서 **app_main을 import하면 즉시 순환**이다(`app_launcher`가 처음엔
+   `APP_VERSION`을 `from app_main import`하려다 이 규칙에 걸림 — 생성자 인자로 전달해
+   해결. v21.02.02 기준 `APP_VERSION`은 정적 스캔이 `app_main.py` 소스 텍스트를 직접
+   정규식으로 읽으므로 그 파일 안의 실제 대입문으로 유지). 워커가 엔진 심볼을 쓰므로
+   `app_engine`을 최하층으로 분리해 순환을 끊었다.
+9. **`MainWindow`는 mixin 다중상속**(`class MainWindow(SimLifecycleMixin, ConfigPanelMixin,
+   ShowcaseMixin, ResultPanelMixin, OptimizeMixin, ExportMixin, QMainWindow)`, app_main.py
+   분할 8/N) — 6개 mixin이 전부 `self`를 공유. mixin이 app_main에 남은 헬퍼(`AccordionSidebar`
+   등)를 쓰려면 8항 순환에 걸리므로, 그런 헬퍼는 **ui_widgets.py로 먼저 옮긴 뒤** mixin이
+   참조한다(`_crash_log_path`도 같은 이유로 app_utils.py로 이관). `__init__`(APP_VERSION
+   주입 포함)·`_build_ui`는 `SimLifecycleMixin`에 있고 `MainWindow(APP_VERSION)`으로
+   생성한다. 새 mixin 메서드를 추가할 땐 `_APP_MAIN_SPLIT`(정적 스캐너)에 파일이
+   등재돼 있는지 확인(8항 문서 참조).
 
 ### 하위 호환 원칙
 

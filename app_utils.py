@@ -366,6 +366,7 @@ def _log_base() -> str:
 def _log_path()  -> str: return os.path.join(_log_base(), 'sim_history.log')
 def _json_log_path() -> str: return os.path.join(_log_base(), 'sim_history.json')
 def _app_state_path() -> str: return os.path.join(_log_base(), 'app_state.json')
+def _crash_log_path() -> str: return os.path.join(_log_base(), 'crash.log')
 
 
 def _load_app_state() -> dict:

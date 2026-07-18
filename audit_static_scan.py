@@ -34,7 +34,9 @@ def rd(name):
 # 사각이 생긴다(2026-07-19 app_launcher.py 분할 때 chk_plans_stale이 실제로 이렇게
 # 사각났다 — _PLANS가 app_launcher.py로 옮겨졌는데 검사는 app_main.py만 읽어 매치
 # 실패 → 벌점 없이 통과). MainWindow를 mixin으로 더 쪼갤 때는 이 목록에 추가할 것.
-_APP_MAIN_SPLIT = ['app_main.py', 'app_launcher.py', 'ui_monitor.py']
+_APP_MAIN_SPLIT = ['app_main.py', 'app_launcher.py', 'ui_monitor.py',
+                   'mixin_simlifecycle.py', 'mixin_configpanel.py', 'mixin_showcase.py',
+                   'mixin_resultpanel.py', 'mixin_optimize.py', 'mixin_export.py']
 
 def rd_app():
     """app_main.py + 분할된 조각(app_launcher·ui_monitor 등) 결합 소스.
