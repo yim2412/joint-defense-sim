@@ -170,18 +170,21 @@ from ui_charts import (_apply_window_geometry, _center_window, _classify_log_eve
                        _render_mc_chart, _render_sobol_chart, _render_stress_test)
 from scenarios import SCENARIO_LIBRARY
 
-# MainWindow 기능별 mixin 6개 - app_main.py 분할 8/N
+# MainWindow 기능별 mixin - app_main.py 분할 8/N(6개) + 9/N(ConfigPanelExtraMixin)
 from mixin_simlifecycle import SimLifecycleMixin
 from mixin_configpanel import ConfigPanelMixin
+from mixin_configpanel2 import ConfigPanelExtraMixin
+from mixin_configpanel3 import ConfigPanelExtra2Mixin
 from mixin_showcase import ShowcaseMixin
 from mixin_resultpanel import ResultPanelMixin
 from mixin_optimize import OptimizeMixin
 from mixin_export import ExportMixin
 
 
-class MainWindow(SimLifecycleMixin, ConfigPanelMixin, ShowcaseMixin, ResultPanelMixin,
-                 OptimizeMixin, ExportMixin, QMainWindow):
-    """PyQt6 메인 윈도우 — 기능별 mixin 6개로 분할(app_main.py 분할 8/N, 각 파일 참조).
+class MainWindow(SimLifecycleMixin, ConfigPanelMixin, ConfigPanelExtraMixin,
+                 ConfigPanelExtra2Mixin, ShowcaseMixin,
+                 ResultPanelMixin, OptimizeMixin, ExportMixin, QMainWindow):
+    """PyQt6 메인 윈도우 — 기능별 mixin으로 분할(app_main.py 분할 8·9/N, 각 파일 참조).
     실행 제어=SimLifecycleMixin(mixin_simlifecycle.py) · 설정 패널=ConfigPanelMixin
     (mixin_configpanel.py) · 쇼케이스=ShowcaseMixin(mixin_showcase.py) · 결과 탭
     =ResultPanelMixin(mixin_resultpanel.py) · 최적화=OptimizeMixin(mixin_optimize.py)

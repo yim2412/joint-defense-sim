@@ -115,6 +115,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `app_launcher.py` | 런처 진입 화면 — 사이드바·홈·도움말·DB 탭, 유닛 스펙시트 패널 |
 | `mixin_simlifecycle.py` | MainWindow mixin — 실행 제어(초기화·시뮬 실행·완료/에러 콜백·창 수명) |
 | `mixin_configpanel.py` | MainWindow mixin — 설정 패널(시나리오·편대·cfg 빌드/복원·예보 카드·툴팁) |
+| `mixin_configpanel2.py` | MainWindow mixin — 설정 패널 보조 1(환경 세부 옵션·방어전술·공격임무·BMD, mixin_configpanel 예산 초과로 분리) |
+| `mixin_configpanel3.py` | MainWindow mixin — 설정 패널 보조 2(cfg 복원·시나리오 미리보기, mixin_configpanel 예산 초과로 분리) |
 | `mixin_showcase.py` | MainWindow mixin — 쇼케이스 탭(원클릭 비교 시연)·퀵스타트 배너 |
 | `mixin_resultpanel.py` | MainWindow mixin — 결과 탭 렌더(REQ·상태보드·로그·카드·등급·캠페인 보고) |
 | `mixin_optimize.py` | MainWindow mixin — 적정 편대 추천 최적화·토글 영향도 분석 |
@@ -323,6 +325,8 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `app_launcher.py` | Launcher entry screen — sidebar/home/help/DB tabs, unit spec-sheet panel |
 | `mixin_simlifecycle.py` | MainWindow mixin — run control (init, sim run, done/error callbacks, window lifecycle) |
 | `mixin_configpanel.py` | MainWindow mixin — config panel (scenario/fleet, cfg build/restore, forecast card, tooltips) |
+| `mixin_configpanel2.py` | MainWindow mixin — config panel helper 1 (env options/defense/attack/BMD, split from mixin_configpanel for local-model context budget) |
+| `mixin_configpanel3.py` | MainWindow mixin — config panel helper 2 (cfg restore/scenario preview, split from mixin_configpanel for local-model context budget) |
 | `mixin_showcase.py` | MainWindow mixin — showcase tab (one-click compare demo), quickstart banner |
 | `mixin_resultpanel.py` | MainWindow mixin — result tab rendering (REQ, status board, log, cards, grade, campaign report) |
 | `mixin_optimize.py` | MainWindow mixin — fleet recommendation optimize, toggle-impact (counterfactual) analysis |
