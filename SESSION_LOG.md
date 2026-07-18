@@ -13,6 +13,50 @@
 
 ---
 
+## [2026-07-19] **🔴🔴 세션 매듭 — Claude 접근 완전 종료 직전 마지막 작업. 로컬 전환 준비 전부 완료**  (HEAD: 9928520, 푸시 완료)
+
+> **이 항목을 먼저 읽을 것 — 다음(로컬이든 새 Claude 세션이든) 재개 시 여기부터.**
+
+- **왜 이 세션이 특별한가**: 사용자가 "몇 시간 뒤부터 Claude를 아예 못 쓴다"고 확정.
+  이 세션의 마지막 작업들은 **"Claude 없이 이 프로젝트를 계속 고칠 수 있는 상태"를
+  만드는 것 자체가 목적**이었다. `plan_local_llm.md` §5의 모든 우선순위(①분할 ②헤더정리
+  ③CONVENTIONS.md ④방화벽 ⑤게이트확장 ⑥추가분할)를 이 세션 안에 전부 끝냈다.
+- **한 것(시간순)**: `mixin_configpanel.py` 추가 분할(830줄+369줄로 2개 파일 분리) →
+  `_build_config_panel`(1,565줄 단일 메서드)이 파일 전체를 예산 밖으로 밀어내던 문제
+  해결. AST로 "로컬 클로저에 의존하지 않는 안전한 섹션"만 골라 추출(환경설정·방어전술·
+  공격임무·BMD를 `mixin_configpanel2.py`, `_restore_cfg`+시나리오미리보기를
+  `mixin_configpanel3.py`).
+- **최종 파일별 로컬 편집 가능 여부(num_ctx 32768, 2.75 bytes/token 보정)**:
+  **가능 20개**(app_main·mixin 8개·app_launcher·ui_*·app_workers·app_engine·app_utils·
+  app_theme·scenarios·engine_airforce·engine_army·engine_campaign·engine_joint) —
+  **불가 3개뿐**(`engine_core.py`~58k·`engine_combat.py`~173k·`db_specsheet.py`~68k,
+  전부 엔진 본체라 이번 분할 범위 밖). **엔진 로직을 고쳐야 하는 작업은 로컬로 시도하지
+  말 것** — 다음에 Claude를 다시 쓸 수 있을 때로 미룰 것.
+- **로컬 세션 시작하는 법(사용자·미래의 나 참고)**:
+  1. `CONVENTIONS.md`를 먼저 읽는다(aider는 `.aider.conf.yml`의 `read:`로 자동 로드함).
+  2. 작업은 위 "가능 20개" 파일 범위로 한정.
+  3. 세션 끝나면 **반드시** `python audit_local_edit.py` 실행 — git diff가 실제로
+     뭘 바꿨는지 정본으로 보여주고 필요한 게이트를 자동 실행한다. "실제 변경 파일 0개"면
+     모델이 거짓 보고한 것 — 절대 그대로 믿지 말 것.
+  4. 게이트가 PASS라도 diff는 사람이 직접 읽는다 — 특히 `self.X = True/False` 같은
+     새 상태 플래그가 생겼으면 리셋 경로가 있는지 확인(게이트가 원리상 못 잡는 버그 부류).
+  5. 설계 판단(뭘 어떻게 나눌지, 어느 방향으로 갈지)은 로컬에 맡기지 말고 사람이 정한다.
+- **이번 세션에서 검증된 사실 요약**(향후 판단 근거):
+  - `qwen3-coder:30b` + aider가 확정된 로컬 하네스. 패턴 따라하기·네이밍·일관 수정은
+    Claude와 비슷하지만, 상태 수명 추론·요청-구현 불일치 자각·자기보고 정직성은 확실히
+    떨어진다(`plan_local_llm.md` §1-e/1-f). `audit_local_edit.py`가 이 중 자기보고
+    정직성 문제만 기계적으로 잡아준다 — 나머지 둘은 여전히 사람 몫.
+  - 이 프로젝트의 게이트(정적51·회귀38×29·round-trip61·property)는 "기존을 안
+    깨뜨렸나"를 보증하지 "요청대로 맞게 만들었나"는 보증 못 한다 — 8개월치 여러 세션에서
+    반복 확인된 결론.
+- **검증**: round-trip PASS·정적 51/51 PASS·회귀 38×29 PASS·`audit_local_edit.py`
+  자체검증 PASS(모두 이 세션 마지막 커밋에서 재확인).
+- **미커밋 주의**: 없음(전부 커밋·푸시 완료, HEAD `9928520`). `.codex/`·`AGENTS.md`는
+  이 세션이 만든 게 아니라 손대지 않은 채로 미추적 남아있음.
+- **다음 재개 지점**: 로컬 전환 준비 항목은 전부 끝났다. 이제부터는 ①일상적 UI/버그픽스는
+  로컬(위 20개 파일 범위) ②엔진 변경·설계 판단은 Claude 재접속 시 ③v21 합동작전 블록
+  (아래 항목, `plan_v21_joint.md`)이 큰 미완 작업으로 남아있다.
+
 ## [2026-07-19] **세션 매듭** — 게이트 캠페인 확장 완료 → plan_local_llm.md §5 전부 완료  (HEAD: e12db7d, 푸시 완료)
 
 - **한 것**: `audit_effect.CAMPAIGN_PROBES`에 9개 신설 + `chk_effect_coverage`가
