@@ -4819,8 +4819,14 @@ class TimeStepEngine:
         return None
 
     def _select_sub_strike_wpn(self, ship: FriendlyShipObj, dist_m: float) -> Optional[str]:
-        """아군 잠수함 → 적 수상함 공격 무기 선택 (현무-3C / 하푼 / 청상어)"""
-        for wpn in ['현무-3C', '하푼 Block II']:
+        """아군 잠수함 → 적 수상함 공격 무기 선택 (하푼 / 청상어).
+
+        ⚠ 현무-3C는 여기서 제외한다 — 지상공격 순항미사일이라 적 수상함을 치는 무기가
+        아니다(SM-3 외기권↔대기권·SAM 대공↔수중어뢰와 같은 '잘못된 무기가 잘못된 표적'
+        계열의 비물리). KSS-III의 현무-3C는 대함이 아니라 **합동 화력 지상공격**으로만 쓰인다
+        (engine_joint.build_land_stock이 default_strike_inventory에서 거둬 감). 대함은 하푼
+        (KSS-I)·어뢰로 한정."""
+        for wpn in ['하푼 Block II']:
             if ship.strike_inventory.get(wpn, 0) <= 0:
                 continue
             if dist_m <= FRIENDLY_STRIKE_DB[wpn]['range_km'] * 1000:
