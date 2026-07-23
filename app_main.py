@@ -1,24 +1,20 @@
 ﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   합동 통합방어 시뮬레이터  v21.02.02 — PyQt6 런처                          ║
+║   합동 통합방어 시뮬레이터  v21.03.01 — PyQt6 런처                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  [v21.02.01~02 — 합동작전 통합 보고서: 군별 기여도 반사실 분해 (v21.4)]     ║
-║  NEW-A  engine_campaign.shapley_contribution — 각 군을 뺀 전역을 실제로     ║
-║         재실행해 기여도를 Shapley로 분해(단계별 MC의 순서 의존 제거).       ║
-║         (연합×시드) 교차곱 병렬화 — 연합마다 monte_carlo_campaign을 부르면  ║
-║         서브셋당 n<_MC_PARALLEL_MIN_PROXY(64)라 전부 순차로 떨어진다.       ║
-║         효율성 항등식 Σφ=v(N)−v(∅) 잔차를 결과에 노출(구현 자가검증).       ║
-║  NEW-B  enable_joint_report 3종 세트 + 배너·상태줄 표시. 상태줄에도 띄워야  ║
-║         GUI 스모크가 감시 가능(교전 분석 배너는 UIA 밖 — v20 교훈).         ║
-║  NEW-C  joint_share_{air,navy,army} — joint_dmg_share(dict)는 _MC_ACC_KEYS  ║
-║         가 스칼라만 받아 캠페인 MC에서 통째로 소실됐다. 스칼라판 추가.      ║
-║  BUG-1  _MC_ACC_DEFAULTS 신설 — 전략폭격 OFF면 enemy_output_factor 키가     ║
-║         없는데 누락=0으로 채워져 '적 출항능력 0%(완전 무력화)'로 정반대로   ║
-║         보고됐다(진실=무손상 1.0). v21.2가 심은 버그.                       ║
-║  ⚠ 설계 반례 2건(실측): ①enable_air_campaign은 적 공군도 함께 켜 '공군     ║
-║     기여도 −0.111'이 나온다 ②enable_sead는 적 IADS를 생성(build_ad_sites)   ║
-║     → 반사실 성립 불가. 캠페인 플래그는 '군'이 아니라 '도메인'을 연다 →     ║
-║     참가자를 양측 혼입 없는 strike·army로 한정, SEAD는 도메인 효과로 분리.  ║
+║  [v21.03.01 — 합동작전 사령부(JCS) 자원 충돌 경고 (v21.1)]                  ║
+║  NEW-A  각 군이 독립 배정한 결과의 충돌을 지휘부가 경고로 표면화한다 —      ║
+║         상시 관찰층(토글 없음, 교전 결과 무변경). 3종 경고: ①동시 타격      ║
+║         협조 미비(유인 폭격 소티 취소) ②육군 지대지 화력 편성했으나 지상    ║
+║         작전급 미가동(미참여) ③완파 표적 화력 중복(잔여 표적 재분배).       ║
+║         engine_campaign._jcs_warnings — 각 층 지표를 지휘부 관점에서 읽어    ║
+║         명명한다(자동 최적화 아님 = _PLANS '조정·충돌경고 수준' 사양).      ║
+║  NEW-B  jcs_warning_count MC 집계·노출(반복 캠페인 평균 경고 수).           ║
+║         배너: 협조 미비·육군 미참여 중복 표기를 JCS 세그먼트로 통합.        ║
+║  ⚠ 설계 판단: '임무 과부하(가용기<수요)' 경고는 배정 시스템이 자기제한적    ║
+║     (SEAD 제압 시 수요 소멸·CAS 희소)이라 realistic 무대서 미발동 → 죽은    ║
+║     가지로 제외([[project-dead-feature-prevention]]). 사양의 두 충돌(표적    ║
+║     겹침=overkill·자산 충돌=deconflict)은 나머지로 커버.                     ║
 ║                                                                              ║
 ║  실행: python app_main.py                                                    ║
 ║  패키지: pip install PyQt6 psutil matplotlib numpy openpyxl                 ║
@@ -33,7 +29,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, wait as cf_wai
 import psutil
 
 # 앱 표시 버전 — 패치 시 헤더 주석과 함께 이 값만 갱신하면 창 제목 등에 일괄 반영
-APP_VERSION = "v21.02.02"
+APP_VERSION = "v21.03.01"
 
 # ── 유틸 계층(app_utils.py로 분리) ─────────────────────────────────────────────
 # _GLOBAL_POOL은 app_utils가 재할당하는 전역 → 이름 import 금지(None이 복사돼 예열

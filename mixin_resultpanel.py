@@ -705,6 +705,14 @@ class ResultPanelMixin:
         """v18.1 작전급 캠페인 결과 요약 렌더 (요격률·전술 MC 무관). 교전 분석 탭 배너 재사용.
         v18.6: campaign_mc(N회 반복 분포)가 있으면 상태줄을 MC 분포 요약으로 표시."""
         warn = '' if result.get('model_loaded', True) else '  ⚠ 예측모델 미적용(근사)'
+        # v21.1 JCS 충돌 경고 — 각 군 독립 배정의 충돌을 지휘부가 알린다(관찰 only, 교전 무영향).
+        #   지표를 결과에 넣기만 하고 화면에서 안 보여주면 v20 연안 방공처럼 '있어도 못 보는' 꼴이
+        #   된다 → 여기서 소비. 경고 없으면 세그먼트 자체가 안 뜬다.
+        _jcs = result.get('jcs_warnings') or []
+        if _jcs:
+            _ico = {'crit': '🔴', 'warn': '⚠', 'info': 'ℹ'}
+            _seg = ' / '.join(f"{_ico.get(w['severity'], '·')}{w['msg']}" for w in _jcs)
+            warn += f"  ⚖ JCS 충돌 경고 {len(_jcs)}건: {_seg}"
         fog = ' · 🌫 안개' if result.get('fog_enabled') else ''
         # v19.1: 공군 층 ON이면 평균 제공권 표시
         air = (f" · ✈ 제공권 {result.get('mean_air_superiority', 0)*100:.0f}%"
@@ -747,10 +755,8 @@ class ResultPanelMixin:
                      f"/육군 {_sh.get('army', 0)*100:.0f}%)"
                      f" 순항 {result.get('joint_navy_fired', 0)}발"
                      f"·지대지 {result.get('joint_army_fired', 0)}발")
-            if result.get('joint_deconflict', 0) > 0:
-                joint += f" · ⚠ 협조 미비 {result['joint_deconflict']}회"
-            if result.get('joint_army_unused'):
-                joint += " · ⚠ 육군 화력 미참여(지상 작전급 꺼짐)"
+            # 협조 미비·육군 미참여 경고는 v21.1 JCS 충돌 경고 세그먼트(위 warn)로 통합 —
+            # 여기서 중복 표기하지 않는다(지휘부 관점 경고는 한 곳에서).
         mc = result.get('campaign_mc')
         if mc:
             # v18.6: N회 반복 → outcome 분포·평균 통제도 요약
