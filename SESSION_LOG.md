@@ -13,6 +13,27 @@
 
 ---
 
+## [2026-07-24] **🏁 v21 합동작전 블록 종합 9영역 감사 통과 — 블록 종료 (major 전환 준비 완료)**  (HEAD: 감사 커밋, 푸시 예정)
+
+- **한 것**: v21 블록(v21.01.01~v21.04.02) 종합 9영역 감사를 무인 모드로 수행. **9영역 전부 PASS.**
+- **스코핑**: 블록 누적 diff 대부분(12k줄)은 app_main.py 분할(로컬 LLM 작업, 당시 검증 완료)이라
+  '기검증'으로 처리하고, v21 기능 파일(engine_joint·campaign·airforce·army·combat·core·scenarios·
+  audit_effect·mixin_resultpanel)에 감사를 집중. 에이전트 spawn 없이 diff·DB 직접 정독(기본 규칙).
+- **유일 발견 = ④ stale 성능 기준선(v21 무관)**: 전장 baseline 89ms가 1200s 지평 전장 시뮬로
+  물리 불가(0.37ms/step). v21 engine_combat 변경(`_select_sub_strike_wpn`)은 잠수함 대함 경로라
+  측정 시나리오 '기동전단 기본'에 잠수함이 없어 미실행 = battle byte-identical. 2회 재측정 안정
+  확인 후 기준선 갱신(single 667·battle 570·campaign 32). **v21 회귀 아님.**
+- **검증 요약**: 회귀 38×29 bit-identical · 정적 51/51 · pairwise 1225쌍 · property 45케이스 위반0 ·
+  fuzz 단발 PASS · 단발+캠페인 GUI 스모크 PASS(합동화력·군별기여도 배너 exe 렌더, 이전 BLOCKED
+  인코딩 해소) · 빌드 248s · 합동 MC n=20 NaN 0.
+- **산출물**: `감사보고서.md`(v21 섹션 최신순 추가) · `감사보고서/감사보고서_v21.pdf`(신규 생성).
+- **메타 회고 2숙제**(patch_queue 감사개선): ①audit_perf 기준선 하한 가드(물리 타당성 자동점검)
+  ②캠페인 스모크에 JCS 배너 assertion(충돌 유발 시나리오).
+- **미커밋 주의**: 감사 산출물(감사보고서.md·_audit_make_pdf.py·PDF·audit_perf_baseline.json) 커밋·푸시 예정.
+- **🏁 다음 재개 지점**: v21 블록 종료. **major 전환(v22) 준비 완료.** 다음은 사용자가 지정하는
+  새 방향(로드맵상 선택 트랙: 전력 DB 심화·자율학습 심화·멀티플레이어) 또는 신규 기능.
+  로드맵 순서(v11→v20) 완주 이후이므로 이제 트랙 선택은 사용자 판단.
+
 ## [2026-07-23] **별건: 잠수함 현무-3C 대함 비물리 정정 (v21.04.02) — v21 블록 기능 완료**  (HEAD: 157d246, 푸시 완료)
 
 - **한 것**: KSS-III 잠수함이 지상공격 순항미사일 현무-3C로 적 수상함을 치던 비물리를 정정.
