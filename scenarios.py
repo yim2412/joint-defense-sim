@@ -74,4 +74,79 @@ SCENARIO_LIBRARY = {
             'enable_mine_threat': True,
         },
     },
+    # ── v21.3 합동 작전(캠페인) 시나리오 — 육해공 통합 전역 ────────────────────
+    # 단발 전술이 아니라 작전급 캠페인. 각 시나리오는 각 군 초기 전력·작전 목표·성공 판정을
+    # 서술로 담고, cfg로 캠페인 층(공군 제공권·지상 방공·합동 화력)을 함께 켠다.
+    # ⚠ 공군 편성은 UI 위젯이 없어 기본 '한미 연합 공군 패키지'로 고정, 전역 길이도 기본 72h.
+    '한반도 전면전 (72시간 전역)': {
+        'desc': '북한의 전면 남침에 한미 연합 전력이 총력 대응하는 72시간 작전급 전역. '
+                '한미 기동전단이 서해·동해 해상교통로를 지키고, 공군이 제공권 장악·방공망 '
+                '제압(SEAD)·전략폭격을, 육군 지대지 화력(현무)이 적 종심 표적을 타격한다. '
+                '육해공이 같은 적 기지를 협조 타격(합동 화력)하고, 연안 방공 포대가 탄도 '
+                '위협을 요격한다. 【목표】전 해상교통로 평균 통제도 70% 이상 확보. '
+                '【성공 판정】승리 = 평균 통제도 70%↑ · 무승부 = 30~70% · 패배 = 30% 미만 또는 함대 전멸.',
+        'recommend': '한미 기동전단 강화 · 전 도메인 합동작전(공군·지상·합동 화력) · 동시 타격',
+        'cfg': {
+            'fleet_preset': '한미 기동전단 강화',
+            'weather': '맑음 (주간)',
+            'season': 'summer',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '전면전 포화',
+            'enable_campaign_mode': True,
+            'enable_air_campaign': True,
+            'enable_sead': True,
+            'enable_strategic_strike': True,
+            'enable_army_campaign': True,
+            'enable_joint_fires': True,
+            'joint_fire_mode': 'simultaneous',
+            'army_fire_preset': '현무 여단 (증강)',
+            'enable_coastal_sam': True,
+            'coastal_sam_preset': '한국형 BMD (KAMD)',
+            'enable_enemy_sead': True,
+            'enable_precise_engagement': True,
+        },
+    },
+    '대만해협 위기': {
+        'desc': '중국의 대만 침공 기도로 역내 긴장이 격화하는 상황. 한국 이지스 기동전단이 '
+                '제1도련선 해상교통로를 방어하고, 중국 산둥 항모전단의 다축 킬체인(탄도·극초음속·'
+                '함재기)에 맞서 공군 제공권 장악과 합동 화력으로 대응한다. 육해공이 적 항구·비행장을 '
+                '협조 타격해 적 출항능력을 떨어뜨리나, 적 항모전단의 화력이 강력해 치열한 교착이 '
+                '예상된다. 【목표】교통로 통제 유지 + 적 출항능력 저하. '
+                '【성공 판정】승리 = 평균 통제도 70%↑ · 무승부 = 30~70% · 패배 = 30% 미만 또는 전멸.',
+        'recommend': '전 이지스 기동전단 · 공군 제공권 + 전략폭격 · 합동 화력 협조 타격 (고강도)',
+        'cfg': {
+            'fleet_preset': '전 이지스 기동전단',
+            'weather': '맑음 (주간)',
+            'season': 'summer',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '산둥 항모전단',
+            'enable_campaign_mode': True,
+            'enable_air_campaign': True,
+            'enable_sead': True,
+            'enable_strategic_strike': True,
+            'enable_army_campaign': True,
+            'enable_joint_fires': True,
+            'joint_fire_mode': 'sequential',
+            'army_fire_preset': '현무 여단 (증강)',
+            'enable_precise_engagement': True,
+        },
+    },
+    '독도·이어도 제한전': {
+        'desc': '독도·이어도 관할권을 둘러싼 제한적 무력 충돌. 대규모 전면전이 아닌 국지 도발로, '
+                '한국 해군 기동전단과 공군이 EEZ 해상교통로를 방어한다. 상대적으로 낮은 강도이나 '
+                '제공권·방공망 제압을 포함한 다도메인 대응이 요구된다(전략폭격·합동 화력은 미개시). '
+                '【목표】제한 교전에서 해상교통로 통제 확보. 【성공 판정】승리 = 평균 통제도 70%↑.',
+        'recommend': '한미 기동전단 기본 · 공군 제공권 + SEAD(전략폭격 없음) · 박무',
+        'cfg': {
+            'fleet_preset': '한미 기동전단 기본',
+            'weather': '흐림 (박무)',
+            'season': 'autumn',
+            'enemy_fleet_mode': 'preset',
+            'enemy_fleet_preset': '이어도 방어전',
+            'enable_campaign_mode': True,
+            'enable_air_campaign': True,
+            'enable_sead': True,
+            'enable_precise_engagement': True,
+        },
+    },
 }
