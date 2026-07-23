@@ -1,6 +1,0 @@
-# ASCII only -- aider loads this with the system codec (cp949 on this PC);
-# non-ASCII bytes here would silently break config loading (see .aider.model.settings.yml).
-# CONVENTIONS.md itself is read as file content (separate code path), so its
-# Korean text is fine -- only THIS file must stay ASCII.
-read:
-  - CONVENTIONS.md

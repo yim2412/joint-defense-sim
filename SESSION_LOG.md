@@ -13,6 +13,22 @@
 
 ---
 
+## [2026-07-23] **로컬 LLM 전환 폐기 — 로컬 전용 산출물 전부 제거**  (HEAD: d04c8e7)
+
+- **왜**: Claude 계속 사용 가능해져(사용자 통보) "완전 로컬 전환"의 전제(결제/접근 종료)가
+  사라졌다. 07-19 세션이 "Claude 없이도 유지보수 되게" 준비한 것 전부의 목적이 소멸.
+- **삭제(로컬 전용)**: `.aider.conf.yml`·`.aider.model.settings.yml`·`.aider.chat.history.md`·
+  `.aider.tags.cache.v4/`·`CONVENTIONS.md`·`audit_local_edit.py`·`plan_local_llm.md`·
+  `AGENTS.md`(codex)·`.codex/`(codex) + `.gitignore` aider 섹션 + 메모리
+  `project_local_llm_transition.md` + MEMORY.md 포인터 + patch_queue 로컬 섹션.
+- **유지(되돌리지 않음 — 로컬 명목이었으나 그 자체로 순이득)**: ①`app_main.py` 분할
+  (mixin 6개·계층 16개) — Claude 편집에도 오히려 유리 ②헤더 정리 ③`CAMPAIGN_PROBES`+
+  `chk_effect_coverage` 캠페인 확장(pre-commit 죽은기능 게이트, 로컬 무관). CLAUDE.md
+  '모듈 분할 규칙'도 유효 규칙이라 유지(로컬 문구만 제거).
+- **깨짐 없음 확인**: 삭제 파일들은 훅·pre-commit·다른 스크립트에서 참조 안 됨(grep 확인, 자기참조뿐).
+- **미커밋 주의**: 없음(이 커밋에 전부 포함).
+- **다음 재개 지점**: v21 합동작전 블록(`plan_v21_joint.md`) — 큰 미완 작업으로 그대로 남음.
+
 ## [2026-07-19] **🔴🔴 세션 매듭 — Claude 접근 완전 종료 직전 마지막 작업. 로컬 전환 준비 전부 완료**  (HEAD: 9928520, 푸시 완료)
 
 > **이 항목을 먼저 읽을 것 — 다음(로컬이든 새 Claude 세션이든) 재개 시 여기부터.**
