@@ -17,7 +17,7 @@ if sys.platform == 'win32':
 # ── 저장 폴더 ─────────────────────────────────────────────────────────────────
 SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'images')
 
-_UA = 'AegisSimulator/1.0 (educational; contact: yimdlawns@gmail.com)'
+_UA = 'AegisSimulator/1.0 (educational; +https://github.com/yim2412/joint-defense-sim)'
 _COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
 THUMB_WIDTH = 320
 
