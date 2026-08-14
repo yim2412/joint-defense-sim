@@ -471,12 +471,14 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 ### 인코딩 (이 프로젝트 고유분 — 일반 규칙은 전역 `~/.claude/CLAUDE.md`)
 
-- **`_build_progress.py` 의 빌드 로그는 자식의 원시 바이트가 그대로 들어간다.**
-  `subprocess.Popen(..., stdout=f)` 는 파일 디스크립터만 자식에게 넘기므로,
-  `io.open(log_path, 'w', encoding='utf-8')` 의 `encoding=` 은 **자식 출력에 적용되지 않는다.**
-  PyInstaller 가 실행 PC 의 ACP 로 쓰고, 나중에 `encoding='utf-8'` 로 읽는다.
-  개발 PC 가 UTF-8 로캘(2026-08-15~)이 되면서 지금은 우연히 맞지만, **CP949 PC 에서는 어긋난다.**
-  고치려면 자식 `env` 에 `PYTHONIOENCODING=utf-8` 을 넣는다.
+- **`stdout=<파일핸들>` 로 리다이렉트하면 파이썬의 `encoding=` 은 자식에게 적용되지 않는다.**
+  파일 디스크립터만 넘어가므로 파일에 들어가는 것은 자식이 쓴 **원시 바이트**이고,
+  그 인코딩은 실행 PC 의 ACP 를 따른다. `_build_progress.py` 가 그 자리였다 —
+  `io.open(log, 'w', encoding='utf-8')` 로 열어 놓고 PyInstaller 출력을 받았는데,
+  나중에 같은 파일을 utf-8 로 읽으므로 CP949 PC 에서 한글이 깨졌다.
+  **자식 `env` 에 `PYTHONIOENCODING=utf-8` 을 넣어 해결했다**(2026-08-15).
+  새로 `stdout=f` 를 쓸 때마다 같이 넣는다 — 개발 PC 가 UTF-8 로캘이라
+  **여기서 돌려보는 것만으로는 이 버그가 절대 안 드러난다.**
 - **`audit_static_scan.py` 는 `subprocess` 인코딩이 한 파일 안에서 불일치한다.**
   `git ls-files` 호출이 두 군데인데 한쪽만 `encoding='utf-8'` 이 있다.
   이 저장소엔 한글 파일명이 많지만 git 이 기본(`core.quotepath=true`)으로

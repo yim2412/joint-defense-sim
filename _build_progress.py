@@ -103,10 +103,19 @@ def _report(seen, hooks, elapsed, last_hook, live: bool, wall: float | None = No
 def _run_build(log_path: str) -> int:
     """PyInstaller를 직접 띄우고 로그를 파일로 흘린다(호출부가 따로 리다이렉트할 필요 없음)."""
     import subprocess
+    # **위 `encoding='utf-8'` 은 자식 출력에 적용되지 않는다.** `stdout=f` 는 파일
+    # 디스크립터만 자식에게 넘기므로, 파일에 들어가는 것은 PyInstaller 가 쓴 **원시
+    # 바이트**다. 그 인코딩은 실행 PC 의 ANSI 코드페이지를 따른다 — CP949 PC 에서는
+    # 123·137줄이 이 파일을 utf-8 로 읽으므로 한글 경로·메시지가 깨진다.
+    # (개발 PC 는 2026-08-15 부터 UTF-8 로캘이라 지금은 우연히 맞는다. 그래서 여기서
+    #  돌려보는 것만으로는 이 버그가 안 드러난다.)
+    # 자식에게 인코딩을 직접 지시해 실행 PC 로캘과 무관하게 만든다.
+    env = dict(os.environ, PYTHONIOENCODING='utf-8')
     with io.open(log_path, 'w', encoding='utf-8', errors='replace') as f:
         p = subprocess.Popen(
             [sys.executable, '-m', 'PyInstaller', 'app_main.spec', '--noconfirm'],
-            stdout=f, stderr=subprocess.STDOUT, cwd=os.path.dirname(os.path.abspath(__file__)))
+            stdout=f, stderr=subprocess.STDOUT, env=env,
+            cwd=os.path.dirname(os.path.abspath(__file__)))
         return p.pid
 
 
