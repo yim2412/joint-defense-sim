@@ -469,6 +469,24 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 ## 코드 규칙
 
+### 인코딩 (이 프로젝트 고유분 — 일반 규칙은 전역 `~/.claude/CLAUDE.md`)
+
+- **`_build_progress.py` 의 빌드 로그는 자식의 원시 바이트가 그대로 들어간다.**
+  `subprocess.Popen(..., stdout=f)` 는 파일 디스크립터만 자식에게 넘기므로,
+  `io.open(log_path, 'w', encoding='utf-8')` 의 `encoding=` 은 **자식 출력에 적용되지 않는다.**
+  PyInstaller 가 실행 PC 의 ACP 로 쓰고, 나중에 `encoding='utf-8'` 로 읽는다.
+  개발 PC 가 UTF-8 로캘(2026-08-15~)이 되면서 지금은 우연히 맞지만, **CP949 PC 에서는 어긋난다.**
+  고치려면 자식 `env` 에 `PYTHONIOENCODING=utf-8` 을 넣는다.
+- **`audit_static_scan.py` 는 `subprocess` 인코딩이 한 파일 안에서 불일치한다.**
+  `git ls-files` 호출이 두 군데인데 한쪽만 `encoding='utf-8'` 이 있다.
+  이 저장소엔 한글 파일명이 많지만 git 이 기본(`core.quotepath=true`)으로
+  옥탈 이스케이프한 ASCII 를 내보내 지금은 무해하다 — **`core.quotepath=false` 를 켜는 순간 깨진다.**
+- **`app_main.py` · `engine_combat.py` 는 UTF-8 BOM 이 붙어 있다.**
+  인터프리터는 문제없지만, `audit_static_scan.py` 처럼 소스를 `encoding='utf-8'` 로 읽어
+  정규식을 거는 도구는 첫 줄에 BOM 문자가 붙는다. 소스 첫 줄을 매칭하는 검사를 추가할 때 주의.
+- `improve_llm_patch.py` 의 `_kw = dict(..., encoding='utf-8', errors='replace')` 가 **모범 패턴**이다.
+  새로 `subprocess` 를 부를 때 이걸 복사해 쓴다.
+
 ### DB 구조 원칙
 
 - `ENEMY_DB` (engine_core.py): 적군 위협. `normalize_enemy_db()` 호출 시 누락 필드 자동 보완.

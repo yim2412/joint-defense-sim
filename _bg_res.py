@@ -25,7 +25,7 @@ def bar(pct, n=10):
 
 meta = sys.argv[1] if len(sys.argv) > 1 else '_bgtask.meta'
 try:
-    raw = open(meta).read().split()
+    raw = open(meta, encoding='utf-8').read().split()
     root_pid = int(raw[0])
     start = float(raw[1]) if len(raw) > 1 else None
 except Exception as e:

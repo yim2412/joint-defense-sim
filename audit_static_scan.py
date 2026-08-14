@@ -77,7 +77,8 @@ def chk_gitignore():
     miss = [p for p in need if p not in gi]
     check('⑥', 'gitignore 필수 패턴 커버', not miss, f"누락={miss}" if miss else 'OK')
     try:
-        tracked = subprocess.check_output(['git', 'ls-files'], cwd=ROOT, text=True)
+        tracked = subprocess.check_output(['git', 'ls-files'], cwd=ROOT, text=True,
+                                          encoding='utf-8', errors='replace')
         bad = [l for l in tracked.splitlines()
                if re.search(r'_rl_ppo|_rl_ckpt|cesium_token|\.zip$|^dist/|^build/', l)]
         check('⑥', '민감 산출물 미추적', not bad, f"추적중={bad[:5]}" if bad else 'OK')
@@ -536,7 +537,8 @@ def chk_session_log_fresh():
     logh = m.group(1)
     try:
         r = subprocess.run(['git', 'rev-list', f'{logh}..HEAD', '--count'],
-                           cwd=ROOT, capture_output=True, text=True, timeout=10)
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=10)
         cnt = int(r.stdout.strip()) if r.returncode == 0 else -1
     except Exception:
         cnt = -1
