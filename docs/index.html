@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>합동 통합방어 시뮬레이터</title>
+<meta name="description" content="한국 해군 이지스 기동전단의 다층 방어 시뮬레이터. 대공·대함·대잠 교전을 확률 모델로 풀고, 몬테카를로로 반복해 요구조건 충족 여부를 판정한다.">
+<!-- 생성된 파일이다. 고칠 때는 개발노트/make_pages.py 를 고치고 다시 뽑는다.
+     이 파일을 직접 고치면 다음 생성에서 덮어쓴다. -->
+<style>
+:root{--bg:#fbfaf8;--fg:#1b1a18;--dim:#6b6862;--line:#e3dfd8;--card:#fff;
+      --accent:#8a5a2b;--mark:#f0ebe2;--code:#f4f1ec}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#151513;--fg:#e8e5df;--dim:#928d84;--line:#2c2b28;--card:#1c1b19;
+  --accent:#c99a63;--mark:#26241f;--code:#211f1c}}
+:root[data-theme=dark]{--bg:#151513;--fg:#e8e5df;--dim:#928d84;--line:#2c2b28;
+  --card:#1c1b19;--accent:#c99a63;--mark:#26241f;--code:#211f1c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.75 -apple-system,BlinkMacSystemFont,"Pretendard","Malgun Gothic",system-ui,sans-serif;
+  letter-spacing:-.005em}
+.wrap{max-width:760px;margin:0 auto;padding:0 22px}
+a{color:inherit}a:hover{color:var(--accent)}
+img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;display:block}
+header{padding:76px 0 44px;border-bottom:1px solid var(--line)}
+h1{font-size:32px;line-height:1.25;margin:0 0 14px;letter-spacing:-.02em;font-weight:700}
+.lead{font-size:17px;margin:0 0 12px;max-width:40em}
+.meta{font-size:13px;color:var(--dim);margin:0}
+.links{display:flex;gap:16px;flex-wrap:wrap;margin-top:24px;font-size:14px}
+.links a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent}
+.links a:hover{border-bottom-color:var(--accent)}
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+h2{font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+   margin:0 0 22px;font-weight:600}
+p{margin:0 0 15px;max-width:42em}
+p:last-child{margin-bottom:0}
+.feat{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.feat li{border-bottom:1px solid var(--line);padding:12px 0;display:flex;gap:14px;
+  align-items:baseline;font-size:15px}
+.feat b{flex:none;min-width:8.5em;font-weight:600}
+.feat span{color:var(--dim)}
+.shots{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+figure{margin:0}
+figcaption{font-size:12.5px;color:var(--dim);margin-top:7px}
+ol.notes{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+ol.notes li{border-bottom:1px solid var(--line);padding:11px 0;display:flex;gap:14px;
+  align-items:baseline}
+.n{font-size:12px;color:var(--dim);min-width:1.6em;flex:none;font-variant-numeric:tabular-nums}
+.nt{flex:1}
+.nt a{text-decoration:none;border-bottom:1px solid var(--line)}
+.nt a:hover{border-bottom-color:var(--accent)}
+.nk{display:block;font-size:12.5px;color:var(--dim);margin-top:2px}
+.note-intro{color:var(--dim);font-size:14.5px;margin-bottom:18px}
+code{font:13px/1.6 ui-monospace,SFMono-Regular,"Cascadia Mono",Menlo,monospace;
+  background:var(--code);padding:1.5px 5px;border-radius:4px}
+footer{padding:38px 0 64px;font-size:13.5px;color:var(--dim)}
+footer a{color:var(--accent);text-decoration:none}
+@media(max-width:560px){header{padding:52px 0 34px}h1{font-size:26px}
+  section{padding:34px 0}.feat li{flex-direction:column;gap:2px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>합동 통합방어 시뮬레이터</h1>
+    <p class="lead">한국 해군 이지스 기동전단의 <b>다층 방어 시뮬레이터</b>. 대공·대함·대잠 교전을 확률 모델로 풀고, 몬테카를로로 반복해 요구조건 충족 여부를 판정한다.</p>
+    <p class="meta">Python · PyQt6 · CesiumJS · PyInstaller</p>
+    <div class="links">
+      <a href="https://github.com/yim2412/joint-defense-sim">저장소</a>
+      <a href="https://github.com/yim2412/joint-defense-sim/tree/main/docs/notes">개발 노트 3편</a>
+      <a href="https://github.com/yim2412/joint-defense-sim/blob/main/docs/notes/CANDIDATES.md">노트 후보 목록</a>
+      <a href="https://yim2412.github.io">다섯 프로젝트 색인</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>무엇을 하는가</h2>
+    <p>전술 교전 하나를 푸는 데서 시작해 <b>작전급 캠페인 → 공군 → 육군 → 합동 화력</b>으로 층이 쌓였다. 각 층은 아래층의 산출물만 읽는다.</p>
+    <p>판정은 눈대중이 아니라 수치다. 같은 편성을 수백 번 굴려 요구조건을 넘는 비율을 내고, 그 결과를 보고서로 뽑는다. 3D 전장 시각화는 그 결과를 눈으로 확인하는 용도지 판정의 근거가 아니다.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>주요 기능</h2>
+    <ul class="feat">
+    <li><b>교전 모델</b><span>대공·대함·대잠 — 탐지·요격·명중을 단계별 확률로</span></li>
+    <li><b>몬테카를로</b><span>같은 편성을 반복 시행해 분포를 낸다</span></li>
+    <li><b>요구조건 판정</b><span>충족/미충족을 기준과 함께 보고서로</span></li>
+    <li><b>3D 시각화</b><span>CesiumJS 전장 화면</span></li>
+    <li><b>합동 확장</b><span>해군에서 시작해 공군·육군·합동 화력으로</span></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>개발 노트</h2>
+    <p class="note-intro">커밋마다 회귀와 속성 감사가 도는 저장소인데, <b>그 관문들이 아무것도 안 보면서 통과하던 이야기</b>가 셋이다.
+      기능 소개가 아니라 <b>판단 기록</b>이라 «이건 아직 안 쟀다» 도 그대로 적는다.</p>
+    <ol class="notes">
+    <li><span class="n">01</span><span class="nt"><a href="https://github.com/yim2412/joint-defense-sim/blob/main/docs/notes/01-a-gate-that-only-checked-nothing-broke.md">「아무것도 안 깨졌다」만 보는 관문</a><span class="nk">완료의 정의 — 하위 호환 검사는 아무 일도 안 하는 코드를 가장 쉽게 통과시킨다</span></span></li>
+    <li><span class="n">02</span><span class="nt"><a href="https://github.com/yim2412/joint-defense-sim/blob/main/docs/notes/02-there-was-no-enemy-so-it-was-zero.md">적이 없어서 0이었다</a><span class="nk">측정 설계 — 「죽었다」는 판정이 두 번 다 내 측정 결함이었다</span></span></li>
+    <li><span class="n">03</span><span class="nt"><a href="https://github.com/yim2412/joint-defense-sim/blob/main/docs/notes/03-checks-that-passed-while-looking-at-nothing.md">아무것도 안 보면서 통과한 검사들</a><span class="nk">검증 사각 — 검사가 눈이 머는 다섯 가지 방식</span></span></li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    노트 본문은 저장소에 있다 — 이 페이지는 링크만 건다.
+    다른 프로젝트의 기록은 <a href="https://yim2412.github.io">개발 노트 색인</a>에.
+  </div>
+</footer>
+
+</body>
+</html>
