@@ -221,6 +221,20 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 
 ---
 
+## 개발 노트
+
+만들면서 **무엇이 어떻게 깨졌고 어떻게 알아냈는지**를 [`docs/notes/`](docs/notes/) 에
+세 편으로 적었다. 기능 소개가 아니라 판단 기록이라 *"이건 아직 안 쟀다"* 도 그대로 적는다.
+
+| | 노트 |
+|---|---|
+| 01 | [「아무것도 안 깨졌다」만 보는 관문](docs/notes/01-a-gate-that-only-checked-nothing-broke.md) — 하위 호환 검사는 아무 일도 안 하는 코드를 가장 쉽게 통과시킨다 |
+| 02 | [적이 없어서 0이었다](docs/notes/02-there-was-no-enemy-so-it-was-zero.md) — 「죽었다」는 판정이 두 번 다 측정 결함이었다 |
+| 03 | [아무것도 안 보면서 통과한 검사들](docs/notes/03-checks-that-passed-while-looking-at-nothing.md) — 검사가 눈이 머는 다섯 가지 방식 |
+
+고르고 남은 후보와 **왜 안 골랐는지**는 [`CANDIDATES.md`](docs/notes/CANDIDATES.md).
+다섯 프로젝트의 공개 색인은 <https://yim2412.github.io> 에 있다.
+
 ## 프로젝트 성격 · 라이선스
 
 이 저장소는 **취미로 개발하는 비상업·개인 학습용 프로젝트**입니다. 상업적 목적이 전혀 없으며,
