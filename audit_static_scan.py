@@ -690,8 +690,18 @@ def main():
             nblind = sum(1 for _ in re.finditer(r'^\s*\d+\.\s', rd('BLIND_SPOTS.md'), re.M))
         except Exception:
             pass
+        # 회귀 규모는 골든에서 직접 센다. 하드코딩이던 '8×26'은 케이스가 늘어도 그대로라
+        # 실제(38×29)와 어긋난 채 매 커밋 출력되고 있었다 — 커버리지 줄은 "무엇을 보나"를
+        # 가시화하는 자리인데, 그 줄이 낡으면 목적이 반대로 뒤집힌다.
+        reg = '골든 없음'
+        try:
+            with open('audit_regression_golden.json', encoding='utf-8') as f:
+                _g = json.load(f)
+            reg = f"{len(_g)}×{max(len(v) for v in _g.values())}"
+        except Exception:
+            pass
         print(f"커버리지: 정적검사 {len(results)}항목 · 체크박스 플래그 복원 자동추출 {len(built)}개 "
-              f"· 회귀 8×26 · property 불변식(별도 audit_property.py) · 열린 사각 {nblind}건(BLIND_SPOTS.md)")
+              f"· 회귀 {reg} · property 불변식(별도 audit_property.py) · 열린 사각 {nblind}건(BLIND_SPOTS.md)")
         print("-" * 64)
     except Exception:
         pass
