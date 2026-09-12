@@ -7425,9 +7425,45 @@ def _fleet_reason(preset_name: str) -> str:
     return ' / '.join(parts)
 
 
+# 단발 편대 추천 성능식 가중치 (v21.06.04). 합=1.0.
+#   요격률에 주도권을 주지 않는다 — 분모(총위협)가 편성마다 달라 편성 비교에 부적합
+#   (docs/analysis/01·02 실측: 1→9척에서 22.5→15.3→15.4→12.6→13.4→54.6%로 뒤엉킴).
+#   생존율이 가장 일관되고(0→1.47 단조), 교환비는 "살아남았지만 아무것도 못 했다"를
+#   구분한다(1함대: 생존 최고 1.47인데 교환비 최악 0.19). 요격률은 방공 성능 정보라
+#   남기되 최소 가중치.
+_FLEET_W_SURV = 0.5   # 생존율
+_FLEET_W_EXCH = 0.3   # 교환비(0~1 정규화) — ⚠ 0.2로 낮추면 안 된다(아래 실측)
+_FLEET_W_RATE = 0.2   # 요격률
+# **가중치 안정성 실측(2026-09-12, 8조합)**: 순위 완전 동일 3/8 · 1위 유지 6/8 ·
+#   **꼴찌(단독 작전)는 8/8 전부 동일** — 가장 중요한 교정(역순 해소)은 가중치에 무관하다.
+#   흔들리는 건 1·2위뿐이고, **교환비를 0.2로 내릴 때** 1함대가 1위로 올라온다:
+#   생존율 14.4%·요격률 55.5%로 최고인데 교환비가 0.23이다 = **살아남았지만 적을 못 죽인다**
+#   (소형 고속정 위주 편성). 교환비 0.3은 그 편성을 거르는 **최소선**이라 임의 수치가 아니다.
+#   ⚠ 1·2위 다툼 자체는 지표 결함이 아니라 **목적 함수의 모호함**이다 —
+#   '방어 임무'면 1함대, '적 격멸'이면 한미 강화가 맞다. 작전 목적별 가중치 프로파일이
+#   필요해지면 그때 분리한다(지금은 YAGNI).
+
+
+def _exchange_ratio(r: dict) -> float:
+    """교환비 = 적 격침 / 아군 손실. 손실 0이면 격침 수를 그대로(완승).
+
+    **분모가 편성 규모에 좌우되지 않는다** — 요격률(분모=총위협)이 편성 비교에 부적합한
+    이유가 분모 미통제였다(docs/analysis/01·02). 값 범위는 0~무한대라 점수화할 때
+    `x/(1+x)`로 0~1에 사상한다(상한 상수를 두지 않아 임의 수치가 생기지 않는다).
+    """
+    lost = float(r.get('friendly_ships_lost', 0) or 0)
+    kill = float(r.get('enemy_ships_destroyed', 0) or 0)
+    return (kill / lost) if lost > 0 else kill
+
+
 def _fleet_metrics_worker(args):
-    """편대 1개의 단일 시뮬 평가 — (preset, 1차지표, 생존율, 승리flag) 반환(피클 안전).
-    단발: 1차지표=요격률, 승리flag=None / 전장: 1차지표=임무점수, 승리flag=1.0(승)/0.0."""
+    """편대 1개의 단일 시뮬 평가 — (preset, 1차지표, 생존율, 승리flag, 교환비) 반환(피클 안전).
+    단발: 1차지표=요격률, 승리flag=None / 전장: 1차지표=임무점수, 승리flag=1.0(승)/0.0.
+
+    ⚠ **5번째(교환비)는 v21.06.04에서 추가**했다. tuple 인덱스를 바꾸면 수신부
+      (`recommend_fleet_v7` 집계 루프)도 **반드시 함께** 고칠 것 — 이 저장소가 여러 번 당한 패턴.
+    교환비 = 적 격침 ÷ 아군 손실. 손실 0이면 격침 수를 그대로 쓴다(완승).
+    **분모가 없는 지표**라 편성 규모가 달라도 비교가 성립한다 — 요격률이 못 하는 일이다."""
     preset_name, cfg, seed = args
     run_cfg = {**cfg, 'fleet_preset': preset_name, 'mc_mode': True}
     if seed is not None:
@@ -7438,12 +7474,13 @@ def _fleet_metrics_worker(args):
         n_ships = len(ships) if ships else 1
         survival = max(0.0, 1.0 - r.get('friendly_ships_lost', 0) / n_ships)
         win = 1.0 if r.get('outcome') == 'win' else 0.0
-        return (preset_name, r.get('friendly_score', 0.0), survival, win)
+        return (preset_name, r.get('friendly_score', 0.0), survival, win,
+                _exchange_ratio(r))
     r = run_v7_simulation(run_cfg)
     ships   = r.get('friendly_ships', [])
     n_ships = len(ships) if ships else 1
     survival = max(0.0, 1.0 - r.get('friendly_ships_lost', 0) / n_ships)
-    return (preset_name, r['intercept_rate'], survival, None)
+    return (preset_name, r['intercept_rate'], survival, None, _exchange_ratio(r))
 
 
 def recommend_fleet_v7(cfg: dict,
@@ -7455,9 +7492,10 @@ def recommend_fleet_v7(cfg: dict,
     후보 편대들을 동일 위협(현재 cfg)에 대해 MC 평가 → 성능·비용효과 순위.
 
     각 후보 × n 시뮬을 펼쳐 시뮬 단위로 병렬화(seed = base_seed + i 고정 → 결정론).
-    단발 성능 = 요격률 0.6 + 생존율 0.4 / 전장 성능 = 승률 0.6 + 임무점수 0.4.
+    단발 성능 = 생존율 0.5 + 교환비 0.3 + 요격률 0.2 (v21.06.04 — 요격률 단독이던 것을 교체)
+    전장 성능 = 승률 0.6 + 임무점수 0.4 (분모 문제가 없어 그대로).
     비용효과 = 성능 / 정규화 조달비용.
-    반환(성능순 정렬): 단발 [{preset, rate, std, survival, fleet_cost, perf_score,
+    반환(성능순 정렬): 단발 [{preset, rate, std, survival, exchange, fleet_cost, perf_score,
                          cost_eff, reason}, ...] / 전장은 추가로 battle·win_rate·mission_score.
     """
     candidates = list(candidates)
@@ -7484,6 +7522,9 @@ def recommend_fleet_v7(cfg: dict,
         prim  = np.array([s[1] for s in seg])   # 단발=요격률 / 전장=임무점수
         survs = np.array([s[2] for s in seg])
         surv  = float(survs.mean())
+        exchs = np.array([s[4] for s in seg])   # v21.06.04 교환비(5번째 원소)
+        exch  = float(exchs.mean())
+        exch_n = exch / (1.0 + exch)            # 0~1 사상(상한 상수 없음)
         cost  = fleet_procurement_cost(preset)
         if battle:
             wins     = np.array([s[3] for s in seg], dtype=float)
@@ -7495,6 +7536,7 @@ def recommend_fleet_v7(cfg: dict,
                 'win_rate':      win_rate,
                 'mission_score': mission,
                 'survival':      surv,
+                'exchange':      exch,   # 참고값 — 전장 성능식은 승률·임무점수 유지
                 'std':           float(prim.std()),
                 'fleet_cost':    cost,
                 'perf_score':    win_rate * 0.6 + mission * 0.4,
@@ -7507,8 +7549,10 @@ def recommend_fleet_v7(cfg: dict,
                 'rate':       rate,
                 'std':        float(prim.std()),
                 'survival':   surv,
+                'exchange':   exch,
                 'fleet_cost': cost,
-                'perf_score': rate * 0.6 + surv * 0.4,
+                'perf_score': (surv * _FLEET_W_SURV + exch_n * _FLEET_W_EXCH
+                               + rate * _FLEET_W_RATE),
                 'reason':     _fleet_reason(preset),
             })
 
