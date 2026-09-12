@@ -1576,7 +1576,10 @@ class TimeStepEngine:
         #   실측(2026-09-12): 랴오닝 등재 무장 104발인데 위협 438발 — 초과분 전부 J-15(68기분,
         #   항공단 상한은 24기). 그 무한 생산이 요격률 분모를 편성마다 다르게 만들어
         #   편대 추천까지 역순으로 뒤집었다. 정본 docs/analysis/01_편대_생존_분석.md
-        self._enforce_wing_cap = bool(cfg.get('enable_wing_cap', False))
+        # v21.06.02 정규 승격 — **기본 ON**. 항모 탑재량은 '항상 존재하는 물리'이고,
+        #   OFF가 오히려 비물리(적 항공 전력 무한)였다. 승격 근거: 위협 438→211발
+        #   (이론 총량 200발과 일치) · 전멸률 97.5→30.0% · 골든 영향 3/38케이스.
+        self._enforce_wing_cap = bool(cfg.get('enable_wing_cap', True))
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
         self._adaptive_last_t  = -999.0         # 마지막 재평가 시각

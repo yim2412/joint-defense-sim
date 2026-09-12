@@ -11,6 +11,7 @@ _audit_smoke_util.py — GUI 스모크 공통 유틸 (빌드 제외 도구)
 조용히 화면 밖으로 창을 던지게 된다. 매번 EnumDisplayMonitors로 실측한다.
 """
 import ctypes
+import time
 from ctypes import wintypes
 
 _MONITORINFOF_PRIMARY = 1
@@ -41,7 +42,18 @@ def enum_monitors():
 
 
 def secondary_rect():
-    """보조(비주) 모니터 작업영역 (left, top, width, height). 없으면 None."""
+    """스모크 창을 띄울 모니터의 작업영역 (left, top, width, height). 없으면 None.
+
+    ⚠⚠ **대상 = 비주(non-primary) 모니터.** 2026-09-12 사용자가 직접 선택해 확정했다.
+        실측 구성: 주 DISPLAY2 (0,0) 2560x1440 · **비주 DISPLAY1 (2560,235) 1920x1080 ← 대상**
+
+    **이 판정을 다시 뒤집지 말 것.** 같은 세션에서 두 번 틀렸다:
+      ① 처음 비주로 보냄 → 맞았는데, 사용자 지적을 '모니터가 틀렸다'로 오독
+      ② Discord 창 좌표 X=2552를 보고 "비주(>=2560)가 아니다"라고 판단해 주 모니터로 변경
+         → **완전히 틀렸다.** Discord는 창 시작점만 2552이고 본체는 비주 쪽에 걸쳐 있었다.
+      **창 시작 좌표로 '어느 모니터냐'를 추론하면 안 된다** — 걸친 창이 있기 때문이다.
+      모니터는 `EnumDisplayMonitors`의 primary 플래그로만 판정한다.
+    """
     for rc, is_primary in enum_monitors():
         if not is_primary:
             return (rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top)
@@ -55,7 +67,7 @@ def place_on_secondary(win, log=print, margin=40):
     """
     rc = secondary_rect()
     if rc is None:
-        log("보조 모니터 없음 — 주 모니터에서 진행")
+        log("비주 모니터 없음(단일 화면) — 현재 위치에서 진행")
         return False
     left, top, w, h = rc
     try:
@@ -65,8 +77,21 @@ def place_on_secondary(win, log=print, margin=40):
         #   UIA wrapper 도 `.handle`(HWND)은 주므로 Win32 SetWindowPos 를 직접 부른다.
         hwnd = win.handle
         if not hwnd:
-            log("보조 모니터 이동 생략: HWND 없음")
+            log("이동 생략: HWND 없음")
             return False
+        # 이미 대상 모니터 안이면 **건드리지 않는다** — 창이 눈앞에서 옮겨가는 것 자체가
+        # 거슬린다는 지적(2026-09-12). 앱이 geometry를 복원하면 대개 여기로 빠진다.
+        cur = wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(int(hwnd), ctypes.byref(cur))
+        if (not ctypes.windll.user32.IsIconic(int(hwnd))
+                and left <= cur.left < left + w and top - 50 <= cur.top < top + h):
+            log(f"이미 지정 모니터(2번)에 있음 — 이동 생략 ({cur.left},{cur.top})")
+            return True
+        # ⚠ 최소화(iconic) 상태에서 SetWindowPos를 걸면 좌표가 (-32000,-32000)으로 남고
+        #   이동이 무의미하다(2026-09-12 실측). 먼저 복원한다. SW_RESTORE=9.
+        if ctypes.windll.user32.IsIconic(int(hwnd)):
+            ctypes.windll.user32.ShowWindow(int(hwnd), 9)
+            time.sleep(0.5)
         SWP_NOZORDER, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x0004, 0x0010, 0x0040
         ok = ctypes.windll.user32.SetWindowPos(
             int(hwnd), 0,
@@ -81,8 +106,9 @@ def place_on_secondary(win, log=print, margin=40):
         # (SetWindowPos 가 성공을 반환해도 DPI 스케일·최대화 상태에서 어긋날 수 있다)
         got = wintypes.RECT()
         ctypes.windll.user32.GetWindowRect(int(hwnd), ctypes.byref(got))
+        time.sleep(0.6)   # 이동 직후 곧바로 클릭하면 화면 전환이 씹힌다(실측)
         inside = (left <= got.left < left + w) and (top - 50 <= got.top < top + h)
-        log(f"창을 보조 모니터로 이동: 지시=({left},{top}) {w}x{h} · "
+        log(f"창을 지정 모니터(2번)로 이동: 지시=({left},{top}) {w}x{h} · "
             f"실제=({got.left},{got.top}) · 모니터 내부={'예' if inside else '아니오'}")
         return bool(inside)
     except Exception as e:

@@ -633,6 +633,15 @@ class SplashWindow(QWidget):
         self.setWindowTitle("합동 통합방어 시뮬레이터")
         # 고정 크기 → 자유 리사이즈 (최소 크기만 지정)
         self.setMinimumSize(1000, 680)
+        # v21.06.03: closeEvent가 geometry를 **저장만 하고 복원하지 않아**
+        #   매번 기본 위치(주 화면)에 떴다. 여러 모니터를 쓰면 켤 때마다 옮겨야 한다.
+        #   저장된 위치가 있으면 복원한다(화면 구성이 바뀌어 화면 밖이면 Qt가 보정).
+        try:
+            _geo = QSettings("AegisSim", "SplashWin").value("geometry")
+            if _geo:
+                self.restoreGeometry(_geo)
+        except Exception:
+            pass
         self.setStyleSheet(f"""
             QWidget {{ background: {C_BG}; color: {C_TEXT};
                        font-family: 'Malgun Gothic', 'Segoe UI'; font-size: 17px; }}

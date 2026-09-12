@@ -36,6 +36,13 @@ class SimLifecycleMixin:
         # 자유 리사이즈 가능하도록 합리적 최소 크기만 지정 (세로 고정 버그 방지)
         self.setMinimumSize(1000, 680)
         self.resize(1800, 1060)
+        # v21.06.03: 저장된 창 위치 복원(저장만 하고 복원이 없어 매번 주 화면에 떴다)
+        try:
+            _geo = QSettings("AegisSim", "MainWin").value("geometry")
+            if _geo:
+                self.restoreGeometry(_geo)
+        except Exception:
+            pass
         self._worker         = None
         self._taskbar        = _TaskbarProgress()   # ⑤ 작업표시줄 진행바
         self._result = None
