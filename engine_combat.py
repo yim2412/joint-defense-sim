@@ -1569,7 +1569,14 @@ class TimeStepEngine:
         # 함대 SAM·CIWS 채널을 포화시킨다(비대칭 소모). 기본 OFF면 편대 불변 → 회귀 bit-identical.
         self._drone_swarm      = bool(cfg.get('enable_drone_swarm', False))
         self._drone_swarm_size = int(cfg.get('drone_swarm_size', 40))
-        self._enforce_wing_cap = False   # 항모 항공단 발진 총량 상한 (전장 모드만 ON — BattleEngine서 설정)
+        # 항모 항공단 발진 총량 상한. 전장 모드는 BattleEngine이 무조건 True로 덮어쓴다(기존 동작).
+        # v21.06.01: **단발 교전에도 켤 수 있게** cfg 플래그 신설(기본 OFF = 하위 호환).
+        #   v15.09.01이 상한을 전장 모드에만 넣고 단발은 "종전대로" 둔 미완의 이관 탓에,
+        #   기본 분석 모드인 단발에서 항모가 carrier_wave_interval마다 2기씩 **영원히** 생산했다.
+        #   실측(2026-09-12): 랴오닝 등재 무장 104발인데 위협 438발 — 초과분 전부 J-15(68기분,
+        #   항공단 상한은 24기). 그 무한 생산이 요격률 분모를 편성마다 다르게 만들어
+        #   편대 추천까지 역순으로 뒤집었다. 정본 docs/analysis/01_편대_생존_분석.md
+        self._enforce_wing_cap = bool(cfg.get('enable_wing_cap', False))
         self._adaptive_ai      = (cfg.get('ai_tactic') == 'adaptive')
         self._adaptive_mode    = 'saturation'   # 초기 전술 (포화)
         self._adaptive_last_t  = -999.0         # 마지막 재평가 시각

@@ -113,6 +113,18 @@ class ConfigPanelExtraMixin:
         )
         self.chk_munition_limit.setChecked(True)
 
+        # 항모 항공단 한계 — 항모가 탑재 항공단 규모만큼만 함재기를 발진(무한 생산 차단)
+        self.chk_wing_cap = QCheckBox("항모 항공단 한계 (실험적)")
+        self.chk_wing_cap.setToolTip(
+            "적 항모가 실제 탑재 항공단 규모만큼만 함재기를 발진시킵니다.\n"
+            "(랴오닝 24기 · 산둥 36기 · 푸젠 40기)\n"
+            "끄면 항모가 교전 내내 함재기를 계속 발진시켜, 교전이 길어질수록\n"
+            "적 항공 전력이 사실상 무제한이 됩니다.\n"
+            "지속 전장 모드에서는 항상 적용되며, 이 항목은 단발 교전용입니다.\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
+        self.chk_wing_cap.setChecked(False)
+
         # 지속 전장 모드 — 단발 교전을 양측 작전 목표 기반 지속 전장으로 (아키텍처 전환·병행 구축)
         self.chk_battle = QCheckBox("지속 전장 모드 (실험적)")
         self.chk_battle.setToolTip(
@@ -457,7 +469,7 @@ class ConfigPanelExtraMixin:
 
         for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
-                    self.chk_flooding, self.chk_munition_limit,
+                    self.chk_flooding, self.chk_munition_limit, self.chk_wing_cap,
                     self.chk_weather_dyn, self.chk_iff,
                     # 실험적/고급 토글 — 누락 시 인디케이터 스타일 미적용으로 체크박스 네모가
                     # 안 보인다(어두운 배경). 환경 그룹의 모든 체크박스는 반드시 여기 포함.

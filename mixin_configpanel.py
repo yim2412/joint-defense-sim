@@ -1362,6 +1362,7 @@ class ConfigPanelMixin:
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식
             'enable_flooding':   self.chk_flooding.isChecked(),  # v12.4: 침수·복원력 모델
             'enable_munition_limit': self.chk_munition_limit.isChecked(),  # 적 공격 무장 유한화
+            'enable_wing_cap': self.chk_wing_cap.isChecked(),  # v21.06.01 항모 항공단 발진 상한
             'enable_battle_mode': self.chk_battle.isChecked(),  # 지속 전장 엔진 (아키텍처 전환·병행 구축)
             'enable_campaign_mode': self.chk_campaign.isChecked(),  # v18.1 작전급 캠페인 엔진
             'enable_campaign_fog': self.chk_campaign_fog.isChecked(),  # v18.4 전장의 안개

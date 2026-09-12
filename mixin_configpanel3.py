@@ -69,6 +69,8 @@ class ConfigPanelExtra2Mixin:
             self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
         if hasattr(self, 'chk_munition_limit'):
             self.chk_munition_limit.setChecked(cfg.get('enable_munition_limit', True))
+        if hasattr(self, 'chk_wing_cap'):
+            self.chk_wing_cap.setChecked(cfg.get('enable_wing_cap', False))
         if hasattr(self, 'chk_battle'):
             self.chk_battle.setChecked(cfg.get('enable_battle_mode', False))
         if hasattr(self, 'chk_campaign'):

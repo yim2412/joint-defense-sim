@@ -51,6 +51,14 @@ PROBES = {
         dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='항만 침투 복합',
              enable_mine_threat=True, mine_density=0.6),
         ['friendly_ships_lost', 'unmanned_lost', 'mines_struck']),
+    # v21.06.01 항모 항공단 상한 — **항모가 있는 적 편대여야 발현한다**(carrier_air_wing 등재는
+    # 랴오닝24·산둥36·푸젠40 3종뿐). 항모 없는 편대에서는 ON/OFF가 bit-identical이라
+    # '죽은 토글'로 오판되므로 반드시 항모 편대를 쓴다 — enable_drone_swarm과 같은 유형의 함정.
+    # 아군은 오래 버티는 편성이어야 무한 생산이 실제로 누적된다(빨리 전멸하면 델타가 작다).
+    'enable_wing_cap': (
+        dict(_BASE, fleet_preset='동해 해역방어 (1함대)', enemy_fleet_preset='랴오닝 항모전단',
+             enable_aircraft=False, enable_strike_mission=False),
+        ['total_threats', 'intercept_rate', 'friendly_ships_lost']),
     'enable_cyber_warfare': (
         dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='전면전 포화'),
         ['intercept_rate', 'friendly_hits']),
