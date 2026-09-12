@@ -13,6 +13,8 @@ _audit_gui_smoke.py(단발)와 짝 — 캠페인은 독립 exe 세션으로 검�
 """
 import sys, time, os
 
+from _audit_smoke_util import place_on_secondary
+
 # 감사 도구 자체 결함 방지: cp949 콘솔에서 ⚠✅🔴 등 유니코드 로그가 UnicodeEncodeError로
 # 크래시하면 return 경로가 막혀 판정이 BLOCKED로 오염된다 → stdout을 utf-8로 고정.
 try:
@@ -62,7 +64,9 @@ def main():
             time.sleep(1)
         if win is None:
             log("메인 윈도우 미표시"); return 2
-        log("홈 표시됨"); win.set_focus(); time.sleep(2)
+        log("홈 표시됨")
+        place_on_secondary(win, log)   # 스모크는 보조 모니터에서만
+        win.set_focus(); time.sleep(2)
 
         # 홈 → 앱 진입
         for b in win.descendants(control_type='Button'):
@@ -71,7 +75,11 @@ def main():
         main_w = win
         try:
             mw = app.window(title_re='.*합동 통합방어 시뮬레이터\\s+v.*')
-            if mw.exists(): main_w = mw; main_w.set_focus()
+            if mw.exists():
+                main_w = mw
+                # 홈만 옮기면 MainWindow가 주 모니터에 새로 뜬다(위와 동일)
+                place_on_secondary(main_w, log)
+                main_w.set_focus()
         except Exception: pass
         time.sleep(2)
 

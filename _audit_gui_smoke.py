@@ -11,6 +11,8 @@ exe를 실제로 띄워 '시뮬레이션 실행' 버튼을 클릭하고 결과�
 """
 import sys, time, os
 
+from _audit_smoke_util import place_on_secondary
+
 # 감사 도구 자체 결함 방지: cp949 콘솔에서 ⚠✅🔴 유니코드 로그가 UnicodeEncodeError로
 # 크래시하면 return 경로가 막혀 판정이 오염된다 → stdout을 utf-8로 고정.
 try:
@@ -49,6 +51,7 @@ def main():
         if win is None:
             log("메인 윈도우 미표시 (40s)"); return 2
         log("홈 윈도우 표시됨")
+        place_on_secondary(win, log)   # 스모크는 보조 모니터에서만
         win.set_focus()
         time.sleep(2)
 
@@ -71,7 +74,11 @@ def main():
         try:
             mw = app.window(title_re='.*합동 통합방어 시뮬레이터\\s+v.*')
             if mw.exists():
-                main = mw; main.set_focus(); log("MainWindow(버전 타이틀) 포착")
+                main = mw; log("MainWindow(버전 타이틀) 포착")
+                # ⚠ 홈(스플래시)만 옮기면 안 된다 — '시뮬레이터 시작' 클릭 시
+                #   MainWindow가 **새로 생성**돼 주 모니터에 뜬다(2026-09-12 실측).
+                place_on_secondary(main, log)
+                main.set_focus()
         except Exception:
             pass
         time.sleep(2)
@@ -119,7 +126,11 @@ def main():
         # 결과 대기 — 결과 탭/배너의 텍스트 출현 폴링(요격률·작전 결과·전멸 등)
         markers = ['요격률', '작전 결과', '승률', '임무 점수', '교전', '결과', '전멸', '생존']
         found = None
-        for i in range(90):  # 최대 90s (단발 시뮬 + 렌더)
+        # 최대 180s. 90s였다가 늘렸다 — **재빌드 직후 첫 실행**은 워커 풀 예열·DLL
+        # 콜드 로딩으로 느려, 2026-09-12 실측에서 81s까지 갔다(상한 90s에 9s 차이로
+        # 아슬아슬하게 FAIL). 같은 exe를 두 번째 돌리면 36s. 기능은 정상인데 감사가
+        # 가짜 FAIL을 내면 그게 더 비싸므로 콜드 실측의 2배로 잡는다.
+        for i in range(180):
             time.sleep(1)
             try:
                 texts = []

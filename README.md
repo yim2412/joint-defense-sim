@@ -12,7 +12,7 @@
 육·해·공 전력을 아우르는 **통합 방어 시뮬레이터**를 목표로 하는 프로젝트입니다.
 대공·대함·대잠 위협에 대한 교전 시뮬레이션, 몬테카를로 분석, 요구조건(REQ) 판정, Excel/PNG 보고서 생성을 수행합니다.
 
-> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급(연안방공·상륙·도미노) + 한국형 미사일방어 5계층 + 육해공 합동 화력(협조 타격) + 합동작전 통합 보고서(군별 기여도) + 합동작전 사령부(자원 충돌 경고) (v21.04)
+> **현재 단계:** 해군 — 이지스 기동전단 통합 방어 + 공군·지상 작전급(연안방공·상륙·도미노) + 한국형 미사일방어 5계층 + 육해공 합동 화력(협조 타격) + 합동작전 통합 보고서(군별 기여도) + 합동작전 사령부(자원 충돌 경고) (v21.05)
 > **진행 중:** **작전급 캠페인 엔진** — 며칠 단위 전역을 1시간 단위로 진행, 교전은 학습된 예측 모델로 즉시 계산해 72시간 전역을 수초에 (해상 교통로 통제로 승패 판정)
 > **장기 목표:** 육·해·공 합동작전(Joint Operations)을 포괄하는 통합 방어 시뮬레이션
 
@@ -169,6 +169,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `_audit_render_smoke.py` | 결과 탭 렌더 크래시 테스트 (헤드리스, 9개 차트 함수 실제+엣지 데이터) |
 | `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
 | `_audit_campaign_smoke.py` | exe GUI 스모크 자동화 — 작전급 캠페인 모드 (감사용) |
+| `_audit_smoke_util.py` | GUI 스모크 공통 유틸 — 스모크 창을 보조 모니터에 배치 (감사용) |
 | `_audit_scenario_smoke.py` | exe GUI 스모크 자동화 — 시나리오 저장·불러오기 왕복 (감사용) |
 | `_audit_compat.py` | 종합감사 ⑦ 하위호환 + ④ 통합 MC 수치 안정성 (구버전 cfg·정밀 병렬 MC, 감사용) |
 | `_audit_mc_stability.py` | 종합감사 ④ 캠페인 MC 대규모 안정성 + OFF/정밀ON 기준값 측정 (감사용) |
@@ -259,7 +260,7 @@ A project aiming to be a **joint air–land–sea integrated defense simulator**
 It performs engagement simulation against air, surface, and subsurface threats, Monte Carlo analysis,
 requirement (REQ) evaluation, and Excel/PNG report generation.
 
-> **Current stage:** Navy — Aegis task force integrated defense + air-force & ground operational layers + 5-layer Korean missile defense + joint fires (coordinated strike) + joint operations report (per-service contribution) + joint chiefs of staff (resource conflict alerts) (v21.04)
+> **Current stage:** Navy — Aegis task force integrated defense + air-force & ground operational layers + 5-layer Korean missile defense + joint fires (coordinated strike) + joint operations report (per-service contribution) + joint chiefs of staff (resource conflict alerts) (v21.05)
 > **In progress:** Architecture transition from single-salvo engagement → a **persistent battle engine** (both sides pursue operational objectives, win/loss adjudication, aiming toward reinforcement-learning-based self-play)
 > **Long-term goal:** an integrated defense simulation covering joint air–land–sea operations
 

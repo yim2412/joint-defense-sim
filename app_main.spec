@@ -114,6 +114,17 @@ a = Analysis(
         'wx', 'gtk',
         'PyQt5', 'PySide2', 'PySide6',
         'vispy', 'freetype',
+        # ── 번들 과잉 제거 (2026-09-12 실측: dist 1.2GB 중 445MB가 미사용) ──
+        # torch 365MB: 앱은 torch를 쓰지 않는다. RL 추론은 numpy 전용
+        # (ai_policy_infer.py — "torch·SB3·gymnasium 일절 불요"가 설계 의도).
+        # collect_submodules('sklearn')이 sklearn의 array-API 경로까지 통째로
+        # 수집하면서 optional 의존인 torch·pyarrow가 딸려 들어왔다.
+        # ⚠ sklearn·joblib은 빼면 안 된다 — forecast_model.pkl(캠페인 즉시예측)
+        #   언피클에 필요하다(런타임 joblib.load).
+        'torch', 'torchvision', 'torchaudio',
+        'pyarrow',
+        # 학습 전용 스택(빌드 제외 도구에서만 사용)
+        'stable_baselines3', 'gymnasium', 'gym', 'sympy',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

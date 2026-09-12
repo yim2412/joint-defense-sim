@@ -657,11 +657,53 @@ def chk_preset_desc():
           '; '.join(mism) if mism else '수량 표기 프리셋 전부 실제 편성과 일치')
 
 
+# ── ⑤ exe·빌드: 번들 **과잉** 검사 (2026-09-12 신설) ─────────────────────────
+# 지금까지 ⑤ '번들 무결성'은 **"빠진 게 없는가"만** 봤다. 그래서 반대 방향
+# — **쓰지도 않는 것이 들어가 있는가** — 가 몇 블록 동안 사각이었고,
+# 실측에서 dist 1.2GB 중 **445MB(torch 365 + pyarrow 80)가 미사용**으로 드러났다.
+# 앱은 torch 를 쓰지 않는다(RL 추론은 numpy 전용 `ai_policy_infer`). 범인은
+# `collect_submodules('sklearn')` 이 sklearn 의 array-API 경로까지 통째로 수집하며
+# optional 의존을 끌어온 것. 한 번 걷어내도 **spec 에 명시적으로 박아 두지 않으면
+# 다음 빌드에 조용히 돌아온다** → 그 회귀를 여기서 잡는다.
+_BUNDLE_FORBIDDEN = ('torch', 'pyarrow', 'stable_baselines3', 'gymnasium', 'sympy')
+_BUNDLE_REQUIRED  = ('sklearn', 'joblib')   # 캠페인 즉시예측 언피클에 필요 — 빼면 안 됨
+_BUNDLE_MAX_MB    = 900                     # 실측 734MB 기준 여유. 넘으면 과잉 회귀 의심
+
+def chk_bundle_excess():
+    spec = rd('app_main.spec')
+    m = re.search(r'excludes\s*=\s*\[(.*?)\]', spec, re.S)
+    ex = set(re.findall(r"['\"]([\w.]+)['\"]", m.group(1))) if m else set()
+    guard_count('⑤', 'spec excludes 파싱', len(ex), 5)   # vacuous 방지
+    missing = [n for n in _BUNDLE_FORBIDDEN if n not in ex]
+    check('⑤', 'spec excludes 에 미사용 대형 패키지 명시', not missing,
+          f"excludes 누락={missing or '없음'} (파싱 {len(ex)}개) — "
+          f"누락되면 collect_submodules 경유로 다시 번들된다")
+
+    # dist 가 있을 때만: 실제 산출물에 잔존/누락·크기 회귀를 본다(없으면 스킵).
+    root = os.path.join('dist', '합동_통합방어_시뮬레이터', '_internal')
+    if not os.path.isdir(root):
+        check('⑤', '번들 산출물 과잉(잔존/크기)', True, 'dist 없음 — 스킵(빌드 후 재검)')
+        return
+    left = [n for n in _BUNDLE_FORBIDDEN if os.path.exists(os.path.join(root, n))]
+    # joblib 은 순수 파이썬이라 폴더가 아니라 PYZ 아카이브로 들어간다 → 폴더 부재는 정상.
+    gone = [n for n in _BUNDLE_REQUIRED
+            if not os.path.exists(os.path.join(root, n)) and n != 'joblib']
+    total = 0
+    for dp, _dn, fns in os.walk(os.path.dirname(root)):
+        for f in fns:
+            try: total += os.path.getsize(os.path.join(dp, f))
+            except OSError: pass
+    mb = total / (1024 * 1024)
+    check('⑤', '번들 산출물 과잉(잔존/크기)', not left and not gone and mb <= _BUNDLE_MAX_MB,
+          f"잔존={left or '없음'} · 필수누락={gone or '없음'} · "
+          f"크기 {mb:.0f}MB (상한 {_BUNDLE_MAX_MB}MB)")
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
                chk_effect_coverage,
-               chk_spec_count, chk_div_guards, chk_mc_paths, chk_golden_coverage,
+               chk_spec_count, chk_bundle_excess, chk_div_guards, chk_mc_paths, chk_golden_coverage,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts, chk_preset_desc,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
                chk_memory_freshness, chk_session_log_fresh):

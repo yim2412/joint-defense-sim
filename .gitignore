@@ -46,3 +46,9 @@ _audit_*.log
 _bgtask.blocks
 _smoke*.log
 _x.log
+
+# 백그라운드 작업 로그·메타(진행 보고용 산출물 — 커밋 대상 아님)
+_bgbuild*.log
+_bgsmoke*.log
+_build_v*.log
+_bgtask.meta
