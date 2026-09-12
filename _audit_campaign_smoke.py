@@ -164,6 +164,47 @@ def main():
             log(f"통합보고서 체크박스: {_txt(report)!r} → 체크"); _act(report); time.sleep(1)
         else:
             log("⚠ 통합보고서 체크박스 미포착 — v21.4 GUI 경로 미확인")
+        # ── v21.1 JCS 충돌 경고 발동 조건 ─────────────────────────────────────
+        # 합동 화력을 **'동시 공격'** 으로 바꿔야 협조 미비(FSCM 미설정) 경고가 뜬다.
+        # 기본값 '시차 공격'(sequential)에서는 경고 0건이라, 지금까지 이 스모크는
+        # 합동화력·기여도 배너만 보고 **JCS 세그먼트는 한 번도 검증하지 못했다**
+        # (v21 감사 메타 회고 숙제). 헤드리스 실측: simultaneous → 소티 4건 취소.
+        jcs_mode = None
+        try:
+            # ⚠ `cb.item_texts()`는 이 UIA 래퍼에 **없다**(AttributeError — 실측 2026-09-12).
+            #   콤보는 `window_text()`가 **라벨**('합동 화력 방식'), `selected_text()`가
+            #   **현재 선택값**('시차 공격')을 준다 → 라벨로 찾고 선택값으로 검증한다.
+            for cb in main_w.descendants(control_type='ComboBox'):
+                if '합동 화력 방식' in (_txt(cb) or ''):
+                    jcs_mode = cb
+                    break
+            if jcs_mode is not None:
+                before = jcs_mode.selected_text()
+                try:
+                    jcs_mode.select('동시 공격')
+                except Exception:
+                    # select()가 막히면 펼쳐서 항목을 직접 고른다(래퍼 차이 대비).
+                    jcs_mode.expand(); time.sleep(1)
+                    for it in jcs_mode.descendants(control_type='ListItem'):
+                        if '동시 공격' in (_txt(it) or ''):
+                            _act(it); break
+                    try: jcs_mode.collapse()
+                    except Exception: pass
+                time.sleep(1)
+                after = jcs_mode.selected_text()
+                # 반환값만 믿지 않는다 — 실제 선택값을 되읽어 확인(place_on_secondary와 같은 교훈).
+                if '동시' not in (after or ''):
+                    log(f"⚠ 합동 화력 모드 전환 실패 {before!r} → {after!r} — JCS 충돌 경고 미검증")
+                    jcs_mode = None
+                else:
+                    log(f"합동 화력 모드 콤보: {before!r} → {after!r} (JCS 충돌 경고 유발)")
+            else:
+                log("⚠ 합동 화력 모드 콤보 미포착 — JCS 충돌 경고 미검증")
+        except Exception as e:
+            # 콤보 조작 실패가 스모크 전체를 죽이면 안 된다 — 그 항목만 미검증으로.
+            jcs_mode = None
+            log(f"⚠ 합동 화력 모드 설정 실패(무시하고 진행): {e}")
+
         try:
             _st = f"캠페인={chk.get_toggle_state()}"
             if fog is not None: _st += f" 안개={fog.get_toggle_state()}"
@@ -246,6 +287,19 @@ def main():
                         frag = [t for t in (_txt(c) for c in main_w.descendants())
                                 if any(k in t for k in ('해군 단독', '전략폭격', '기여', '전역'))]
                         log(f"🔴 통합 보고서 ON인데 배너에 군별 기여도 미표시 — 조각: {frag[:4]}"); return 1
+                    # v21.1: '동시 공격'을 걸었으면 JCS 충돌 경고 세그먼트가 떠야 한다.
+                    #   토글이 켜져 크래시 없이 돌았다는 것과, 지휘부 경고가 화면에
+                    #   도달했다는 것은 별개다(위 v21.2·v21.4와 같은 논리).
+                    _jcsmsg = ""
+                    if jcs_mode is not None:
+                        if 'JCS 충돌 경고' not in blob:
+                            frag = [t for t in (_txt(c) for c in main_w.descendants())
+                                    if any(k in t for k in ('충돌', '협조', 'JCS', '합동'))]
+                            log(f"🔴 동시 공격인데 JCS 충돌 경고 배너 미표시 — 조각: {frag[:4]}")
+                            return 1
+                        import re as _re2
+                        _mj = _re2.search(r'JCS 충돌 경고\s*(\d+)\s*건', blob)
+                        _jcsmsg = f" + ⚖ JCS 충돌 경고 {_mj.group(1) if _mj else '?'}건 확인"
                     _fogmsg = " + 🌫 안개 배너 확인" if fog is not None else ""
                     _airmsg = " + ✈ 제공권 배너 확인" if air is not None else ""
                     _seadmsg = " + 🎯 방공망 배너 확인" if sead is not None else ""
@@ -273,7 +327,7 @@ def main():
                         _n = _m.group(1) if _m else '?'
                         _precmsg = f" + 🎯 정밀교전 ON·캠페인 MC 병렬 {_n}회 실행 확인(exe end-to-end)"
                     log(f"✅ 캠페인 결과 정상 표시(예측모델 적용){_fogmsg}{_airmsg}{_seadmsg}"
-                        f"{_strmsg}{_armymsg}{_ampmsg}{_jointmsg}{_repmsg}{_casmsg}{_precmsg}"); return 0
+                        f"{_strmsg}{_armymsg}{_ampmsg}{_jointmsg}{_repmsg}{_jcsmsg}{_casmsg}{_precmsg}"); return 0
             except Exception: pass
             if i in (15, 30): log(f"  …대기 {i+1}s")
         # 진단: UIA가 실제로 보는 텍스트에서 캠페인/상태 관련 조각 덤프
