@@ -1273,8 +1273,14 @@ def _apply_window_geometry(win, settings_key: str, default_w: int, default_h: in
     geo = settings.value("geometry")
     if geo is not None:
         win.restoreGeometry(geo)
-        # 복원된 창이 현재 화면과 겹치지 않으면(모니터 변경 등) 중앙으로 보정
-        if not scr.intersects(win.frameGeometry()):
+        # 복원된 창이 **어느 화면과도** 겹치지 않을 때만 중앙으로 보정(모니터 제거 등).
+        # ⚠ v21.06.05 이전엔 `scr`(**주 화면만**)과 비교해, 보조 모니터에 둔 창이
+        #   "화면 밖"으로 오인돼 매번 주 화면 중앙으로 끌려왔다 — 멀티모니터에서
+        #   창 위치 복원이 원천적으로 불가능했다(실측: 보조에 두고 닫아도 (339,219)
+        #   = 주 화면 중앙으로 복귀). 안전장치가 정상 상황을 막고 있던 셈이다.
+        fg = win.frameGeometry()
+        if not any(sc.availableGeometry().intersects(fg)
+                   for sc in QApplication.screens()):
             _center_window(win, scr)
         return
     w = min(default_w, int(scr.width()  * 0.92))
