@@ -789,7 +789,7 @@ class ConfigPanelMixin:
         grp_cd = QGroupBox("⏱️ C&&D 시간 설정")
         cdl = QHBoxLayout(grp_cd)
         cdl.setSpacing(16)
-        lbl_cd_fixed = QLabel("C&&D  10초  /  확인  3초  (고정)")
+        lbl_cd_fixed = QLabel("C&D  10초  /  확인  3초  (고정)")
         lbl_cd_fixed.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         cdl.addWidget(lbl_cd_fixed)
 
@@ -1276,11 +1276,11 @@ class ConfigPanelMixin:
         cost  = rec.get('mean_cost')
         cpw   = rec.get('cost_per_win')
         cost_s = f"${cost/1e6:.1f}M" if cost else "—"
-        cpw_s  = f"${cpw/1e6:.1f}M" if cpw else "승리 없음"
+        cpw_s  = f"승리당 ${cpw/1e6:.1f}M" if cpw else "승리 없음 (승리당 비용 산출 불가)"
         lines = [
             f"승 {win:.0f}%   무 {draw:.0f}%   패 {loss:.0f}%",
             f"평균 임무점수 {score:.0f}%",
-            f"평균 비용 {cost_s}  ·  승리당 {cpw_s}",
+            f"평균 비용 {cost_s}  ·  {cpw_s}",
         ]
         if weather and weather != ref_weather:
             lines.append(f"※ {ref_weather} 기준 근사값")
@@ -1293,12 +1293,12 @@ class ConfigPanelMixin:
         cost  = est['cost']
         cost_s = f"${cost/1e6:.1f}M" if cost else "—"
         cpw    = (cost / est['win']) if est['win'] > 0 else None
-        cpw_s  = f"${cpw/1e6:.1f}M" if cpw else "승리 없음"
+        cpw_s  = f"승리당 ${cpw/1e6:.1f}M" if cpw else "승리 없음 (승리당 비용 산출 불가)"
         src = "직접 편성 · " if custom else ""
         lines = [
             f"승 {win:.0f}%   (무·패 {100 - win:.0f}%)",
             f"평균 임무점수 {score:.0f}%",
-            f"평균 비용 {cost_s}  ·  승리당 {cpw_s}",
+            f"평균 비용 {cost_s}  ·  {cpw_s}",
             f"※ {src}{weather} 반영 학습 모델 추정",
         ]
         self._prev_lbl_forecast.setText('\n'.join(lines))

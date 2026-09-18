@@ -110,7 +110,7 @@ _FEATURES = [
      "어느 것이 요격률에 가장 큰 영향을 주는지 수치로 계산. "
      "정밀 모드 전용. 포인트당 반복 수(기본 3회) 설정으로 확률 노이즈 감소 가능."),
     ("✅  전술 요구조건 자동 판정",
-     "한국 해군 전술 요구조건 8가지(응답 시간·요격률·함정 생존율 등)를 "
+     "한국 해군 전술 요구조건 7가지(응답 시간·요격률·함정 생존율 등)를 "
      "시뮬레이션 결과로 자동 통과/실패 판정. 어떤 조건이 미달인지 한눈에 확인."),
     ("📜  교전 기록 로그",
      "미사일 발사, 요격 성공/실패, 함정 피격 등 매 초 단위로 발생한 "
@@ -812,7 +812,7 @@ class SplashWindow(QWidget):
         v.addWidget(en, alignment=Qt.AlignmentFlag.AlignLeft)
         v.addSpacing(7)
 
-        desc = QLabel("한국 해군 이지스 기동전단 다층 방어 시뮬레이터")
+        desc = QLabel("해·공·육 합동 다층 방어 시뮬레이터")
         desc.setStyleSheet("color: #d6dee8; font-size: 16px;")
         v.addWidget(desc, alignment=Qt.AlignmentFlag.AlignLeft)
 

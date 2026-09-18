@@ -44,7 +44,7 @@ v7.0 패치 이력:
     - P-3C 오라이온: 포항기지 출격(+300km), Mk.46 4발, 소노부이 탐지+15km
     - P-8A 포세이돈: 포항기지 출격(+300km), Mk.46 5발, 소노부이 탐지+18km
   · 포팅 D: 분석 기능 — REQ 판정 + 날씨 비교 + A vs B + 저장/불러오기
-    - evaluate_req_v7(): REQ-01~08 8항목 시간스텝 기반 판정
+    - evaluate_req_v7(): REQ 7항목(REQ-03 결번) 시간스텝 기반 판정
     - scenario_comparison_v7(): 날씨 3종(맑음/흐림/폭풍) MC 비교
     - compare_ab_v7(): 두 cfg MC 결과 대비 (Δ요격률·Δ비용)
     - save_scenario_v7() / load_scenario_v7(): JSON 시나리오 저장/불러오기
@@ -134,6 +134,10 @@ STRAIT_SPREAD_DEG = 30.0  # 해협 입구 방위 확산각 (±30°)
 # 해협 폭 기준 회피 기동 패널티: 폭이 좁을수록 기동 공간 감소
 # 기준 200km(개방 해역) 대비 해협 폭 비율로 evade_r 스케일
 _STRAIT_OPEN_SEA_KM = 200.0
+
+# ── 보고서·차트 표제 (앱 이름 한 곳) ──────
+# 버전은 app_main.APP_VERSION 이 정본이라 여기서 중복하지 않는다.
+REPORT_TITLE = '합동 통합방어 시뮬레이터'
 
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
@@ -8157,7 +8161,7 @@ def _ax_style(ax, title: str):
 
 
 def plot_v7(result: dict, mc: dict, cfg: dict,
-            img_path: str = '이지스_기동전단_v7_분석.png') -> str:
+            img_path: str = '합동_통합방어_분석.png') -> str:
     """
     단일 시뮬 결과(result) + MC 통계(mc)를 6개 서브플롯으로 시각화.
     img_path에 저장 후 경로 반환.
@@ -8165,7 +8169,7 @@ def plot_v7(result: dict, mc: dict, cfg: dict,
     fig = _MplFigure(figsize=(16, 10), facecolor=_BG)
     _FigureCanvasAgg(fig)
     fig.suptitle(
-        f"이지스 기동전단 통합 방어 시뮬레이터 v7.0\n"
+        f"{REPORT_TITLE}\n"
         f"시나리오: {cfg.get('fleet_preset','?')} | "
         f"날씨: {cfg.get('weather','?')} | "
         f"MC {mc['n']}회",
@@ -8328,7 +8332,7 @@ def save_excel_report_v7(result: dict, mc: dict, cfg: dict,
     for col, w in zip('ABCDEF', [20, 20, 18, 18, 18, 18]):
         ws1.column_dimensions[col].width = w
 
-    title_row(ws1, 1, f'이지스 기동전단 v7.0 — MC {mc["n"]}회 통계 요약')
+    title_row(ws1, 1, f'{REPORT_TITLE} — MC {mc["n"]}회 통계 요약')
     hdr(ws1, 2, ['항목', '단일 시뮬', 'MC 평균', 'MC 표준편차', 'MC 최솟값', 'MC 최댓값'])
 
     rows = [
@@ -8604,7 +8608,7 @@ if __name__ == '__main__':
     MC_N = int(sys.argv[2]) if len(sys.argv) > 2 else 200
 
     print("=" * 66)
-    print(f"  이지스 기동전단 통합 방어 시뮬레이터 v7.0  [시나리오: {scenario}]")
+    print(f"  {REPORT_TITLE}  [시나리오: {scenario}]")
     print("=" * 66)
 
     result = run_v7_simulation(cfg)
