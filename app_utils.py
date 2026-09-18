@@ -485,7 +485,28 @@ def _write_sim_log(cfg: dict, result: dict, mc: dict):
     _save_json_log(records)
 
 
-_SIM_MODE_NAMES = {0: '빠름', 1: '표준', 2: '정밀'}
+# ── 정밀도 모드 → 반복 횟수 (한 곳 정본) ────────────────────────────────────
+# 한 번의 실행이 도는 시뮬 총량 = mc + lhs + stress_cell × 12셀.
+# 2026-09-19 실측: 단발 1회 1.69초, 8코어 병렬 ≈ 0.21초/시뮬.
+#   빠름 660회 ≈ 2분 · 표준 2,600회 ≈ 9분 · 정밀 18,000회 ≈ 63분.
+# 이전 값(MC 5,000/10,000/100,000)은 표준 1.1시간·정밀 8.6시간이라
+# 반복 질의가 본질인 트레이드 스터디에서 쓸 수 없었다. 요격률 표준편차
+# ±3.6%p 기준 수렴에는 500~1,000회면 충분하다는 실측이 근거.
+SIM_MODE_PRESETS = [
+    {'name': '빠름', 'icon': '⚡', 'mc':    200, 'lhs':   100, 'stress_cell':  30, 'sobol_n': 0},
+    {'name': '표준', 'icon': '📊', 'mc':  1_000, 'lhs':   400, 'stress_cell': 100, 'sobol_n': 0},
+    # sobol_n = Saltelli 기저 표본. 총 시뮬 ≈ 8 × sobol_n × 포인트당 반복.
+    # 4,096(이전)은 포인트당 3회에서 98,304회 = 5.8시간이라 정밀 모드를 사실상
+    # 못 쓰게 만들었다. 민감도는 순위만 읽으므로 512로 줄인다(12,288회 ≈ 43분).
+    {'name': '정밀', 'icon': '🔬', 'mc': 10_000, 'lhs': 2_000, 'stress_cell': 500, 'sobol_n': 512},
+]
+
+_SIM_MODE_NAMES = {i: p['name'] for i, p in enumerate(SIM_MODE_PRESETS)}
+
+
+def sim_mode_preset(idx: int) -> dict:
+    """정밀도 모드 인덱스 → 프리셋(범위를 벗어나면 표준)."""
+    return SIM_MODE_PRESETS[idx] if 0 <= idx < len(SIM_MODE_PRESETS) else SIM_MODE_PRESETS[1]
 
 
 def _db_path() -> str:

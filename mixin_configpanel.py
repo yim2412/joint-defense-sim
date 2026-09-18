@@ -25,7 +25,7 @@ from app_engine import (
 from app_theme import (
     C_ACCENT, C_BG, C_BORDER, C_PANEL, C_RED, C_SUBTEXT, C_TEXT, _wire_chk_color,
 )
-from app_utils import _load_app_state
+from app_utils import _load_app_state, SIM_MODE_PRESETS
 from scenarios import SCENARIO_LIBRARY
 from ui_dialogs import FleetCustomDialog
 from ui_widgets import (
@@ -801,7 +801,8 @@ class ConfigPanelMixin:
         lbl_mode = QLabel("정밀도:")
         lbl_mode.setStyleSheet(f"color:{C_SUBTEXT}; font-size:13px;")
         self.cmb_sim_mode = NoScrollComboBox()
-        self.cmb_sim_mode.addItems(["⚡ 빠름  (5,000회)", "📊 표준  (10,000회)", "🔬 정밀  (100,000회)"])
+        self.cmb_sim_mode.addItems([f"{p['icon']} {p['name']}  ({p['mc']:,}회)"
+                                    for p in SIM_MODE_PRESETS])
         self.cmb_sim_mode.setCurrentIndex(1)
         self.cmb_sim_mode.setFixedHeight(32)
         self.cmb_sim_mode.setStyleSheet(f"""

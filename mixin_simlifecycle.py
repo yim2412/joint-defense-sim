@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from app_theme import C_BG, C_BORDER, C_PANEL, C_SUBTEXT, C_TEXT
 from app_utils import (
     _crash_log_path, _kill_child_processes, _load_forecast_model, _load_surrogate,
-    _shutdown_global_pool, _write_log, _write_sim_db, _write_sim_log,
+    _shutdown_global_pool, sim_mode_preset, _write_log, _write_sim_db, _write_sim_log,
 )
 from app_workers import SimWorker, _stop_sys_data_worker
 from ui_charts import _apply_window_geometry
@@ -243,7 +243,7 @@ class SimLifecycleMixin:
     def _run_sim(self):
         cfg = self._build_cfg_from_ui()
         mode_idx = self.cmb_sim_mode.currentIndex() if hasattr(self, 'cmb_sim_mode') else 1
-        mc_n = [5_000, 10_000, 100_000][mode_idx]
+        mc_n = sim_mode_preset(mode_idx)['mc']
         precision_mode = (mode_idx == 2)
         sobol_npp = self.spn_sobol_npp.value() if hasattr(self, 'spn_sobol_npp') else 3
         test_mode = hasattr(self, 'chk_test_mode') and self.chk_test_mode.isChecked()

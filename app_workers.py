@@ -20,7 +20,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 import app_utils
 from app_utils import (_get_gpu_info, _get_cpu_temp, _pool_map, _set_pool_priority,
-                       _res, _PERF_HISTORY, _SYS_CACHE)
+                       _res, sim_mode_preset, _PERF_HISTORY, _SYS_CACHE)
 from app_engine import (
     _V7_OK, run_v7_simulation, run_battle_simulation, monte_carlo_v7, monte_carlo_lhs,
     _mc_batch_worker, recommend_fleet_v7, stress_test_grid, sobol_analysis, compute_cvar,
@@ -426,13 +426,12 @@ class SimWorker(QThread):
                     mc['cvar'] = 0.0
 
             # ── LHS 파라미터 불확실성 분석 (중간 규모, 병렬 MC와 별개) ────────
-            # 빠름=1,000  표준=2,000  정밀=10,000
+            # 횟수 정본은 app_utils.SIM_MODE_PRESETS (모드 인덱스로 조회)
             lhs_result = {}
             if _V7_OK:
                 if self.isInterruptionRequested():
                     raise _SimCancelled()
-                lhs_n_map  = {5_000: 1_000, 10_000: 2_000, 100_000: 10_000}
-                lhs_n      = 10 if self.test_mode else lhs_n_map.get(self.mc_n, 2_000)
+                lhs_n = 10 if self.test_mode else sim_mode_preset(self.sim_mode_idx)['lhs']
                 self.progress.emit(f"LHS 파라미터 불확실성 분석 중... ({lhs_n:,}회)")
                 lhs_t0 = time.time()
 
@@ -456,8 +455,8 @@ class SimWorker(QThread):
             if _V7_OK:
                 if self.isInterruptionRequested():
                     raise _SimCancelled()
-                n_cell_map = {5_000: 300, 10_000: 500, 100_000: 3_000}
-                n_per_cell = 3 if self.test_mode else n_cell_map.get(self.mc_n, 500)
+                n_per_cell = (3 if self.test_mode
+                              else sim_mode_preset(self.sim_mode_idx)['stress_cell'])
                 total_stress = len(STRESS_DIMS['channel_degrade']['values']) * \
                                len(STRESS_DIMS['radar_degrade']['values'])
                 self.progress.emit(f"스트레스 테스트 중... (셀당 {n_per_cell}회, 총 {total_stress}셀)")
@@ -480,7 +479,8 @@ class SimWorker(QThread):
             sobol_result = {}
             if _V7_OK and self.precision_mode:
                 npp        = self.sobol_npp
-                total_est  = 32_768 * npp
+                sobol_n    = sim_mode_preset(self.sim_mode_idx)['sobol_n'] or 512
+                total_est  = 8 * sobol_n * npp
                 self.progress.emit(
                     f"Sobol 민감도 분석 중... (포인트당 {npp}회, 총 ~{total_est:,}회, 수 분 소요)")
                 sobol_t0 = time.time()
@@ -497,7 +497,7 @@ class SimWorker(QThread):
 
                 try:
                     sobol_result = sobol_analysis(
-                        self.cfg, n_sobol=4096, n_per_point=npp,
+                        self.cfg, n_sobol=sobol_n, n_per_point=npp,
                         progress_cb=_sobol_cb, map_fn=_pool_map)   # 글로벌 풀 8코어 병렬
                 except _SimCancelled:
                     raise   # v13.06.04: 중단은 삼키지 말고 전파
