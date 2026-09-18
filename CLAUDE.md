@@ -35,6 +35,8 @@
 | `app_launcher.py` | 런처 진입 화면(`SplashWindow`·`SpecSheetPanel`·`_RoundPhoto`·`_HomeBg`). 의존은 PyQt6·app_theme·app_utils·app_engine·ui_charts뿐. `APP_VERSION`은 app_main 순환을 피하려고 `SplashWindow(app_version)` 생성자 인자로 주입(app_main의 `SplashWindow(APP_VERSION)` 호출부가 값을 넘김) |
 | `mixin_simlifecycle.py` | `MainWindow` mixin — 실행 제어(`__init__`·`_build_ui`·`_run_sim`·`_on_finished`·`_on_error`·`closeEvent` 등). `app_version` 생성자 인자로 `APP_VERSION` 주입(app_launcher와 동일 패턴). 의존은 PyQt6·app_theme·app_utils·app_workers·ui_charts·ui_dialogs·ui_widgets·ui_monitor뿐 |
 | `mixin_configpanel.py` | `MainWindow` mixin — 설정 패널(`_build_config_panel`·`_restore_cfg`·`_build_cfg_from_ui`·시나리오/편대/툴팁/예보). 의존은 PyQt6·matplotlib·numpy·app_theme·app_utils·app_engine·ui_dialogs·ui_widgets·scenarios뿐 |
+| `mixin_configpanel2.py` | `MainWindow` mixin — 설정 패널 보조 1(환경 세부 옵션·방어전술·공격임무·BMD). `mixin_configpanel` 분량 초과로 분리 |
+| `mixin_configpanel3.py` | `MainWindow` mixin — 설정 패널 보조 2(cfg 복원·시나리오 미리보기). `mixin_configpanel` 분량 초과로 분리 |
 | `mixin_showcase.py` | `MainWindow` mixin — 쇼케이스 탭·퀵스타트 배너. 의존은 PyQt6·app_theme·app_utils·app_workers·scenarios뿐 |
 | `mixin_resultpanel.py` | `MainWindow` mixin — 결과 탭 렌더(REQ·상태보드·로그·카드·등급·캠페인 보고). 의존은 PyQt6·matplotlib·app_theme·app_utils·app_engine·ui_charts·ui_widgets뿐 |
 | `mixin_optimize.py` | `MainWindow` mixin — 적정 편대 추천 최적화·토글 영향도(counterfactual) 분석. 의존은 PyQt6·app_theme·app_workers·ui_charts뿐 |
@@ -400,8 +402,8 @@ v12.06.01: [변경 내용 한 줄 요약]
    python _build_progress.py <로그경로> --watch --build --interval 45
 
    # json/db_specsheet만 변경 시 — 복사만
-   Copy-Item app_changelog.json "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
-   Copy-Item db_specsheet.py "dist\이지스_기동전단_시뮬레이터\_internal\" -Force
+   Copy-Item app_changelog.json "dist\합동_통합방어_시뮬레이터\_internal\" -Force
+   Copy-Item db_specsheet.py "dist\합동_통합방어_시뮬레이터\_internal\" -Force
    ```
 
    > **★ 빌드 진행 보고 규칙 (`_build_progress.py` — 추측 금지)**

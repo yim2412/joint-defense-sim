@@ -34,7 +34,8 @@ a = Analysis(
         ('db_ocean_acoustic.py',   '.'),
         ('db_ocean_environment.py','.'),
         ('db_terrain.py',          '.'),
-        ('db_ground_threat.py',         '.'),
+        # db_ground_threat.py는 import 참조가 0이라 번들에서 제외한다(v21.07.15).
+        # 소스는 유지 — 지상 위협 확장 때 쓰려고 남겨둔 자료다.
         ('assets/images',          'assets/images'),
         ('view_cesium_3d.html',       '.'),
     ] + _sklearn_datas,

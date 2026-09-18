@@ -82,7 +82,7 @@ python app_main.py
 python -m PyInstaller app_main.spec --noconfirm
 ```
 
-빌드 결과물은 `dist/이지스_기동전단_시뮬레이터/` 폴더에 생성됩니다.
+빌드 결과물은 `dist/합동_통합방어_시뮬레이터/` 폴더에 생성됩니다.
 
 ---
 
@@ -307,7 +307,7 @@ python app_main.py
 python -m PyInstaller app_main.spec --noconfirm
 ```
 
-Build output is generated under `dist/이지스_기동전단_시뮬레이터/`.
+Build output is generated under `dist/합동_통합방어_시뮬레이터/`.
 
 ### Requirements
 
