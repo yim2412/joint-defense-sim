@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app_engine import (
-    REQ_ITEMS_V7, _V7_OK, diagnose_vulnerabilities_v7, evaluate_req_battle_v7,
-    evaluate_req_v7, generate_briefing,
+    AIRCRAFT_SPECS, REQ_ITEMS_V7, _V7_OK, diagnose_vulnerabilities_v7,
+    evaluate_req_battle_v7, evaluate_req_v7, generate_briefing,
 )
 from app_theme import (
     C_ACCENT, C_BG, C_BORDER, C_ORANGE, C_PANEL, C_RED, C_SUBTEXT, C_TEXT,
@@ -1036,8 +1036,11 @@ class ResultPanelMixin:
         self._cards['enemy_dest'].setText(str(result['enemy_ships_destroyed']))
         # 비용은 백만 달러($M) 단위로 표기 — 자릿수 긴 원달러 대신 보고서 관례에 맞춤
         self._cards['cost'].setText(f"${result['total_cost'] / 1_000_000:.1f}M")
+        # 출격 0회(편성했으나 출격 안 함)와 항공 자산 미편성(—)을 구분한다.
         sorties = result.get('aircraft_sorties', 0)
-        self._cards['aircraft'].setText(f"{sorties}회" if sorties else "—")
+        _cfg = self._worker.cfg if self._worker else {}
+        _has_air = any(_cfg.get(k, False) for k, _p, _d in AIRCRAFT_SPECS)
+        self._cards['aircraft'].setText(f"{sorties}회" if _has_air else "—")
         # 이전 실행 대비 변화량(delta) 표시 — 직전 기록과 비교
         self._update_card_deltas(result, mc)
         # 결과 해석 배너 — "이 숫자가 좋은가?"에 등급+한 줄로 답

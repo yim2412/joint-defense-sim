@@ -843,7 +843,8 @@ class EngagementAnalysisTab(QWidget):
             cells = [
                 ev.label,
                 ev.enemy_info.get('type', '?'),
-                f"{ev.detect_m / 1000:.0f}",
+                # 탐지거리 0 = 대공 레이더 탐지 경로를 지나지 않은 위협(어뢰 등) → '—'
+                f"{ev.detect_m / 1000:.0f}" if ev.detect_m else '—',
                 result_str,
                 ev.intercept_weapon or '—',
                 f"{ev.intercept_km:.1f}" if ev.intercept_km else '—',

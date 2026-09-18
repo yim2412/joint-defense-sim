@@ -26,7 +26,7 @@ _V7_ERR = ''
 try:
     from engine_combat import (
         run_v7_simulation, run_battle_simulation, monte_carlo_v7, plot_v7, save_excel_report_v7,
-        build_czml, BATTLE_HORIZON_S,
+        build_czml, BATTLE_HORIZON_S, AIRCRAFT_SPECS,
         FLEET_PRESETS as V7_FLEET_PRESETS,
         ENEMY_DB as V7_ENEMY_DB,
         WEATHER_DB,

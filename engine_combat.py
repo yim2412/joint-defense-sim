@@ -139,6 +139,36 @@ _STRAIT_OPEN_SEA_KM = 200.0
 # 버전은 app_main.APP_VERSION 이 정본이라 여기서 중복하지 않는다.
 REPORT_TITLE = '합동 통합방어 시뮬레이터'
 
+
+def _strike_threat_info(name: str, is_torpedo: bool, launcher: dict) -> dict:
+    """표시 전용: 플랫폼이 발사한 공격 미사일의 위협 유형 정보.
+
+    독립 미사일 위협(DF-17 등)은 ENEMY_DB 원본을 그대로 싣지만, 함정·항공기·
+    잠수함이 쏜 미사일은 ENEMY_DB 항목이 없어(대부분 P-800만 등재) 위협 추적표
+    '유형' 컬럼이 전부 '?' 였다. 엔진 판정에는 쓰지 않는다 — 표시 전용이라 회귀 무영향.
+    """
+    if is_torpedo:
+        return {'type': '어뢰', 'launcher': launcher.get('name', '')}
+    src = ENEMY_DB.get(name)
+    if src:
+        return dict(src)
+    return {'type': '대함미사일', 'launcher': launcher.get('name', '')}
+
+# ── 아군 항공 자산 편성 목록 (플래그·프리셋키·기본기체) ────────────────────
+# 한 곳 정본: _build_aircraft 가 이 순서대로 편성하고, 결과 화면은 같은 목록으로
+# "출격 0회"와 "항공 자산 미편성(—)"을 구분한다.
+AIRCRAFT_SPECS = [
+    ('enable_helo',  'helo_preset',  'AW-159 와일드캣'),
+    ('enable_p3c',   'p3c_preset',   'P-3C 오라이온'),
+    ('enable_p8a',   'p8a_preset',   'P-8A 포세이돈'),
+    # v10.5: 한국 공군 CAP
+    ('enable_f35a',  'f35a_preset',  'F-35A 라이트닝 II'),
+    ('enable_kf21',  'kf21_preset',  'KF-21 보라매'),
+    ('enable_fa50',  'fa50_preset',  'FA-50 파이팅이글'),
+    # v16.12: 아군 무인 정찰 드론 (ISR 전용)
+    ('enable_recon_drone', 'recon_preset', 'MQ-9B 시가디언'),
+]
+
 # ── 시뮬레이션 상수 ──────────────────────────────────────────────────────────
 DT               = 1.0    # 시간 스텝 (초)
 MAX_SIM_TIME     = 3600   # 최대 시뮬 시간 (초) — 해성 250m/s 기준 250km = 1000초 충분
@@ -2149,17 +2179,7 @@ class TimeStepEngine:
         """포팅 C: enable_helo / enable_p3c / enable_p8a + v10.5 CAP 항공기."""
         aircraft = []
         primary_pos = self._primary().pos
-        for en_key, preset_key, default in [
-            ('enable_helo',  'helo_preset',  'AW-159 와일드캣'),
-            ('enable_p3c',   'p3c_preset',   'P-3C 오라이온'),
-            ('enable_p8a',   'p8a_preset',   'P-8A 포세이돈'),
-            # v10.5: 한국 공군 CAP
-            ('enable_f35a',  'f35a_preset',  'F-35A 라이트닝 II'),
-            ('enable_kf21',  'kf21_preset',  'KF-21 보라매'),
-            ('enable_fa50',  'fa50_preset',  'FA-50 파이팅이글'),
-            # v16.12: 아군 무인 정찰 드론 (ISR 전용)
-            ('enable_recon_drone', 'recon_preset', 'MQ-9B 시가디언'),
-        ]:
+        for en_key, preset_key, default in AIRCRAFT_SPECS:
             if not self.cfg.get(en_key, False):
                 continue
             name = self.cfg.get(preset_key, default)
@@ -3072,6 +3092,8 @@ class TimeStepEngine:
                     _ev = max(0.2, _ev * 0.6)
                 _m.terminal_evasion_factor = _ev
                 _m.is_torpedo = _is_torp
+                if not self._mc_mode:   # 표시 전용(위협 추적표 '유형') — 엔진 판정 미사용
+                    _m.enemy_info = _strike_threat_info(m_name, _is_torp, et.info)
                 self.missiles.append(_m)
 
             et.has_fired = True
@@ -3117,6 +3139,8 @@ class TimeStepEngine:
                         )
                         _dm.terminal_evasion_factor = 0.87  # 해성-3: 스텔스 저고도 순항
                         _dm.is_torpedo = False
+                        if not self._mc_mode:
+                            _dm.enemy_info = _strike_threat_info(d_name, False, et.info)
                         self.missiles.append(_dm)
                     self.stats['total_threats'] += d_salvo
                     self._log(
@@ -3690,6 +3714,10 @@ class TimeStepEngine:
             # 1단계: 수색 레이더 탐지 확정 (SPY-1D 빔 회전 0~6초 지연)
             if not self.search_radar.try_detect(m.uid, self.t, radar_off=is_radar_off):
                 continue
+            # 표시 전용: 최초 탐지가 확정된 그 순간의 기함 기준 거리 = '탐지거리' 컬럼.
+            # 스폰 거리(_init_dist)가 아니라 실제 포착 거리다. 엔진 판정 미사용 → 회귀 무영향.
+            if not self._mc_mode and not m.detect_m:
+                m.detect_m = primary_ship.pos.dist_to(m.pos)
             # 2단계: 추적 채널 획득 (18채널 한계 + 3초 획득 지연)
             if not self.track_radar.try_track(m.uid, self.t):
                 continue
