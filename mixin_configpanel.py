@@ -55,7 +55,7 @@ class ConfigPanelMixin:
         nav_l.addStretch()
         btn_quickstart = QPushButton("🚀  추천 시나리오")
         btn_quickstart.setToolTip("처음 사용자를 위한 추천 상황 — 원클릭으로 함정·위협·해역·날씨를 일괄 설정")
-        btn_quickstart.setFixedHeight(26)
+        btn_quickstart.setFixedHeight(28)
         btn_quickstart.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_quickstart.setStyleSheet(
             f"QPushButton {{ background:{C_ACCENT}; color:#0b1220; border:none;"
@@ -66,7 +66,7 @@ class ConfigPanelMixin:
         nav_l.addWidget(btn_quickstart)
         btn_showcase = QPushButton("🎬  실험적 기능 쇼케이스")
         btn_showcase.setToolTip("실험적 기능의 효과를 미리 정의된 시나리오로 확인 + ON/OFF 실측 비교")
-        btn_showcase.setFixedHeight(26)
+        btn_showcase.setFixedHeight(28)
         btn_showcase.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_showcase.setStyleSheet(
             f"QPushButton {{ background:#1f2d40; color:{C_ACCENT}; border:1px solid {C_BORDER};"
@@ -103,10 +103,10 @@ class ConfigPanelMixin:
             cl.setSpacing(0)
 
             hdr = QLabel(f"  {lbl_txt}")
-            hdr.setFixedHeight(26)
+            hdr.setFixedHeight(28)
             hdr.setStyleSheet(
                 f"background:#1a2332; color:{C_ACCENT}; "
-                f"font-size:11px; font-weight:bold; letter-spacing:1px; "
+                f"font-size:12px; font-weight:bold; letter-spacing:1px; "
                 f"border-bottom:1px solid {C_BORDER};")
             cl.addWidget(hdr)
 
@@ -114,7 +114,8 @@ class ConfigPanelMixin:
             holder = QWidget()
             holder.setStyleSheet(f"background:{C_PANEL};")
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(6, 6, 6, 6)
+            # 우측 18px = 세로 스크롤바 자리. 6px면 스크롤바가 글자 끝을 덮었다.
+            hl.setContentsMargins(6, 6, 18, 6)
             hl.setSpacing(4)
             hl.addStretch()
 
@@ -164,7 +165,7 @@ class ConfigPanelMixin:
             inner = QWidget()
             inner.setStyleSheet(f"background:{C_BG};")
             il = QVBoxLayout(inner)
-            il.setContentsMargins(6, 6, 6, 6)
+            il.setContentsMargins(6, 6, 18, 6)
             il.setSpacing(4)
             il.addStretch()
             self._setup_col_pages.append(inner)
@@ -288,7 +289,7 @@ class ConfigPanelMixin:
             return w, l
         def _sec_label(txt):
             l = QLabel(txt)
-            l.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-weight:bold;")
+            l.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-weight:bold;")
             return l
 
         # ── 아군 편대 — 2열 버튼 그리드 ─────────────────────────────────
@@ -308,7 +309,7 @@ class ConfigPanelMixin:
         _fleet_popup = _HoverPopup(self)
         for _i, _n in enumerate(_fleet_names):
             _b = QPushButton(_n); _b.setCheckable(True)
-            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(28)
             _tip = self._friendly_preset_tooltip(_n) if _V7_OK else ""
             _install_hover(_b, _tip, _fleet_popup)
             if _i == 0: _b.setChecked(True)
@@ -323,16 +324,16 @@ class ConfigPanelMixin:
 
         # ── v16.14.02: 직접 편성 진입 ────────────────────────────────────
         self._fleet_custom = None   # {type:count} 또는 None(=프리셋 모드)
-        _btn_custom = QPushButton("✏️ 직접 편성…"); _btn_custom.setFixedHeight(24)
+        _btn_custom = QPushButton("✏️ 직접 편성…"); _btn_custom.setFixedHeight(28)
         _btn_custom.setStyleSheet(
             f"QPushButton {{ background:transparent; color:{C_ACCENT}; border:1px dashed #30363d; "
-            f"border-radius:6px; font-size:11px; padding:2px; }} "
+            f"border-radius:6px; font-size:12px; padding:2px; }} "
             f"QPushButton:hover {{ border-color:{C_ACCENT}; }}")
         _btn_custom.clicked.connect(self._open_fleet_custom)
         _ffl.addWidget(_btn_custom)
         self._lbl_fleet_custom = QLabel("")
         self._lbl_fleet_custom.setStyleSheet(
-            f"color:{C_ACCENT}; font-size:11px; font-weight:bold;")
+            f"color:{C_ACCENT}; font-size:12px; font-weight:bold;")
         self._lbl_fleet_custom.hide()
         _ffl.addWidget(self._lbl_fleet_custom)
         self._fleet_btn_group = _fleet_bg
@@ -429,7 +430,7 @@ class ConfigPanelMixin:
         _wx_popup = _HoverPopup(self)
         for _i, _wn in enumerate(_wx_names):
             _b = QPushButton(_WX_SHORT.get(_wn, _wn)); _b.setCheckable(True)
-            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(28)
             _install_hover(_b, _wx_popup_texts.get(_wn, ''), _wx_popup)
             if _i == 0: _b.setChecked(True)
             _wx_bg.addButton(_b, _i)
@@ -578,7 +579,7 @@ class ConfigPanelMixin:
         _sc_popup = _HoverPopup(self)
         # "선택 안 함" 버튼
         _b0 = QPushButton('— 선택 안 함 —'); _b0.setCheckable(True); _b0.setChecked(True)
-        _b0.setStyleSheet(_TOG_SS); _b0.setFixedHeight(26)
+        _b0.setStyleSheet(_TOG_SS); _b0.setFixedHeight(28)
         _install_hover(_b0, '시나리오 없이 수동 설정 사용', _sc_popup)
         _sc_bg.addButton(_b0, 0)
         _sgl.addWidget(_b0, 0, 0, 1, 2)
@@ -586,7 +587,7 @@ class ConfigPanelMixin:
             _sc_d = SCENARIO_LIBRARY[_sn]
             _tip = f"{_sc_d.get('desc','')}\n\n권장: {_sc_d.get('recommend','')}"
             _b = QPushButton(_sn); _b.setCheckable(True)
-            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(28)
             _install_hover(_b, _tip, _sc_popup)
             _sc_bg.addButton(_b, _i + 1)
             _sgl.addWidget(_b, (_i // 2) + 1, _i % 2)
@@ -632,7 +633,7 @@ class ConfigPanelMixin:
         _ep_popup = _HoverPopup(self)
         for _i, _en in enumerate(_ep_names):
             _b = QPushButton(_en); _b.setCheckable(True)
-            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(28)
             _tip = self._enemy_preset_tooltip(_en) if _V7_OK else ""
             _install_hover(_b, _tip, _ep_popup)
             if _i == 0: _b.setChecked(True)
@@ -664,7 +665,7 @@ class ConfigPanelMixin:
         _mx_popup = _HoverPopup(self)
         for _i, _mn in enumerate(_mx_names):
             _b = QPushButton(_MX_SHORT.get(_mn, _mn)); _b.setCheckable(True)
-            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(26)
+            _b.setStyleSheet(_TOG_SS); _b.setFixedHeight(28)
             if _V7_OK:
                 _sc = V7_MIXED_SCENARIOS[_mn]
                 _mx_desc = _sc.get('description', '')
@@ -712,12 +713,12 @@ class ConfigPanelMixin:
         _fcl = QVBoxLayout(self._forecast_card)
         _fcl.setContentsMargins(8, 4, 8, 6); _fcl.setSpacing(3)
         _ft = QLabel("📊  예상 전황 (참고)")
-        _ft.setStyleSheet(f"color:{C_ACCENT}; font-size:10px; font-weight:bold;")
+        _ft.setStyleSheet(f"color:{C_ACCENT}; font-size:12px; font-weight:bold;")
         _fcl.addWidget(_ft)
         self._prev_lbl_forecast = QLabel("—")
         self._prev_lbl_forecast.setWordWrap(True)
         self._prev_lbl_forecast.setStyleSheet(
-            f"color:{C_TEXT}; font-size:11px; line-height:150%;")
+            f"color:{C_TEXT}; font-size:12px; line-height:150%;")
         _fcl.addWidget(self._prev_lbl_forecast)
         el.addWidget(self._forecast_card)
         if self._surrogate is None:
@@ -843,16 +844,18 @@ class ConfigPanelMixin:
 
         def _update_sobol_total():
             npp = self.spn_sobol_npp.value()
-            total = 32_768 * npp
+            # 총 시뮬 = 8 × 기저 표본 × 포인트당 반복 (표본은 정밀도 프리셋에서)
+            total = 8 * (SIM_MODE_PRESETS[2]['sobol_n'] or 512) * npp
             self._lbl_sobol_total.setText(f"(총 ~{total:,}회)")
 
         def _update_mode_hint(idx):
-            hints = [
-                "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 300회)",
-                "LHS 샘플링  •  CVaR 분석  •  스트레스 테스트 (셀당 500회)",
-                "LHS 샘플링  •  CVaR  •  스트레스 (셀당 3,000회)  •  Sobol 민감도",
-            ]
-            lbl_mode_hint.setText(hints[idx])
+            # 횟수는 하드코딩하지 않는다 — 프리셋을 바꿨을 때 라벨만 stale로 남았었다
+            _p = SIM_MODE_PRESETS[idx] if 0 <= idx < len(SIM_MODE_PRESETS) else SIM_MODE_PRESETS[1]
+            _hint = (f"LHS {_p['lhs']:,}회  •  CVaR 분석  •  "
+                     f"스트레스 테스트 (셀당 {_p['stress_cell']:,}회)")
+            if _p['sobol_n']:
+                _hint += "  •  Sobol 민감도"
+            lbl_mode_hint.setText(_hint)
             is_precision = (idx == 2)
             # Sobol 반복은 정밀 모드 전용 — 표준·빠름에선 행 전체 숨김
             self.spn_sobol_npp.setEnabled(is_precision)
@@ -888,7 +891,7 @@ class ConfigPanelMixin:
         mcl.addWidget(self.chk_test_mode)
 
         self.btn_run = QPushButton("🚀  시뮬레이션 실행")
-        self.btn_run.setFixedHeight(36)
+        self.btn_run.setFixedHeight(44)   # 이모지+13pt 라벨의 권장 높이(43px)를 담는다
         self.btn_run.setFont(QFont('Malgun Gothic', 13))
         self.btn_run.setStyleSheet(
             f"QPushButton{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
@@ -910,7 +913,7 @@ class ConfigPanelMixin:
         self.btn_save_scenario = QPushButton("💾 시나리오 저장")
         self.btn_load_scenario = QPushButton("📂 시나리오 불러오기")
         for _b in (self.btn_save_scenario, self.btn_load_scenario):
-            _b.setFixedHeight(26)
+            _b.setFixedHeight(34)   # 28px는 이모지 라벨(권장 45px)이 세로로 잘렸다
             _b.setFont(QFont('Malgun Gothic', 10))
             _b.setStyleSheet(
                 f"QPushButton{{background:{C_PANEL};color:{C_TEXT};"
@@ -1357,7 +1360,6 @@ class ConfigPanelMixin:
             'enable_terrain':    self.chk_terrain.isChecked(),
             'enable_current':    self.chk_current.isChecked(),
             'enable_evap_duct':  self.chk_evap_duct.isChecked(),
-            'enable_anti_sam':   self.chk_anti_sam.isChecked(),
             'enable_isa':        self.chk_isa.isChecked(),
             'enable_png':        self.chk_png.isChecked(),   # v12.1: 비례항법 종말 유도
             'enable_sonar_equation': self.chk_sonar_eq.isChecked(),  # v12.3: dB 소나 방정식

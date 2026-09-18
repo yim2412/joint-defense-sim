@@ -45,7 +45,7 @@ class FleetCustomDialog(QDialog):
         hint = QLabel("함정을 골라 담고 척수를 지정하세요. "
                       "무기 재고는 설정 화면의 재고값을 함정마다 적용합니다.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         root.addWidget(hint)
 
         # ── 함정 추가 행 ────────────────────────────────────────────────
@@ -70,14 +70,14 @@ class FleetCustomDialog(QDialog):
 
         # ── 현재 편성 리스트 (동적) ─────────────────────────────────────
         lbl = QLabel("현재 편성")
-        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-weight:bold;")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-weight:bold;")
         root.addWidget(lbl)
         self._list_w = QWidget(); self._list_l = QVBoxLayout(self._list_w)
         self._list_l.setContentsMargins(0, 0, 0, 0); self._list_l.setSpacing(3)
         root.addWidget(self._list_w)
 
         self._empty_lbl = QLabel("(비어 있음 — 최소 1척을 담아야 확정할 수 있습니다)")
-        self._empty_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        self._empty_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         root.addWidget(self._empty_lbl)
         root.addStretch()
 

@@ -636,7 +636,7 @@ class AccordionSidebar(QWidget):
         hdr_h.setSpacing(4)
 
         arrow = QLabel("▾")
-        arrow.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        arrow.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         arrow.setFixedWidth(12)
 
         title_lbl = QLabel(f"{icon}  {name}")
@@ -644,7 +644,7 @@ class AccordionSidebar(QWidget):
             f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:8px 0;")
 
         badge = QLabel("●")
-        badge.setStyleSheet("color:#3498db; font-size:9px;")
+        badge.setStyleSheet("color:#3498db; font-size:12px;")
         badge.setVisible(False)
 
         hdr_h.addWidget(arrow)

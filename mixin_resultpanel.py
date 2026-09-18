@@ -140,7 +140,7 @@ class ResultPanelMixin:
             # 이전 실행 대비 변화량 (delta) — 첫 실행 시 빈칸
             dl = QLabel("")
             dl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
             cl.addWidget(dl)
             card_layout.addWidget(card)
             self._cards[key] = lbl
@@ -165,14 +165,14 @@ class ResultPanelMixin:
         self._lbl_toggle_impact.setWordWrap(True)
         self._lbl_toggle_impact.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._lbl_toggle_impact.setStyleSheet(f"font-size:11px; padding:2px 14px;")
+        self._lbl_toggle_impact.setStyleSheet(f"font-size:12px; padding:2px 14px;")
         self._lbl_toggle_impact.setVisible(False)
         layout.addWidget(self._lbl_toggle_impact)
 
         # 실행 설정 요약 — 어떤 시나리오·날씨·MC로 돌렸는지 한눈에
         self._lbl_run_summary = QLabel("")
         self._lbl_run_summary.setStyleSheet(
-            f"color:{C_SUBTEXT}; font-size:11px; padding:1px 14px;")
+            f"color:{C_SUBTEXT}; font-size:12px; padding:1px 14px;")
         self._lbl_run_summary.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._lbl_run_summary)
@@ -180,7 +180,7 @@ class ResultPanelMixin:
         # 침수·IFF 사고 요약 (관련 수치 있을 때만 표시)
         self._lbl_flood_iff = QLabel("")
         self._lbl_flood_iff.setStyleSheet(
-            f"color:#d98880; font-size:11px; padding:0 14px 2px;")
+            f"color:#d98880; font-size:12px; padding:0 14px 2px;")
         self._lbl_flood_iff.setVisible(False)
         layout.addWidget(self._lbl_flood_iff)
 
@@ -193,12 +193,12 @@ class ResultPanelMixin:
         lbl_pk_note = QLabel(
             "⚠  Pk 수치는 공개 자료 기반 추정값 (±15~20%) — 실측 데이터 아님")
         lbl_pk_note.setStyleSheet(
-            f"color:#e67e22; font-size:11px;")
+            f"color:#e67e22; font-size:12px;")
         notice_rl.addWidget(lbl_pk_note)
 
         self._lbl_vls_warn = QLabel("")
         self._lbl_vls_warn.setStyleSheet(
-            f"color:{C_RED}; font-size:11px; font-weight:bold;")
+            f"color:{C_RED}; font-size:12px; font-weight:bold;")
         notice_rl.addWidget(self._lbl_vls_warn)
         notice_rl.addStretch()
 
@@ -475,7 +475,7 @@ class ResultPanelMixin:
         hdr.setStyleSheet(f"color:{C_TEXT}; font-size:13px; font-weight:bold; padding:4px 0;")
         layout.addWidget(hdr)
         note = QLabel("  대표 단일 시뮬 기준. 무기 교체·편대 보강 판단의 즉시 근거로 활용하세요.")
-        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        note.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         layout.addWidget(note)
 
         grid_w = QWidget()
@@ -507,7 +507,7 @@ class ResultPanelMixin:
             sub = QLabel("")
             sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
             sub.setWordWrap(True)
-            sub.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+            sub.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
             cl.addWidget(sub)
             grid.addWidget(card, i // 2, i % 2)
             self._sb_cards[key] = val
@@ -896,7 +896,7 @@ class ResultPanelMixin:
             # 개선 제안
             if card.get('suggestion'):
                 sugg = QLabel(card['suggestion'])
-                sugg.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; border:none;")
+                sugg.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; border:none;")
                 sugg.setWordWrap(True)
                 fl.addWidget(sugg)
 
@@ -947,16 +947,16 @@ class ResultPanelMixin:
             self._lbl_vls_warn.setText(
                 f"🔴 VLS 소진 경고: {' · '.join(critical)}{dep_suffix}")
             self._lbl_vls_warn.setStyleSheet(
-                f"color:{C_RED}; font-size:11px; font-weight:bold;")
+                f"color:{C_RED}; font-size:12px; font-weight:bold;")
         elif caution:
             self._lbl_vls_warn.setText(
                 f"🟠 VLS 소진 주의: {' · '.join(caution)}{dep_suffix}")
             self._lbl_vls_warn.setStyleSheet(
-                f"color:{C_ORANGE}; font-size:11px; font-weight:bold;")
+                f"color:{C_ORANGE}; font-size:12px; font-weight:bold;")
         elif dep_suffix:
             self._lbl_vls_warn.setText(f"🟡{dep_suffix.strip()}")
             self._lbl_vls_warn.setStyleSheet(
-                f"color:{C_ORANGE}; font-size:11px;")
+                f"color:{C_ORANGE}; font-size:12px;")
         else:
             self._lbl_vls_warn.setText("")
     def _update_run_summary(self, cfg):
@@ -1135,13 +1135,13 @@ class ResultPanelMixin:
             d = cur - old
             if abs(d) < 1e-9:
                 dl.setText("± 0")
-                dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px;")
+                dl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
                 return
             arrow = "▲" if d > 0 else "▼"
             good  = (d > 0) == higher_is_good
             color = '#2ecc71' if good else '#e74c3c'
             dl.setText(f"{arrow} {d:+.1f}{unit} vs 직전")
-            dl.setStyleSheet(f"color:{color}; font-size:10px;")
+            dl.setStyleSheet(f"color:{color}; font-size:12px;")
 
         _fmt(deltas['intercept'], mc['mean_intercept'] * 100,
              prev.get('mean_intercept', 0) * 100, "%p", True)

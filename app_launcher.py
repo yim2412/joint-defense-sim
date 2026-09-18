@@ -759,7 +759,7 @@ class SplashWindow(QWidget):
         ver = QLabel(self._app_version)
         ver.setStyleSheet(f"color: {C_TEXT}; font-size: 13px; font-weight: bold;")
         dt = QLabel("2026.6  ·  PyQt6 네이티브 UI")
-        dt.setStyleSheet(f"color: {C_SUBTEXT}; font-size: 11px;")
+        dt.setStyleSheet(f"color: {C_SUBTEXT}; font-size:12px;")
         foot.addWidget(ver)
         foot.addWidget(dt)
         v.addLayout(foot)
@@ -1415,7 +1415,7 @@ class SplashWindow(QWidget):
             lbl = QLabel(f"  {cat}  ")
             lbl.setStyleSheet(
                 f"background:{bg}; color:{fg}; border-radius:3px;"
-                f" font-size:11px; padding:1px 4px;")
+                f" font-size:12px; padding:1px 4px;")
             legend.addWidget(lbl)
         legend.addStretch()
         mw = QWidget()
@@ -1437,7 +1437,7 @@ class SplashWindow(QWidget):
             "  ⚠  적 플랫폼별 Pk 수치는 공개 자료 기반 추정값입니다 (±15~20%). "
             "소수점 정밀도는 상대 비교를 위한 것이며 실측 데이터가 아닙니다.")
         pk_note.setStyleSheet(
-            f"color:#e67e22; font-size:11px; padding:3px 4px;")
+            f"color:#e67e22; font-size:12px; padding:3px 4px;")
         pk_note.setWordWrap(True)
         layout.addWidget(pk_note)
         return w
@@ -1498,7 +1498,7 @@ class SplashWindow(QWidget):
             lbl = QLabel(f"  {cat}  ")
             lbl.setStyleSheet(
                 f"background:{bg}; color:{fg}; border-radius:3px;"
-                f" font-size:11px; padding:1px 4px;")
+                f" font-size:12px; padding:1px 4px;")
             legend.addWidget(lbl)
         legend.addStretch()
 
@@ -1512,7 +1512,7 @@ class SplashWindow(QWidget):
         pk_note = QLabel(
             "  ⚠  Pk 수치는 공개 자료 기반 추정값입니다 (±15~20%). 실측 데이터가 아닙니다.")
         pk_note.setStyleSheet(
-            f"color:#e67e22; font-size:11px; padding:3px 4px;")
+            f"color:#e67e22; font-size:12px; padding:3px 4px;")
         lay.addWidget(pk_note)
         return w
 

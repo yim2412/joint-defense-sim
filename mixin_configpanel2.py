@@ -47,15 +47,10 @@ class ConfigPanelExtraMixin:
         )
         self.chk_evap_duct.setChecked(True)
 
-        self.chk_anti_sam = QCheckBox("적 Anti-SAM 방어 적용 (종결 — 발동 안 함)")
-        self.chk_anti_sam.setToolTip(
-            "적 함정이 접근하는 아군 SAM을 CIWS·SAM으로 요격하는 로직.\n"
-            "⚠ 종결: 아군 SAM은 대공 전용이라 적 함정을 조준하지 않습니다.\n"
-            "따라서 요격 대상(적 함정을 향하는 아군 SAM)이 발생하지 않아\n"
-            "이 옵션은 켜도 결과가 바뀌지 않습니다. 적 함정의 대함미사일\n"
-            "방어는 '적 자체방어(CIWS·채프)' 옵션이 담당합니다."
-        )
-        self.chk_anti_sam.setChecked(False)
+        # enable_anti_sam 체크박스는 제거했다(v21.07.10). 아군 SAM이 적 함정을
+        # 조준하는 경로가 엔진에 없어 켜도 결과가 바뀌지 않는 EFFECT_DEAD 종결
+        # 항목인데, 화면에는 켤 수 있는 선택지로 남아 라벨까지 잘리고 있었다.
+        # 엔진 코드(_enemy_anti_sam)는 짝 기능이 생기면 되살릴 수 있게 보존한다.
 
         self.chk_isa = QCheckBox("정밀 대기 모델 (ISA)")
         self.chk_isa.setToolTip(
@@ -207,7 +202,7 @@ class ConfigPanelExtraMixin:
         self.chk_strategic_strike.setChecked(False)
 
         # v21.2: 합동 화력 지원 — 육해공이 같은 적 기지를 협조 타격(캠페인 모드 하위)
-        self.chk_joint_fires = QCheckBox("합동 화력 지원 (육해공 협조 타격) (실험적)")
+        self.chk_joint_fires = QCheckBox("합동 화력 지원 (실험적)")
         self.chk_joint_fires.setToolTip(
             "적 항구·비행장을 공군 전략폭격기만이 아니라 해군 순항미사일(현무-3C·토마호크)과\n"
             "육군 지대지(현무-2)가 함께 협조 타격합니다.\n"
@@ -223,7 +218,7 @@ class ConfigPanelExtraMixin:
         self.chk_joint_fires.setChecked(False)
 
         # v21.4: 합동작전 통합 보고서 — 군별 기여도(반사실 분해)
-        self.chk_joint_report = QCheckBox("합동작전 통합 보고서 (군별 기여도) (실험적)")
+        self.chk_joint_report = QCheckBox("합동작전 통합 보고서 (실험적)")
         self.chk_joint_report.setToolTip(
             "각 군이 전역 결과에 얼마나 대체 불가능했는지를 분해해 보고합니다.\n"
             "전략폭격·지상 작전급을 각각 뺀 전역을 실제로 다시 돌려, 그 수단이 없었다면\n"
@@ -467,7 +462,7 @@ class ConfigPanelExtraMixin:
         self.cmb_region.currentTextChanged.connect(_on_region_changed)
         _on_region_changed(self.cmb_region.currentText())
 
-        for chk in [self.chk_terrain, self.chk_evap_duct, self.chk_anti_sam,
+        for chk in [self.chk_terrain, self.chk_evap_duct,
                     self.chk_isa, self.chk_png, self.chk_sonar_eq,
                     self.chk_flooding, self.chk_munition_limit, self.chk_wing_cap,
                     self.chk_weather_dyn, self.chk_iff,
@@ -487,7 +482,6 @@ class ConfigPanelExtraMixin:
 
         fl_env.addRow("",            self.chk_terrain)
         fl_env.addRow("",            self.chk_evap_duct)
-        fl_env.addRow("",            self.chk_anti_sam)
         fl_env.addRow("",            self.chk_isa)
         fl_env.addRow("",            self.chk_png)
         fl_env.addRow("",            self.chk_sonar_eq)

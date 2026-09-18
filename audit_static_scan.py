@@ -377,7 +377,9 @@ def chk_flag_consume_auto():
     ALWAYS_ON = {'enable_cec_preassign', 'enable_subsystem_damage', 'enable_decoy',
                  'enable_ecm', 'enable_evasion', 'enable_layered_defense',
                  'enable_random_placement', 'enable_selfdefense'}
-    hidden = sorted(consumed - built_any - ALWAYS_ON)
+    # EFFECT_DEAD(종결·발동 경로 없음)는 UI에서 내리는 것이 정답이라 숨은 플래그가 아니다.
+    # anti_sam이 그 사례 — 체크박스를 제거(v21.07.10)했고 엔진 코드만 보존한다.
+    hidden = sorted(consumed - built_any - ALWAYS_ON - EFFECT_DEAD)
     check('①', '숨은 플래그 없음(소비O·UI빌드X·화이트리스트X)', not hidden,
           f"엔진 소비하나 UI/화이트리스트 없음: {hidden}" if hidden else 'OK(상시ON은 화이트리스트로 명시)')
 

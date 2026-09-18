@@ -57,8 +57,6 @@ class ConfigPanelExtra2Mixin:
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
             self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
-        if hasattr(self, 'chk_anti_sam'):
-            self.chk_anti_sam.setChecked(cfg.get('enable_anti_sam', False))
         if hasattr(self, 'chk_isa'):
             self.chk_isa.setChecked(cfg.get('enable_isa', False))
         if hasattr(self, 'chk_png'):
@@ -275,7 +273,7 @@ class ConfigPanelExtra2Mixin:
         ]:
             ql = QLabel(line)
             ql.setWordWrap(True)
-            ql.setStyleSheet(f"color:#4caf50; font-size:11px;")
+            ql.setStyleSheet(f"color:#4caf50; font-size:12px;")
             gl.addWidget(ql)
         right.addWidget(guide)
         right.addStretch()
@@ -292,7 +290,7 @@ class ConfigPanelExtra2Mixin:
         cl.setContentsMargins(8, 4, 8, 6)
         cl.setSpacing(3)
         t_lbl = QLabel(title)
-        t_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:10px; font-weight:bold;")
+        t_lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-weight:bold;")
         cl.addWidget(t_lbl)
         v_lbl = QLabel(value)
         v_lbl.setWordWrap(True)

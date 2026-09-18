@@ -26,7 +26,13 @@ C_RED     = '#e74c3c'
 C_ORANGE  = '#f39c12'
 
 def _wire_chk_color(chk, font_size: int = 13) -> None:
-    """체크 여부에 따라 라벨 색상 변경(체크=흰색/미체크=빨간색) + 인디케이터 스타일."""
+    """체크 여부에 따라 라벨 색상 변경(체크=흰색/미체크=회색) + 인디케이터 스타일.
+
+    미체크를 빨강으로 칠하던 것을 회색으로 바꿨다. 체크박스 54개 중 36개가 기본
+    미체크라 첫 화면 글자의 2/3가 경고색이었고, ON/OFF는 인디케이터 채움이 이미
+    구분한다. 녹색 채움 + 빨간 글씨는 적록 색각에 최악 조합이기도 하다.
+    빨강은 실제 경고에만 남긴다.
+    """
     # 체크 여부 구별: 미체크=어두운 빈 칸/회색 테두리, 체크=녹색 채움/흰 테두리(ON 신호)
     _IND = (
         f"QCheckBox::indicator{{width:18px;height:18px;"
@@ -36,7 +42,7 @@ def _wire_chk_color(chk, font_size: int = 13) -> None:
         f"QCheckBox::indicator:checked:hover{{background:#27ae60;border:2px solid #ffffff;}}"
     )
     def _upd(state: int):
-        color = C_TEXT if state else C_RED
+        color = C_TEXT if state else C_SUBTEXT
         # QCheckBox{...} 블록으로 감싸야 함 — 인라인 속성 뒤에 selector 블록을 붙이면
         # QSS 파서가 indicator 블록을 무시해 indicator 스타일이 적용되지 않았음(버그)
         chk.setStyleSheet(

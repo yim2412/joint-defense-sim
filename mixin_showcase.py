@@ -91,7 +91,7 @@ class ShowcaseMixin:
 
         exp = QLabel(f"📊 예상 효과 :  {sc['expected']}")
         exp.setWordWrap(True)
-        exp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px; font-style:italic;")
+        exp.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px; font-style:italic;")
         v.addWidget(exp)
 
         # 버튼 행
@@ -207,7 +207,7 @@ class ShowcaseMixin:
                 f"<td align='right' style='color:{dcolor}; font-weight:bold;'>{dtxt}</td></tr>")
         rows.append("</table>")
         rows.append(
-            f"<div style='color:{C_SUBTEXT}; font-size:10px; margin-top:2px;'>"
+            f"<div style='color:{C_SUBTEXT}; font-size:12px; margin-top:2px;'>"
             f"토글 외 조건 동일 · OFF·ON 각 40회 MC · 시드/편차로 예상 효과와 다를 수 있음</div>")
         card['result'].setText(''.join(rows))
     def _on_showcase_failed(self, key: str, err: str):
@@ -240,7 +240,7 @@ class ShowcaseMixin:
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setStyleSheet(
             f"QPushButton {{ background:transparent; color:{C_SUBTEXT};"
-            f" border:1px solid {C_BORDER}; border-radius:3px; padding:0 8px; font-size:11px; }}"
+            f" border:1px solid {C_BORDER}; border-radius:3px; padding:0 8px; font-size:12px; }}"
             f"QPushButton:hover {{ color:{C_TEXT}; }}")
         btn_close.clicked.connect(lambda: self._toggle_quickstart_banner(False, remember=True))
         head.addWidget(btn_close)
@@ -249,7 +249,7 @@ class ShowcaseMixin:
         hint = QLabel("아래 상황을 누르면 함정·위협·해역·날씨가 한 번에 설정됩니다. "
                       "그다음 우측 [▶ 시뮬레이션 실행]만 누르면 결과를 볼 수 있습니다.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        hint.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         bl.addWidget(hint)
 
         row = QHBoxLayout(); row.setSpacing(6)

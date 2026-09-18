@@ -593,7 +593,7 @@ class SysMonitorTab(QWidget):
     def _build_proc_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
         lbl = QLabel("워커 프로세스 (ProcessPoolExecutor 자식 프로세스)")
-        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         lay.addWidget(lbl)
         self._proc_tbl = QTableWidget(0, 4)
         self._proc_tbl.setHorizontalHeaderLabels(["PID", "CPU %", "RAM (MB)", "상태"])
@@ -615,7 +615,7 @@ class SysMonitorTab(QWidget):
     def _build_hist_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 6, 0, 0)
         lbl = QLabel("최근 시뮬레이션 실행 기록 (최대 10회)")
-        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:11px;")
+        lbl.setStyleSheet(f"color:{C_SUBTEXT}; font-size:12px;")
         lay.addWidget(lbl)
         self._hist_tbl = QTableWidget(0, 4)
         self._hist_tbl.setHorizontalHeaderLabels(["실행 시각", "MC 횟수", "소요 시간", "처리 속도"])
