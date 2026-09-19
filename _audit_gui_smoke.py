@@ -12,6 +12,7 @@ exe를 실제로 띄워 '시뮬레이션 실행' 버튼을 클릭하고 결과�
 import sys, time, os
 
 from _audit_smoke_util import place_on_secondary
+from _audit_load_guard import apply_guard
 
 # 감사 도구 자체 결함 방지: cp949 콘솔에서 ⚠✅🔴 유니코드 로그가 UnicodeEncodeError로
 # 크래시하면 return 경로가 막혀 판정이 오염된다 → stdout을 utf-8로 고정.
@@ -58,6 +59,7 @@ def main():
 
     app = None
     try:
+        apply_guard(log)   # 사용자가 다른 작업 중이면 코어·우선순위를 양보
         log("exe 시작…")
         app = Application(backend='uia').start(f'"{EXE}"', timeout=20)
         # 메인 윈도우 대기 (워커 풀 예열로 첫 표시까지 시간 걸림)

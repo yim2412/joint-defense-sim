@@ -20,6 +20,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 EXE  = os.path.join(ROOT, 'dist', '합동_통합방어_시뮬레이터', '합동_통합방어_시뮬레이터.exe')
 SCN_PATH = os.path.join(ROOT, '_smoke_scenario_test.json')
 
+from _audit_load_guard import apply_guard
+
 def log(m): print(f"[scenario-smoke] {m}", flush=True)
 
 def _txt(c):
@@ -53,6 +55,7 @@ def main():
 
     app = None
     try:
+        apply_guard(log)   # 사용자가 다른 작업 중이면 코어·우선순위를 양보
         log("exe 시작…")
         app = Application(backend='uia').start(f'"{EXE}"', timeout=20)
         win = None

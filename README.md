@@ -170,6 +170,7 @@ pip install matplotlib numpy scipy openpyxl pillow pandas PyQt6 PyQt6-WebEngine 
 | `_audit_gui_smoke.py` | exe GUI 스모크 자동화 — 단발 교전 (감사용) |
 | `_audit_campaign_smoke.py` | exe GUI 스모크 자동화 — 작전급 캠페인 모드 (감사용) |
 | `_audit_smoke_util.py` | GUI 스모크 공통 유틸 — 스모크 창을 보조 모니터에 배치 (감사용) |
+| `_audit_load_guard.py` | 감사·스모크 부하 양보 가드 — 외부 CPU 점유를 재서 코어·우선순위를 낮춘다 (감사용) |
 | `_audit_scenario_smoke.py` | exe GUI 스모크 자동화 — 시나리오 저장·불러오기 왕복 (감사용) |
 | `_audit_compat.py` | 종합감사 ⑦ 하위호환 + ④ 통합 MC 수치 안정성 (구버전 cfg·정밀 병렬 MC, 감사용) |
 | `_audit_mc_stability.py` | 종합감사 ④ 캠페인 MC 대규모 안정성 + OFF/정밀ON 기준값 측정 (감사용) |

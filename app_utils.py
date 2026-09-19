@@ -63,11 +63,29 @@ _SYS_CACHE: dict = {
     'worker_stats': [], 'swap_used': 0, 'thread_cnt': 0,
 }
 
+def pool_worker_count() -> int:
+    """워커 프로세스 수 — 기본은 코어 수(최대 8)지만 JDS_MAX_WORKERS가 있으면 그만큼만.
+
+    무인 감사·스모크가 사용자의 다른 작업(게임 등)과 겹칠 때 이 환경변수로 코어를
+    양보한다(`_audit_load_guard.apply_guard`가 설정). 우선순위만 낮추면 코어는 여전히
+    전부 점유해 지연에 민감한 작업의 프레임이 흔들린다 — 쓸 코어 수 자체를 줄여야 한다.
+    사람이 직접 실행할 때는 이 변수가 없으므로 동작이 그대로다.
+    """
+    n = min(os.cpu_count() or 4, 8)
+    cap = os.environ.get('JDS_MAX_WORKERS')
+    if cap:
+        try:
+            n = max(1, min(n, int(cap)))
+        except ValueError:
+            pass
+    return n
+
+
 def _init_global_pool():
     """앱 시작 시 백그라운드 스레드에서 호출 — 워커 프로세스 예열."""
     global _GLOBAL_POOL
     _warmup_task = lambda _: None  # BUG-3: anim_render 의존성 제거
-    n = min(os.cpu_count() or 4, 8)
+    n = pool_worker_count()
     _GLOBAL_POOL = ProcessPoolExecutor(max_workers=n)
     try:
         list(_GLOBAL_POOL.map(_warmup_task, range(n), timeout=60))

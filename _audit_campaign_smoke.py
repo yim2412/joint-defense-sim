@@ -14,6 +14,7 @@ _audit_gui_smoke.py(단발)와 짝 — 캠페인은 독립 exe 세션으로 검�
 import sys, time, os
 
 from _audit_smoke_util import place_on_secondary
+from _audit_load_guard import apply_guard
 
 # 감사 도구 자체 결함 방지: cp949 콘솔에서 ⚠✅🔴 등 유니코드 로그가 UnicodeEncodeError로
 # 크래시하면 return 경로가 막혀 판정이 BLOCKED로 오염된다 → stdout을 utf-8로 고정.
@@ -53,6 +54,7 @@ def main():
 
     app = None
     try:
+        apply_guard(log)   # 사용자가 다른 작업 중이면 코어·우선순위를 양보
         log("exe 시작…")
         app = Application(backend='uia').start(f'"{EXE}"', timeout=20)
         win = None
