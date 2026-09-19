@@ -71,9 +71,14 @@ class ConfigPanelExtraMixin:
             "기동 한계(함대공 30G·대함 10G)와 탐색기 시야각(±60°)이 추격을 제약 —\n"
             "급격히 회피하는 표적은 요격이 물리적으로 빗나갈 수 있습니다.\n"
             "기존의 종말 회피 확률 보정을 물리 추격 명중/빗나감으로 대체합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (검증 완료·정규 옵션)"
+            "기본값 ON — 실제 함대공 미사일이 쓰는 유도 법칙입니다."
         )
-        self.chk_png.setChecked(False)
+        # 기본 ON 승격(v21.08.03): 비례항법은 선택적 전술이 아니라 **실제 미사일이 쓰는
+        # 유도 법칙**이다 — 전역 규칙의 "항상 존재하는 환경물리는 기본 ON"에 해당한다.
+        # 부수 효과: 격추 거리 표시가 요격 4건 중 1건에서 전 건으로 살아난다
+        # (PNG OFF 25% / ON 100% — 2026-09-19 실측). 검증은 v12.1에서 끝났고
+        # 레이블만 "검증 완료·정규 옵션"으로 stale하게 남아 있었다.
+        self.chk_png.setChecked(True)
 
         # v12.3: dB 소나 방정식
         self.chk_sonar_eq = QCheckBox("dB 소나 방정식 잠수함 탐지")
@@ -311,12 +316,12 @@ class ConfigPanelExtraMixin:
         )
         self.chk_rl_policy.setChecked(False)
 
-        self.chk_esm_arm = QCheckBox("ESM 역탐지 — 레이더 방사 시 대방사미사일 유도 (실험적)")
+        self.chk_esm_arm = QCheckBox("ESM 역탐지 — 레이더 방사 시 대방사미사일 유도")
         self.chk_esm_arm.setToolTip(
             "전자전 EMCON 딜레마: 아군 레이더가 켜져 방사 중일 때만 적 전자지원(ESM)이 신호를\n"
             "포착해 대방사미사일(ARM)을 실시간 유도합니다. 레이더를 끄면 적은 마지막 포착 위치로만\n"
             "ARM을 유도해 명중률이 급감합니다(레이더 끄면 ARM 회피, 대신 대공 탐지·교전은 손실).\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_esm_arm.setChecked(False)
 
@@ -338,7 +343,9 @@ class ConfigPanelExtraMixin:
             "대잠전 EMCON 딜레마: 능동 소나(디핑·소노부이)로 적 잠수함을 탐지하면 잠수함도\n"
             "그 핑을 역포착해 은닉을 풀고 어뢰 반격을 앞당기며 회피 기동합니다(능동 = 탐지\n"
             "우위지만 내 위치 노출). 소나 방정식 기능과 함께 켜야 작동합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 딜레마 자체는 성립하나 효과의 절대 크기가 아직 작습니다\n"
+            "(위협 잠수함이 원거리 발사 후 이탈해 피해 규모가 작다). 수치 조정으로는\n"
+            "해결되지 않아 잠수함 교전 방식 자체를 손대야 합니다 — 그래서 실험적입니다."
         )
         self.chk_sonar_emcon.setChecked(False)
 
@@ -371,14 +378,14 @@ class ConfigPanelExtraMixin:
         )
         self.chk_standoff_spawn.setChecked(True)
 
-        self.chk_cyber = QCheckBox("사이버전 — 데이터링크 변조·전투정보실 마비·레이더 교란 반격 (실험적)")
+        self.chk_cyber = QCheckBox("사이버전 — 데이터링크 변조·전투정보실 마비·레이더 교란 반격")
         self.chk_cyber.setToolTip(
             "적 사이버 공격과 아군 반격을 모델링합니다. 일정 주기마다 침투를 시도해 성공하면\n"
             "한동안 효과가 지속되며, 전자전과 달리 경고 없이 은밀하게 발현·해제됩니다.\n"
             "  · 데이터링크 변조 → 표적 데이터 오염으로 아군 요격 명중률 저하\n"
             "  · 전투정보실 마비 → 처리 지연으로 아군 탐지거리 일시 저하\n"
             "  · 레이더 교란 반격 → 적 사격통제 교란으로 적 발사 명중률 저하\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         self.chk_cyber.setChecked(False)
 
@@ -572,14 +579,14 @@ class ConfigPanelExtraMixin:
         )
 
         # v16.13.02 트랙 C: 함정 자율 교전
-        self.chk_autonomous = QCheckBox("함정 자율 교전 (실험적)")
+        self.chk_autonomous = QCheckBox("함정 자율 교전")
         self.chk_autonomous.setChecked(False)
         self.chk_autonomous.setToolTip(
             "각 함정이 CEC 중앙 조율 없이 자기 센서·사거리 내 위협을 독립 판단해 교전합니다.\n"
             "  · CEC 두절(재밍)과 달리 함정 자체 교전 능력(살보)은 온전 — 협동 엄호(원거리 중계)만 없음\n"
             "  · 지휘 노드(기함)에 의존하지 않아 기함 격침에 강건 — 지휘 저하 없이 전투 지속\n"
             "평시엔 CEC 협동이 우세하나, 기함이 조기 격침되는 고강도 포화에서 강건성이 드러납니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
 
         # v17.1: RAS 탄약 재보급 (지속 전장 전용)
@@ -635,7 +642,7 @@ class ConfigPanelExtraMixin:
         )
 
         # v16.12: 적 무인기 군집(Swarm) 위협
-        self.chk_drone_swarm = QCheckBox("무인기 군집 포화 (실험적)")
+        self.chk_drone_swarm = QCheckBox("무인기 군집 포화")
         self.chk_drone_swarm.setChecked(False)
         self.chk_drone_swarm.setToolTip(
             "적이 저가 자폭 드론 수십 대를 다축으로 동시 투입합니다.\n"
@@ -643,11 +650,18 @@ class ConfigPanelExtraMixin:
             "  · 요격 못한 드론은 기함으로 돌진 자폭\n"
             "  · '다방위 공격'과 병용 시 360° 포화로 효과가 극대화됩니다\n"
             "현재 적 편대에 자폭 드론 군집 약 40대를 추가합니다.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
 
         # v17.2: 지향성 에너지 무기(레이저·DEW)
         self.chk_laser_dew = QCheckBox("지향성 에너지 무기 레이저 (실험적)")
+        self.chk_laser_dew.setToolTip(
+            "저속 표적(자폭 드론 등)을 근접 요격하는 지향성 에너지 무기입니다.\n"
+            "⚠ 재측정 결과 격추 0 — 드론이 함대에 닿기 전에 함포·SAM이 원거리에서\n"
+            "전멸시켜 5km 교전권에 표적이 들어오지 않습니다. 물리 오류가 아니라\n"
+            "교리의 문제이고, 현실의 함정 레이저도 아직 드론 방어 주력이 아닙니다.\n"
+            "메커니즘은 보존하되 효과는 음성으로 종결 — 그래서 실험적입니다."
+        )
         self.chk_laser_dew.setChecked(False)
         self.chk_laser_dew.setToolTip(
             "레이저 장착함(정조대왕함·미 이지스·해안 C-RAM)이 근접 저속 표적을 조사(照射) 격추합니다.\n"
@@ -813,32 +827,32 @@ class ConfigPanelExtraMixin:
         bmdl.addRow("", self.chk_thaad)
         _wire_chk_color(self.chk_thaad, 13)
 
-        self.chk_lsam = QCheckBox("L-SAM 연동 (실험적)")
+        self.chk_lsam = QCheckBox("L-SAM 연동")
         self.chk_lsam.setToolTip(
             "한국형 미사일방어(KAMD) 상층 요격체계 L-SAM 연동.\n"
             "탄도미사일·HGV를 종말 상층(고도 40~70km, 사거리 150km)에서 요격.\n"
             "THAAD와 PAC-3 사이를 메우는 계층 — 3단 hit-to-kill.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         bmdl.addRow("", self.chk_lsam)
         _wire_chk_color(self.chk_lsam, 13)
 
-        self.chk_chungung = QCheckBox("천궁-II 연동 (실험적)")
+        self.chk_chungung = QCheckBox("천궁-II 연동")
         self.chk_chungung.setToolTip(
             "한국형 미사일방어(KAMD) 하층 종말 점방어 천궁-II 연동.\n"
             "탄도미사일·HGV를 종말 하층(고도 3~20km, 사거리 20km)에서 요격.\n"
             "상층 요격을 누출한 위협에 대한 최후 방어선 — 유도탄 단가가 낮아 소모전에 유리.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         bmdl.addRow("", self.chk_chungung)
         _wire_chk_color(self.chk_chungung, 13)
 
-        self.chk_patriot = QCheckBox("패트리엇 PAC-3 연동 (실험적)")
+        self.chk_patriot = QCheckBox("패트리엇 PAC-3 연동")
         self.chk_patriot.setToolTip(
             "한·미 연합 종말 중층 요격체계 패트리엇 PAC-3 MSE 연동.\n"
             "탄도미사일·HGV를 종말 중층(고도 2~25km, 사거리 60km)에서 hit-to-kill 요격.\n"
             "L-SAM(상층)과 천궁-II(하층 점방어) 사이를 메우는 계층.\n"
-            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+            "기본값 OFF — 기존 결과와 동일"
         )
         bmdl.addRow("", self.chk_patriot)
         _wire_chk_color(self.chk_patriot, 13)

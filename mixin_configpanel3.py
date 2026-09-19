@@ -15,6 +15,13 @@ from ui_widgets import _collapse_fleet_custom
 
 class ConfigPanelExtra2Mixin:
     def _restore_cfg(self, cfg: dict):
+        """저장된 시나리오 cfg로 UI를 되돌린다.
+
+        ⚠ `cfg.get(키, 기본값)`의 **기본값은 그 키가 저장본에 없을 때** 쓰인다.
+        환경물리 5종(지형·증발덕팅·ISA·소나·침수)은 신규 실행 초기 상태가 ON인데
+        여기 기본값만 False라, 구버전 저장본을 열면 **같은 설정이 경로에 따라 다른
+        물리로 돌았다**(2026-09-19 실측으로 5건 확인). 초기값과 맞춰 True로 통일한다.
+        """
         """실행 기록에서 설정을 복원한다 — 편대·날씨·적군 모드 복원."""
         # 아군 편대 — v16.14.02: 직접 편성이 저장돼 있으면 우선 복원, 없으면 프리셋 경로.
         custom = cfg.get('fleet_custom')
@@ -51,20 +58,20 @@ class ConfigPanelExtra2Mixin:
                 self.cmb_season.setCurrentIndex(idx)
         # v9.12: 지형 음영
         if hasattr(self, 'chk_terrain'):
-            self.chk_terrain.setChecked(cfg.get('enable_terrain', False))
+            self.chk_terrain.setChecked(cfg.get('enable_terrain', True))
         if hasattr(self, 'chk_current'):
             self.chk_current.setChecked(cfg.get('enable_current', False))
         # v9.13: 증발 덕팅
         if hasattr(self, 'chk_evap_duct'):
-            self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', False))
+            self.chk_evap_duct.setChecked(cfg.get('enable_evap_duct', True))
         if hasattr(self, 'chk_isa'):
-            self.chk_isa.setChecked(cfg.get('enable_isa', False))
+            self.chk_isa.setChecked(cfg.get('enable_isa', True))
         if hasattr(self, 'chk_png'):
-            self.chk_png.setChecked(cfg.get('enable_png', False))
+            self.chk_png.setChecked(cfg.get('enable_png', True))
         if hasattr(self, 'chk_sonar_eq'):
-            self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', False))
+            self.chk_sonar_eq.setChecked(cfg.get('enable_sonar_equation', True))
         if hasattr(self, 'chk_flooding'):
-            self.chk_flooding.setChecked(cfg.get('enable_flooding', False))
+            self.chk_flooding.setChecked(cfg.get('enable_flooding', True))
         if hasattr(self, 'chk_munition_limit'):
             self.chk_munition_limit.setChecked(cfg.get('enable_munition_limit', True))
         if hasattr(self, 'chk_wing_cap'):

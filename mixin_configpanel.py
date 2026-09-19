@@ -769,7 +769,7 @@ class ConfigPanelMixin:
             ("chk_f35a",  "F-35A 라이트닝 II",  "청주기지 · AIM-120D×4 · CAP 600km"),
             ("chk_kf21",  "KF-21 보라매",       "대구기지 · IRIS-T/AIM-120C×6 · CAP 500km"),
             ("chk_fa50",  "FA-50 파이팅이글",   "원주기지 · AIM-9X×4 · CAP 400km"),
-            ("chk_recon", "정찰 드론 MQ-9B (실험적)",
+            ("chk_recon", "정찰 드론 MQ-9B",
              "군산기지 · 무장 없음 · 수평선 너머(OTH) 표적 탐지 중계로 함대 탐지거리 +120km\n"
              "저생존 — 적 항공위협 존재 시 확률적 격추.\n"
              "기본값 OFF — 기존 결과와 동일 (실험적 기능)"),
