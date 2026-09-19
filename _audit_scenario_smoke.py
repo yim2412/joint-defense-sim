@@ -64,7 +64,7 @@ def main():
             time.sleep(1)
         if win is None:
             log("메인 윈도우 미표시"); return 2
-        log("홈 표시됨"); win.set_focus(); time.sleep(2)
+        log("홈 표시됨"); time.sleep(2)  # set_focus 제거 — 조작은 invoke/toggle이라 포커스 불필요(사용자 작업 방해 금지)
 
         # 홈 → 앱 진입
         for b in win.descendants(control_type='Button'):
@@ -73,7 +73,7 @@ def main():
         main_w = win
         try:
             mw = app.window(title_re='.*합동 통합방어 시뮬레이터\\s+v.*')
-            if mw.exists(): main_w = mw; main_w.set_focus()
+            if mw.exists(): main_w = mw
         except Exception: pass
         time.sleep(2)
 

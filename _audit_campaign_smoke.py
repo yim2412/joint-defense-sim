@@ -66,7 +66,7 @@ def main():
             log("메인 윈도우 미표시"); return 2
         log("홈 표시됨")
         place_on_secondary(win, log)   # 스모크는 보조 모니터에서만
-        win.set_focus(); time.sleep(2)
+        time.sleep(2)  # set_focus 제거 — 조작은 invoke/toggle이라 포커스 불필요(사용자 작업 방해 금지)
 
         # 홈 → 앱 진입
         for b in win.descendants(control_type='Button'):
@@ -79,7 +79,6 @@ def main():
                 main_w = mw
                 # 홈만 옮기면 MainWindow가 주 모니터에 새로 뜬다(위와 동일)
                 place_on_secondary(main_w, log)
-                main_w.set_focus()
         except Exception: pass
         time.sleep(2)
 

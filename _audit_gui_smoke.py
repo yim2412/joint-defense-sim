@@ -25,6 +25,28 @@ EXE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 def log(m): print(f"[smoke] {m}", flush=True)
 
+def _press(btn, log, what: str) -> bool:
+    """버튼을 누른다 — **포커스·마우스 커서를 뺏지 않고**.
+
+    UIA InvokePattern(`invoke()`)은 창을 앞으로 가져오지도, 커서를 옮기지도 않는다.
+    `click_input()`은 실제 마우스를 그 좌표로 옮겨 누르므로, 사용자가 다른 모니터에서
+    게임을 하는 중이면 조준이 튀고 포커스를 잃는다. 체크박스는 이미 toggle()을 쓰고
+    있었는데(커서 이동 없음) 버튼만 click_input이라 반쪽이었다.
+    invoke가 안 먹는 컨트롤일 때만 click_input으로 폴백한다(그때는 로그에 남긴다).
+    """
+    try:
+        btn.invoke()
+        log(f"{what} (invoke — 포커스 유지)")
+        return True
+    except Exception as e:
+        log(f"{what} — invoke 불가({e}) → click_input 폴백(포커스 뺏음)")
+        try:
+            btn.click_input()
+            return True
+        except Exception as e2:
+            log(f"{what} 실패: {e2}")
+            return False
+
 def main():
     if not os.path.exists(EXE):
         log(f"exe 없음: {EXE}"); return 2
@@ -52,7 +74,8 @@ def main():
             log("메인 윈도우 미표시 (40s)"); return 2
         log("홈 윈도우 표시됨")
         place_on_secondary(win, log)   # 스모크는 보조 모니터에서만
-        win.set_focus()
+        # set_focus()는 부르지 않는다 — 조작은 invoke/toggle이라 포커스가 필요 없고,
+        # 사용자가 다른 모니터에서 작업·게임 중이면 포커스를 뺏는 것 자체가 방해다.
         time.sleep(2)
 
         # 1) 홈 화면 '시뮬레이터 시작' 클릭 → MainWindow 진입
@@ -63,8 +86,7 @@ def main():
             if '시뮬레이터 시작' in t:
                 home_btn = b; break
         if home_btn is not None:
-            log("홈 '시뮬레이터 시작' 클릭 → 앱 진입")
-            home_btn.click_input()
+            _press(home_btn, log, "홈 '시뮬레이터 시작' → 앱 진입")
             time.sleep(4)
         else:
             log("홈 시작 버튼 없음 — 이미 메인일 수 있음, 계속 진행")
@@ -78,7 +100,6 @@ def main():
                 # ⚠ 홈(스플래시)만 옮기면 안 된다 — '시뮬레이터 시작' 클릭 시
                 #   MainWindow가 **새로 생성**돼 주 모니터에 뜬다(2026-09-12 실측).
                 place_on_secondary(main, log)
-                main.set_focus()
         except Exception:
             pass
         time.sleep(2)
@@ -120,8 +141,8 @@ def main():
                 try: log("   btn: " + repr(b.window_text()))
                 except Exception: pass
             return 2
-        log("버튼 클릭")
-        target.click_input()
+        if not _press(target, log, "'시뮬레이션 실행' 누름"):
+            return 2
 
         # 결과 대기 — 결과 탭/배너의 텍스트 출현 폴링(요격률·작전 결과·전멸 등)
         markers = ['요격률', '작전 결과', '승률', '임무 점수', '교전', '결과', '전멸', '생존']
