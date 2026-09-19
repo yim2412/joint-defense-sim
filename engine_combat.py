@@ -5689,6 +5689,9 @@ class TimeStepEngine:
             'used_seed':           self.cfg.get('sim_seed', None),
             'ship_subsystem_damage': ship_subsystem_damage,
             'active_events':     [] if self._mc_mode else self._build_active_events(),
+            # 3D 전장이 '요격 성공'과 '함정 피격'을 구분하려면 미사일별 종말 결과가
+            # 필요하다. 예전엔 둘 다 같은 노란 점이라 무엇이 일어났는지 알 수 없었다.
+            'missile_outcomes':  {} if self._mc_mode else self._build_missile_outcomes(),
             'strike_log':        self.strike_log,              # v9.3
             'vls_depletion_t':   dict(self.vls_depletion_t),  # v9.4
             'ground_remaining':   dict(self.ground_inv),         # v9.4 / v9.11
@@ -5743,6 +5746,23 @@ class TimeStepEngine:
             if terr:
                 radar['terrain'] = {'bearing': terr[0], 'shadow_deg': terr[1]}
         return {'radar': radar}
+
+    def _build_missile_outcomes(self) -> dict:
+        """uid → {'intercepted': bool, 'weapon': str, 'name': str} (3D 표시 전용).
+
+        아군 SAM은 '요격 성공/실패'가 아니라 '표적에 도달했는가'로 갈린다 — 적 미사일과
+        의미가 달라 따로 싣는다. 엔진 판정에는 쓰지 않는다(표시 전용 → 회귀 무영향).
+        """
+        out = {}
+        for m in self._retired_strikes + list(self.missiles):
+            if m.mtype != 'enemy_strike':
+                continue
+            out[m.uid] = {
+                'intercepted': bool(m.intercepted),
+                'weapon':      m.intercept_weapon or '',
+                'name':        m.name,
+            }
+        return out
 
     def _build_active_events(self) -> list:
         """A-1: enemy_strike MissileObj → EngagementAnalysisTab 어댑터 리스트."""
@@ -5947,7 +5967,8 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
                       "showBackground": True, "backgroundColor": {"rgba": [40, 0, 0, 160]}},
         })
 
-    # ── 미사일 궤적 + 적 미사일 소멸점 마커 (mis는 위에서 선수집) ──
+    # ── 미사일 궤적 + 종말 마커 (mis는 위에서 선수집) ──
+    outcomes = result.get('missile_outcomes', {}) or {}
     threat_times = []   # 발수 카운터용 적 미사일 [등장t, 소멸t]
     for uid, (mtype, mname, seq) in mis.items():
         ox, oy = _spread_offset(uid)
@@ -5963,18 +5984,42 @@ def build_czml(result: dict, epoch_iso: str = "2026-01-01T00:00:00Z") -> list:
             "availability": f"{_iso(ta)}/{_iso(tb)}",
             "position": {"epoch": epoch0, "cartographicDegrees": _cart(seq, with_alt=True)},
             "point": {"pixelSize": 6, "color": {"rgba": col}},
+            # 이름표 — 무기명이 name에만 있어 클릭해야 보였다(사용자 지적, 2026-09-19)
+            "label": {"text": mname, "font": "11px sans-serif", "scale": 0.8,
+                      "fillColor": {"rgba": col[:3] + [220]},
+                      "outlineColor": {"rgba": [0, 0, 0, 255]}, "outlineWidth": 2,
+                      "style": "FILL_AND_OUTLINE", "pixelOffset": {"cartesian2": [0, -12]},
+                      "translucencyByDistance": {"nearFarScalar": [3.0e5, 1.0, 1.2e6, 0.0]}},
             "path": {"width": 1.5, "leadTime": 0, "trailTime": 6, "resolution": 1,
                      "material": {"solidColor": {"color": {"rgba": col[:3] + [150]}}}},
         })
+        # ── 종말 마커 ────────────────────────────────────────────────────────
+        # 예전에는 적 미사일만, 그것도 **요격 성공과 함정 피격이 같은 노란 점**이라
+        # 무엇이 일어났는지 구분할 수 없었다. 결과(missile_outcomes)로 색과 이름표를
+        # 가르고, 아군 미사일 종말도 표시한다(`if is_enemy:`로 통째로 빠져 있었다).
+        ll = LatLon.from_xy(seq[-1][1], seq[-1][2])
         if is_enemy:
-            ll = LatLon.from_xy(seq[-1][1], seq[-1][2])
-            packets.append({
-                # 요격 순간 2.5초만 번쩍 — 되감기/누적 방지
-                "id": f"impact/{uid}", "availability": f"{_iso(tb)}/{_iso(tb + 2.5)}",
-                "position": {"cartographicDegrees": [round(ll.lon, 6), round(ll.lat, 6), 0]},
-                "point": {"pixelSize": 9, "color": {"rgba": [255, 210, 0, 230]},
-                          "outlineColor": {"rgba": [255, 90, 0, 255]}, "outlineWidth": 2},
-            })
+            oc  = outcomes.get(uid, {})
+            hit = not oc.get('intercepted', False)
+            if hit:
+                mk_col, mk_out, mk_lbl = [255, 60, 60, 240], [120, 0, 0, 255], f"💥 피격 · {mname}"
+            else:
+                wp = oc.get('weapon') or '요격'
+                mk_col, mk_out, mk_lbl = [80, 220, 255, 240], [0, 90, 140, 255], f"✔ 요격 · {wp}"
+        else:
+            mk_col, mk_out, mk_lbl = [90, 230, 140, 230], [20, 110, 60, 255], f"→ 종말 · {mname}"
+        packets.append({
+            # 표시 6초 — 2.5초는 눈으로 좇기 어려웠다(되감기 누적은 availability가 막는다)
+            "id": f"impact/{uid}", "availability": f"{_iso(tb)}/{_iso(tb + 6.0)}",
+            "position": {"cartographicDegrees": [round(ll.lon, 6), round(ll.lat, 6), 0]},
+            "point": {"pixelSize": 11 if is_enemy else 8, "color": {"rgba": mk_col},
+                      "outlineColor": {"rgba": mk_out}, "outlineWidth": 2},
+            "label": {"text": mk_lbl, "font": "12px sans-serif", "scale": 0.85,
+                      "fillColor": {"rgba": mk_col},
+                      "outlineColor": {"rgba": [0, 0, 0, 255]}, "outlineWidth": 2,
+                      "style": "FILL_AND_OUTLINE", "pixelOffset": {"cartesian2": [0, -16]},
+                      "showBackground": False},
+        })
 
     doc["_threatTimes"] = threat_times   # JS 발수 카운터가 시각별로 집계
     return packets

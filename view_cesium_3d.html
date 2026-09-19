@@ -33,6 +33,18 @@
       border: 1px solid rgba(120,170,255,0.35); user-select: none;
     }
     #covtoggle label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    /* 범례 — 색이 무엇을 뜻하는지 화면에 없어 구분이 불가능했다(2026-09-19 지적) */
+    #legend {
+      /* Cesium 타임라인·재생 컨트롤이 하단 좌측을 쓴다 — 그 위로 올린다(2026-09-19 실측) */
+      position: absolute; bottom: 112px; left: 12px; z-index: 9999; display: none;
+      font: 12px/1.7 'Malgun Gothic', sans-serif; color: #e6eef7;
+      background: rgba(10,22,40,0.72); padding: 9px 13px; border-radius: 8px;
+      border: 1px solid rgba(120,170,255,0.35); pointer-events: none;
+    }
+    #legend .row { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+    #legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+                   border: 1.5px solid rgba(0,0,0,0.6); flex: 0 0 auto; }
+    #legend .ttl { color: #9db4cc; font-size: 11px; margin-bottom: 2px; }
   </style>
 </head>
 <body>
@@ -40,6 +52,15 @@
   <div id="diag"></div>
   <div id="counter"></div>
   <div id="covtoggle"><label><input type="checkbox" id="covchk" checked> 방어 커버리지 표시</label></div>
+  <div id="legend">
+    <div class="ttl">범례</div>
+    <div class="row"><i class="dot" style="background:#ff5a3c"></i>적 미사일</div>
+    <div class="row"><i class="dot" style="background:#5ae68c"></i>아군 미사일</div>
+    <div class="row"><i class="dot" style="background:#50dcff"></i>✔ 요격 성공</div>
+    <div class="row"><i class="dot" style="background:#ff3c3c"></i>💥 아군 함정 피격</div>
+    <div class="row"><i class="dot" style="background:#00beff"></i>아군 함정</div>
+    <div class="row"><i class="dot" style="background:#ff5050"></i>적 함정</div>
+  </div>
   <script>
     const diag = document.getElementById('diag');
     function log(msg, isErr) {
@@ -88,8 +109,10 @@
           const el = document.getElementById('counter');
           const clock = viewer.clock;
           if (_counterTick) clock.onTick.removeEventListener(_counterTick);
-          if (!tt.length) { el.style.display = 'none'; return; }
+          const lg = document.getElementById('legend');
+          if (!tt.length) { el.style.display = 'none'; if (lg) lg.style.display = 'none'; return; }
           el.style.display = 'block';
+          if (lg) lg.style.display = 'block';   // 범례는 교전 데이터가 있을 때만
           _counterTick = function () {
             const t = Cesium.JulianDate.secondsDifference(clock.currentTime, clock.startTime);
             let fired = 0, flying = 0, done = 0;
