@@ -154,6 +154,19 @@ def _strike_threat_info(name: str, is_torpedo: bool, launcher: dict) -> dict:
         return dict(src)
     return {'type': '대함미사일', 'launcher': launcher.get('name', '')}
 
+# ── 적 항모 항공단 — 대함 타격 투입 비율 ──────────────────────────────────
+# `carrier_air_wing`은 **보유 대수**다(랴오닝 24·산둥 36·푸젠 40 — 공개 제원, 스펙시트와 일치).
+# 그런데 한 작전에서 그 전량이 대함 타격에 나가지는 않는다 — 가용률·정비·방공(CAP) 분담·
+# 소티 생성률이 상한을 만들고, 랴오닝·산둥은 **스키점프 이함**이라 대함미사일 만재 이함
+# 제약이 더 크다(공개 평가에서도 이들 항모의 대함 타격력은 제한적으로 본다).
+#
+# 2026-09-19 실측이 이 상한의 부재를 드러냈다: 랴오닝 항모전단의 탑재 총량은 104발인데
+# 실제 발생 위협이 190발이었고, 초과분 80발이 전부 함재기 YJ-83K였다. 그 결과 이 프리셋은
+# **어떤 편성으로도 방어 불가**(7편성×25시드 전부 전멸)가 되어 편성 비교 자체가 성립하지
+# 않았다(docs/analysis/03). 보유 대수를 고치는 대신 **투입 비율**을 분리해, DB의 제원
+# 정합(24·36·40)을 유지하면서 교리에 맞는 상한을 준다.
+_CARRIER_STRIKE_FRACTION = 0.35   # 항공단 중 대함 타격 투입분 (랴오닝 24→8기)
+
 # ── 아군 항공 자산 편성 목록 (플래그·프리셋키·기본기체) ────────────────────
 # 한 곳 정본: _build_aircraft 가 이 순서대로 편성하고, 결과 화면은 같은 목록으로
 # "출격 0회"와 "항공 자산 미편성(—)"을 구분한다.
@@ -5490,7 +5503,9 @@ class TimeStepEngine:
                     # v15.09.01: 전장 모드는 항공단 규모만큼만 발진(무한 생산 차단). 단발은 종전대로 2기씩.
                     spec = {'preset': et.carrier_aircraft, 'count': 2}
                     if self._enforce_wing_cap and et.carrier_wing > 0:
-                        remaining = et.carrier_wing - et.wing_launched
+                        # 보유 대수(carrier_wing)가 아니라 **대함 타격 투입분**이 상한이다.
+                        strike_wing = max(2, int(et.carrier_wing * _CARRIER_STRIKE_FRACTION))
+                        remaining = strike_wing - et.wing_launched
                         if remaining <= 0:
                             continue                 # 항공단 소진 — 더는 발진 없음(재무장 복귀 시 재발진)
                         spec['count'] = min(2, remaining)
