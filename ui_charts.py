@@ -43,7 +43,7 @@ from app_theme import (C_BG, C_PANEL, C_BORDER, C_ACCENT, C_TEXT, C_SUBTEXT,
                        C_GREEN, C_RED, C_ORANGE)
 from app_utils import _res, _token_path
 from app_engine import (build_czml, plot_v7, evaluate_req_v7, evaluate_req_battle_v7,
-                        REQ_ITEMS_V7, _V7_OK)
+                        REQ_ITEMS_V7, req_items, _V7_OK)
 
 class MplCanvas(FigureCanvas):
     def __init__(self, figsize=(8, 6), facecolor=C_BG):
@@ -1135,7 +1135,7 @@ def _plot_req_radar(fig: Figure, result, mc, cfg=None):
             items, verdicts, _ = evaluate_req_battle_v7(result, mc, cfg)
         else:
             verdicts, _ = evaluate_req_v7(result, mc, cfg)
-            items = REQ_ITEMS_V7
+            items = req_items(cfg)
     except Exception:
         return
     labels = [r['id'] for r in items]

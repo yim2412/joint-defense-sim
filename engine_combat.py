@@ -7666,6 +7666,54 @@ def recommend_fleet_v7(cfg: dict,
 #  포팅 D: REQ 요구조건 판정
 # ════════════════════════════════════════════════════════════════════════════
 
+# ── 전술 요구조건 임계값 (기본값) ────────────────────────────────────────────
+# **요구조건은 분석자가 정의하는 입력**이다(시스템공학의 본질). 이 값들은 코드 기본값일
+# 뿐이고, cfg에 같은 키가 있으면 그쪽이 이긴다 — 분석자가 자기 기준으로 판정할 수 있다.
+#
+# 왜 입력으로 뺐나: 고정 임계값은 모델이 바뀔 때마다 변별력을 잃는다. 2026-09-19 실측
+# (7조합)에서 REQ-04·05는 **전부 실패**, REQ-08은 **전부 통과**로 정보가 0이었고,
+# 직전 기록에서 변별력 0이던 REQ-02·07은 v21.08.01 변경으로 되살아났다. 즉 어떤 고정값도
+# 오래 못 간다. 기본값은 기존과 같게 둬서 하위 호환을 유지한다.
+REQ_DEFAULTS = {
+    'req_intercept_min':   0.95,   # REQ-01 MC 평균 요격률 하한
+    'req_response_max_s':  MAX_RESPONSE_TIME_S,  # REQ-02 첫 SAM 발사 상한(초)
+    'req_full_pass_min':   0.90,   # REQ-04 완전 요격 달성률 하한
+    'req_zero_hit_min':    0.85,   # REQ-05 무피격 시뮬 비율 하한
+    'req_sam_remain_min':  0.20,   # REQ-07 주요 SAM 잔여 비율 하한
+}
+
+
+def req_threshold(cfg: dict, key: str):
+    """요구조건 임계값 — cfg에 있으면 분석자 값, 없으면 코드 기본값."""
+    if cfg:
+        v = cfg.get(key)
+        if v is not None:
+            return v
+    return REQ_DEFAULTS[key]
+
+
+def req_items(cfg: dict = None) -> list:
+    """현재 임계값이 반영된 REQ 항목 표(화면·보고서 표시용)."""
+    ir = req_threshold(cfg, 'req_intercept_min')
+    rt = req_threshold(cfg, 'req_response_max_s')
+    fp = req_threshold(cfg, 'req_full_pass_min')
+    zh = req_threshold(cfg, 'req_zero_hit_min')
+    sr = req_threshold(cfg, 'req_sam_remain_min')
+    return [
+        {'id': 'REQ-01', 'name': f'MC 평균 요격률 ≥ {ir:.0%}',
+         'desc': f'MC 평균 요격률 ≥ {ir:.0%} (운 배제, 실력 기준)'},
+        {'id': 'REQ-02', 'name': '응답시간 충족',        'desc': f'첫 SAM 발사 ≤ {rt:.0f}s'},
+        {'id': 'REQ-04', 'name': f'완전 요격 달성률 ≥ {fp:.0%}',
+         'desc': f'MC 완전 요격(100%) 달성 비율 ≥ {fp:.0%}'},
+        {'id': 'REQ-05', 'name': '아군 무피격 (MC)',
+         'desc': f'MC 시뮬의 {zh:.0%} 이상에서 아군 피격 0회'},
+        {'id': 'REQ-06', 'name': '다층 방어 확인',        'desc': '발사 미사일 수 ≥ 위협 수 (재교전 여력)'},
+        {'id': 'REQ-07', 'name': f'주요 SAM 잔여 ≥ {sr:.0%}',
+         'desc': f'SM-3·SM-6·SM-2 합산 잔여 ≥ 초기 재고 {sr:.0%}'},
+        {'id': 'REQ-08', 'name': '채널 한계 미초과',      'desc': '최대 동시 위협 ≤ 편대 총 채널'},
+    ]
+
+
 REQ_ITEMS_V7 = [
     {'id': 'REQ-01', 'name': 'MC 평균 요격률 ≥ 95%',  'desc': 'MC 평균 요격률 ≥ 95% (운 배제, 실력 기준)'},
     {'id': 'REQ-02', 'name': '응답시간 충족',          'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'},
@@ -7693,17 +7741,24 @@ def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
     tot_ch   = result.get('total_channels', 16)
     rem_inv  = result.get('remaining_inventory', {})
 
-    # REQ-01: MC 평균 요격률 ≥ 95% (단일 시뮬 운 배제)
-    req1 = mc['mean_intercept'] >= 0.95
+    # REQ-01~07 임계값은 분석자 입력(cfg)이 있으면 그것을, 없으면 코드 기본값을 쓴다.
+    _th_ir = req_threshold(cfg, 'req_intercept_min')
+    _th_rt = req_threshold(cfg, 'req_response_max_s')
+    _th_fp = req_threshold(cfg, 'req_full_pass_min')
+    _th_zh = req_threshold(cfg, 'req_zero_hit_min')
+    _th_sr = req_threshold(cfg, 'req_sam_remain_min')
 
-    req2 = 0 <= tfirst <= MAX_RESPONSE_TIME_S
+    # REQ-01: MC 평균 요격률 ≥ 임계 (단일 시뮬 운 배제)
+    req1 = mc['mean_intercept'] >= _th_ir
 
-    req4 = mc['full_pass_rate'] >= 0.90
+    req2 = 0 <= tfirst <= _th_rt
+
+    req4 = mc['full_pass_rate'] >= _th_fp
 
     # REQ-05: MC 시뮬의 85% 이상에서 아군 피격 0회
     hits_list = mc.get('friendly_hits', [])
     zero_hit_rate = (sum(1 for h in hits_list if h == 0) / len(hits_list)) if hits_list else 1.0
-    req5 = zero_hit_rate >= 0.85
+    req5 = zero_hit_rate >= _th_zh
 
     req6 = (fired >= threats) if threats > 0 else True
 
@@ -7711,7 +7766,7 @@ def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
     if cfg:
         init_sam = sum(cfg.get(v, 0) for v in _SAM_STOCK_KEYS.values())
         rem_sam  = sum(rem_inv.get(k, 0) for k in _SAM_STOCK_KEYS)
-        req7 = (rem_sam / init_sam >= 0.20) if init_sam > 0 else True
+        req7 = (rem_sam / init_sam >= _th_sr) if init_sam > 0 else True
         req7_detail = f"주요 SAM 잔여 {rem_sam}발 / 초기 {init_sam}발 ({rem_sam/init_sam:.0%})" if init_sam > 0 else "재고 없음"
     else:
         req7 = any(v > 0 for v in rem_inv.values())
@@ -7721,10 +7776,10 @@ def evaluate_req_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
 
     verdicts = [req1, req2, req4, req5, req6, req7, req8]
     details  = [
-        f"MC 평균 요격률 {mc['mean_intercept']:.1%} {'≥' if req1 else '<'} 95%",
-        f"첫 발사 {tfirst:.0f}s ≤ {MAX_RESPONSE_TIME_S}s" if tfirst >= 0 else "발사 없음",
-        f"MC 완전 성공률 {mc['full_pass_rate']:.1%} {'≥' if req4 else '<'} 90%",
-        f"MC 무피격 비율 {zero_hit_rate:.1%} {'≥' if req5 else '<'} 85%",
+        f"MC 평균 요격률 {mc['mean_intercept']:.1%} {'≥' if req1 else '<'} {_th_ir:.0%}",
+        f"첫 발사 {tfirst:.0f}s ≤ {_th_rt:.0f}s" if tfirst >= 0 else "발사 없음",
+        f"MC 완전 성공률 {mc['full_pass_rate']:.1%} {'≥' if req4 else '<'} {_th_fp:.0%}",
+        f"MC 무피격 비율 {zero_hit_rate:.1%} {'≥' if req5 else '<'} {_th_zh:.0%}",
         f"발사 {fired}발 / 위협 {threats}개",
         req7_detail,
         f"최대 동시 위협 {peak_et} ≤ 채널 {tot_ch}",
@@ -7787,7 +7842,7 @@ def evaluate_req_battle_v7(result: dict, mc: dict, cfg: dict = None) -> tuple:
         v = tfirst <= MAX_RESPONSE_TIME_S
         items.append({'id': f'REQ-B{bidx}', 'name': '응답시간 충족',
                       'desc': f'첫 SAM 발사 ≤ {MAX_RESPONSE_TIME_S}s'})
-        details.append(f"첫 발사 {tfirst:.0f}s ≤ {MAX_RESPONSE_TIME_S}s")
+        details.append(f"첫 발사 {tfirst:.0f}s ≤ {_th_rt:.0f}s")
         verdicts.append(v); bidx += 1
 
     # ── 공통 능력: 채널 한계 (관측된 동시 위협이 있을 때만) ──────────
@@ -8096,7 +8151,7 @@ def generate_briefing(result: dict, mc: dict, cfg: dict) -> str:
     if aircraft_sort > 0:
         lines.append(f'  항공 출격 횟수       : {aircraft_sort}회')
     lines += ['', '【3. REQ 판정 결과】']
-    for req, v, d in zip(REQ_ITEMS_V7, verdicts, details):
+    for req, v, d in zip(req_items(cfg), verdicts, details):
         mark = '✅' if v else '❌'
         lines.append(f'  {mark} {req["id"]}  {req["name"]}  →  {"PASS" if v else "FAIL"}')
         lines.append(f'       {d}')

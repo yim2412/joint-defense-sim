@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app_engine import (
-    AIRCRAFT_SPECS, REQ_ITEMS_V7, _V7_OK, diagnose_vulnerabilities_v7,
+    AIRCRAFT_SPECS, REQ_ITEMS_V7, _V7_OK, diagnose_vulnerabilities_v7, req_items,
     evaluate_req_battle_v7, evaluate_req_v7, generate_briefing,
 )
 from app_theme import (
@@ -833,7 +833,7 @@ class ResultPanelMixin:
             items, verdicts, details = evaluate_req_battle_v7(result, mc, cfg)
         else:
             verdicts, details = evaluate_req_v7(result, mc, cfg)
-            items = REQ_ITEMS_V7
+            items = req_items(cfg)   # 분석자 임계값이 이름에 반영된다
         self.req_table.setRowCount(0)
         _fail_bg = QColor(231, 76, 60, 38)   # 실패 행 옅은 적색 배경 — 한눈에 식별
         for req, v, d in zip(items, verdicts, details):

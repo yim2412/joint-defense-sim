@@ -33,7 +33,7 @@ try:
         ENEMY_FLEET_PRESETS as V7_ENEMY_FLEET_PRESETS,
         ENEMY_FLEET_RANDOM_CFG as V7_RANDOM_CFG,
         MIXED_ATTACK_SCENARIOS as V7_MIXED_SCENARIOS,
-        evaluate_req_v7, REQ_ITEMS_V7, evaluate_req_battle_v7,
+        evaluate_req_v7, REQ_ITEMS_V7, req_items, evaluate_req_battle_v7,
         diagnose_vulnerabilities_v7,
         scenario_comparison_v7,
         save_json_report_v7,
