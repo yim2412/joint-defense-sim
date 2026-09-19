@@ -106,6 +106,7 @@ class ResultPanelMixin:
         self._card_deltas = {}
         card_defs = [
             ('요격률 (MC)',      'intercept'),
+            ('방어 포화도',      'saturation'),
             ('완전 요격 비율',   'full_pass'),
             ('CVaR (최악 5%)',   'cvar'),
             ('아군 피격',        'friendly_hit'),
@@ -115,6 +116,7 @@ class ResultPanelMixin:
         ]
         card_tips = {
             'intercept':    '몬테카를로 평균 요격률 — 전체 위협 중 요격 성공 비율의 MC 평균.\n90% 이상이면 녹색.',
+            'saturation':   '방어 포화도 — 최대 동시 위협 ÷ 편대 총 교전 채널의 MC 평균.\n1.0을 넘으면 채널로 감당 못 하는 위협이 생긴다(요격 불가).\n분모가 편대 자신이라 **편성이 달라도 같은 기준으로 비교**할 수 있다 —\n요격률은 분모(총 위협)가 편성마다 달라 그 비교가 성립하지 않는다.',
             'full_pass':    '완전 요격 비율 — 위협을 하나도 놓치지 않은(누수 0) 시뮬의 비율.',
             'cvar':         'CVaR(조건부 위험가치, 최악 5%) — 하위 5% 시나리오의 평균 요격률.\n방어망이 가장 나쁠 때의 성능 지표.',
             'friendly_hit': '아군 피격 횟수 — 대표 단일 시뮬에서 아군 함정이 받은 명중 수.',
@@ -1023,6 +1025,14 @@ class ResultPanelMixin:
         self._cards['full_pass'].setText(f"{f_pass:.1%}" + (" ⚠" if _abn_fp else ""))
         if _abn_fp:
             self._cards['full_pass'].setStyleSheet("color:#f39c12;")
+        # 방어 포화도 — **낮을수록 좋다**(요격률과 색 기준이 반대). 1.0 초과 = 채널 초과.
+        sat_val = mc.get('mean_saturation')
+        if sat_val:
+            self._cards['saturation'].setText(f"{sat_val:.2f}")
+            self._cards['saturation'].setStyleSheet(
+                f"color:{'#e74c3c' if sat_val >= 1.0 else ('#f39c12' if sat_val >= 0.8 else '#2ecc71')};")
+        else:
+            self._cards['saturation'].setText("—")
         cvar_val = mc.get('cvar')
         if cvar_val is not None:
             self._cards['cvar'].setText(f"{cvar_val:.1%}")
@@ -1105,17 +1115,34 @@ class ResultPanelMixin:
         sub = f"완전요격 {f_pass:.0%}"
         if zero_hit is not None:
             sub += f" · 무피격 {zero_hit:.0%}"
+        # 처방은 요격률만 보고 내리면 틀린다. 랴오닝 항모전단처럼 **동시 위협이 교전
+        # 채널을 넘는** 구간에서는 함정을 늘려도 요격률이 오히려 떨어졌다(docs/analysis/03).
+        # 그래서 방어 포화도(최대 동시 위협 ÷ 총 채널)를 함께 보고 처방을 가른다 —
+        # 24페이지 전황 지표판의 자동 해석이 이미 그렇게 하고 있었고, 1면만 반대였다.
+        sat = mc.get('mean_saturation', 0.0)
+        if sat >= 1.0:
+            fix = ("동시 위협이 교전 채널을 초과합니다(포화도 {:.1f}배) — "
+                   "CEC 협동 교전으로 채널을 분산하거나 편대를 나눠 배치하세요. "
+                   "이 구간에서는 함정만 늘려도 요격률이 오르지 않습니다.").format(sat)
+        elif sat >= 0.80:
+            fix = ("채널 사용률 {:.0%} — 위협이 조금만 늘어도 포화합니다. "
+                   "CEC 활성화 또는 함정 증원을 검토하세요.").format(sat)
+        else:
+            fix = ("장거리 SAM(SM-6) 재고·요격 무기 구성을 조정하면 향상 여지가 있습니다 "
+                   "(채널은 여유 {:.0%}).").format(1 - sat)
+
         if m_int >= 0.90:
             _band('#2ecc71', '🟢 우수',
                   f"평균 요격률 {m_int:.0%} — 위협을 안정적으로 요격합니다. {req_txt}. ({sub})")
         elif m_int >= 0.60:
             _band('#f39c12', '🟡 양호',
                   f"평균 요격률 {m_int:.0%} — 상당수 요격하나 일부 누수가 있습니다. "
-                  f"장거리 SAM(SM-6)·함정 수를 보강하면 향상 여지가 있습니다. {req_txt}. ({sub})")
+                  f"{fix} {req_txt}. ({sub})")
         else:
             _band('#e74c3c', '🔴 미흡',
                   f"평균 요격률 {m_int:.0%} — 위협 다수가 방어망을 돌파합니다. "
-                  f"편대 규모·요격 무기 재고를 재검토하세요. {req_txt}. ({sub})")
+                  f"{fix} {req_txt}. ({sub})")
+
     def _update_card_deltas(self, result: dict, mc: dict):
         """직전 실행(_history[-1]) 대비 주요 지표 변화량을 카드 하단에 표시.
         요격률·완전요격은 상승=녹색(좋음), 비용은 상승=적색(나쁨)."""

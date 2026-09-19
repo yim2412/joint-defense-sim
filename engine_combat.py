@@ -6758,6 +6758,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    tot_threats:  list = []
+    peak_threats: list = []
+    tot_channels: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []   # 전장 모드 승률 집계
     feat_total = collections.Counter()        # 죽은 기능 방지 ②: 회차 합산 발동 횟수
@@ -6788,6 +6791,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        tot_threats.append(r.get('total_threats', 0))
+        peak_threats.append(r.get('peak_concurrent_threats', 0))
+        tot_channels.append(r.get('total_channels', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
         patriot_fired.append(r.get('patriot_fired', 0))
@@ -6864,6 +6870,15 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
+        # ── 편성 비교 지표 (docs/analysis/03) ───────────────────────────────
+        # 요격률은 분모(총위협)가 편성마다 달라 규모 편향이 있다. 방어 포화도는
+        # 분모가 **편성 자신의 교전 채널**이라 편성을 키우면 일관되게 내려간다
+        # (1.99→0.42 실측) — 전 대역에서 단조로운 유일한 지표였다.
+        'mean_total_threats':       float(np.mean(tot_threats)) if tot_threats else 0.0,
+        'mean_peak_threats':        float(np.mean(peak_threats)) if peak_threats else 0.0,
+        'mean_channels':            float(np.mean(tot_channels)) if tot_channels else 0.0,
+        'mean_saturation':          (float(np.mean([p / c for p, c in zip(peak_threats, tot_channels) if c > 0]))
+                                     if any(c > 0 for c in tot_channels) else 0.0),
         'feature_fires_total':      dict(feat_total),   # 죽은 기능 방지 ②: 기능별 총 발동 횟수
         **_battle_agg(outcomes, fscores, n),
     }
@@ -6884,6 +6899,9 @@ def _mc_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    tot_threats:  list = []
+    peak_threats: list = []
+    tot_channels: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
     feat_total = collections.Counter()        # 죽은 기능 방지 ②: 배치 합산 발동 횟수
@@ -6908,6 +6926,9 @@ def _mc_batch_worker(args: tuple) -> tuple:
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        tot_threats.append(r.get('total_threats', 0))
+        peak_threats.append(r.get('peak_concurrent_threats', 0))
+        tot_channels.append(r.get('total_channels', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
         patriot_fired.append(r.get('patriot_fired', 0))
@@ -6938,6 +6959,10 @@ def _mc_batch_worker(args: tuple) -> tuple:
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'patriot_fired': patriot_fired,
+                   # 편성 비교용 — 분모가 편성 자신이라 규모 편향이 없다(docs/analysis/03)
+                   'total_threats': tot_threats,
+                   'peak_concurrent_threats': peak_threats,
+                   'total_channels': tot_channels,
                    'outcome': outcomes, 'friendly_score': fscores,
                    'feature_fires': dict(feat_total)}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, weapon_zero, phase_times_avg, extra_stats
@@ -6956,6 +6981,9 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    tot_threats:  list = []
+    peak_threats: list = []
+    tot_channels: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
     feat_total = collections.Counter()        # 죽은 기능 방지 ②: 배치 합산 발동 횟수
@@ -6979,6 +7007,9 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
         unmanned_lost.append(r.get('unmanned_lost', 0))
         ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
         laser_kills.append(r.get('laser_kills', 0))
+        tot_threats.append(r.get('total_threats', 0))
+        peak_threats.append(r.get('peak_concurrent_threats', 0))
+        tot_channels.append(r.get('total_channels', 0))
         lsam_fired.append(r.get('lsam_fired', 0))
         chungung_fired.append(r.get('chungung_fired', 0))
         patriot_fired.append(r.get('patriot_fired', 0))
@@ -6999,6 +7030,10 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
                    'laser_kills': laser_kills,
                    'lsam_fired': lsam_fired, 'chungung_fired': chungung_fired,
                    'patriot_fired': patriot_fired,
+                   # 편성 비교용 — 분모가 편성 자신이라 규모 편향이 없다(docs/analysis/03)
+                   'total_threats': tot_threats,
+                   'peak_concurrent_threats': peak_threats,
+                   'total_channels': tot_channels,
                    'outcome': outcomes, 'friendly_score': fscores,
                    'feature_fires': dict(feat_total)}
     return rates, f_hits, e_dest, f_lost, costs, weapon_usage, ship_hits_mc, extra_stats
@@ -7069,6 +7104,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
     unmanned_lost: list = []
     ras_resupplied: list = []
     laser_kills: list = []
+    tot_threats:  list = []
+    peak_threats: list = []
+    tot_channels: list = []
     lsam_fired: list = []; chungung_fired: list = []; patriot_fired: list = []
     outcomes: list = []; fscores: list = []
     feat_total = collections.Counter()        # 죽은 기능 방지 ②: 회차 합산 발동 횟수
@@ -7128,6 +7166,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
             unmanned_lost.append(r.get('unmanned_lost', 0))
             ras_resupplied.append(r.get('ras_missiles_resupplied', 0))
             laser_kills.append(r.get('laser_kills', 0))
+            tot_threats.append(r.get('total_threats', 0))
+            peak_threats.append(r.get('peak_concurrent_threats', 0))
+            tot_channels.append(r.get('total_channels', 0))
             lsam_fired.append(r.get('lsam_fired', 0))
             chungung_fired.append(r.get('chungung_fired', 0))
             patriot_fired.append(r.get('patriot_fired', 0))
@@ -7175,6 +7216,15 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'mean_lsam_fired':          float(np.mean(lsam_fired)) if lsam_fired else 0.0,
         'mean_chungung_fired':      float(np.mean(chungung_fired)) if chungung_fired else 0.0,
         'mean_patriot_fired':       float(np.mean(patriot_fired)) if patriot_fired else 0.0,
+        # ── 편성 비교 지표 (docs/analysis/03) ───────────────────────────────
+        # 요격률은 분모(총위협)가 편성마다 달라 규모 편향이 있다. 방어 포화도는
+        # 분모가 **편성 자신의 교전 채널**이라 편성을 키우면 일관되게 내려간다
+        # (1.99→0.42 실측) — 전 대역에서 단조로운 유일한 지표였다.
+        'mean_total_threats':       float(np.mean(tot_threats)) if tot_threats else 0.0,
+        'mean_peak_threats':        float(np.mean(peak_threats)) if peak_threats else 0.0,
+        'mean_channels':            float(np.mean(tot_channels)) if tot_channels else 0.0,
+        'mean_saturation':          (float(np.mean([p / c for p, c in zip(peak_threats, tot_channels) if c > 0]))
+                                     if any(c > 0 for c in tot_channels) else 0.0),
         'feature_fires_total':      dict(feat_total),   # 죽은 기능 방지 ②: 기능별 총 발동 횟수
         **_battle_agg(outcomes, fscores, n),
     }

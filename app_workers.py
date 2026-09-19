@@ -27,6 +27,17 @@ from app_engine import (
     BATTLE_HORIZON_S, STRESS_DIMS, _FLEET_CANDIDATES_KR, _FLEET_CANDIDATES_COMBINED,
 )
 
+def _mean_saturation(extra: dict) -> float:
+    """평균 방어 포화도 = 최대 동시 위협 ÷ 편대 총 교전 채널.
+
+    채널 0인 표본은 제외한다(편성이 비어 있거나 전멸한 경우 — 0 나눗셈 가드).
+    분모가 편성 자신이라 규모 편향이 없다 → 편성 비교에 쓸 수 있다(docs/analysis/03).
+    """
+    peaks = extra.get('peak_concurrent_threats', [])
+    chans = extra.get('total_channels', [])
+    vals = [p / c for p, c in zip(peaks, chans) if c > 0]
+    return float(sum(vals) / len(vals)) if vals else 0.0
+
 class FleetRecommendWorker(QThread):
     """적정 편대 추천 — 한국 단독·한미 연합 두 그룹을 MC 평가."""
     progress = pyqtSignal(int, int, str)   # (done, total, group)
@@ -408,6 +419,11 @@ class SimWorker(QThread):
                     'mean_iff_failures':        float(np.mean(_extra_acc.get('iff_failures', [0]))),
                     'mean_iff_fratricide':      float(np.mean(_extra_acc.get('iff_fratricide', [0]))),
                     'mean_laser_kills':         float(np.mean(_extra_acc.get('laser_kills', [0]))),
+                    # 편성 비교 지표 — MC 3경로 정합(엔진 monte_carlo_v7과 같은 키)
+                    'mean_total_threats':       float(np.mean(_extra_acc.get('total_threats', [0]))),
+                    'mean_peak_threats':        float(np.mean(_extra_acc.get('peak_concurrent_threats', [0]))),
+                    'mean_channels':            float(np.mean(_extra_acc.get('total_channels', [0]))),
+                    'mean_saturation':          _mean_saturation(_extra_acc),
                     'feature_fires_total':      dict(_feat_acc),   # 죽은 기능 방지 ②: 기능별 총 발동
                 }
                 _bo = _extra_acc.get('outcome', [])
