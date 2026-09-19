@@ -52,3 +52,6 @@ _bgbuild*.log
 _bgsmoke*.log
 _build_v*.log
 _bgtask.meta
+_build_logs/
+_cmsg.tmp
+_commit.log

@@ -412,6 +412,10 @@ class SimWorker(QThread):
                     'ship_avg_hits':           {k: float(np.mean(v)) for k, v in all_ship.items()},
                     'mean_intercept':          float(arr.mean()),
                     'std_intercept':           float(arr.std()),
+                    # 트랙 8: 위협 무력화율 — 자폭형 플랫폼까지 포함한 방어 성공률
+                    'neutralization_rates':    _extra_acc.get('neutralization_rate', []),
+                    'mean_neutralization':     float(np.mean(
+                        _extra_acc.get('neutralization_rate') or all_rates or [0.0])),
                     'full_pass_rate':          float((arr == 1.0).mean()),
                     'n':                       len(all_rates),
                     'mean_ships_sunk_by_flood': float(np.mean(_extra_acc.get('ships_sunk_by_flood', [0]))),

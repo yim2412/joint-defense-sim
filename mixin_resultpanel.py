@@ -106,6 +106,7 @@ class ResultPanelMixin:
         self._card_deltas = {}
         card_defs = [
             ('요격률 (MC)',      'intercept'),
+            ('위협 무력화율',    'neutralize'),
             ('방어 포화도',      'saturation'),
             ('완전 요격 비율',   'full_pass'),
             ('CVaR (최악 5%)',   'cvar'),
@@ -116,6 +117,10 @@ class ResultPanelMixin:
         ]
         card_tips = {
             'intercept':    '몬테카를로 평균 요격률 — 전체 위협 중 요격 성공 비율의 MC 평균.\n90% 이상이면 녹색.',
+            'neutralize':   '위협 무력화율 — (미사일 요격 + 자폭형 격퇴) ÷ (미사일 + 자폭형)의 MC 평균.\n'
+                            '자폭 드론·자폭정은 미사일을 쏘지 않아 **요격률에 아예 집계되지 않는다** —\n'
+                            '격퇴해도 방어 실적에 안 잡혀 요격률이 아군을 과소평가한다.\n'
+                            '자폭형이 없는 시나리오에서는 요격률과 같은 값이 된다(✳ 표식이 없으면 동일).',
             'saturation':   '방어 포화도 — 최대 동시 위협 ÷ 편대 총 교전 채널의 MC 평균.\n1.0을 넘으면 채널로 감당 못 하는 위협이 생긴다(요격 불가).\n분모가 편대 자신이라 **편성이 달라도 같은 기준으로 비교**할 수 있다 —\n요격률은 분모(총 위협)가 편성마다 달라 그 비교가 성립하지 않는다.',
             'full_pass':    '완전 요격 비율 — 위협을 하나도 놓치지 않은(누수 0) 시뮬의 비율.',
             'cvar':         'CVaR(조건부 위험가치, 최악 5%) — 하위 5% 시나리오의 평균 요격률.\n방어망이 가장 나쁠 때의 성능 지표.',
@@ -1020,6 +1025,27 @@ class ResultPanelMixin:
         self._cards['intercept'].setText(f"{m_int:.1%}" + (" ⚠" if _abn else ""))
         self._cards['intercept'].setStyleSheet(
             f"color:{'#f39c12' if _abn else ('#2ecc71' if m_int >= 0.9 else '#e74c3c')};")
+        # 트랙 8: 위협 무력화율 — 자폭형은 요격률 분모·분자 어디에도 안 잡히므로,
+        # 자폭형이 편성된 시나리오에서는 요격률이 아군을 **과소평가**한다.
+        # 자폭형이 실제로 섞였을 때만 ✳를 붙여 "왜 요격률과 값이 다른가"를 화면이 설명한다.
+        m_neu = mc.get('mean_neutralization')
+        n_sui = result.get('suicide_threats', 0)
+        if m_neu is None:
+            self._cards['neutralize'].setText("—")
+            self._cards['neutralize'].setStyleSheet(f"color:{C_SUBTEXT};")
+        else:
+            self._cards['neutralize'].setText(f"{m_neu:.1%}" + (" ✳" if n_sui else ""))
+            self._cards['neutralize'].setStyleSheet(
+                f"color:{'#2ecc71' if m_neu >= 0.9 else '#e74c3c'};")
+        _neu_box = self._cards['neutralize'].parentWidget()
+        if _neu_box is not None:
+            _neu_box.setToolTip(
+                (f"✳ 자폭형 {n_sui}기 포함 — 요격 {result.get('intercepted_threats', 0)}"
+                 f"/미사일 {result.get('total_threats', 0)} + 격퇴 "
+                 f"{result.get('suicide_neutralized', 0)}/자폭형 {n_sui}")
+                if n_sui else
+                "이 시나리오에는 자폭형 위협이 없어 요격률과 같은 값이다.")
+
         f_pass = mc['full_pass_rate']
         _abn_fp = (f_pass < 0.0 or f_pass > 1.0)
         self._cards['full_pass'].setText(f"{f_pass:.1%}" + (" ⚠" if _abn_fp else ""))
@@ -1172,6 +1198,11 @@ class ResultPanelMixin:
 
         _fmt(deltas['intercept'], mc['mean_intercept'] * 100,
              prev.get('mean_intercept', 0) * 100, "%p", True)
+        if mc.get('mean_neutralization') is not None:
+            _fmt(deltas['neutralize'], mc['mean_neutralization'] * 100,
+                 (prev.get('mean_neutralization') or 0) * 100, "%p", True)
+        else:
+            deltas['neutralize'].setText("")
         _fmt(deltas['full_pass'], mc['full_pass_rate'] * 100,
              prev.get('full_pass_rate', 0) * 100, "%p", True)
         if 'total_cost' in prev:

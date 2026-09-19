@@ -133,6 +133,13 @@ CASES = [
     ('054B-차세대전투단', dict(_BASE, fleet_preset='이지스 기동전단',
                                enemy_fleet_preset='차세대 수상 전투단 (054B)',
                                enable_strike=True, haesong2_stock=16),                                 [3, 9]),
+    # 트랙 8 봉인 — 자폭형 플랫폼(미사일을 쏘지 않는 위협)은 기존 38케이스에 **하나도
+    # 없었다**. 지표만 추가하면 전 케이스가 0을 봉인해 사각이 그대로 남으므로 케이스를
+    # 함께 신설한다. 공중 자폭(is_aircraft)과 수상 자폭(is_suicide)은 코드 경로가 달라 둘 다.
+    ('자폭군집-공중',   dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='무인기 군집 포화'),                                   [1, 4]),
+    ('자폭침투-수상',   dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='항만 침투 복합'),                                     [2, 7]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)
@@ -143,7 +150,10 @@ _KEYS = ['total_threats', 'intercepted_threats', 'friendly_hits', 'enemy_hits',
          'ashore_sm3_fired', 'thaad_fired', 'lsam_fired', 'chungung_fired',
          'patriot_fired',   # v20.1: BMD 5계층
          'iff_failures', 'iff_fratricide',
-         'ships_sunk_by_flood', 'intercept_rate', 'sim_time', 'total_channels']
+         'ships_sunk_by_flood', 'intercept_rate', 'sim_time', 'total_channels',
+         # 트랙 8: 자폭형 위협 집계 — 자폭 루프와 술어를 공유하므로 둘 중 하나가
+         # 조용히 바뀌면 여기서 갈린다(무력화율 분모·분자 동시 봉인).
+         'suicide_threats', 'suicide_neutralized', 'neutralization_rate']
 
 # 캠페인 정밀 교전(enable_precise_engagement) 회귀 — 전술 골든(위 CASES)은 정밀 OFF
 # 대리모델 경로만 보증하므로, 캠페인 zone 교전을 실제 전술 단발로 해결하는 _resolve_precise

@@ -1212,6 +1212,9 @@ class EnemyThreatObj:
     sam_channels_used     = _et_col('_et_sam_channels_used')
     alive                 = _et_col('_et_alive')
     intercepted           = _et_col('_et_intercepted')
+    # 트랙 8: 자폭 성공 여부 — alive=False만으로는 '격퇴'와 '자폭 성공'이 구분되지
+    # 않아 무력화율 분자가 적의 성공까지 세게 된다. 자폭 루프가 여기에 표시한다.
+    detonated             = _et_col('_et_detonated')
     hit_count             = _et_col('_et_hit_count')
     hit_by                = _et_col('_et_hit_by')
     has_fired             = _et_col('_et_has_fired')
@@ -1251,6 +1254,19 @@ class EnemyThreatObj:
     @classmethod
     def reset_counter(cls):
         cls._id_counter = 0
+
+
+def is_suicide_platform(et) -> bool:
+    """자폭 공격을 수행하는 플랫폼인가 — 공중 자폭 드론(is_aircraft) + 수상 자폭정(is_suicide).
+
+    트랙 8: 위협 집계(무력화율 분모·분자)와 자폭 판정(_check_hits 인근 자폭 루프)이
+    **반드시 같은 집합**을 봐야 한다. 두 곳이 갈리면 "때리는데 분모엔 있고 막아도 분자엔
+    없는" 위협이 생겨 지표가 거짓말을 한다. 그래서 술어를 여기 한 곳에만 둔다.
+    `071형 상륙함`처럼 can_fire_missile=False지만 자폭하지 않는 플랫폼은 제외된다.
+    """
+    if not (et.is_aircraft or et.info.get('is_suicide')):
+        return False
+    return not et.info.get('can_fire_missile', True)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1674,6 +1690,10 @@ class TimeStepEngine:
         self.stats = {
             'total_threats':           0,
             'intercepted_threats':     0,
+            # 트랙 8: 자폭형 플랫폼은 미사일을 쏘지 않아 위 두 키에 잡히지 않는다.
+            # 격퇴해도 방어 실적에 반영되지 않아 요격률이 아군을 **과소평가**했다.
+            'suicide_threats':         0,   # 자폭형 편성 수(초기 + 웨이브 스폰 전부)
+            'suicide_neutralized':     0,   # 그중 격퇴된 수(자폭 성공은 제외)
             'friendly_hits':           0,
             'enemy_hits':              0,
             'friendly_ships_lost':     0,
@@ -1870,6 +1890,7 @@ class TimeStepEngine:
         self._et_munition_remaining: list   = []   # 공격 무장 잔여(무장 유한화)
         self._et_alive: list                = []
         self._et_intercepted: list          = []
+        self._et_detonated: list            = []   # 트랙 8: 자폭 성공(격퇴와 구분)
         self._et_hit_count: list            = []
         self._et_hit_by: list               = []
         self._et_has_fired: list            = []
@@ -1932,6 +1953,7 @@ class TimeStepEngine:
         self._et_sam_channels_used.append(0)
         self._et_alive.append(True)
         self._et_intercepted.append(False)
+        self._et_detonated.append(False)
         self._et_hit_count.append(0)
         self._et_hit_by.append([])
         self._et_has_fired.append(False)
@@ -2793,16 +2815,15 @@ class TimeStepEngine:
         for et in self.enemy_threats:
             if not et.alive or et.is_retreating:
                 continue
-            if not (et.is_aircraft or et.info.get('is_suicide')):
-                continue
-            if et.info.get('can_fire_missile', True):
+            if not is_suicide_platform(et):
                 continue  # 일반 전투기는 미사일 발사 후 이탈 — 자폭 없음
             if et.pos.dist_to(primary.pos) > 200:
                 continue
             primary.take_hit(et.preset_name, self.t)
             self.stats['friendly_hits'] += 1
             self._log(f"[피격!] {et.preset_name} 자폭")
-            et.alive = False
+            et.alive     = False
+            et.detonated = True   # 트랙 8: 격퇴가 아니라 적의 성공 — 무력화율 분자에서 제외
 
         # v12.1: 미사일 이동 — PNG 종말 유도(enable_png) 분기
         # PNG 교전 SAM은 표적(적 대함미사일)을 jink로 직접 전진시키므로, 그 표적은
@@ -5623,9 +5644,17 @@ class TimeStepEngine:
         self.stats['ships_sunk_by_flood']   = sum(1 for s in self.friendly_ships if getattr(s, 'sunk_by_flood', False))
         self.stats['ships_flooding']        = sum(1 for s in self.friendly_ships if s.alive and getattr(s, 'flood', 0.0) > 0.0)
         # 이탈 항공기(alive=False, is_retreating=True, intercepted=False)는 "격침" 아님
+        # 트랙 8: 자폭에 성공한 수상 자폭정(USV)은 is_aircraft=False·intercepted=False라
+        # 이 조건을 통과해 **적이 이긴 것이 아군 전과로** 집계됐다(detonated로 차단).
         self.stats['enemy_ships_destroyed'] = sum(
             1 for et in self.enemy_threats
-            if not et.alive and (et.intercepted or not et.is_aircraft)
+            if not et.alive and not et.detonated and (et.intercepted or not et.is_aircraft)
+        )
+        # 트랙 8: 자폭형 위협 집계 — 자폭 루프와 같은 술어(is_suicide_platform)를 쓴다.
+        _sui = [et for et in self.enemy_threats if is_suicide_platform(et)]
+        self.stats['suicide_threats']     = len(_sui)
+        self.stats['suicide_neutralized'] = sum(
+            1 for et in _sui if not et.alive and not et.detonated
         )
         # 포팅 C: 항공 자산 출격 횟수 + 비용 합산
         self.stats['aircraft_sorties'] = sum(ac.sorties for ac in self.aircraft)
@@ -5639,6 +5668,12 @@ class TimeStepEngine:
             min(1.0, self.stats['intercepted_threats'] / self.stats['total_threats'])
             if self.stats['total_threats'] > 0 else 1.0
         )
+
+        # 트랙 8: 위협 무력화율 — 미사일 요격 + 자폭형 격퇴를 함께 본 방어 성공률.
+        # 자폭형이 없는 프리셋(29종 중 26종)에서는 요격률과 같은 값이 된다.
+        _n_tot = self.stats['total_threats'] + self.stats['suicide_threats']
+        _n_itc = self.stats['intercepted_threats'] + self.stats['suicide_neutralized']
+        neutralization_rate = min(1.0, _n_itc / _n_tot) if _n_tot > 0 else 1.0
 
         # 포팅 D: 잔여 재고 합산 (REQ-07), 총 채널 수 (REQ-08)
         remaining_inv: dict = {}
@@ -5679,6 +5714,7 @@ class TimeStepEngine:
         return {
             **self.stats,
             'intercept_rate':    intercept_rate,
+            'neutralization_rate': neutralization_rate,   # 트랙 8: 미사일+자폭형 통합
             'sim_time':          self.t,
             'frames':            self.frames,
             'log':               self._log_entries,
@@ -6790,6 +6826,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     """
     cfg = dict(cfg); cfg['mc_mode'] = True
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    neut_rates: list = []   # 트랙 8: 위협 무력화율(미사일 요격 + 자폭형 격퇴)
     weapon_usage: dict = {}   # {무기명: [회차별 소모량]}
     ship_hits_mc: dict = {}   # {함정명: [회차별 피격]}
     weapon_zero:  dict = {}   # {무기명: 소진(잔여=0) 횟수}
@@ -6822,6 +6859,7 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
             run_cfg['sim_seed'] = int(base_seed) + i
         r = _mc_run_one(run_cfg)
         rates.append(r['intercept_rate'])
+        neut_rates.append(r.get('neutralization_rate', r['intercept_rate']))
         f_hits.append(r['friendly_hits'])
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
@@ -6893,6 +6931,10 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'ship_avg_hits':           ship_avg_hits,
         'mean_intercept':          float(arr.mean()),
         'std_intercept':           float(arr.std()),
+        # 트랙 8: 위협 무력화율 — 자폭형 플랫폼까지 포함한 방어 성공률.
+        # 자폭형이 없는 프리셋에서는 mean_intercept와 같은 값이 된다.
+        'neutralization_rates':    neut_rates,
+        'mean_neutralization':     float(np.mean(neut_rates)) if neut_rates else 0.0,
         'full_pass_rate':          float((arr == 1.0).mean()),
         'n':                       n,
         # v9.3: 공격 임무 격침 통계
@@ -6934,6 +6976,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
     cfg, n, seed_offset = args
     cfg = dict(cfg); cfg['mc_mode'] = True
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    neut_rates: list = []   # 트랙 8: 위협 무력화율(미사일 요격 + 자폭형 격퇴)
     weapon_usage: dict = {}
     weapon_zero:  dict = {}
     ship_hits_mc: dict = {}
@@ -6957,6 +7000,7 @@ def _mc_batch_worker(args: tuple) -> tuple:
             run_cfg['sim_seed'] = int(base_seed) + seed_offset + i
         r = _mc_run_one(run_cfg)
         rates.append(r['intercept_rate'])
+        neut_rates.append(r.get('neutralization_rate', r['intercept_rate']))
         f_hits.append(r['friendly_hits'])
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
@@ -6995,7 +7039,8 @@ def _mc_batch_worker(args: tuple) -> tuple:
         phase_times_avg = {k: v / n for k, v in phase_times_acc.items()}
     else:
         phase_times_avg = {}
-    extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
+    extra_stats = {'neutralization_rate': neut_rates,   # 트랙 8
+                   'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
                    'recon_losses': recon_loss,
@@ -7018,6 +7063,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
     cfg_base, samples, param_defs = args
     cfg_base = dict(cfg_base); cfg_base['mc_mode'] = True
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    neut_rates: list = []   # 트랙 8: 위협 무력화율(미사일 요격 + 자폭형 격퇴)
     weapon_usage: dict = {}
     ship_hits_mc: dict = {}
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
@@ -7038,6 +7084,7 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
             run_cfg[key] = float(lo + sample[j] * (hi - lo))
         r = _mc_run_one(run_cfg)
         rates.append(r['intercept_rate'])
+        neut_rates.append(r.get('neutralization_rate', r['intercept_rate']))
         f_hits.append(r['friendly_hits'])
         e_dest.append(r['enemy_ships_destroyed'])
         f_lost.append(r['friendly_ships_lost'])
@@ -7066,7 +7113,8 @@ def _mc_lhs_batch_worker(args: tuple) -> tuple:
             weapon_usage.setdefault(wpn, []).append(remaining)
         for ship in r.get('friendly_ships', []):
             ship_hits_mc.setdefault(ship.name, []).append(getattr(ship, 'hits_taken', 0))
-    extra_stats = {'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
+    extra_stats = {'neutralization_rate': neut_rates,   # 트랙 8
+                   'ships_sunk_by_flood': flood_sunk, 'ships_flooding': flood_on,
                    'iff_failures': iff_fail, 'iff_fratricide': iff_frat,
                    'mines_struck': mine_struck, 'ships_lost_to_mine': mine_lost,
                    'recon_losses': recon_loss,
@@ -7141,6 +7189,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         samples = np.random.rand(n, len(_LHS_PARAM_DEFS))
 
     rates, f_hits, e_dest, f_lost, costs = [], [], [], [], []
+    neut_rates: list = []   # 트랙 8: 위협 무력화율(미사일 요격 + 자폭형 격퇴)
     weapon_usage: dict = {}
     ship_hits_mc: dict = {}
     flood_sunk: list = []; flood_on: list = []; iff_fail: list = []; iff_frat: list = []
@@ -7169,6 +7218,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 br, bh, bd, bl, bc, bwu, bsh, bxs = fut.result()
                 rates.extend(br); f_hits.extend(bh); e_dest.extend(bd)
                 f_lost.extend(bl); costs.extend(bc)
+                # 트랙 8: 병렬 경로는 extra_stats(bxs) 경유 — 직렬 폴백만 채우면
+                # LHS 무력화율이 조용히 0이 된다(배선 테스트로 실제 검출, 2026-09-19)
+                neut_rates.extend(bxs.get('neutralization_rate', br))
                 flood_sunk.extend(bxs['ships_sunk_by_flood'])
                 flood_on.extend(bxs['ships_flooding'])
                 iff_fail.extend(bxs['iff_failures'])
@@ -7199,6 +7251,7 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
                 run_cfg[key] = float(lo + sample[j] * (hi - lo))
             r = _mc_run_one(run_cfg)
             rates.append(r['intercept_rate']); f_hits.append(r['friendly_hits'])
+            neut_rates.append(r.get('neutralization_rate', r['intercept_rate']))
             e_dest.append(r['enemy_ships_destroyed']); f_lost.append(r['friendly_ships_lost'])
             costs.append(r['total_cost'])
             flood_sunk.append(r.get('ships_sunk_by_flood', 0))
@@ -7242,6 +7295,9 @@ def monte_carlo_lhs(cfg: dict, n: int = 10_000,
         'ship_avg_hits':            {k: float(np.mean(v)) for k, v in ship_hits_mc.items()},
         'mean_intercept':           float(arr.mean()),
         'std_intercept':            float(arr.std()),
+        # 트랙 8: MC 3경로 정합 — v7 경로와 같은 키를 LHS도 제공
+        'neutralization_rates':     neut_rates,
+        'mean_neutralization':      float(np.mean(neut_rates)) if neut_rates else 0.0,
         'full_pass_rate':           float((arr == 1.0).mean()),
         'cvar':                     compute_cvar(rates),
         'n':                        n,
