@@ -6440,10 +6440,23 @@ class BattleEngine(TimeStepEngine):
         }
         return st
 
-    def _apply_ship_evasion(self):
+    def _apply_ship_evasion(self, evade_r_base: float | None = None,
+                            evade_speed_ms: float | None = None):
         """전장 모드 함대 기동 자세 — `_evasion_posture`에 따라 회피 적극도 조절.
         passive=회피 안 함(연료 절약·생존 risk) / normal=현행 / aggressive=조기·대폭 회피
-        (생존↑·연료↑). 자세는 _apply_tactical_choice가 RL 행동으로 세팅."""
+        (생존↑·연료↑). 자세는 _apply_tactical_choice가 RL 행동으로 세팅.
+
+        F-007: 부모(`TimeStepEngine._apply_ship_evasion`)의 파라미터를 **받아 둔다.**
+        전장 모드는 자세로 값을 정하므로 평소엔 안 쓰지만, 시그니처를 좁히면 부모 계약을
+        쓰는 호출이 TypeError 가 된다(리스코프 위반). 명시적으로 넘어온 값이 있으면
+        자세 분기보다 **우선**한다 — 호출자가 일부러 지정한 것이기 때문이다."""
+        if evade_r_base is not None or evade_speed_ms is not None:
+            kw = {}
+            if evade_r_base is not None:
+                kw['evade_r_base'] = evade_r_base
+            if evade_speed_ms is not None:
+                kw['evade_speed_ms'] = evade_speed_ms
+            return super()._apply_ship_evasion(**kw)
         posture = getattr(self, '_evasion_posture', 'normal')
         if posture == 'passive':
             return

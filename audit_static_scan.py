@@ -817,6 +817,36 @@ def chk_known_whitelist_fresh():
           if stale else 'OK(%d개 전부 아직 상수)' % len(known))
 
 
+# ── ① 코드: 자식 클래스가 부모 메서드 시그니처를 좁히지 않았는가 ──────────────
+# 왜 있나: CLAUDE.md 종합 감사 ①이 "부모 무수정(BattleEngine 상속이 TimeStepEngine
+# 시그니처 변경 안 함)"을 점검 항목으로 적어 두었는데, 수동 점검이라 실제로 놓쳤다 —
+# BattleEngine._apply_ship_evasion(self) 가 부모의 파라미터 2개를 없앤 채였다
+# (전면 분석 F-007, 2026-09-20). 좁히면 부모 계약을 쓰는 호출이 TypeError 가 된다.
+def chk_subclass_signature():
+    src = rd('engine_combat.py')
+    try:
+        a = src.index('class TimeStepEngine')
+        c = src.index('class BattleEngine')
+    except ValueError:
+        return
+    b = src.index('class Objective') if 'class Objective' in src else c
+    sig = lambda seg: dict(re.findall(r'^    def (\w+)\(self([^)]*)\)', seg, re.M))
+    parent, child = sig(src[a:b]), sig(src[c:])
+    over = [k for k in child if k in parent]
+    guard_count('①', '오버라이드 추출', len(over), 3)
+    narrowed = []
+    for k in over:
+        pp = [x.strip() for x in parent[k].split(',') if x.strip()]
+        cp = [x.strip() for x in child[k].split(',') if x.strip()]
+        # 부모가 받던 파라미터를 자식이 못 받으면 좁힌 것(**kwargs 는 허용)
+        if pp and not cp and '**' not in child[k]:
+            narrowed.append('%s(부모 %d개 인자 → 자식 0개)' % (k, len(pp)))
+    check('①', '부모 무수정(자식이 시그니처를 좁히지 않음)', not narrowed,
+          ('좁힌 오버라이드: %s — 부모 계약을 쓰는 호출이 TypeError 가 된다. '
+           '인자를 무시하더라도 받아 두거나 **kwargs 를 쓸 것' % ', '.join(narrowed))
+          if narrowed else '오버라이드 %d개 전부 부모 시그니처 보존' % len(over))
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
@@ -826,7 +856,7 @@ def main():
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
                chk_memory_freshness, chk_session_log_fresh,
                chk_global_name_import, chk_audit_tool_cadence,
-               chk_known_whitelist_fresh):
+               chk_known_whitelist_fresh, chk_subclass_signature):
         try:
             fn()
         except Exception as e:

@@ -314,7 +314,7 @@
   [[project-experimental-promotion]] 의 *"IFF 는 CAP 교전 0이라 미검증 보류"* 를
   **골든 데이터가 독립적으로 뒷받침**한다(30케이스 전부 0).
 
-### F-007 · 축: 뼈대 · 상태: 미처리
+### F-007 · 축: 뼈대 · 상태: 수정됨
 - 위치: engine_combat.py:6443 `def _apply_ship_evasion(self):`  (F-005 수정으로 이동)
 - 근거: [코드]
 - 이력: [신규]
@@ -323,10 +323,21 @@
   `self._apply_ship_evasion()`(L2796, 무인자)과 자식 내부의 `super()._apply_ship_evasion(...)`
   둘뿐이라 **지금은 터지지 않는다** → 심각도를 `중간` 으로 낮춘다. 다만 계약 위반 자체는
   반증되지 않는다(부모의 두 파라미터를 외부에서 쓸 수 없게 됐다)
-- 재현: (없음) — S형식으로 닫는다: `chk_subclass_signature` 를 신설하면 영구 검출된다
+- 재현: `chk_subclass_signature` (S형식 — 착수 시 FAIL, 수정 후 PASS)
 - 수정비용: 소
 - 회귀위험: 골든 영향 없음(시그니처만 맞추고 동작은 유지 가능)
 - 실행주체: 나 단독
+- 대상: engine_combat.py, audit_static_scan.py
+- 짝: 없음(단독 성립) — 동작을 바꾸지 않고 계약만 복원하므로 함께 고칠 정의가 없다
+- 무대: `BattleEngine` 인스턴스에 `evade_r_base=` 를 넘기는 호출. 현재 그런 호출이
+  없어서 **터지지 않았을 뿐**이고, 하나만 생기면 TypeError 다
+- 결과: `chk_subclass_signature` **FAIL → PASS** `[실측]`. 부모의 두 파라미터를
+  `None` 기본값으로 **받아 두고**, 명시적으로 넘어오면 자세 분기보다 **우선**하게 했다
+  (호출자가 일부러 지정한 값이므로). 회귀 **46×32 PASS — 동작 보존**(순수 계약 복원).
+  **주입 검증**: 시그니처를 다시 좁히니 즉시 `[FAIL] _apply_ship_evasion(부모 2개 인자
+  → 자식 0개)` 로 잡혔다. 정적 스캔 **61/61 PASS**.
+  → `CLAUDE.md` 종합 감사 ①의 *"부모 무수정"* 이 **수동 점검이라 놓쳤던 것**을
+  이제 도구가 강제한다(F-003 이 지적한 부류의 해소 사례)
 - 뿌리: F-003 의 증상 (수동 점검이라 실제로 놓쳤다)
 - 요약: `BattleEngine._apply_ship_evasion(self)` 가 부모
   `TimeStepEngine._apply_ship_evasion(self, evade_r_base=15_000, evade_speed_ms=...)` 의
@@ -543,7 +554,7 @@
   → 짝 지도는 *"만들 수 없다"* 가 아니라 **"효과 측정의 부산물로만 만들 수 있다"** 가 정답.
 
 ### F-004 · 축: 뼈대 · 상태: 오탐
-- 위치: engine_combat.py:6764 `def _compile(self) -> dict:`  (BattleEngine 쪽 — F-005 수정으로 이동)
+- 위치: engine_combat.py:6777   (BattleEngine 쪽 — F-005 수정으로 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간
