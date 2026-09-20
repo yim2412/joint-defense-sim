@@ -37,6 +37,7 @@
 | `_audit_smoke_util.py` · `_audit_load_guard.py` | 위 스모크의 **보조 모듈** | 단독 실행 대상 아님 |
 | `audit_db_consistency.py` · `audit_dead_toggle.py` | **보고 도구(수동)** | **exit 0 고정** — 사람이 판정한다. **훅에 넣으면 안 된다**(항상 통과) |
 | `_audit_make_pdf.py` | 감사 보고서 생성 | 감사 종료 시 1회 |
+| `analysis/refresh_anchors.py` | **B단계 묶음마다(수동)** | 코드 수정 후 대장 인용 라인 재조정 — **제안만** 하고 판단 필요·모호는 사람이 |
 
 > **읽는 법**: '종합 감사' 주기는 **major 전환 때만**이라는 뜻이다. 그 주기의 도구가
 > 지키는 사각은 *"메웠다"* 가 아니라 **"major 당 1회 확인한다"** 가 정확한 표현이다.

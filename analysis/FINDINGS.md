@@ -54,7 +54,7 @@
   UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
 
 ### F-005 · 축: 모델타당성 · 상태: 수정됨
-- 위치: engine_combat.py:2317 `self.stats['total_threats'] += 1`  (F-009 수정으로 +11 이동, 내용 동일)
+- 위치: engine_combat.py:2318   (파도 스폰 쪽 — 수정 후 미사일 가지 안)
 - 근거: [코드]
 - 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
 - 심각도: 중간
@@ -109,7 +109,7 @@
   `enemy_ships_destroyed` 세 정의를 **함께** 설계해야 한다(짝).
 
 ### F-008 · 축: 모델타당성 · 상태: 수정됨
-- 위치: engine_combat.py:5685 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
+- 위치: engine_combat.py:5691 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
@@ -270,7 +270,7 @@
   **그 회귀가 보는 범위 밖**이면 소용이 없다.
 
 ### F-010 · 축: 검증체계 · 상태: 수정됨
-- 위치: audit_static_scan.py:574 `KNOWN = {'ashore_sm3_fired', 'thaad_fired', 'usa_cost', 'usa_shots',`
+- 위치: audit_static_scan.py:577 `KNOWN = {'usa_cost', 'usa_shots', 'iff_failures', 'iff_fratricide'}`  (수정 후 — 6→4)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간
@@ -315,7 +315,7 @@
   **골든 데이터가 독립적으로 뒷받침**한다(30케이스 전부 0).
 
 ### F-007 · 축: 뼈대 · 상태: 수정됨
-- 위치: engine_combat.py:6443 `def _apply_ship_evasion(self):`  (F-005 수정으로 이동)
+- 위치: engine_combat.py:6443 `def _apply_ship_evasion(self, evade_r_base: float | None = None,`  (수정 후 — 부모 계약 복원된 시그니처)
 - 근거: [코드]
 - 이력: [신규]
 - 심각도: 중간
@@ -552,9 +552,8 @@
      `EFFECT_DEAD` 는 `enable_anti_sam` **1개**뿐이다(체크박스는 v21.07.10에 제거,
      엔진 코드만 보존). 즉 **2×2 측정 대상은 사실상 1개**다.
   → 짝 지도는 *"만들 수 없다"* 가 아니라 **"효과 측정의 부산물로만 만들 수 있다"** 가 정답.
-
 ### F-004 · 축: 뼈대 · 상태: 오탐
-- 위치: engine_combat.py:6777   (BattleEngine 쪽 — F-005 수정으로 이동)
+- 위치: engine_combat.py:6777 `def _compile(self) -> dict:`  (BattleEngine 쪽)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간
