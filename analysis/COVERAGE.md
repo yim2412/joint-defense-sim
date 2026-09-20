@@ -185,8 +185,8 @@
 | `audit_perf_baseline.json` | 14 | 안봄 |  |
 | `audit_property.py` | 221 | 안봄 |  |
 | `audit_regression_golden.json` | 1214 | 안봄 |  |
-| `audit_static_scan.py` | 823 | 발췌 | 검사 24함수 추출 · 훅 배선 확인 |
-| `audit_verify_regression.py` | 389 | 발췌 | 골든 42×32·캠페인 6케이스 확인 |
+| `audit_static_scan.py` | 823 | 발췌 | 검사 24함수 · chk_golden_coverage 정독 · F-010 |
+| `audit_verify_regression.py` | 389 | 발췌 | 골든 구조·지표 변별력 실측 · F-010 |
 | `db_ground_threat.py` | 415 | 발췌 | F-002 — 호출처 0 확인 |
 | `db_ocean_acoustic.py` | 676 | 발췌 | L-2 미배선 심볼 |
 | `db_ocean_environment.py` | 817 | 발췌 | L-2 미배선 심볼 |
@@ -216,7 +216,7 @@
 | `improve_llm_propose.py` | 125 | 안봄 |  |
 | `improve_weakness_report.py` | 244 | 안봄 |  |
 | `jds_icon.ico` |  | 해당없음 | 자산(읽을 코드 아님) |
-| `mixin_configpanel.py` | 1493 | 안봄 |  |
+| `mixin_configpanel.py` | 1493 | 발췌 | ai_tactic UI 노출 확인(F-009) |
 | `mixin_configpanel2.py` | 871 | 안봄 |  |
 | `mixin_configpanel3.py` | 395 | 안봄 |  |
 | `mixin_export.py` | 143 | 안봄 |  |
