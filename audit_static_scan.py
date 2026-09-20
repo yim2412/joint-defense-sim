@@ -571,8 +571,10 @@ def chk_golden_coverage():
             vals[k].add(round(v, 4) if isinstance(v, float) else v)
             cnt[k] += 1
     # 골든이 의도적으로 미커버하는 알려진 사각(한국 단독·미편성 시나리오)
-    KNOWN = {'ashore_sm3_fired', 'thaad_fired', 'usa_cost', 'usa_shots',
-             'iff_failures', 'iff_fratricide'}
+    # F-010: 면제 목록은 **줄기만 한다**(EFFECT_DEBT 와 같은 규율). 변별되기 시작하면
+    # 빼야 다시 상수로 퇴행할 때 잡힌다. ashore_sm3_fired(고유값 4)·thaad_fired(2)는
+    # 이미 변별돼 2026-09-20 에 제외했다. chk_known_whitelist_fresh 가 이를 강제한다.
+    KNOWN = {'usa_cost', 'usa_shots', 'iff_failures', 'iff_fratricide'}
     # 케이스 3개 미만에만 등장하는 지표(예: 소수 캠페인 보조 케이스의 _CKEYS)는 표본이
     # 부족해 '전 케이스 동일=vacuous' 판정이 불가(2케이스가 우연히 같을 수 있음). 그 지표의
     # 회귀 안전망은 골든 값 비교(do_check)가 이미 제공하므로 vacuous 판정에서만 제외한다.
@@ -762,6 +764,59 @@ def chk_global_name_import():
           else f'재할당 전역 {total}개 전부 모듈 경유 (이름 import 0건)')
 
 
+# ── ⑥ 위생: 감사 도구의 **실행 주기**가 명시돼 있는가 ────────────────────────
+# 왜 있나: "도구가 있다"와 "도구가 돈다"는 다르다. BLIND_SPOTS 가 '메웠다'고 선언한
+# 사각 중 둘(pairwise 조합·수치 fuzz)이 훅 밖 수동 도구에 걸려 있었고, 종합 감사는
+# major 전환 때만 돌아 실질 major 당 1회였다(전면 분석 F-003, 2026-09-20).
+# 레지스트리가 낙관적으로 거짓말하지 않게, 모든 감사 도구를 '훅 자동' 또는
+# BLIND_SPOTS 의 **실행 주기 표**에 등재하도록 강제한다.
+def chk_audit_tool_cadence():
+    tools = sorted(f for f in os.listdir(ROOT)
+                   if re.match(r'^(audit_|_audit_)', f) and f.endswith('.py'))
+    guard_count('⑥', '감사 도구 추출', len(tools), 10)
+    hook = ''
+    for h in ('pre-commit', 'pre-push'):
+        try:
+            hook += rd(os.path.join('.githooks', h))
+        except OSError:
+            pass
+    try:
+        bs = rd('BLIND_SPOTS.md')
+    except OSError:
+        bs = ''
+    missing = [t for t in tools if t not in hook and ('`%s`' % t) not in bs]
+    check('⑥', '감사 도구 실행 주기 명시(훅 자동 or BLIND_SPOTS 주기표)', not missing,
+          ('주기 미명시 %d개: %s — 훅에 넣거나 BLIND_SPOTS 실행 주기 표에 등재할 것'
+           '("도구가 있다"와 "돈다"는 다르다)' % (len(missing), ', '.join(missing)))
+          if missing else '%d개 전부 훅 자동 또는 주기 표에 등재' % len(tools))
+
+
+# ── ③ 회귀: 골든 사각 화이트리스트(KNOWN)가 아직 유효한가 ────────────────────
+# 왜 있나: chk_golden_coverage 의 KNOWN 은 '의도된 사각' 면제 목록이다. 면제는 낡으면
+# 조용히 감시를 비운다 — 실제로 6개 중 2개(ashore_sm3_fired·thaad_fired)가 이미
+# 케이스 간 변별되는데 남아 있었다(전면 분석 F-010). EFFECT_DEBT 처럼 **줄기만 해야**
+# 한다: 변별되기 시작한 항목은 목록에서 빼야 다시 상수로 퇴행할 때 잡힌다.
+def chk_known_whitelist_fresh():
+    from collections import defaultdict
+    p = os.path.join(ROOT, 'audit_regression_golden.json')
+    if not os.path.exists(p):
+        return
+    src = rd('audit_static_scan.py')
+    m = re.search(r'KNOWN = \{(.*?)\}', src, re.S)
+    known = set(re.findall(r"'(\w+)'", m.group(1))) if m else set()
+    guard_count('③', 'KNOWN 화이트리스트 추출', len(known), 1)
+    g = json.load(open(p, encoding='utf-8'))
+    vals = defaultdict(set)
+    for rec in g.values():
+        for k, v in rec.items():
+            vals[k].add(round(v, 4) if isinstance(v, float) else v)
+    stale = sorted(k for k in known if len(vals.get(k, set())) > 1)
+    check('③', 'KNOWN 사각 목록 최신(변별되면 빼야 한다)', not stale,
+          ('이미 변별되는데 면제 목록에 남아 있다: %s — 빼야 다시 상수로 퇴행할 때 잡는다'
+           % ', '.join('%s(고유값 %d)' % (k, len(vals[k])) for k in stale))
+          if stale else 'OK(%d개 전부 아직 상수)' % len(known))
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
@@ -770,7 +825,8 @@ def main():
                chk_plans_stale, chk_readme_coverage, chk_readme_counts, chk_preset_desc,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
                chk_memory_freshness, chk_session_log_fresh,
-               chk_global_name_import):
+               chk_global_name_import, chk_audit_tool_cadence,
+               chk_known_whitelist_fresh):
         try:
             fn()
         except Exception as e:

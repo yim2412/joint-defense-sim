@@ -155,7 +155,7 @@
   경고한 바로 그 일이, **술어가 아니라 분모 합성에서** 일어났다.
   세 정의(`total_threats`·`intercepted_threats`·`suicide_*`)를 **함께** 고쳐야 한다(짝).
 
-### F-003 · 축: 검증체계 · 상태: 미처리
+### F-003 · 축: 검증체계 · 상태: 수정됨
 - 위치: BLIND_SPOTS.md:1 `# 감사 사각지대 레지스트리 (BLIND_SPOTS)`
 - 근거: [실측]
 - 이력: [신규]
@@ -163,11 +163,37 @@
 - 반증조건: 수동 도구가 종합 감사(major 전환)마다 **실제로 돌았다는 기록**이 있으면
   반증된다. 감사보고서에 `audit_pairwise`·`audit_fuzz` 실행 출력이 붙어 있는지 확인 필요
   → 이 판에서는 미확인. 다만 "돌았다"가 확인돼도 **major 당 1회**라는 사실은 남는다
-- 재현: 아래 근거본문의 추출 스크립트
+- 재현: `chk_audit_tool_cadence` (S형식 — 착수 시 FAIL: 주기 미명시 11개)
 - 수정비용: 소(훅 배선) ~ 중(무거운 것은 별도 주기)
 - 회귀위험: 골든 영향 없음
 - 실행주체: 나 단독
+- 대상: audit_static_scan.py, BLIND_SPOTS.md
+- 짝: **F-010 과 한 묶음** — 둘 다 *"안전망이 낡는 것을 아무도 안 본다"* 의 같은 부류이고
+  같은 파일을 건드린다. F-011 잔여(골든 10토글)·F-007(부모 계약)은 파일이 달라 분리
+- 무대: 저장소의 감사 도구 **20개** 중 훅 자동 8개 — 나머지 12개의 실행 주기가
+  어디에도 적혀 있지 않다(종합 감사는 major 전환 때만 = 실질 major 당 1회)
 - 뿌리: **F-007,F-010,F-011 의 뿌리** (안전망이 '있다'와 '돈다'가 다르다)
+- 기준선(착수 시 FAIL 출력, 2026-09-20) `[실측]`:
+  ```
+  [FAIL] ⑥ 감사 도구 실행 주기 명시(훅 자동 or BLIND_SPOTS 주기표)
+         주기 미명시 11개: _audit_campaign_smoke · _audit_compat · _audit_gui_smoke ·
+         _audit_load_guard · _audit_make_pdf · _audit_mc_stability · _audit_scenario_smoke ·
+         _audit_smoke_util · audit_db_consistency · audit_dead_toggle · audit_perf
+  [FAIL] ③ KNOWN 사각 목록 최신(변별되면 빼야 한다)
+         ashore_sm3_fired(고유값 4) · thaad_fired(2)
+  ```
+  ⚠ **절차 마찰(규약에 반영할 것)**: S형식은 *"검사 함수를 먼저 추가해 FAIL 을 확인"* 하는데,
+  **FAIL 나는 검사는 pre-commit 이 막아 단독 커밋이 안 된다.** P형식(프로브 파일)은
+  훅이 안 돌려서 가능하지만 S형식은 구조적으로 불가능하다.
+  → 이 묶음은 **기준선 출력을 대장에 증거로 박고** 검사+수정을 한 커밋으로 올린다.
+- 결과: `chk_audit_tool_cadence` **FAIL(11개) → PASS(0개)** `[실측]`.
+  `BLIND_SPOTS.md` 에 **감사 도구 실행 주기 표**를 신설해 20개 전부의 주기를 명시했다.
+  표가 밝힌 것: pre-commit 3종(41초) · pre-push 5종(181초) · **종합 감사(major 전환) 9종**
+  (`audit_pairwise` 26분 30초는 훅에 넣기엔 너무 무겁다) · **보고 도구 2종은 exit 0 고정이라
+  훅에 넣으면 안 된다**(항상 통과). 문서에 *"'메웠다' 가 아니라 'major 당 1회 확인한다'* 가
+  정확한 표현"* 을 못박았다.
+  **T반경 필수 검증(일부러 깨뜨리기)**: 표에서 `audit_perf.py` 한 줄을 지우니
+  `[FAIL] 주기 미명시 1개: audit_perf.py` 로 잡혔다. 복구 후 PASS.
 - 요약: 감사 도구 20개 중 **훅이 자동 실행하는 것은 8개** — "메웠다"고 선언된 사각 일부가
   사람이 기억해야 도는 수동 도구에 걸려 있다
 - 근거본문:
@@ -243,7 +269,7 @@
   **이 저장소의 구체적 실측 증거**다. 영향 반경 표가 반경 E 에 회귀를 소환해도,
   **그 회귀가 보는 범위 밖**이면 소용이 없다.
 
-### F-010 · 축: 검증체계 · 상태: 미처리
+### F-010 · 축: 검증체계 · 상태: 수정됨
 - 위치: audit_static_scan.py:574 `KNOWN = {'ashore_sm3_fired', 'thaad_fired', 'usa_cost', 'usa_shots',`
 - 근거: [실측]
 - 이력: [신규]
@@ -252,11 +278,21 @@
   같은 파일의 `EFFECT_DEBT` 는 **"줄기만 한다"** 를 명문화했고, 이 검사의 docstring 도
   *"새로 항상-동일 지표가 생기면 FAIL 로 골든 케이스 추가를 유도"* 라며 **커버리지를 늘리는
   방향**을 목적으로 밝힌다 → 줄어야 하는 목록이 맞다. 반증 안 됨
-- 재현: (없음) — S형식으로 닫는다: KNOWN 항목이 실제로 상수인지 검사에 추가
+- 재현: `chk_known_whitelist_fresh` (S형식 — 착수 시 FAIL: ashore_sm3_fired·thaad_fired)
 - 수정비용: 소
 - 회귀위험: 골든 영향 없음(도구)
 - 실행주체: 나 단독
+- 대상: audit_static_scan.py
+- 짝: **F-003 과 한 묶음**
+- 무대: 골든 46케이스에서 `ashore_sm3_fired` 고유값 4 · `thaad_fired` 2 — 이미 변별되는데
+  면제 목록에 남아 있다
 - 뿌리: F-003 의 증상 (면제 목록이 낡는 것을 아무도 안 본다)
+- 결과: `chk_known_whitelist_fresh` **FAIL(2개) → PASS** `[실측]`.
+  `KNOWN` 면제 목록 **6 → 4**(`ashore_sm3_fired`·`thaad_fired` 제거). 이제 목록이
+  `EFFECT_DEBT` 와 같은 규율을 갖는다 — **줄기만 하고, 변별되기 시작하면 검사가 뺄 것을 요구**한다.
+  `chk_golden_coverage` 도 PASS 유지(제거한 둘은 실제로 변별되므로 사각이 아니다).
+  **T반경 필수 검증**: `KNOWN` 에 변별되는 `total_cost` 를 넣으니
+  `[FAIL] total_cost(고유값 30)` 로 잡혔다. 복구 후 PASS.
 - 요약: `chk_golden_coverage` 의 `KNOWN` 사각 화이트리스트 6개 중 **2개가 이미 변별되는데도
   그대로 남아 있다** — 그 2개가 다시 상수로 퇴행해도 이제 안 잡힌다
 - 근거본문:

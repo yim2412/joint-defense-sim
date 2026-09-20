@@ -16,6 +16,33 @@
 
 ---
 
+## 감사 도구 실행 주기 — **"있다"와 "돈다"는 다르다** (2026-09-20 신설)
+
+> 전면 분석 F-003: 감사 도구 20개 중 **훅이 자동으로 돌리는 것은 8개**였고, 이 문서가
+> *"메웠다"* 고 선언한 사각 둘(pairwise 조합·수치 fuzz)이 **수동 목록**에 있었다.
+> 종합 감사는 major 전환 때만 돌므로 실질 **major 당 1회**다. 레지스트리가 낙관적으로
+> 거짓말하지 않도록 **모든 도구의 주기를 여기 적는다.**
+> `audit_static_scan.chk_audit_tool_cadence` 가 미등재 도구를 FAIL 로 잡는다.
+
+| 도구 | 주기 | 비고 |
+|------|------|------|
+| `audit_static_scan.py` · `audit_verify_regression.py` · `analysis/check_protocol.py` | **pre-commit 자동** | 합계 약 41초 |
+| `audit_property.py` · `audit_effect.py` · `_audit_roundtrip.py` · `_audit_ui_shot.py` · `_audit_render_smoke.py` | **pre-push 자동** | 합계 **181초**(property 혼자 133초) |
+| `audit_pairwise.py` | **종합 감사(major 전환)** | **26분 30초**(토글 51개 → 1,275쌍) — 훅에 넣기엔 너무 무겁다 |
+| `audit_fuzz.py` | 종합 감사 | 수치 키 33개 × 극단값 3종 |
+| `audit_perf.py` | 종합 감사 ④ | wall-time 회귀 가드 |
+| `_audit_compat.py` | 종합 감사 ⑦ | 구버전 cfg 하위호환 |
+| `_audit_mc_stability.py` | 종합 감사 ④ | MC 수치 안정성 |
+| `_audit_gui_smoke.py` · `_audit_campaign_smoke.py` · `_audit_scenario_smoke.py` | 종합 감사 ⑤ · 빌드 후 | 모드별 GUI 자동화 |
+| `_audit_smoke_util.py` · `_audit_load_guard.py` | 위 스모크의 **보조 모듈** | 단독 실행 대상 아님 |
+| `audit_db_consistency.py` · `audit_dead_toggle.py` | **보고 도구(수동)** | **exit 0 고정** — 사람이 판정한다. **훅에 넣으면 안 된다**(항상 통과) |
+| `_audit_make_pdf.py` | 감사 보고서 생성 | 감사 종료 시 1회 |
+
+> **읽는 법**: '종합 감사' 주기는 **major 전환 때만**이라는 뜻이다. 그 주기의 도구가
+> 지키는 사각은 *"메웠다"* 가 아니라 **"major 당 1회 확인한다"** 가 정확한 표현이다.
+
+---
+
 ## 🔴 열린 사각 (메울 것)
 
 1. **조합 커버리지 = 2^N 미검증 (pairwise 해소)** — `audit_property.py`는 40% 랜덤 조합
