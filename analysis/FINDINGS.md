@@ -161,6 +161,7 @@
 | `CLAUDE.md:248` | **8케이스·26지표** | **42케이스·32지표** |
 | `CLAUDE.md:528` | 회귀 **38×29** | **42×32** |
 | `audit_dead_toggle.py:7` | EFFECT_DEBT 유예 **현재 43개** | **0개** (`EFFECT_DEBT = set()` — 완전 청산) |
+| `BLIND_SPOTS.md` 1번 | pairwise **43개→903쌍** | **51개→1,275쌍** (이 판에서 실행한 출력) |
 
 `chk_readme_counts` 가 README의 DB 수치·단계 버전은 APP_VERSION·실제 DB와 대조하는데,
 **`CLAUDE.md` 안의 수치는 아무도 대조하지 않는다**(F-001과 같은 뿌리 — CLAUDE.md에는
