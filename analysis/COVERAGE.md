@@ -188,10 +188,10 @@
 | `audit_static_scan.py` | 823 | 발췌 | 검사 24함수 추출 · 훅 배선 확인 |
 | `audit_verify_regression.py` | 389 | 발췌 | 골든 42×32·캠페인 6케이스 확인 |
 | `db_ground_threat.py` | 415 | 발췌 | F-002 — 호출처 0 확인 |
-| `db_ocean_acoustic.py` | 676 | 안봄 |  |
-| `db_ocean_environment.py` | 817 | 안봄 |  |
+| `db_ocean_acoustic.py` | 676 | 발췌 | L-2 미배선 심볼 |
+| `db_ocean_environment.py` | 817 | 발췌 | L-2 미배선 심볼 |
 | `db_specsheet.py` | 3517 | 안봄 |  |
-| `db_terrain.py` | 715 | 안봄 |  |
+| `db_terrain.py` | 715 | 발췌 | L-2 미배선 심볼 |
 | `docs/analysis/01_편대_생존_분석.md` | 180 | 안봄 |  |
 | `docs/analysis/02_편성비교_지표.md` | 111 | 안봄 |  |
 | `docs/analysis/03_지표_역전의_원인.md` | 76 | 안봄 |  |
@@ -203,9 +203,9 @@
 | `docs/notes/CANDIDATES.md` | 196 | 안봄 |  |
 | `docs/notes/README.md` | 37 | 안봄 |  |
 | `engine_airforce.py` | 488 | 안봄 |  |
-| `engine_army.py` | 576 | 안봄 |  |
+| `engine_army.py` | 576 | 발췌 | F-002 판정 근거(범위 선언) |
 | `engine_campaign.py` | 1163 | 안봄 |  |
-| `engine_combat.py` | 8899 | 안봄 |  |
+| `engine_combat.py` | 8899 | 발췌 | 1단계: 전역오염·순회필터·부모계약 · F-004/005/007 |
 | `engine_core.py` | 2574 | 안봄 |  |
 | `engine_joint.py` | 254 | 안봄 |  |
 | `forecast_features.py` | 142 | 안봄 |  |
