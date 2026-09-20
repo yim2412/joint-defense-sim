@@ -104,10 +104,16 @@ class ResultPanelMixin:
 
         self._cards = {}
         self._card_deltas = {}
+        # F-016(D1): 편성 비교에 **쓸 수 있는 지표를 앞에** 둔다.
+        # 요격률은 분모(총 위협)가 편성마다 달라 1척 45.8% vs 6척 47.0% 로 변별이 안 된다
+        # (2026-09-20 재측정). 교환비·요격당 비용·포화도는 분모가 편대 자신이거나 비용이라
+        # 편성이 달라도 같은 기준으로 비교된다 — 그래서 이 셋이 앞줄이다.
         card_defs = [
+            ('⚔ 피아 교환비',    'exchange'),
+            ('💵 요격당 비용',   'cost_per_kill'),
+            ('📡 방어 포화도',   'saturation'),
             ('요격률 (MC)',      'intercept'),
             ('위협 무력화율',    'neutralize'),
-            ('방어 포화도',      'saturation'),
             ('완전 요격 비율',   'full_pass'),
             ('CVaR (최악 5%)',   'cvar'),
             ('아군 피격',        'friendly_hit'),
@@ -121,6 +127,13 @@ class ResultPanelMixin:
                             '자폭 드론·자폭정은 미사일을 쏘지 않아 **요격률에 아예 집계되지 않는다** —\n'
                             '격퇴해도 방어 실적에 안 잡혀 요격률이 아군을 과소평가한다.\n'
                             '자폭형이 없는 시나리오에서는 요격률과 같은 값이 된다(✳ 표식이 없으면 동일).',
+            'exchange':     '피아 교환비 — (요격 + 적 격침) ÷ 아군 피격.\n'
+                            '**편성 비교의 주지표다** — 분모가 아군 피해라 편성이 달라도 같은 기준이다.\n'
+                            '요격률은 분모(총 위협)가 편성마다 달라 비교가 성립하지 않는다\n'
+                            '(2026-09-20 재측정: 1척 45.8% vs 6척 47.0% — 7배 편성인데 1.2%p 차이).',
+            'cost_per_kill': '요격당 비용 — 총 교전 비용 ÷ 요격 수.\n'
+                            '"얼마에 막았는가" — 편성 선택의 비용 축이다.\n'
+                            '분모가 요격 수라 편성 규모에 직접 걸리지 않는다.',
             'saturation':   '방어 포화도 — 최대 동시 위협 ÷ 편대 총 교전 채널의 MC 평균.\n1.0을 넘으면 채널로 감당 못 하는 위협이 생긴다(요격 불가).\n분모가 편대 자신이라 **편성이 달라도 같은 기준으로 비교**할 수 있다 —\n요격률은 분모(총 위협)가 편성마다 달라 그 비교가 성립하지 않는다.',
             'full_pass':    '완전 요격 비율 — 위협을 하나도 놓치지 않은(누수 0) 시뮬의 비율.',
             'cvar':         'CVaR(조건부 위험가치, 최악 5%) — 하위 5% 시나리오의 평균 요격률.\n방어망이 가장 나쁠 때의 성능 지표.',
@@ -1022,9 +1035,20 @@ class ResultPanelMixin:
         m_int = mc['mean_intercept']
         _abn  = (m_int < 0.0 or m_int > 1.0)
         self._gauge.setValue(None if _abn else m_int)   # 요격률 게이지 갱신
-        self._cards['intercept'].setText(f"{m_int:.1%}" + (" ⚠" if _abn else ""))
+        # F-016(D1): 백분율만 보여주면 편성 간 비교가 안 된다 — **분모를 함께** 적는다.
+        # 같은 47% 라도 '62발 중 29발' 과 '122발 중 57발' 은 다른 이야기다.
+        _int_denom = result.get('total_threats', 0) or 0
+        _int_num = result.get('intercepted_threats', 0) or 0
+        _denom_txt = f"  ({_int_num}/{_int_denom}발)" if _int_denom else ""
+        self._cards['intercept'].setText(f"{m_int:.1%}" + (" ⚠" if _abn else "") + _denom_txt)
         self._cards['intercept'].setStyleSheet(
             f"color:{'#f39c12' if _abn else ('#2ecc71' if m_int >= 0.9 else '#e74c3c')};")
+        _int_box = self._cards['intercept'].parentWidget()
+        if _int_box is not None:
+            _int_box.setToolTip(
+                f"MC 평균 요격률 {m_int:.1%} · 대표 실행 {_int_num}/{_int_denom}발\n"
+                "⚠ 분모(총 위협)는 **편성마다 다르다** — 오래 버티는 편성일수록 적이 더 쏜다.\n"
+                "편성 A·B 를 고를 때는 교환비·요격당 비용·방어 포화도를 보라(앞 세 카드).")
         # 트랙 8: 위협 무력화율 — 자폭형은 요격률 분모·분자 어디에도 안 잡히므로,
         # 자폭형이 편성된 시나리오에서는 요격률이 아군을 **과소평가**한다.
         # 자폭형이 실제로 섞였을 때만 ✳를 붙여 "왜 요격률과 값이 다른가"를 화면이 설명한다.
