@@ -701,6 +701,67 @@ def chk_bundle_excess():
           f"크기 {mb:.0f}MB (상한 {_BUNDLE_MAX_MB}MB)")
 
 
+
+# ── ① 코드: 재할당 전역을 이름 import 하지 않았는가 ──────────────────────────
+# 왜 있나: `global X` 로 재대입되는 전역을 `from mod import X` 하면 **import 시점 값이
+# 복사**돼 재할당이 안 보인다. py_compile·정적·회귀가 전부 PASS인데 **기능만 조용히
+# 죽는다.** 이 저장소가 두 번 당했다 — `app_utils._GLOBAL_POOL`(예열 풀을 못 봐 매번
+# 새 풀), `app_theme.CHART_DPI`(150 고정, DPI 자동감지 사망).
+# CLAUDE.md는 "옮기기 전에 grep 으로 먼저 확인할 것"이라고만 적어 두었다 — 사람 기억에
+# 맡긴 규칙이었고, 도구에는 2026-09-20까지 없었다(분석 규약 B단계 역사 대조에서 발견).
+_IMPORT_FROM_RE = re.compile(r'^\s*from\s+([\w.]+)\s+import\s+(\(?)([^\n#]*)', re.M)
+
+def _local_modules():
+    return {f[:-3] for f in os.listdir(ROOT)
+            if f.endswith('.py') and not f.startswith('_audit')}
+
+def chk_global_name_import():
+    mods = _local_modules()
+    # 1) 모듈별 재할당 전역 수집 (`global X` 또는 `global X, Y`)
+    reassigned = {}
+    for m in sorted(mods):
+        try:
+            src = rd(m + '.py')
+        except OSError:
+            continue
+        names = set()
+        for mm in re.finditer(r'^\s*global\s+([\w,\s]+)$', src, re.M):
+            for n in mm.group(1).split(','):
+                n = n.strip()
+                if n:
+                    names.add(n)
+        if names:
+            reassigned[m] = names
+    total = sum(len(v) for v in reassigned.values())
+    guard_count('①', '재할당 전역 추출', total, 2)
+
+    # 2) 그 이름을 다른 파일이 이름 import 하는가
+    bad = []
+    for f in sorted(os.listdir(ROOT)):
+        if not f.endswith('.py'):
+            continue
+        try:
+            src = rd(f)
+        except OSError:
+            continue
+        for mm in _IMPORT_FROM_RE.finditer(src):
+            mod, paren, names = mm.group(1), mm.group(2), mm.group(3)
+            base = mod.split('.')[0]
+            if base not in reassigned:
+                continue
+            if paren:  # 여러 줄 괄호 형태 — 닫는 괄호까지 이어 붙인다
+                tail = src[mm.end():]
+                names += tail.split(')')[0]
+            for raw in names.split(','):
+                nm = raw.split(' as ')[0].strip().strip('()').strip()
+                if nm and nm in reassigned[base]:
+                    bad.append(f'{f}: from {mod} import {nm}')
+    check('①', '재할당 전역 이름 import 금지', not bad,
+          ('이름 import 하면 import 시점 값이 복사돼 재할당이 안 보인다 — '
+           f'모듈 경유로 읽을 것: {"; ".join(bad[:5])}') if bad
+          else f'재할당 전역 {total}개 전부 모듈 경유 (이름 import 0건)')
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
@@ -708,7 +769,8 @@ def main():
                chk_spec_count, chk_bundle_excess, chk_div_guards, chk_mc_paths, chk_golden_coverage,
                chk_plans_stale, chk_readme_coverage, chk_readme_counts, chk_preset_desc,
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
-               chk_memory_freshness, chk_session_log_fresh):
+               chk_memory_freshness, chk_session_log_fresh,
+               chk_global_name_import):
         try:
             fn()
         except Exception as e:

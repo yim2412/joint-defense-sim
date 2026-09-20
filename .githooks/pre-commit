@@ -6,6 +6,8 @@
 set -e
 echo "[pre-commit] 정적 스캔…"
 python audit_static_scan.py || { echo "❌ 정적 스캔 FAIL — 수정 후 재커밋 (우회: git commit --no-verify)"; exit 1; }
+echo "[pre-commit] 분석 규약(B단계 착수·범위·반경)…"
+python analysis/check_protocol.py --stage b || { echo "❌ 분석 규약 FAIL — 착수 게이트/범위 선언/반경 분류 확인 (우회: --no-verify)"; exit 1; }
 echo "[pre-commit] 회귀 검증…"
 python audit_verify_regression.py || { echo "❌ 회귀 FAIL — 의도된 변경이면 --update, 아니면 버그 (우회: --no-verify)"; exit 1; }
 echo "[pre-commit] ✅ 정적 + 회귀 PASS — 커밋 진행"

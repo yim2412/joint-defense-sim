@@ -48,6 +48,12 @@
    미커버: **전장(run_battle)·캠페인 경로의 수치 키** fuzzing은 아직(단발만).
 
 ## ✅ 메운 사각 (이력)
+- **재할당 전역을 이름 import (목록에 없던 사각)**(2026-09-20) → `chk_global_name_import`
+  신설. `global X` 로 재대입되는 전역을 `from mod import X` 하면 import 시점 값이 복사돼
+  **py_compile·정적·회귀가 전부 PASS인데 기능만 조용히 죽는다.** 이 저장소가 두 번 당했고
+  (`_GLOBAL_POOL` 예열 풀 · `CHART_DPI` DPI 자동감지), `CLAUDE.md`에는 "옮기기 전에 grep 하라"는
+  **사람 규칙으로만** 있었다. 분석 규약 B단계 **역사 대조**에서 발견 — 과거 실제 결함 형태를
+  주입해 FAIL로 잡히는 것을 확인했다. **이 항목은 열린 사각 목록에 아예 없었다**(모르는 사각).
 - **죽은 기능 게이트가 캠페인 층을 안 봄**(2026-07-16 발견 → 2026-07-19 해소, 2026-09-19
   재확인) → `chk_effect_coverage`의 `consumed` 스캔을 `engine_campaign`·`airforce`·`army`·
   `joint`까지 확장. **v20.5 부채 43개를 만든 바로 그 구멍**이 캠페인 층에 열려 있었다.

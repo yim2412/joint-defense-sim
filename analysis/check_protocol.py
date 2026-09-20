@@ -508,13 +508,20 @@ RADIUS_EXTRA = {
     "T": "훅: 없음 / 추가: 일부러 깨뜨려 FAIL 나는지 확인 — 통과는 증거가 아니다",
     "D": "훅: 정적 / 추가: changelog가 바뀌었으면 _changelog_export.py 재실행",
 }
-B_FIELDS = ("대상", "예측", "결과")
+B_FIELDS = ("대상", "예측", "결과", "짝", "무대")
 MAX_BATCH_FILES = 3
 MAX_BATCH_LINES = 200
 LEDGER_PREFIX = "analysis/"          # 대장 자신은 범위 선언 대상이 아니다
 
 DIRECTION_RE = re.compile(r"(↑|↓|오른|내린|증가|감소|늘|줄|상승|하락|빨라|느려)")
-MAGNITUDE_RE = re.compile(r"[+\-±]?\d+(?:\.\d+)?\s*(?:%p|%|배|발|척|초|s|ms|km|점|회)")
+MAGNITUDE_RE = re.compile(r"[+\-±]?\d*[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*")
+MAG_UNIT_RE = re.compile(r"\d(?:\.\d+)?\s*(?:%p|%|배|발|척|초|s|ms|km|점|회)")
+# '최소 0%p' 는 예측이 아니다 — 무엇이 나와도 맞는다. 0이 아닌 크기를 요구한다.
+NONZERO_MAG_RE = re.compile(r"(?<![\d.])(?:[1-9]\d*|0?\.\d*[1-9])(?:\.\d+)?\s*(?:%p|%|배|발|척|초|s|ms|km|점)")
+# 'MC 200회' 의 200을 효과 크기로 오인했다 — 표본수 단위(회)는 크기가 아니다.
+ZERO_MAG_RE = re.compile(r"최소\s*[+\-±]?0(?![.\d])|최소\s*0\.0+(?![1-9])")
+# 판정 가능성: 고정 seed 결정론 대조이거나, 확률 경로면 표본수+산포를 적어야 한다.
+DECIDABLE_RE = re.compile(r"(seed|시드|결정론|bit-identical|±\s*\d|표준편차|산포)")
 SCENARIO_RE = re.compile(r"(시나리오|MC\s*\d+|케이스|프리셋|캠페인|기준|골든)")
 URL_RE = re.compile(r"https?://\S+")
 VERDICT_RE = re.compile(r"(부합|불일치|빗나감|어긋)")
@@ -586,8 +593,69 @@ def changed_lines(repo):
     return tot
 
 
-def check_stage_b_items(items, rep):
-    """9.10 검사 1~4 — 대장 항목만 본다(git 불필요)."""
+def _probe_exists(repo, repro):
+    """P: 프로브 파일이 실제로 있는가. 경로만 적어 두고 안 만드는 것을 막는다."""
+    m = PROBE_RE.search(repro)
+    if not m:
+        return None
+    rel = m.group(0)
+    for cand in (os.path.join(repo, rel), os.path.join(repo, "analysis", rel)):
+        if os.path.isfile(cand):
+            return True
+    return False
+
+
+def _static_check_exists(repo, repro):
+    """S: chk_xxx 가 감사 도구에 실제로 정의돼 있는가.
+    'chk_추후에만들것' 처럼 문자열만 적어 통과시키는 것을 막는다."""
+    names = set(re.findall(r"chk_\w+", repro))
+    if not names:
+        return None
+    defined = set()
+    for f in os.listdir(repo):
+        if f.startswith("audit_") and f.endswith(".py"):
+            try:
+                defined |= set(re.findall(r"^def (chk_\w+)", _read(os.path.join(repo, f)), re.M))
+            except OSError:
+                pass
+    return bool(names & defined)
+
+
+def _git_ok(repo, *args):
+    try:
+        r = subprocess.run(["git"] + list(args), cwd=repo, capture_output=True,
+                           encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return r.returncode == 0
+
+
+def _declared_before_code(repo, text, targets=()):
+    """R/9.3: 예측·선언이 코드보다 먼저 들어갔는가.
+    그 문자열이 처음 들어간 커밋이 코드 파일을 건드렸으면 사후 작성이다."""
+    if not text.strip():
+        return None
+    out = _git(repo, "log", "--format=%H", "-S", text.strip()[:80], "--", "analysis/" + FINDINGS)
+    if not out or not out.strip():
+        return None                      # 아직 커밋 안 됨 — 판정 보류
+    sha = out.strip().splitlines()[-1]   # 가장 오래된 = 도입 커밋
+    files = _git(repo, "show", "--name-only", "--format=", sha) or ""
+    touched = [p for p in files.split() if is_code(p)]
+    if touched:
+        return (False, sha, touched)
+    # 도입 커밋에 코드가 없어도, 그게 코드 커밋 '뒤' 면 사후 작성이다.
+    tf = [t for t in targets if is_code(t)]
+    if tf:
+        last = (_git(repo, "log", "--format=%H", "-1", "--", *tf) or "").strip()
+        if last and last != sha:
+            anc = _git_ok(repo, "merge-base", "--is-ancestor", sha, last)
+            if anc is False:
+                return (False, sha, ["코드 커밋 %s 뒤에 끼워넣음" % last[:7]])
+    return (True, sha, [])
+
+
+def check_stage_b_items(items, rep, repo=REPO):
+    """9.10 검사 1~4 + 짝·무대·판정 실재·선행성."""
     for it in items:
         if not it["state"].startswith(("수정중", "수정됨")):
             continue
@@ -596,13 +664,38 @@ def check_stage_b_items(items, rep):
         body = "\n".join(it["body"])
         repro = f.get("재현", "")
         has_p = bool(PROBE_RE.search(repro))
-        has_s = bool(STATIC_RE.search(repro))
+        has_s = bool(re.search(r"chk_\w+", repro))
         has_r = "예측" in f
 
         if not (has_p or has_s or has_r):
             rep.fail("9.2 착수 게이트",
                      "%s 상태가 '%s' 인데 P/S/R 판정이 없다 — 재현:에 프로브 경로(P)나 "
                      "검사함수(S), 아니면 예측: 줄(R)이 있어야 한다" % (tag, it["state"]))
+
+        # 판정이 실재하는가 (경로·함수명만 적어 두는 것 차단)
+        if has_p and _probe_exists(repo, repro) is False:
+            rep.fail("9.2 판정 실재", "%s 재현: 프로브 파일이 없다 — 경로만 적어 둔 것"
+                     % tag)
+        if has_s and _static_check_exists(repo, repro) is False:
+            rep.fail("9.2 판정 실재",
+                     "%s 재현: 의 chk_ 함수가 감사 도구에 정의돼 있지 않다 — "
+                     "검사 함수를 먼저 만들고 FAIL 나는 것을 확인할 것" % tag)
+
+        # 짝 — be4e8b9(분모만 고쳐 지표가 더 거짓말)·v20.5(레이더 침묵) 부류
+        if "짝" not in f or not f.get("짝", "").strip():
+            rep.fail("9.2 짝 선언",
+                     "%s 에 짝: 이 없다 — 이 수정이 성립하려면 무엇이 함께 참이어야/바뀌어야 "
+                     "하는가. 한쪽만 고치는 게 안 고치는 것보다 나쁠 수 있다" % tag)
+        stage = f.get("무대", "")
+        if stage.strip() and not re.search(r"\d", stage):
+            rep.warn("9.2 무대 구체성",
+                     "%s 무대에 수치(거리·규모·시간)가 없다 — '적정 편성' 같은 서술은 "
+                     "발동 조건을 특정하지 못한다" % tag)
+        # 무대 — 레이저(v17.2) 부류: 메커니즘은 맞는데 발동 조건이 안 만들어짐
+        if "무대" not in f or not f.get("무대", "").strip():
+            rep.fail("9.2 무대 선언",
+                     "%s 에 무대: 가 없다 — 어떤 편성·거리·조건에서 발동하는가. "
+                     "무대가 없으면 고쳐도 아무 데서도 안 나타난다" % tag)
 
         if has_r:
             pred = f.get("예측", "")
@@ -611,18 +704,30 @@ def check_stage_b_items(items, rep):
                 miss.append("지표명")
             if not DIRECTION_RE.search(pred):
                 miss.append("방향")
-            if not MAGNITUDE_RE.search(pred):
-                miss.append("최소 크기")
+            if ZERO_MAG_RE.search(pred) or not NONZERO_MAG_RE.search(pred):
+                miss.append("0이 아닌 최소 크기")
             if not SCENARIO_RE.search(pred):
                 miss.append("측정 시나리오")
             if miss:
                 rep.fail("9.2 R 예측 형식",
-                         "%s 예측에 %s 누락 — '요격률이 변한다' 류는 무엇이 나와도 맞는 "
-                         "문장이라 판정이 아니다" % (tag, "·".join(miss)))
+                         "%s 예측에 %s 누락 — '요격률이 변한다'·'최소 0%%p' 류는 무엇이 "
+                         "나와도 맞는 문장이라 판정이 아니다" % (tag, "·".join(miss)))
+            if not DECIDABLE_RE.search(pred):
+                rep.fail("9.2 R 판정 가능성",
+                         "%s 예측이 노이즈와 구분되지 않는다 — 고정 seed 결정론 대조이거나, "
+                         "확률 경로면 표본수와 산포(±)를 적을 것. 기준 시나리오 요격률의 "
+                         "시드 산포는 ±4.0%%p 다(project-baseline-v11)" % tag)
             if not URL_RE.search(body):
                 rep.fail("9.2 R 외부 앵커",
                          "%s 예측이 있는데 출처 URL이 없다 — 못 달면 [미확인]으로 두고 "
                          "고치지 않는다(4.4 결정 요청)" % tag)
+            targets = [t.strip() for t in re.split(r"[,\s]+", f.get("대상", "")) if t.strip()]
+            pre = _declared_before_code(repo, pred, targets)
+            if pre is not None and pre[0] is False:
+                rep.fail("9.2 R 선행성",
+                         "%s 예측이 코드와 같은 커밋(%s)에 들어갔다 — 예측은 코드를 "
+                         "건드리기 전에 문서만 커밋해야 사후 조작이 막힌다 (코드: %s)"
+                         % (tag, pre[1][:7], ", ".join(pre[2][:3])))
 
         if it["state"].startswith("수정됨"):
             res = f.get("결과", "")
@@ -631,6 +736,7 @@ def check_stage_b_items(items, rep):
             elif has_r and not VERDICT_RE.search(res):
                 rep.fail("9.2 R 결과",
                          "%s 결과에 부합/불일치 판정이 없다 — 어긋난 것도 결과다" % tag)
+
 
 
 def check_stage_b_diff(items, rep, repo=REPO):
@@ -670,8 +776,18 @@ def check_stage_b_diff(items, rep, repo=REPO):
                      "선언(대상:)에 없는 파일이 바뀌었다: %s — 넓히려면 선언을 고쳐 "
                      "커밋할 것(조용한 확대 금지)" % ", ".join(extra[:5]))
     elif code:
-        rep.warn("9.3 착수 선언",
-                 "코드 변경 %d개 파일이 있는데 '수정중' 항목의 대상: 선언이 없다" % len(code))
+        # B판 밖(대장 자체가 없음)이면 규약이 적용되지 않는다 — 평소 패치를 막지 않는다.
+        if not items:
+            rep.note("FINDINGS.md 없음 — B판 밖이므로 9.3 착수 선언 검사 생략")
+        else:
+            chit, _ = classify_radius(code)
+            hard = [k for k in chit if k in ("E", "C", "W", "U", "B")]
+            msg = ("코드 변경 %d개 파일이 있는데 '수정중' 항목의 대상: 선언이 없다 — "
+                   "규약 밖에서 고치는 중" % len(code))
+            if hard:
+                rep.fail("9.3 착수 선언", msg + " (반경 %s)" % ",".join(sorted(hard)))
+            else:
+                rep.warn("9.3 착수 선언", msg + " (도구·문서 반경)")
 
     n = changed_lines(repo)
     if n > MAX_BATCH_LINES:
@@ -684,65 +800,90 @@ def check_stage_b_diff(items, rep, repo=REPO):
 
 
 def selftest_b():
-    """B 검사도 일부러 깨뜨려 본다. 통과는 증거가 아니다."""
+    """B 검사도 일부러 깨뜨려 본다. 통과는 증거가 아니다.
+    케이스는 전부 '적대적 테스트에서 실제로 뚫렸던 것' 이다(2026-09-20 실측)."""
     ok = True
+    OKF = "- 짝: 없음(단독 성립)\n- 무대: 기준 시나리오 포화 편성 20~40km\n"
     cases = [
-        ("판정 없음", "9.2 착수 게이트", """### F-901 · 축: 모델타당성 · 상태: 수정중
-- 재현: (없음)
-- 요약: 판정 없이 수정에 들어갔다
-"""),
-        ("느슨한 예측", "9.2 R 예측 형식", """### F-902 · 축: 모델타당성 · 상태: 수정중
-- 재현: (없음)
-- 예측: 요격률이 변한다
-- 근거본문: https://example.org/spec
-"""),
-        ("앵커 없음", "9.2 R 외부 앵커", """### F-903 · 축: 모델타당성 · 상태: 수정중
-- 재현: (없음)
-- 예측: 기준 시나리오 MC 200회 요격률이 오른다 최소 +2%p
-- 요약: 출처가 없다
-"""),
-        ("결과 없음", "9.2 R 결과", """### F-904 · 축: 모델타당성 · 상태: 수정됨
-- 재현: analysis/probes/p904_x.py
-- 요약: 결과를 안 적었다
-"""),
+        ("판정 없음", "9.2 착수 게이트",
+         "### F-901 · 축: 모델 · 상태: 수정중\n" + OKF + "- 재현: (없음)\n"),
+        ("느슨한 예측", "9.2 R 예측 형식",
+         "### F-902 · 축: 모델 · 상태: 수정중\n" + OKF +
+         "- 예측: 요격률이 변한다\n- 근거본문: https://e.org/x\n"),
+        ("최소 0%p (표본수 오인)", "9.2 R 예측 형식",
+         "### F-903 · 축: 모델 · 상태: 수정중\n" + OKF +
+         "- 예측: 기준 시나리오 MC 200회 요격률이 오른다, 최소 0%p (고정 seed)\n"
+         "- 근거본문: https://e.org/x\n"),
+        ("노이즈와 구분 불가", "9.2 R 판정 가능성",
+         "### F-904 · 축: 모델 · 상태: 수정중\n" + OKF +
+         "- 예측: 기준 시나리오 MC 200회 요격률이 오른다, 최소 2%p\n"
+         "- 근거본문: https://e.org/x\n"),
+        ("외부 앵커 없음", "9.2 R 외부 앵커",
+         "### F-905 · 축: 모델 · 상태: 수정중\n" + OKF +
+         "- 예측: 기준 시나리오 고정 seed 요격률이 오른다, 최소 5%p\n"),
+        ("가짜 chk_ 문자열", "9.2 판정 실재",
+         "### F-906 · 축: 구조 · 상태: 수정중\n" + OKF + "- 재현: chk_추후에만들것\n"),
+        ("없는 프로브 경로", "9.2 판정 실재",
+         "### F-907 · 축: 구조 · 상태: 수정중\n" + OKF +
+         "- 재현: analysis/probes/p907_없는파일.py\n"),
+        ("짝 미선언", "9.2 짝 선언",
+         "### F-908 · 축: 모델 · 상태: 수정중\n"
+         "- 무대: 기준 시나리오 20km\n- 재현: chk_version\n"),
+        ("무대 미선언", "9.2 무대 선언",
+         "### F-909 · 축: 모델 · 상태: 수정중\n"
+         "- 짝: 회피 기동 ON 필요\n- 재현: chk_version\n"),
+        ("결과 없음", "9.2 R 결과",
+         "### F-910 · 축: 구조 · 상태: 수정됨\n" + OKF + "- 재현: chk_version\n"),
     ]
     for name, expect, block in cases:
         rep = Report()
-        items = parse_findings(block)
-        check_stage_b_items(items, rep)
+        check_stage_b_items(parse_findings(block), rep)
         if any(c == expect for c, _ in rep.fails):
-            print("[OK]   %-18s -> %s 로 잡음" % (name, expect))
+            print("[OK]   %-20s -> %s 로 잡음" % (name, expect))
         else:
             got = ", ".join(sorted(set(c for c, _ in rep.fails))) or "(위반 0건)"
-            print("[FAIL] %-18s -> '%s' 를 못 잡음. 잡은 것: %s" % (name, expect, got))
+            print("[FAIL] %-20s -> '%s' 를 못 잡음. 잡은 것: %s" % (name, expect, got))
             ok = False
 
-    # 정상 R 항목은 통과해야 한다 (오탐 검사)
-    good = """### F-905 · 축: 모델타당성 · 상태: 수정됨
-- 재현: (없음)
-- 예측: 기준 시나리오 MC 200회 요격률이 오른다, 최소 +2%p
-- 결과: 14.2% -> 17.1% (+2.9%p) — 예측 부합
-- 근거본문: 출처 https://www.navy.mil/example
-"""
-    rep = Report()
-    check_stage_b_items(parse_findings(good), rep)
-    if rep.fails:
-        print("[FAIL] %-18s -> 정상 R 항목인데 위반: %s"
-              % ("B 오탐 검사", ", ".join(c for c, _ in rep.fails)))
-        ok = False
-    else:
-        print("[OK]   %-18s -> 정상 R 항목은 통과" % "B 오탐 검사")
+    # 정상 항목은 통과해야 한다 (오탐 검사) — S형식과 R형식 각각
+    good_s = ("### F-920 · 축: 구조 · 상태: 수정중\n" + OKF +
+              "- 재현: chk_global_name_import\n")
+    good_r = ("### F-921 · 축: 모델 · 상태: 수정됨\n"
+              "- 짝: 회피 기동(enable_ship_evasion) ON 이어야 발현\n"
+              "- 무대: 드론 없는 포화 편성, 20~40km\n"
+              "- 예측: 기준 시나리오 고정 seed 단발 요격률이 오른다, 최소 3%p\n"
+              "- 결과: 11.5% -> 15.2% (+3.7%p) — 예측 부합\n"
+              "- 근거본문: 출처 https://www.navy.mil/example\n")
+    for nm, blk in (("S 오탐 검사", good_s), ("R 오탐 검사", good_r)):
+        rep = Report()
+        check_stage_b_items(parse_findings(blk), rep)
+        if rep.fails:
+            print("[FAIL] %-20s -> 정상 항목인데 위반: %s"
+                  % (nm, ", ".join(c for c, _ in rep.fails)))
+            ok = False
+        else:
+            print("[OK]   %-20s -> 정상 항목은 통과" % nm)
 
     # 반경 분류: 알려진 파일은 분류되고, 낯선 파일은 미분류로 걸려야 한다
     hit, unknown = classify_radius(["engine_combat.py", "ui_charts.py", "app_main.spec",
                                     "analysis/FINDINGS.md", "낯선파일_zzz.xyz"])
     if set(hit) == {"E", "U", "B", "T"} and unknown == ["낯선파일_zzz.xyz"]:
-        print("[OK]   %-18s -> 분류 %s · 미분류 %s" % ("반경 분류", sorted(hit), unknown))
+        print("[OK]   %-20s -> 분류 %s · 미분류 %s" % ("반경 분류", sorted(hit), unknown))
     else:
-        print("[FAIL] %-18s -> 분류 %s · 미분류 %s (기대와 다름)"
+        print("[FAIL] %-20s -> 분류 %s · 미분류 %s (기대와 다름)"
               % ("반경 분류", sorted(hit), unknown))
         ok = False
+
+    # 선언 없는 코드 변경은 B판 안에서 FAIL, B판 밖(대장 없음)에선 생략
+    rep = Report()
+    check_stage_b_diff([], rep)
+    if any(c == "9.3 착수 선언" for c, _ in rep.fails):
+        print("[FAIL] %-20s -> B판 밖인데 착수 선언을 요구했다" % "B판 밖 생략")
+        ok = False
+    else:
+        print("[OK]   %-20s -> B판 밖에서는 평소 패치를 막지 않는다" % "B판 밖 생략")
     return ok
+
 
 
 def main():
