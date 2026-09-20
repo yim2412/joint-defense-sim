@@ -53,8 +53,7 @@
   전술인데 **전력을 늘려 버린다** — 전술 비교·편대 추천이 그만큼 왜곡된다.
   UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
 
-### F-005 · 축: 모델타당성 · 상태: 수정됨
-- 위치: engine_combat.py:2318   (파도 스폰 쪽 — 수정 후 미사일 가지 안)
+- 위치: engine_combat.py:2318 `self.stats['total_threats'] += 1`  (파도 스폰 쪽 — 수정 후 미사일 가지 안)
 - 근거: [코드]
 - 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
 - 심각도: 중간
@@ -643,7 +642,16 @@
 | `db_ocean_environment.py` | `TIDAL_DATA` · `EOIR_DEGRADATION` · `UNDERWATER_ACOUSTICS` |
 | `db_ground_threat.py` | `get_base_coords` (모듈 전체가 미사용 — **F-002**) |
 
-**함수 18개 중 7개 · 상수 29개 중 6개**가 어디서도 안 쓰인다. [[feedback-real-data]] 로
+**함수 18개 중 7개 · 상수 29개 중 6개**가 어디서도 안 쓰인다.
+
+**판정(2026-09-20) — 지우지 않는다.** F-002(모듈 전체 미사용)와 성격이 다르다:
+이 모듈들은 **살아 있고**(`db_terrain.STRAITS_DB` 를 `engine_combat` 이,
+`db_ocean_acoustic.sonar_detection_range` 를 소나 방정식이 쓴다) 일부 심볼만 남는다.
+그중 `OCEAN_SVP_PRECOMPUTED`(해역별 음속 프로파일)·`mackenzie_sound_speed` 는
+**2-A 가 못 한 소나 검산의 대조군**이 될 수 있다 — 2.2C(왜곡의 크기)를 측정할 때
+문헌값 대신 쓸 수 있는 실측 자료다. **측정 전에 지우면 그 기회가 사라진다.**
+→ `plan_roadmap.md` 의 *남은 일*(2.2C 왜곡 크기 측정)에 **선행 조건으로 연결**하고,
+그 측정이 끝난 뒤 *쓸 것 / 지울 것* 을 가른다. **보류가 아니라 순서다**(규약 4.2). [[feedback-real-data]] 로
 *"추정값 대신 실측값을 코드에 내장"* 한 데이터인데 **절반 가까이 배선되지 않았다.**
 F-002(모듈 통째)와 같은 부류이고, 4단계(부채)에서 *배선할 것 / 지울 것*을 가른다.
 
