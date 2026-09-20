@@ -29,20 +29,47 @@ def flag(sev: str, chk: str, msg: str):
 
 # ── ① 마하 표기 ↔ 실제 속도 정합 ──────────────────────────────────────────
 # 이름·설명에 '마하 N'이라 써놓고 speed_ms가 딴판이면 둘 중 하나가 거짓말이다.
-_MACH_MS = 340.0
+#
+# F-012(2026-09-20): 해수면 음속 340 m/s 고정으로 환산해 **고고도 무기를 오판**했다.
+# Kh-32(1500 m/s)는 DB 가 명시한 순항 고도 11km 에서 ISA 음속 295 m/s → 마하 5.08 로
+# 극초음속이 맞는데 '마하 4.4 < 5' 라며 HIGH 를 냈다. 엔진에는 isa_atmosphere()가 있고
+# 굴절 보정에 실제로 쓴다 — 저장소 자신이 고도 의존을 인정하는데 이 도구만 몰랐다.
+# **이 오탐을 믿고 DB 를 고쳤으면 실제 제원과 멀어졌을 것이다.**
+_MACH_MS = 340.0          # 해수면(ISA 15°C) — 고도 미상일 때의 보수적 기준
+_GAMMA, _R = 1.4, 287.05
 
-def _mach_check(label: str, txt: str, v: float):
-    """이름에 '초음속/극초음속'이라 써 있으면 그 속도가 실제로 그런지 본다."""
+
+def _sound_speed(alt_m: float) -> float:
+    """ICAO 표준대기 음속(m/s). 고도가 오르면 기온이 낮아 음속이 준다
+    → **같은 속도라도 고고도에서 마하수가 크다**(11km 295 m/s: 1500 m/s = 마하 5.08)."""
+    if not alt_m or alt_m <= 0:
+        return _MACH_MS
+    if alt_m < 11000:
+        T = 288.15 - 0.0065 * alt_m
+    elif alt_m < 20000:
+        T = 216.65
+    else:
+        T = 216.65 + 0.001 * (alt_m - 20000)
+    return (_GAMMA * _R * T) ** 0.5
+
+
+def _mach_check(label: str, txt: str, v: float, alt_m: float = 0.0):
+    """이름에 '초음속/극초음속'이라 써 있으면 그 속도가 실제로 그런지 본다.
+    판정 기준 음속은 **그 무기의 운용 고도**에서 잡는다(F-012)."""
     if not v:
         return
+    a = _sound_speed(alt_m)
+    where = '해수면' if a == _MACH_MS else '고도 %.0fkm' % (alt_m / 1000.0)
     if '극초음속' in txt:
-        if v < _MACH_MS * 5.0:
+        if v < a * 5.0:
             flag('HIGH', '마하표기↔속도',
-                 f"{label}: '극초음속'인데 {v:.0f} m/s (마하 {v/_MACH_MS:.1f}) < 마하 5")
+                 f"{label}: '극초음속'인데 {v:.0f} m/s ({where} 음속 {a:.0f} → "
+                 f"마하 {v/a:.2f}) < 마하 5")
     elif '초음속' in txt:          # '극초음속'을 먼저 걸러야 오탐이 없다
-        if v < _MACH_MS:
+        if v < a:
             flag('HIGH', '마하표기↔속도',
-                 f"{label}: '초음속'인데 {v:.0f} m/s (마하 {v/_MACH_MS:.2f}) = 아음속")
+                 f"{label}: '초음속'인데 {v:.0f} m/s ({where} 음속 {a:.0f} → "
+                 f"마하 {v/a:.2f}) = 아음속")
 
 
 def chk_mach_vs_speed():
@@ -54,7 +81,9 @@ def chk_mach_vs_speed():
         #    첫 실행에서 실제로 그 오탐이 나왔고, 그래서 여기서 분리한다)
         mname = info.get('missile_name', '')
         if mname:
-            _mach_check(f"{name} 탑재 {mname}", mname, info.get('missile_speed_ms') or 0)
+            # 탑재 미사일의 운용 고도는 모함/모기의 altitude_m 로 근사한다(DB 에 별도 필드 없음).
+            _mach_check(f"{name} 탑재 {mname}", mname, info.get('missile_speed_ms') or 0,
+                        info.get('altitude_m') or 0.0)
 
 
 # ── ② 요격체 교전창 ↔ 실제 위협 고도 (죽은 계층 / 요격 불가 위협) ─────────
