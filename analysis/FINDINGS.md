@@ -10,17 +10,22 @@
 > 의존 → 묶음 → 심각도 → 회귀위험. **대장 순서가 곧 작업 순서다.**
 > (오탐·기각은 맨 뒤. 지우지 않는다 — 규약 3.5·3.6)
 
-### F-009 · 축: 모델타당성 · 상태: 미처리
+### F-009 · 축: 모델타당성 · 상태: 수정중
 - 위치: engine_combat.py:2038 `fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]`
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
 - 반증조건: 즉시 스폰된 첫 항목이 `_pending_threats` 에서 제거되면 중복이 아니다.
   실측: 코드에 제거가 없고, 실행 결과 자폭 USV 가 **12 → 24** 로 정확히 두 배가 됐다 → 반증 안 됨
-- 재현: analysis/probes/p008_denominator_double_count.py stagger (이름별 집계 출력)
+- 재현: analysis/probes/p009_stagger_duplicate_spawn.py  ← **판정 P** (착수 시 FAIL 확인)
 - 수정비용: 소 (한 줄 — 즉시 스폰한 spec 을 pending 에서 빼면 된다)
 - 회귀위험: 골든에 stagger 케이스가 있으면 영향. 없으면 **회귀 사각**이라는 뜻이라 그것도 발견
 - 실행주체: 나 단독
+- 대상: engine_combat.py
+- 짝: 없음(단독 성립) — `_pending_threats` 소비처는 `_spawn_pending_threat` 하나뿐이고,
+  즉시 스폰 경로와 파도 경로가 같은 spec 을 공유하는 것이 결함 자체다. 함께 바꿀 정의 없음
+- 무대: `항만 침투 복합`(전부 저속: USV 14 · 022형 18.5 · 드론 28 m/s) + `ai_tactic='stagger'`.
+  **고속 위협이 하나라도 있으면 `new_fleet` 이 안 비어 발동하지 않는다** — 그래서 지금껏 안 보였다
 - 뿌리: 독립
 - 요약: `ai_tactic='stagger'`(UI **"시차 공격"**)에서 **모든 위협이 저속이면 첫 편성 항목이
   중복 스폰**된다 — 즉시 1회 + 파도 1회
