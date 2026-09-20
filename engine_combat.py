@@ -2309,12 +2309,18 @@ class TimeStepEngine:
                 m.detect_m                = m._init_dist
                 m.enemy_info              = info.copy()
                 self.missiles.append(m)
+                # F-005/F-008: total_threats 는 **발사체(미사일류)만** 센다.
+                # 초기 편성(_build_enemies)도 미사일 가지에서만 세므로 여기서만 올려야
+                # 분모가 스폰 경로에 독립이다. 예전엔 이 줄이 if/else 밖에 있어 파도로
+                # 온 플랫폼까지 분모에 들어갔고(골든 실측 44 vs 32, 차이 12 = 파도 플랫폼),
+                # 자폭 플랫폼은 suicide_threats 로 **또** 더해져 무력화율 분모가 이중이었다.
+                # 플랫폼은 suicide_threats(자폭) 또는 enemy_ships_destroyed(격침)로 센다.
+                self.stats['total_threats'] += 1
             else:
                 et = self._new_threat(name, pos)
                 et.speed_ms *= self.cfg.get('threat_spd_scale', 1.0)
                 et.carrier_owner = spec.get('carrier_owner')   # v15.09.02: 함재기면 모항 인덱스(재무장 복귀)
                 self.enemy_threats.append(et)
-            self.stats['total_threats'] += 1
             self._log(f"[{name}] {self.t:.0f}s 파도 스폰")
 
     def _log(self, msg: str):
