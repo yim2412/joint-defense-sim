@@ -140,6 +140,19 @@ CASES = [
                              enemy_fleet_preset='무인기 군집 포화'),                                   [1, 4]),
     ('자폭침투-수상',   dict(_BASE, fleet_preset='이지스 기동전단',
                              enemy_fleet_preset='항만 침투 복합'),                                     [2, 7]),
+    # F-011 봉인 — **파도(지연) 스폰 경로가 골든에 하나도 없었다**. 그래서
+    # _spawn_pending_threat 이하(L2308~)의 동작이 바뀌어도 회귀가 PASS 했고,
+    # F-009(stagger 가 첫 편성 항목을 두 배로 스폰)가 오래 살아 있었다.
+    # 파도를 만드는 두 경로를 각각 봉인한다:
+    #   · ai_tactic='stagger'      — 저속 위협을 +30/+60초로 미룬다(전부 저속인 편성에서
+    #                                 폴백 경로까지 밟는다 = F-009 재발 차단)
+    #   · enemy_fleet_mode='mixed' — 1파만 즉시, 나머지는 지연(다파 시나리오)
+    ('파도-시차공격',   dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='항만 침투 복합',
+                             ai_tactic='stagger'),                                                     [2, 7]),
+    ('파도-혼합시나리오', dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_mode='mixed',
+                             mixed_scenario='항모 킬 체인 (스텔스→HGV→초음속)'),                      [1, 3]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)

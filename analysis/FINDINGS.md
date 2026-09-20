@@ -149,7 +149,7 @@
   먼저 종료코드를 주어야 한다. 그리고 `audit_db_consistency` 는 지금 **미검토 발견 6건**을
   내놓고 있다(HIGH 1: Kh-32 '극초음속'인데 마하 4.4) — 수동이라 아무도 안 본 것이다.
 
-### F-011 · 축: 검증체계 · 상태: 수정중
+### F-011 · 축: 검증체계 · 상태: 수정됨(부분)
 - 위치: audit_verify_regression.py:50 `CASES = [`
 - 근거: [실측]
 - 이력: [신규]
@@ -172,6 +172,16 @@
 - 무대: `ai_tactic='stagger'`(저속 위협 +30/+60초 지연) 또는 `enemy_fleet_mode='mixed'`
   (1파만 즉시). 둘 다 `_spawn_pending_threat` 을 거친다
 - 뿌리: F-003 의 증상 (안전망의 *범위* 쪽)
+- 결과: 프로브 p011 **FAIL(파도 경로 0건) → PASS(4건)** 전환 `[실측]`.
+  골든 **42 → 46 케이스**(`파도-시차공격` #2·#7 · `파도-혼합시나리오` #1·#3).
+  **기존 42케이스는 전 지표 무변동** — 회귀 출력이 신규 4건만 `[신규]` 로 표시했고
+  `--update` 후 46×32 PASS. 9.4③ 요구(바뀐 지표를 하나씩 설명)를 **설명할 변화가
+  없는 형태로** 충족했다.
+  봉인된 값 예: `파도-시차공격#2` total_threats=44 · intercept_rate=0.7273.
+  **남은 범위**: 이 묶음은 파도 스폰 경로만 덮었다. F-011 이 지적한 **토글 11개 중
+  나머지 10개**(asw_forward·autonomous_engagement·battle_mode·campaign_fog·cec_jammed·
+  laser_dew·minesweeping·multibearing·random_placement·ras_rearm·recon_drone)는
+  **여전히 미커버**다 → 4번 묶음으로 남긴다. 그래서 상태가 `수정됨(부분)` 이다
 - 요약: 엔진이 소비하는 토글 중 **11개를 회귀 골든이 한 번도 켜지 않는다** — 그 경로의
   동작이 바뀌어도 회귀는 PASS 한다
 - 근거본문:
