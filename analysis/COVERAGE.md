@@ -2,6 +2,8 @@
 
 > 기준 커밋 `daa7ce8` · 0단계 생성. 상태: `전체읽음` / `발췌` / `안봄` / `해당없음`(자산).
 > `안봄` 으로 남은 것은 **숨기지 않는다** — 왜 남았는지 적는다(규약 7.1).
+> `_archive/` 로 옮긴 것은 커버리지에서 뺀다(검사기가 저장소 목록에서 제외한다) —
+> 2026-09-20 `db_ground_threat.py` 가 그 경우다(F-002, 415줄 보존).
 > 분류별 집계는 `10_terrain.md` 에 있다(여기 표에 넣으면 분류명이 파일명으로 파싱된다 —
 > 실제로 검사기가 '유령 항목'으로 잡았다).
 
@@ -187,7 +189,6 @@
 | `audit_regression_golden.json` | 1214 | 안봄 |  |
 | `audit_static_scan.py` | 823 | 발췌 | 검사 24함수 · chk_golden_coverage 정독 · F-010 |
 | `audit_verify_regression.py` | 389 | 발췌 | 골든 구조·지표 변별력 실측 · F-010 |
-| `db_ground_threat.py` | 415 | 발췌 | F-002 — 호출처 0 확인 |
 | `db_ocean_acoustic.py` | 676 | 발췌 | L-2 미배선 심볼 |
 | `db_ocean_environment.py` | 817 | 발췌 | L-2 미배선 심볼 |
 | `db_specsheet.py` | 3517 | 안봄 |  |

@@ -847,6 +847,37 @@ def chk_subclass_signature():
           if narrowed else '오버라이드 %d개 전부 부모 시그니처 보존' % len(over))
 
 
+# ── ⑥ 위생: CLAUDE.md 파일 구조 표가 실제 파일을 전수 커버하는가 ─────────────
+# 왜 있나: README 는 chk_readme_coverage 가 전수 커버를 강제하는데 CLAUDE.md 표에는
+# 검사가 없어 한쪽만 자랐다 — 루트 .py 70개 중 30개만 등재, **40개 누락**이었고
+# 그중엔 엔진·워커가 실제로 import 하는 런타임 모듈(db_terrain·forecast_features·
+# ai_policy_infer)도 있었다(전면 분석 F-001, 2026-09-20).
+# CLAUDE.md 자신이 "파일 구조 표(파일 → 역할)"를 필수로 규정하고
+# "안 고칠 거면 애초에 적지 않는다"고 적었다 — 그 약속을 도구가 지킨다.
+def chk_claude_md_coverage():
+    try:
+        doc = rd('CLAUDE.md')
+    except OSError:
+        return
+    listed = set(re.findall(r"\|\s*`([\w.]+\.py)`\s*\|", doc))
+    guard_count('⑥', 'CLAUDE.md 파일표 추출', len(listed), 20)
+    actual = {f for f in os.listdir(ROOT) if f.endswith('.py')}
+    # 도구·실험 스크립트는 표의 대상이 아니다(README 파일구조 표와 같은 기준).
+    skip = re.compile(r'^(_audit|audit_|_ai_|ai_|_bg_|_build_|_changelog_|_asset_|asset_|'
+                      r'improve_|_forecast_|check_)')
+    core = {f for f in actual if not skip.match(f)}
+    missing = sorted(core - listed)
+    ghost = sorted(listed - actual)
+    bad = []
+    if missing:
+        bad.append('표에 없는 런타임 파일 %d개: %s' % (len(missing), ', '.join(missing[:6])))
+    if ghost:
+        bad.append('표에는 있으나 없는 파일: %s' % ', '.join(ghost[:4]))
+    check('⑥', 'CLAUDE.md 파일 구조 표 = 실제 런타임 파일', not bad,
+          ' · '.join(bad) + ' — "안 고칠 거면 애초에 적지 않는다"(CLAUDE.md 자신의 규정)'
+          if bad else '런타임 %d개 전부 등재' % len(core))
+
+
 def main():
     for fn in (chk_version, chk_gitignore, chk_log_guard, chk_frame_guard,
                chk_flag_triplet, chk_widget_dup, chk_flag_restore_auto, chk_flag_consume_auto,
@@ -856,7 +887,8 @@ def main():
                chk_stale_filename, chk_completed_plans, chk_resource_paths,
                chk_memory_freshness, chk_session_log_fresh,
                chk_global_name_import, chk_audit_tool_cadence,
-               chk_known_whitelist_fresh, chk_subclass_signature):
+               chk_known_whitelist_fresh, chk_subclass_signature,
+               chk_claude_md_coverage):
         try:
             fn()
         except Exception as e:

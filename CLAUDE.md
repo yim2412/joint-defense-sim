@@ -41,6 +41,11 @@
 | `mixin_resultpanel.py` | `MainWindow` mixin — 결과 탭 렌더(REQ·상태보드·로그·카드·등급·캠페인 보고). 의존은 PyQt6·matplotlib·app_theme·app_utils·app_engine·ui_charts·ui_widgets뿐 |
 | `mixin_optimize.py` | `MainWindow` mixin — 적정 편대 추천 최적화·토글 영향도(counterfactual) 분석. 의존은 PyQt6·app_theme·app_workers·ui_charts뿐 |
 | `mixin_export.py` | `MainWindow` mixin — Excel·PDF 보고서 내보내기. 의존은 PyQt6·matplotlib·app_theme·app_engine뿐 |
+| `db_terrain.py` | 지형·해협·수심 DB (GEBCO 기반). `engine_combat` 이 `STRAITS_DB` 를 import |
+| `db_ocean_acoustic.py` | 해양 음향 DB — Mackenzie 음속식·Thorp 흡수·SVP·소나 탐지거리. 소나 방정식이 소비 |
+| `db_ocean_environment.py` | 해양 환경 DB — 해류·조석·파고·EO/IR 감쇠 |
+| `forecast_features.py` | 캠페인 즉시예측 대리모델의 피처 추출. `engine_campaign` 이 import |
+| `ai_policy_infer.py` | 학습된 RL 정책 추론 진입점. `app_workers` 가 런타임에 import |
 | `scenarios.py` | `SCENARIO_LIBRARY` — 원클릭 추천 시나리오 프리셋(순수 데이터, 의존 없음). UI 표시 문자열이므로 exe 용어 규칙 적용 |
 | `db_specsheet.py` | DB 탭 스펙시트 패널용 상세 설명 (origin, categories, note) |
 | `app_changelog.json` | 패치 이력 (배열, 버전 번호 순서) |
@@ -48,6 +53,11 @@
 | `_asset_make_bg.py` | 홈 배경 이미지 생성 스크립트 (src_kf21_source.jpg → home_bg.jpg). 빌드 제외, 수동 실행용 |
 | `_audit_smoke_util.py` | GUI 스모크 공통 유틸 — `place_on_secondary()`(보조 모니터 배치). 빌드 제외. **새 스모크를 신설할 때마다 이 호출을 넣는다** |
 | `_changelog_export.py` | app_changelog.json → `변경이력/` 유형별 정리 문서 생성기. 빌드 제외, changelog 갱신 시 재실행 |
+
+> **아카이브된 데이터**: `_archive/data/db_ground_threat.py`(한반도 배치 DB, 공개자료
+> 415줄)는 어디서도 import 되지 않아 옮겼다(분석 F-002, 2026-09-20). 지우지 않은 이유는
+> 공개 출처를 달아 수집한 실측 데이터이기 때문이고, 배선하지 않은 이유는 `engine_army` 가
+> **전면 지상전을 범위 밖으로 선언**했기 때문이다(`plan_v20_army.md §8`).
 
 ### 실행 방법
 
@@ -197,7 +207,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 >
 > **스모크 실행 대체 금지**: exe에서 시뮬레이션 버튼을 실제로 클릭하는 데 실패하면, 엔진 직접 호출(`run_v7_simulation()`)로 우회하지 않는다. 엔진 직접 호출은 GUI 워커 경로(step_cb, 시그널 emit 등)를 거치지 않아 exe 전용 버그를 놓친다. **무인 감사에서는 GUI 자동화(pywinauto/UIA)로 버튼 클릭을 자동 수행**하고, 그 GUI 자동화마저 실패할 때만 **BLOCKED로 보고**한다(이때도 엔진 직접 호출 우회는 금지). 무인 모드가 아닌 일반 패치에서는 자동화 실패 시 사용자에게 직접 시뮬 1회 실행을 요청한다.
 
-> **회귀 검증(`audit_verify_regression.py`) 정의**: 고정 8개 시나리오×고정 seed 결과를 `audit_regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python audit_verify_regression.py` / 의도된 변경 후 갱신 `python audit_verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
+> **회귀 검증(`audit_verify_regression.py`) 정의**: 고정 **46개 케이스**×고정 seed 결과를 `audit_regression_golden.json`(repo 저장)과 대조. **엔진 동작이 의도치 않게 바뀌면 FAIL** (C&D id 버그처럼 조용한 변화를 잡음). 사용: 검사 `python audit_verify_regression.py` / 의도된 변경 후 갱신 `python audit_verify_regression.py --update`. **엔진·DB·교전 로직을 고치면 변경 전 PASS 확인 → 변경 후 재실행**이 기본. FAIL이면 의도된 변경인지 판단(맞으면 `--update`, 아니면 버그). 결정론 의존(seed 고정)이라 신규 `random` 호출 추가는 정상 변경이어도 FAIL 가능 → 의도 확인 후 갱신.
 
 감사에서 발견한 항목은 **그 자리에서 수정 후 커밋**한다(다음 일련번호 부여). 감사 결과는 커밋 메시지에 1줄 요약.
 
@@ -245,7 +255,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 |---|------|--------|------|
 | ① | **코드·로직** | 블록 누적 diff의 상호작용·하위호환 버그(플래그 OFF 시 기존 결과 동일) + **신기능 체크리스트 8항목 재검증**(아래) + **전역 상태 오염**(전역 DB `ENEMY_DB`/`FRIENDLY_DB`/`SHIP_DB`를 `.copy()` 없이 참조 후 mutate / `cfg = dict(cfg)` 미복사) + **부모 무수정**(`BattleEngine` 상속이 `TimeStepEngine` 시그니처 변경 안 함·훅 기본인자 동작보존) + **cfg 키 오타**(`enable_xxx` 문자열 오타가 조용히 무시) + **UI 인덱스 정합**(탭·스택·색상 컬럼 밀림, `NoScrollComboBox` 준수) + `FriendlyAircraftObj` 비활성화 시 payload 양쪽 0 + **순회 필터 누락**(잘못된 객체가 잘못된 경로로 — 예: CAP기가 대잠 순회에 진입해 공대공 무장을 어뢰로 조회 KeyError, v18.01.16) | `/code-review high` + Grep 스캔 + **`_audit_deep_review.md` 4팬아웃 레시피**(에이전트 병렬 정독, 도구가 못 잡는 의미 로직) |
 | ② | **DB·수치** | 바뀐 DB 값을 공개 제원·교리와 대조 + **DB 전수 현실성 스윕**(변경분뿐 아니라 전 항목을 공개 제원과 대조 — 속도/사거리가 ▸동급 무기와 정합하는지 ▸마하·kts 환산이 맞는지 ▸과대·과소 **이상치**(예: 동일 기체군이 다른 속도, 아음속 무기가 초음속으로 오편성, 비전투 함정에 대함미사일 탑재). 발견 시 회귀 골든 영향 확인 후 정정 — [[project-db-realism]]) + **재고·편성 규모 현실성**(제원=속도·사거리뿐 아니라 ▸아군 함정 VLS 셀 수·미사일 재고가 실제 탑재량과 정합하는지(재고 과다 시 비현실적 압도) ▸적 편대 규모가 실제 교리와 정합하는지 — **단일 소량 위협은 비현실, 실제 교리는 다축 대량 동시 포화(saturation)**. 정밀무기 1발 편성(ARM·HGV 등)이 실제 포화 규모와 어긋나는지 점검 — [[project-db-realism]]) + **`db_specsheet` 항목수 = DB 항목수**(신규 DB 누락 시 스펙 빔) + `normalize_enemy_db` 누락 필드 + **DB 키 일관**(편대명·적명이 preset/`battle_surrogate` 키와 일치) | **Explore 에이전트 팬아웃** (또는 수동) |
-| ③ | **회귀** | 엔진 동작 무결성 + **결정론**(`sim_seed` 키 사용·신규 `random`/`numpy.random`이 RNG 순서 깨는지) + **골든 커버리지**(새 기능·새 `stats` 키가 8케이스·26지표에 실제 반영되는지 — 없으면 회귀 사각) | `python audit_verify_regression.py` 전체 PASS (FAIL이면 의도 확인 → 갱신 또는 수정) |
+| ③ | **회귀** | 엔진 동작 무결성 + **결정론**(`sim_seed` 키 사용·신규 `random`/`numpy.random`이 RNG 순서 깨는지) + **골든 커버리지**(새 기능·새 `stats` 키가 46케이스·32지표에 실제 반영되는지 — 없으면 회귀 사각) | `python audit_verify_regression.py` 전체 PASS (FAIL이면 의도 확인 → 갱신 또는 수정) |
 | ④ | **통합 MC + 성능** | 기준 시나리오 전체 회귀 MC의 수치 안정성 + **wall-time 회귀 가드**(단발 1회·전장 1회 실행시간 이전 블록 대비 급증 1.5배+면 원인 규명) | 기준값 메모리(`project-baseline-*`) 대조 + 시간 측정·기록 |
 | ⑤ | **exe·빌드** | 전체 빌드 성공 + **번들 무결성**(`spec datas`·`hiddenimports` 완전성, 데이터 파일 포함) + **번들 과잉**(쓰지도 않는 대형 패키지가 들어갔는가 — `chk_bundle_excess`. 2026-09-12 실측: dist 1.2GB 중 445MB가 미사용 torch·pyarrow였고, `collect_submodules('sklearn')`이 optional 의존을 끌어온 것. **완전성만 보던 사각의 반대 방향**) + 스모크 + **리소스 로드 절대경로**(pkl·npz 등 `sys._MEIPASS` 경유 — 상대경로는 exe서 조용히 폴백, `chk_resource_paths` 자동검사) + **MC 중단(abort) 후 워커 잔존·풀 정리** + **외부 의존**(Cesium CDN 끊겨도 graceful) + `_internal` 복사 누락 | 빌드 + **모드별 GUI 자동화 스모크**(무인, pywinauto/UIA; 단발=`_audit_gui_smoke.py` · 캠페인=`_audit_campaign_smoke.py` · **새 실행 모드/화면 추가 시 전용 스모크 신설**; 조작은 invoke/toggle 우선=게임 포그라운드에도 동작; 자동화 실패 시 그 영역만 BLOCKED — 엔진 직접 호출 우회는 금지 [[feedback-smoke-run]]) + 중단 1회 테스트 |
 | ⑥ | **위생** | changelog·`_PLANS` 코드명/완료항목 잔류, **`_PLANS` 완료분 반영**(현재 작업한 항목뿐 아니라 **상위 '진행 중'·'보류' 메이저 항목**도 — 완료된 작업이 '다음/예정/보류 중'으로 잔류하는지. 예: 전장 엔진·self-play 완료 후 '보류' 라벨·'다음: self-play' stale), 헤더·`APP_VERSION`·changelog 정합·연속성, **죽은 코드(호출처 0)**, **불필요 파일 정리**(완료된 1회용 진단 프로브·검증 끝난 PoC 잔재(`poc_*`)·구현 완료 설계문서(`plan_*`)는 삭제 또는 `_archive/plans/`로 이동, **참조 0인 orphan 스크립트**, 단 `military_db`·`download_images`처럼 의도적 유지 파일은 제외) + **파일명 정합**(역할이 드러나는 이름인지·`v7` 같은 stale 명칭 잔존·README 파일구조 표가 실제 파일 전수 커버), **상수·임계값 교차 정합**(예: `MAX_SIM_TIME` vs `BATTLE_HORIZON_S`), **보안**(개인키 미커밋·`.gitignore` 커버리지: `dist`/`build`·모델 zip·로그·`_rl_*` 산출물), CLAUDE.md engine_combat 함수표 정합 | **Grep + `audit_static_scan.py`**(`chk_plans_stale`: changelog 구현된 minor의 _PLANS stale 미래형·'보류' 라벨 자동 검출) ([[feedback-plans-changelog-hygiene]]) |
@@ -525,7 +535,7 @@ v12.06.01: [변경 내용 한 줄 요약]
 
 1. **재할당 전역은 이름 import 금지 — 모듈 경유**. `global X`로 재대입되는 전역을
    `from mod import X` 하면 **import 시점 값이 복사**돼 재할당이 안 보인다. **py_compile·정적
-   51·회귀 38×29가 전부 PASS인데 기능만 조용히 죽는다.**
+   61·회귀 46×32가 전부 PASS인데 기능만 조용히 죽는다.**
    실제: `app_utils._GLOBAL_POOL`(예열 풀을 못 봐 매번 새 풀), `app_theme.CHART_DPI`(150 고정,
    DPI 자동감지 사망). **옮기기 전에 `grep "global X"`로 재할당 여부를 먼저 확인할 것.**
 2. **심볼 목록은 눈으로 고르지 말고 실행 기반 추출**: `import mod; dir(mod)`.

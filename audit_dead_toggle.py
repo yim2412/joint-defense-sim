@@ -4,7 +4,9 @@
 audit_dead_toggle.py — 죽은 토글 스캐너 (종합 감사 전용, 빌드 제외 도구)
 
 죽은 기능 방지 체계 ④ (정본 plan_dead_feature_prevention.md · [[project-dead-feature-prevention]]).
-① 커밋 게이트의 EFFECT_DEBT 유예 목록(현재 43개)을 **전수로 돌려 상환 여부를 판정**한다.
+① 커밋 게이트의 EFFECT_DEBT 유예 목록을 **전수로 돌려 상환 여부를 판정**한다.
+(2026-09-20 현재 EFFECT_DEBT 는 **0개** — 43개 전부 상환됐다. 이 도구는 이제
+EFFECT_ALIVE 재확증에 쓴다.)
 각 토글을 대표 시나리오 여러 개 × 시드 여러 개에서 ON/OFF 2회 실행해:
   · ON/OFF 결과 **델타**(어느 지표든 바뀌는가)
   · ② 발현 카운터 feature_fires **발동 횟수**(그 기능 코드 경로가 실제로 돌았는가)
