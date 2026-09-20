@@ -823,9 +823,18 @@ def check_stage_b_diff(items, rep, repo=REPO):
                 if p.strip():
                     declared.add(p.strip().replace("\\", "/"))
     if declared:
-        if len(declared) > MAX_BATCH_FILES:
-            rep.fail("9.1 묶음 상한", "대상 선언 %d개 파일 > %d개 — 묶음을 쪼갤 것"
-                     % (len(declared), MAX_BATCH_FILES))
+        # 9.1 상한은 **묶음(항목) 하나**에 대한 것이다. 여러 항목의 대상을 합쳐서 재면
+        # 이미 닫힌 묶음이 다음 묶음의 예산을 잡아먹는다(2026-09-20 F-011 착수에서 드러남:
+        # 닫힌 F-009 3파일 + 새 F-011 2파일 = 5로 FAIL). 항목별로 잰다.
+        for it in items:
+            if not it["state"].startswith(("수정중", "수정됨")):
+                continue
+            own = {t.strip().replace("\\", "/")
+                   for t in re.split(r"[,\s]+", it["fields"].get("대상", "")) if t.strip()}
+            own = {t for t in own if "/" in t or t.endswith((".py", ".json", ".spec", ".md"))}
+            if len(own) > MAX_BATCH_FILES:
+                rep.fail("9.1 묶음 상한", "%s 대상 %d개 파일 > %d개 — 묶음을 쪼갤 것"
+                         % (it["id"], len(own), MAX_BATCH_FILES))
         extra = [p for p in code if p not in declared]
         if extra:
             rep.fail("9.3 범위 확대",
