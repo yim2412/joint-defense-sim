@@ -976,6 +976,9 @@ def selftest_lifecycle():
     def fails(base):
         rep = Report()
         items = parse_findings(_read(os.path.join(base, "analysis", FINDINGS)))
+        # A쪽(3.2 필수 필드·3.4 심각도)도 함께 본다 — A와 B의 접합부 점검.
+        # 이게 빠져 있어서 'B는 통과하는데 A가 거부하는 항목'을 검사할 방법이 없었다.
+        check_findings(items, rep)
         check_locations(items, rep, base)
         check_stage_b_items(items, rep, base)
         check_stage_b_diff(items, rep, base)
