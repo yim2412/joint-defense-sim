@@ -96,7 +96,7 @@ def parse_findings(text):
         fm = FIELD_RE.match(raw)
         if fm:
             key = fm.group(1).strip()
-            if key in REQUIRED_FIELDS or key in ("근거본문",):
+            if key in REQUIRED_FIELDS or key in ("근거본문",) or key in B_FIELDS:
                 cur["fields"][key] = fm.group(2).strip()
     if cur:
         items.append(cur)
@@ -262,7 +262,7 @@ def check_priority(items, rep):
 
 # ---------------------------------------------------------------- 실행
 
-def run(final=False, base=HERE, repo=REPO):
+def run(final=False, base=HERE, repo=REPO, stage_b=False):
     rep = Report()
     fpath = os.path.join(base, FINDINGS)
     cpath = os.path.join(base, COVERAGE)
@@ -294,6 +294,12 @@ def run(final=False, base=HERE, repo=REPO):
         check_priority(items, rep)
     else:
         rep.note("우선순위 검사는 --final 에서만 (대장이 정렬된 뒤)")
+
+    if stage_b:
+        print("-" * 72)
+        print(" B단계 검사 (9.10) — 착수 게이트·예측 형식·범위·영향 반경")
+        check_stage_b_items(items, rep)
+        check_stage_b_diff(items, rep, repo)
 
     return rep.dump()
 
@@ -459,8 +465,284 @@ def selftest():
         ok = False
 
     print("-" * 72)
+    print(" B단계 검사 자기검증 (9.10)")
+    if not selftest_b():
+        ok = False
+
+    print("-" * 72)
     print("[OK]   자기검증 전부 통과" if ok else "[FAIL] 자기검증 실패 — 검사기를 믿을 수 없다")
     return 0 if ok else 1
+
+
+# ---------------------------------------------------------------- B단계 (9절)
+# 왜 여기 있나: B(수정 단계)의 규칙도 전부 '내가 스스로 지켜야 하는 것'이다.
+# 특히 범위 확대(9.3)와 "회귀 PASS면 안 깨졌겠지"(9.4)는 문서 규칙으로 안 막힌다.
+# A와 같은 원칙으로 B 작업을 시작하기 전에 만들어 커밋했다.
+
+RADIUS_TABLE = [
+    (r"^analysis/.*$", "T"),
+    (r"^\.githooks/.*$", "D"),
+    (r"^변경이력/.*$", "D"),
+    (r"^감사보고서/.*$", "D"),
+    (r"^_archive/.*$", "D"),
+    (r"^engine_(core|combat)\.py$", "E"),
+    (r"^engine_(campaign|airforce|army|joint)\.py$", "C"),
+    (r"^(app_workers|mixin_simlifecycle)\.py$", "W"),
+    (r"^app_utils\.py$", "UB"),          # 리소스 경로(_res)가 있어 번들 반경도 걸린다
+    (r"^(ui_.*|mixin_.*|app_main|app_launcher|app_theme|app_engine)\.py$", "U"),
+    (r"^(audit_|_audit_|_build_|_bg_|_changelog_|_asset_|improve_|check_).*\.py$", "T"),
+    (r"^(scenarios|db_specsheet)\.py$", "D"),
+    (r"^.*\.spec$", "B"),
+    (r"^.*\.(jpg|jpeg|png|ico|pkl|npz|ttf|otf|zip)$", "B"),
+    (r"^.*\.(md|json|txt|csv|cfg|toml|yml|yaml)$", "D"),
+    (r"^(LICENSE|\.gitignore|\.gitattributes)$", "D"),
+]
+RADIUS_NAME = {"E": "엔진", "C": "작전급", "W": "워커·수명주기", "U": "UI·렌더",
+               "B": "빌드·번들·리소스", "T": "도구·감사", "D": "문서·데이터"}
+RADIUS_EXTRA = {
+    "E": "훅: 회귀·property·effect / 추가: R형식이면 ON/OFF MC 델타",
+    "C": "훅: 회귀(캠페인 6케이스)·property / 추가: _audit_campaign_smoke.py",
+    "W": "훅: roundtrip / 추가: GUI 스모크 — 실제 버튼 클릭(엔진 직접 호출 우회 금지)",
+    "U": "훅: roundtrip·UI shot·render smoke / 추가: 없음",
+    "B": "훅: 정적(chk_resource_paths) / 추가: 전체 빌드 + exe 스모크",
+    "T": "훅: 없음 / 추가: 일부러 깨뜨려 FAIL 나는지 확인 — 통과는 증거가 아니다",
+    "D": "훅: 정적 / 추가: changelog가 바뀌었으면 _changelog_export.py 재실행",
+}
+B_FIELDS = ("대상", "예측", "결과")
+MAX_BATCH_FILES = 3
+MAX_BATCH_LINES = 200
+LEDGER_PREFIX = "analysis/"          # 대장 자신은 범위 선언 대상이 아니다
+
+DIRECTION_RE = re.compile(r"(↑|↓|오른|내린|증가|감소|늘|줄|상승|하락|빨라|느려)")
+MAGNITUDE_RE = re.compile(r"[+\-±]?\d+(?:\.\d+)?\s*(?:%p|%|배|발|척|초|s|ms|km|점|회)")
+SCENARIO_RE = re.compile(r"(시나리오|MC\s*\d+|케이스|프리셋|캠페인|기준|골든)")
+URL_RE = re.compile(r"https?://\S+")
+VERDICT_RE = re.compile(r"(부합|불일치|빗나감|어긋)")
+PROBE_RE = re.compile(r"probes/\S+\.py")
+STATIC_RE = re.compile(r"(chk_\w+|audit_\w+)")
+
+
+def classify_radius(paths):
+    """파일 경로 -> 영향 반경. 미분류는 FAIL 재료로 돌려준다(기본 안전)."""
+    hit, unknown = {}, []
+    for p in paths:
+        base = p.replace("\\", "/")
+        letters = ""
+        for pat, r in RADIUS_TABLE:
+            if re.match(pat, base) or re.match(pat, os.path.basename(base)):
+                letters = r
+                break
+        if not letters:
+            unknown.append(base)
+            continue
+        for ch in letters:
+            hit.setdefault(ch, []).append(base)
+    return hit, unknown
+
+
+def _git(repo, *args):
+    """CLAUDE.md 인코딩 규칙: capture_output 에는 반드시 encoding= 을 준다."""
+    try:
+        out = subprocess.run(["git"] + list(args), cwd=repo, capture_output=True,
+                             encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def changed_files(repo):
+    out = _git(repo, "status", "--porcelain")
+    if out is None:
+        return None
+    files = []
+    for ln in out.splitlines():
+        p = ln[3:].strip()
+        if " -> " in p:
+            p = p.split(" -> ")[-1]
+        p = p.strip().strip('"')
+        if p:
+            files.append(p)
+    return files
+
+
+def is_code(path):
+    """라인 상한(9.1)이 걸리는 대상인가.
+    analysis/ 산출물과 .md 문서는 제외한다 — 분석 판의 산출물이고 회귀 위험이 다르다.
+    도구(audit_*)는 제외하지 않는다. 그것도 고치면 깨질 수 있는 코드다."""
+    q = path.replace(chr(92), "/")
+    return not q.startswith(LEDGER_PREFIX) and not q.endswith(".md")
+
+
+def changed_lines(repo):
+    """코드 파일의 추가+삭제 라인 합. 문서·대장은 세지 않는다."""
+    tot = 0
+    for args in (("diff", "--numstat"), ("diff", "--cached", "--numstat")):
+        for ln in (_git(repo, *args) or "").splitlines():
+            parts = ln.split(chr(9))
+            if len(parts) >= 3 and is_code(parts[2]):
+                for n in parts[:2]:
+                    if n.isdigit():
+                        tot += int(n)
+    return tot
+
+
+def check_stage_b_items(items, rep):
+    """9.10 검사 1~4 — 대장 항목만 본다(git 불필요)."""
+    for it in items:
+        if not it["state"].startswith(("수정중", "수정됨")):
+            continue
+        tag = "%s(L%d)" % (it["id"], it["lineno"])
+        f = it["fields"]
+        body = "\n".join(it["body"])
+        repro = f.get("재현", "")
+        has_p = bool(PROBE_RE.search(repro))
+        has_s = bool(STATIC_RE.search(repro))
+        has_r = "예측" in f
+
+        if not (has_p or has_s or has_r):
+            rep.fail("9.2 착수 게이트",
+                     "%s 상태가 '%s' 인데 P/S/R 판정이 없다 — 재현:에 프로브 경로(P)나 "
+                     "검사함수(S), 아니면 예측: 줄(R)이 있어야 한다" % (tag, it["state"]))
+
+        if has_r:
+            pred = f.get("예측", "")
+            miss = []
+            if len(pred.split()) < 3:
+                miss.append("지표명")
+            if not DIRECTION_RE.search(pred):
+                miss.append("방향")
+            if not MAGNITUDE_RE.search(pred):
+                miss.append("최소 크기")
+            if not SCENARIO_RE.search(pred):
+                miss.append("측정 시나리오")
+            if miss:
+                rep.fail("9.2 R 예측 형식",
+                         "%s 예측에 %s 누락 — '요격률이 변한다' 류는 무엇이 나와도 맞는 "
+                         "문장이라 판정이 아니다" % (tag, "·".join(miss)))
+            if not URL_RE.search(body):
+                rep.fail("9.2 R 외부 앵커",
+                         "%s 예측이 있는데 출처 URL이 없다 — 못 달면 [미확인]으로 두고 "
+                         "고치지 않는다(4.4 결정 요청)" % tag)
+
+        if it["state"].startswith("수정됨"):
+            res = f.get("결과", "")
+            if not res:
+                rep.fail("9.2 R 결과", "%s 가 '수정됨' 인데 결과: 가 없다" % tag)
+            elif has_r and not VERDICT_RE.search(res):
+                rep.fail("9.2 R 결과",
+                         "%s 결과에 부합/불일치 판정이 없다 — 어긋난 것도 결과다" % tag)
+
+
+def check_stage_b_diff(items, rep, repo=REPO):
+    """9.10 검사 5~6 — 워킹트리 diff 를 선언·반경 표와 대조."""
+    ch = changed_files(repo)
+    if ch is None:
+        rep.note("git 을 못 읽음 — 9.3/9.4 diff 검사 생략 [미확인]")
+        return
+    code = [p for p in ch if is_code(p)]
+    if not ch:
+        rep.note("워킹트리 변경 0건 — 9.3 범위·9.4 반경 검사 생략")
+        return
+
+    hit, unknown = classify_radius(ch)
+    if unknown:
+        rep.fail("9.4 반경 미분류",
+                 "반경 표에 없는 파일 %d개: %s — 분류를 추가할 것(미분류는 사각이므로 FAIL)"
+                 % (len(unknown), ", ".join(unknown[:5])))
+    if hit:
+        rep.note("영향 반경: " + " · ".join("%s(%s)" % (k, RADIUS_NAME[k]) for k in sorted(hit)))
+        for k in sorted(hit):
+            rep.note("   %s -> %s" % (k, RADIUS_EXTRA[k]))
+
+    declared = set()
+    for it in items:
+        if it["state"].startswith("수정중"):
+            for p in re.split(r"[,\s]+", it["fields"].get("대상", "")):
+                if p.strip():
+                    declared.add(p.strip().replace("\\", "/"))
+    if declared:
+        if len(declared) > MAX_BATCH_FILES:
+            rep.fail("9.1 묶음 상한", "대상 선언 %d개 파일 > %d개 — 묶음을 쪼갤 것"
+                     % (len(declared), MAX_BATCH_FILES))
+        extra = [p for p in code if p not in declared]
+        if extra:
+            rep.fail("9.3 범위 확대",
+                     "선언(대상:)에 없는 파일이 바뀌었다: %s — 넓히려면 선언을 고쳐 "
+                     "커밋할 것(조용한 확대 금지)" % ", ".join(extra[:5]))
+    elif code:
+        rep.warn("9.3 착수 선언",
+                 "코드 변경 %d개 파일이 있는데 '수정중' 항목의 대상: 선언이 없다" % len(code))
+
+    n = changed_lines(repo)
+    if n > MAX_BATCH_LINES:
+        rep.fail("9.1 묶음 상한",
+                 "변경 %d라인 > %d라인 — 실패 시 원인 분리가 안 된다. 쪼갤 것"
+                 % (n, MAX_BATCH_LINES))
+    else:
+        rep.note("코드 변경 %d라인 (상한 %d · analysis/·*.md 제외)"
+                 % (n, MAX_BATCH_LINES))
+
+
+def selftest_b():
+    """B 검사도 일부러 깨뜨려 본다. 통과는 증거가 아니다."""
+    ok = True
+    cases = [
+        ("판정 없음", "9.2 착수 게이트", """### F-901 · 축: 모델타당성 · 상태: 수정중
+- 재현: (없음)
+- 요약: 판정 없이 수정에 들어갔다
+"""),
+        ("느슨한 예측", "9.2 R 예측 형식", """### F-902 · 축: 모델타당성 · 상태: 수정중
+- 재현: (없음)
+- 예측: 요격률이 변한다
+- 근거본문: https://example.org/spec
+"""),
+        ("앵커 없음", "9.2 R 외부 앵커", """### F-903 · 축: 모델타당성 · 상태: 수정중
+- 재현: (없음)
+- 예측: 기준 시나리오 MC 200회 요격률이 오른다 최소 +2%p
+- 요약: 출처가 없다
+"""),
+        ("결과 없음", "9.2 R 결과", """### F-904 · 축: 모델타당성 · 상태: 수정됨
+- 재현: analysis/probes/p904_x.py
+- 요약: 결과를 안 적었다
+"""),
+    ]
+    for name, expect, block in cases:
+        rep = Report()
+        items = parse_findings(block)
+        check_stage_b_items(items, rep)
+        if any(c == expect for c, _ in rep.fails):
+            print("[OK]   %-18s -> %s 로 잡음" % (name, expect))
+        else:
+            got = ", ".join(sorted(set(c for c, _ in rep.fails))) or "(위반 0건)"
+            print("[FAIL] %-18s -> '%s' 를 못 잡음. 잡은 것: %s" % (name, expect, got))
+            ok = False
+
+    # 정상 R 항목은 통과해야 한다 (오탐 검사)
+    good = """### F-905 · 축: 모델타당성 · 상태: 수정됨
+- 재현: (없음)
+- 예측: 기준 시나리오 MC 200회 요격률이 오른다, 최소 +2%p
+- 결과: 14.2% -> 17.1% (+2.9%p) — 예측 부합
+- 근거본문: 출처 https://www.navy.mil/example
+"""
+    rep = Report()
+    check_stage_b_items(parse_findings(good), rep)
+    if rep.fails:
+        print("[FAIL] %-18s -> 정상 R 항목인데 위반: %s"
+              % ("B 오탐 검사", ", ".join(c for c, _ in rep.fails)))
+        ok = False
+    else:
+        print("[OK]   %-18s -> 정상 R 항목은 통과" % "B 오탐 검사")
+
+    # 반경 분류: 알려진 파일은 분류되고, 낯선 파일은 미분류로 걸려야 한다
+    hit, unknown = classify_radius(["engine_combat.py", "ui_charts.py", "app_main.spec",
+                                    "analysis/FINDINGS.md", "낯선파일_zzz.xyz"])
+    if set(hit) == {"E", "U", "B", "T"} and unknown == ["낯선파일_zzz.xyz"]:
+        print("[OK]   %-18s -> 분류 %s · 미분류 %s" % ("반경 분류", sorted(hit), unknown))
+    else:
+        print("[FAIL] %-18s -> 분류 %s · 미분류 %s (기대와 다름)"
+              % ("반경 분류", sorted(hit), unknown))
+        ok = False
+    return ok
 
 
 def main():
@@ -469,8 +751,12 @@ def main():
                     help="종합 판 전용 — 우선순위·필수 산출물까지 검사")
     ap.add_argument("--selftest", action="store_true",
                     help="검사기가 실제로 위반을 잡는지 확인")
+    ap.add_argument("--stage", choices=("a", "b"), default="a",
+                    help="b = 수정 단계 검사(9.10)까지 — 착수 게이트·범위·영향 반경")
     args = ap.parse_args()
-    return selftest() if args.selftest else run(final=args.final)
+    if args.selftest:
+        return selftest()
+    return run(final=args.final, stage_b=(args.stage == "b"))
 
 
 if __name__ == "__main__":
