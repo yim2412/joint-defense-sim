@@ -96,6 +96,11 @@
   → **"도구가 있다"와 "돌고 있다"는 다르다.** 레지스트리가 낙관적으로 거짓말을 한다.
   **B단계 후보**: S형식 — 훅 배선(가벼운 것) + `BLIND_SPOTS.md` 에 *실행 주기* 컬럼 추가,
   또는 `chk_` 검사로 "해소 선언된 항목의 도구가 훅에 있는가" 대조.
+  **⚠ 배선 단서(3단계 실측)**: `audit_db_consistency` · `audit_dead_toggle` 은
+  FAIL 문구만 찍고 **exit 0** 이다(코드에 *"각 항목은 사람이 판정"* 이라 명시된 **의도된
+  보고 도구**). 이 둘을 훅에 물리면 **항상 통과하는 게이트**가 된다 — 배선 대상에서 제외하거나
+  먼저 종료코드를 주어야 한다. 그리고 `audit_db_consistency` 는 지금 **미검토 발견 6건**을
+  내놓고 있다(HIGH 1: Kh-32 '극초음속'인데 마하 4.4) — 수동이라 아무도 안 본 것이다.
 
 ### F-004 · 축: 뼈대 · 상태: 오탐
 - 위치: engine_combat.py:6747 `def _compile(self) -> dict:`
@@ -315,6 +320,41 @@
   **부수 확인**: 남은 4개는 정당한 사각이고, 그중 IFF 둘은
   [[project-experimental-promotion]] 의 *"IFF 는 CAP 교전 0이라 미검증 보류"* 를
   **골든 데이터가 독립적으로 뒷받침**한다(30케이스 전부 0).
+
+### F-011 · 축: 검증체계 · 상태: 미처리
+- 위치: audit_verify_regression.py:50 `CASES = [`
+- 근거: [실측]
+- 이력: [신규]
+- 심각도: 중간
+- 반증조건: ① 그 토글들이 기본 ON 이면 골든이 암묵적으로 밟는다 → 실측하니 **11개는 기본
+  `False`** 다. ② `audit_effect.py` 가 대신 회귀를 본다면 사각이 아니다 → `audit_effect` 는
+  **같은 실행 안에서 ON/OFF 델타가 0이 아닌지**만 보고 **저장된 기준값과 대조하지 않는다**.
+  즉 *"효과가 있다"* 는 지키지만 *"결과가 이전과 같다"* 는 안 본다 → 반증 안 됨.
+  ③ 높음 부여는 보류한다 — 실제로 깨뜨려 PASS 나는 것을 **재현하지 않았다**(3.4 준수)
+- 재현: (없음) — 분석 판은 코드를 고치지 않는다(1.6). B단계에서 주입 실증
+- 수정비용: 중 (골든 케이스 추가 = 골든 갱신)
+- 회귀위험: 골든 케이스를 늘리면 실행시간 증가(현재 38초)
+- 실행주체: 실측·승인 필요
+- 뿌리: **F-003 의 뿌리** (안전망의 *범위* 문제)
+- 요약: 엔진이 소비하는 토글 중 **11개를 회귀 골든이 한 번도 켜지 않는다** — 그 경로의
+  동작이 바뀌어도 회귀는 PASS 한다
+- 근거본문:
+  ```
+  골든이 명시적으로 켜는 토글 40개 · EFFECT_ALIVE 43개 중 골든 미사용 16개
+    기본 True (ON 상태만 감시, OFF 대조 없음) 5개:
+      cec_preassign · munition_limit · ship_evasion · standoff_spawn · subsystem_damage
+    기본 False (아예 안 밟음) 11개:
+      asw_forward · autonomous_engagement · battle_mode · campaign_fog · cec_jammed ·
+      laser_dew · minesweeping · multibearing · random_placement · ras_rearm · recon_drone
+  ```
+  **이 11개 중 다수가 기준값 메모리로 검증을 마친 기능이다** —
+  [[project-baseline-ras-rearm]] · [[project-baseline-unmanned-isr]] ·
+  [[project-baseline-autonomous]] · [[project-baseline-mine-warfare]] ·
+  [[project-laser-efficacy-finding]]. **검증은 했는데 그 결과를 지키는 장치가 없다.**
+  기준값은 메모리(사람이 읽는 문서)에 있고 골든(기계가 읽는 파일)에는 없다.
+  → B단계 설계의 약점 **나**(*"회귀 PASS 는 안 깨뜨렸다의 증거가 아니다"*)에 대한
+  **이 저장소의 구체적 실측 증거**다. 영향 반경 표가 반경 E 에 회귀를 소환해도,
+  **그 회귀가 보는 범위 밖**이면 소용이 없다.
 
 ---
 
