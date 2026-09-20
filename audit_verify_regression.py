@@ -153,6 +153,23 @@ CASES = [
     ('파도-혼합시나리오', dict(_BASE, fleet_preset='이지스 기동전단',
                              enemy_fleet_mode='mixed',
                              mixed_scenario='항모 킬 체인 (스텔스→HGV→초음속)'),                      [1, 3]),
+    # F-011 잔여 봉인 — 엔진이 소비하는데 **골든이 한 번도 켜지 않던 토글 9개**를 묶어
+    # 커버한다. 기준값 메모리로 검증을 마친 기능들인데(정찰 드론·자율 교전·기뢰전·
+    # 레이저·RAS) 그 결과를 지키는 장치가 골든에 없었다 — 검증과 감시가 따로 놀았다.
+    # 한 케이스에 여러 토글을 묶는 이유: 케이스당 실행 비용이 있고, 이 묶음의 목적은
+    # '그 코드 경로가 골든에 들어오는 것'이지 토글별 독립 효과 측정이 아니다
+    # (독립 효과는 audit_effect 가 ON/OFF 델타로 따로 본다).
+    ('미커버-무인자율',  dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='랴오닝 항모전단',
+                             enable_recon_drone=True, enable_autonomous_engagement=True,
+                             enable_cec_jammed=True, enable_multibearing=True),              [2, 5]),
+    ('미커버-대잠소해',  dict(_BASE, fleet_preset='대잠전단',
+                             enemy_fleet_preset='잠수함 복합 포화',
+                             enable_asw_forward=True, enable_minesweeping=True,
+                             enable_ras_rearm=True),                                          [4, 6]),
+    ('미커버-레이저배치', dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='무인기 군집 포화',
+                             enable_laser_dew=True, enable_random_placement=True),            [1, 7]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)

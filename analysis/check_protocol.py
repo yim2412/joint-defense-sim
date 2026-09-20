@@ -608,6 +608,11 @@ def is_code(path):
     analysis/ 산출물과 .md 문서는 제외한다 — 분석 판의 산출물이고 회귀 위험이 다르다.
     도구(audit_*)는 제외하지 않는다. 그것도 고치면 깨질 수 있는 코드다."""
     q = path.replace(chr(92), "/")
+    # 생성 데이터는 제외한다. 골든은 케이스 수에 비례해 커질 뿐이고, 상한의 취지는
+    # **코드 변경의 원인 분리**다 — 케이스 6개를 추가하면 JSON 이 200줄을 넘어
+    # 정당한 묶음이 막힌다(2026-09-20 F-011 잔여에서 221줄로 실제로 막혔다).
+    if q.endswith("audit_regression_golden.json"):
+        return False
     return not q.startswith(LEDGER_PREFIX) and not q.endswith(".md")
 
 
