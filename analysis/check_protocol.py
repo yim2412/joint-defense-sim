@@ -190,9 +190,16 @@ def check_locations(items, rep, repo=REPO):
                                       "엉뚱한 곳을 가리킨다" % tag)
             continue
         if anchor.strip() not in lines[line - 1]:
-            rep.fail("1.2 앵커 불일치",
-                     "%s %s:%d 에 앵커가 없다 (라인 이동됨 — 자동 갱신하지 말 것)"
-                     % (tag, path, line))
+            # 수정 중·수정된 항목은 그 줄을 '일부러 바꾼' 것이라 앵커가 안 맞는 게 정상이다.
+            # FAIL 로 두면 B단계의 모든 수정이 커밋 불가가 된다(모의 실행 2026-09-20 발견).
+            if it["state"].startswith(("수정중", "수정됨")):
+                rep.warn("1.2 앵커 이동(수정중)",
+                         "%s %s:%d — 고친 줄이라 앵커가 안 맞는다. 수정 완료 시 "
+                         "위치·앵커를 새 코드로 갱신할 것" % (tag, path, line))
+            else:
+                rep.fail("1.2 앵커 불일치",
+                         "%s %s:%d 에 앵커가 없다 (라인 이동됨 — 자동 갱신하지 말 것)"
+                         % (tag, path, line))
 
 
 # ---------------------------------------------------------------- 검사 5
@@ -476,6 +483,11 @@ def selftest():
         ok = False
 
     print("-" * 72)
+    print(" 절차 전체 모의 실행 (묶음 하나를 끝까지)")
+    if not selftest_lifecycle():
+        ok = False
+
+    print("-" * 72)
     print("[OK]   자기검증 전부 통과" if ok else "[FAIL] 자기검증 실패 — 검사기를 믿을 수 없다")
     return 0 if ok else 1
 
@@ -649,7 +661,20 @@ def _git_ok(repo, *args):
     return r.returncode == 0
 
 
-def _declared_before_code(repo, text, targets=()):
+def _batch_code_commits(repo, fid):
+    """이 발견의 묶음 커밋 = 메시지에 발견 ID가 들어가고 코드를 건드린 커밋(9.8).
+    대상 파일의 '전체 과거 이력'과 비교하면 파일 생성 커밋까지 걸려 오탐이 난다
+    (모의 실행 2026-09-20에서 규약을 정확히 지켰는데 FAIL 났다)."""
+    out = _git(repo, "log", "--format=%H", "--grep", fid) or ""
+    hits = []
+    for sha in out.split():
+        files = _git(repo, "show", "--name-only", "--format=", sha) or ""
+        if any(is_code(x) for x in files.split()):
+            hits.append(sha)
+    return hits
+
+
+def _declared_before_code(repo, text, targets=(), fid=None):
     """R/9.3: 예측·선언이 코드보다 먼저 들어갔는가.
     그 문자열이 처음 들어간 커밋이 코드 파일을 건드렸으면 사후 작성이다."""
     if not text.strip():
@@ -662,14 +687,12 @@ def _declared_before_code(repo, text, targets=()):
     touched = [p for p in files.split() if is_code(p)]
     if touched:
         return (False, sha, touched)
-    # 도입 커밋에 코드가 없어도, 그게 코드 커밋 '뒤' 면 사후 작성이다.
-    tf = [t for t in targets if is_code(t)]
-    if tf:
-        last = (_git(repo, "log", "--format=%H", "-1", "--", *tf) or "").strip()
-        if last and last != sha:
-            anc = _git_ok(repo, "merge-base", "--is-ancestor", sha, last)
-            if anc is False:
-                return (False, sha, ["코드 커밋 %s 뒤에 끼워넣음" % last[:7]])
+    # 도입 커밋에 코드가 없어도, 그게 '이 묶음의 코드 커밋' 뒤면 사후 작성이다.
+    for code_sha in (_batch_code_commits(repo, fid) if fid else []):
+        if code_sha == sha:
+            continue
+        if _git_ok(repo, "merge-base", "--is-ancestor", sha, code_sha) is False:
+            return (False, sha, ["묶음 코드 커밋 %s 뒤에 끼워넣음" % code_sha[:7]])
     return (True, sha, [])
 
 
@@ -741,7 +764,7 @@ def check_stage_b_items(items, rep, repo=REPO):
                          "%s 예측이 있는데 출처 URL이 없다 — 못 달면 [미확인]으로 두고 "
                          "고치지 않는다(4.4 결정 요청)" % tag)
             targets = [t.strip() for t in re.split(r"[,\s]+", f.get("대상", "")) if t.strip()]
-            pre = _declared_before_code(repo, pred, targets)
+            pre = _declared_before_code(repo, pred, targets, it["id"])
             if pre is not None and pre[0] is False:
                 rep.fail("9.2 R 선행성",
                          "%s 예측이 코드와 같은 커밋(%s)에 들어갔다 — 예측은 코드를 "
@@ -913,6 +936,111 @@ def selftest_b():
         print("[OK]   %-20s -> B판 밖에서는 평소 패치를 막지 않는다" % "B판 밖 생략")
     return ok
 
+
+
+_REHEARSAL_ENTRY = """### F-001 · 축: 모델타당성 · 상태: {state}
+- 위치: engine_core.py:1 `PK_BASE = {anchor}`
+- 근거: [코드]
+- 이력: [신규]
+- 심각도: 중간
+- 반증조건: 공개 제원이 그 값을 지지하면 틀린 판단이다
+- 재현: (없음)
+- 수정비용: 소
+- 회귀위험: 골든 영향 있음
+- 실행주체: 나 단독
+- 뿌리: 증상
+- 대상: engine_core.py
+- 짝: 없음(단독 성립 — 소비처는 pk() 뿐)
+- 무대: 기준 시나리오 20~40km 교전
+- 예측: 기준 시나리오 고정 seed pk 값이 내린다, 최소 0.1점
+{result}- 요약: PK_BASE 가 공개 제원보다 높다
+- 근거본문: 출처 https://www.navy.mil/example-spec
+"""
+
+
+def selftest_lifecycle():
+    """B 묶음 하나를 규약대로 **끝까지** 돌려 본다 — 부품 테스트로는 안 나오는 것 전용.
+
+    2026-09-20 모의 실행에서 치명 오탐 2건이 여기서 나왔다:
+    (a) 선행성 검사가 대상 파일의 전체 과거 이력과 비교해, 규약을 지켜도 FAIL
+    (b) 고친 줄의 앵커 불일치가 FAIL 이라 B단계의 모든 수정이 커밋 불가
+    둘 다 '성실히 따르는 사람만 만나는 오탐' 이라, 실전이면 --no-verify 로 이어져
+    규약 전체가 무력화된다. 그래서 절차 전체를 자동 검사로 박아 둔다.
+    """
+    import shutil
+
+    def g(cwd, *a):
+        subprocess.run(["git"] + list(a), cwd=cwd, capture_output=True,
+                       encoding="utf-8", errors="replace")
+
+    def fails(base):
+        rep = Report()
+        items = parse_findings(_read(os.path.join(base, "analysis", FINDINGS)))
+        check_locations(items, rep, base)
+        check_stage_b_items(items, rep, base)
+        check_stage_b_diff(items, rep, base)
+        return sorted(set(c for c, _ in rep.fails))
+
+    ok = True
+    td = tempfile.mkdtemp(prefix="proto_rehearse_")
+    try:
+        os.makedirs(os.path.join(td, "analysis", "probes"))
+        shutil.copy(os.path.join(HERE, "check_protocol.py"), os.path.join(td, "analysis"))
+        w = lambda n, t: io_write(os.path.join(td, n), t)
+        w("engine_core.py", "PK_BASE = 0.7\n\ndef pk(x):\n    return PK_BASE * x\n")
+        w("audit_static_scan.py", "def chk_dummy():\n    pass\n")
+        g(td, "init", "-q", ".")
+        g(td, "config", "user.email", "t@t")
+        g(td, "config", "user.name", "t")
+        g(td, "add", "-A")
+        g(td, "commit", "-qm", "base")
+
+        # ① 선언 커밋(문서만) — 위반 0건이어야 한다
+        w("analysis/" + FINDINGS, _REHEARSAL_ENTRY.format(state="수정중", anchor="0.7", result=""))
+        g(td, "add", "-A")
+        g(td, "commit", "-qm", "F-001 착수 선언 (문서만)")
+        f1 = fails(td)
+        ok &= _expect("① 선언 커밋", not f1, f1)
+
+        # ② 코드 수정 — 앵커는 경고여야 하고 FAIL 은 없어야 한다
+        w("engine_core.py", "PK_BASE = 0.55\n\ndef pk(x):\n    return PK_BASE * x\n")
+        f2 = fails(td)
+        ok &= _expect("② 코드 수정", not f2, f2)
+        g(td, "add", "-A")
+        g(td, "commit", "-qm", "분석 F-001: PK_BASE 를 공개 제원에 맞춤")
+
+        # ③ 결과 기입 + 앵커 갱신
+        w("analysis/" + FINDINGS, _REHEARSAL_ENTRY.format(
+            state="수정됨", anchor="0.55",
+            result="- 결과: pk(1.0) 0.70 -> 0.55 (-0.15점) — 예측 부합\n"))
+        f3 = fails(td)
+        ok &= _expect("③ 결과 기입", not f3, f3)
+
+        # ④ 예측을 사후에 고쳐 쓰면 여전히 걸려야 한다
+        g(td, "add", "-A")
+        g(td, "commit", "-qm", "결과 기입 (문서만)")
+        w("analysis/" + FINDINGS, _read(os.path.join(td, "analysis", FINDINGS))
+          .replace("최소 0.1점", "최소 0.4점"))
+        g(td, "add", "-A")
+        g(td, "commit", "-qm", "예측 살짝 수정 (문서만)")
+        f4 = fails(td)
+        ok &= _expect("④ 사후 조작 차단", "9.2 R 선행성" in f4, f4)
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+    return ok
+
+
+def io_write(path, text):
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+def _expect(name, cond, got):
+    if cond:
+        print("[OK]   %-20s -> 기대대로" % name)
+        return True
+    print("[FAIL] %-20s -> 위반: %s" % (name, ", ".join(got) or "(없음)"))
+    return False
 
 
 def main():
