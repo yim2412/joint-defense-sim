@@ -1089,6 +1089,7 @@ class MissileObj:
 #  EnemyThreatObj — 적 플랫폼 위협 통합 (항공기 / 수상함 / 잠수함)
 #  독립 미사일(탄도/순항/HGV/QBM)은 _build_enemies()에서 MissileObj로 생성.
 # ════════════════════════════════════════════════════════════════════════════
+_CONV_CHECK_EVERY = 10   # F-017: 매 회차 std 재계산은 낭비 — 10회마다 본다
 _ENEMY_MUNITION_INF = 99999   # 무장 유한화 미대상(1발성 위협 등) 무제한 표현
 
 
@@ -6909,6 +6910,9 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
     if desc:
         print(f'  [{desc}] {n}회 MC 시작... ', end='', flush=True)
 
+    # F-017: 조기 수렴 종료 설정. cfg 로 받아 정밀도 모드마다 다른 문턱을 줄 수 있다.
+    _conv_tol = float(cfg.get('mc_converge_tol', 0.0) or 0.0)   # 0 = 끄기(기본)
+    _conv_min = int(cfg.get('mc_converge_min', 50) or 50)       # 최소 회차
     base_seed = cfg.get('sim_seed', None)
     for i in range(n):
         # 회차마다 다른 시드 (기반 시드 + 회차번호)
@@ -6970,6 +6974,19 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         if progress_cb:
             progress_cb(i + 1, n)
 
+        # F-017: 조기 수렴 종료. 요격률 누적 평균의 **표준오차**가 문턱 이하로 내려가면
+        # 남은 회차는 정보를 거의 안 준다 — 반복 질의가 본질인 트레이드 스터디에서
+        # 그 시간이 곧 비용이다. 기본 OFF(켜지 않으면 기존과 동일 회차 = 하위 호환).
+        #   se = std / sqrt(k). 문턱 0.01 = '요격률 ±1%p 면 충분'.
+        # ⚠ 표본이 적을 때 우연히 좁아지는 것을 막으려 **최소 회차**를 둔다.
+        if _conv_tol and (i + 1) >= _conv_min and (i + 1) % _CONV_CHECK_EVERY == 0:
+            _se = float(np.std(rates, ddof=1) / math.sqrt(i + 1)) if i > 0 else 1.0
+            if _se <= _conv_tol:
+                if desc:
+                    print(f'[수렴 {i + 1}회 · SE {_se:.4f}]', end=' ', flush=True)
+                break
+
+    n_done = len(rates)          # F-017: 조기 종료 시 요청 n 보다 작다
     if desc:
         print('완료')
 
@@ -6994,7 +7011,12 @@ def monte_carlo_v7(cfg: dict, n: int = 200, desc: str = '',
         'neutralization_rates':    neut_rates,
         'mean_neutralization':     float(np.mean(neut_rates)) if neut_rates else 0.0,
         'full_pass_rate':          float((arr == 1.0).mean()),
-        'n':                       n,
+        # F-017: 조기 수렴 종료가 걸리면 실제 수행 회차가 요청보다 적다.
+        # 'n' 은 **실제 수행 회차**로 둔다(평균·분산의 표본 수와 일치해야 한다).
+        'n':                       n_done,
+        'n_requested':             n,
+        'n_runs':                  n_done,
+        'converged_early':         n_done < n,
         # v9.3: 공격 임무 격침 통계
         'mean_enemy_destroyed':    float(dest_arr.mean()),
         'max_enemy_destroyed':     int(dest_arr.max()) if len(dest_arr) else 0,

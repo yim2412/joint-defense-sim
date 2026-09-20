@@ -18,9 +18,14 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from engine_combat import monte_carlo_v7             # noqa: E402
+from app_utils import sim_mode_preset                # noqa: E402
 
+# UI 의 '표준' 모드가 실제로 넘기는 문턱으로 잰다 — 엔진 기본값(0=끄기)이 아니라
+# **사용자가 실제로 밟는 경로**를 검증해야 한다(F-017 배선: mixin_simlifecycle).
+TOL = sim_mode_preset(1).get('conv_tol', 0.0)
 CFG = dict(enemy_fleet_mode='preset', fleet_preset='이지스 기동전단',
-           enemy_fleet_preset='랴오닝 항모전단', weather='맑음 (주간)', sim_seed=7)
+           enemy_fleet_preset='랴오닝 항모전단', weather='맑음 (주간)', sim_seed=7,
+           mc_converge_tol=TOL)
 N = 200
 
 
@@ -29,15 +34,14 @@ def main():
     mc = monte_carlo_v7(dict(CFG), n=N)
     el = time.time() - t0
     ran = mc.get('n_runs', N)
-    print('요청 %d회 · 실제 수행 %s회 · %.1fs' % (N, ran, el))
+    print('표준 모드 문턱 tol=%s · 요청 %d회 · 실제 수행 %s회 · %.1fs' % (TOL, N, ran, el))
     print('  평균 요격률 %.4f · 표준편차 %.4f'
           % (mc.get('mean_intercept', 0), mc.get('std_intercept', 0)))
     print()
     if ran < N:
         print('[PASS] 수렴 후 조기 종료했다 — %d회 절약(%.0f%%).' % (N - ran, (N - ran) / N * 100))
         return 0
-    print('[FAIL] 요청한 %d회를 전부 돌았다 — 조기 수렴 종료가 없다.' % N)
-    print('       ConvergenceWidget 은 표시 전용이고 루프는 그 값을 안 본다.')
+    print('[FAIL] 요청한 %d회를 전부 돌았다 — 표준 모드 문턱(%s)에서도 안 멈춘다.' % (N, TOL))
     return 1
 
 

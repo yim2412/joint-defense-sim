@@ -244,6 +244,9 @@ class SimLifecycleMixin:
         cfg = self._build_cfg_from_ui()
         mode_idx = self.cmb_sim_mode.currentIndex() if hasattr(self, 'cmb_sim_mode') else 1
         mc_n = sim_mode_preset(mode_idx)['mc']
+        # F-017: 조기 수렴 종료 문턱을 정밀도 모드에서 받아 cfg 로 넘긴다.
+        # 엔진은 cfg['mc_converge_tol'] 만 보므로 UI 가 모드를 해석해 주는 자리다.
+        cfg['mc_converge_tol'] = sim_mode_preset(mode_idx).get('conv_tol', 0.0)
         precision_mode = (mode_idx == 2)
         sobol_npp = self.spn_sobol_npp.value() if hasattr(self, 'spn_sobol_npp') else 3
         test_mode = hasattr(self, 'chk_test_mode') and self.chk_test_mode.isChecked()
