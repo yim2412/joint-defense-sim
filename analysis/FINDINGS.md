@@ -11,7 +11,7 @@
 > (오탐·기각은 맨 뒤. 지우지 않는다 — 규약 3.5·3.6)
 
 ### F-009 · 축: 모델타당성 · 상태: 수정됨
-- 위치: engine_combat.py:2041 `if new_fleet:`  (F-009 수정 후. 원래 `fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]` 한 줄이었다)
+- 위치: engine_combat.py:2044 `if new_fleet:`  (F-009 수정 후)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
@@ -53,7 +53,62 @@
   전술인데 **전력을 늘려 버린다** — 전술 비교·편대 추천이 그만큼 왜곡된다.
   UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
 
-- 위치: engine_combat.py:2318 `self.stats['total_threats'] += 1`  (파도 스폰 쪽 — 수정 후 미사일 가지 안)
+- 위치: engine_combat.py:2321 `self.stats['total_threats'] += 1`  (`_spawn_pending_threat` 안 — 미사일 가지)
+- 근거: [코드]
+- 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
+- 심각도: 중간
+- 반증조건: 파도 스폰 플랫폼이 `intercepted_threats` 에도 집계되면 대칭이라 문제없다.
+  실측하니 L5120 주석이 *"MissileObj만 intercepted_threats에 집계 (항공기 플랫폼 격추는
+  enemy_ships_destroyed로)"* 라고 명시 → 반증 안 됨. 또는 파도 스폰이 미사일만 만든다면
+  무해하나, L2301 `else:` 가지가 `_new_threat()` 으로 **플랫폼을 만든다** → 반증 안 됨
+- 재현: analysis/probes/p005_denominator_path_independence.py  ← **판정 S**(구조 불변식)
+- 수정비용: 중
+- 회귀위험: **골든 영향 큼** (요격률이 32지표에 들어 있다)
+- 실행주체: 나 단독 (정의 확정은 아래 '짝' 에 명시 — 사용자 결정 불필요)
+- 대상: engine_combat.py, app_main.py, app_changelog.json
+- 짝: **F-008 과 한 묶음.** 분모 정의를 고치면 무력화율 이중 계산도 함께 사라진다.
+  세 정의를 함께 확정한다 — `total_threats`=**발사체(미사일류)만** ·
+  `intercepted_threats`=**발사체 요격만**(현행 유지) · `suicide_threats`=**자폭 플랫폼**.
+  플랫폼 격침은 `enemy_ships_destroyed` 가 이미 센다. **한쪽만 고치면 안 되는**
+  자리다(`be4e8b9` 가 되돌린 이유)
+- 무대: 파도 스폰이 일어나는 편성 — 골든 `파도-시차공격`·`파도-혼합시나리오`(직전 묶음에서
+  신설). 파도가 없으면 초기 편성 경로만 타서 **현재도 정의가 맞아** 변화가 안 보인다
+- 뿌리: **F-008 의 뿌리** (집계 정의 축 — [[project-fleet-metric-flaw]] 와 같은 축). ~~F-004 의 증상~~ — F-004 가 오탐으로 종결돼 링크 철회
+- 결과: 판정 S(p005) **FAIL→PASS** · p008 재실행에서 **이중 계산 소멸** 확인 `[실측]`.
+  회귀 **24건 변화, 전부 규명**(9.4③) — 바뀐 지표는 `total_threats`·`intercept_rate`·
+  `neutralization_rate` **셋뿐**, 8케이스 × 3지표:
+  ```
+  항모 계열 6건  −8   랴오닝-기본#1 114→106 · 공격+CAP#7 107→99 · CAP상시초계#2 118→110
+                      원인: 항모가 함재기를 2기씩 주기적으로 _pending_threats 로 발진한다
+                      (engine_combat.py:5553). 그 플랫폼 8기가 분모에 있었다
+  파도 계열 2건  −12  파도-시차공격#2·#7 44→32 (022형 4 + 연안 자폭 드론 8)
+  분자 무변동 → 요격률 상승은 **순수 분모 효과**(예: 0.4737→0.5094 = 54/114→54/106)
+  나머지 38케이스·29지표 전부 무변동
+  ```
+  property 불변식 45케이스 위반 0. 골든 46×32 재PASS.
+  **v22 1순위와의 관계**: [[project-fleet-metric-flaw]] 가 지목한 *"항모 함재기 무한
+  생산으로 분모가 통제되지 않는다"* 의 **분모 쪽이 이 수정으로 닫혔다.** 생산 자체
+  (단발 모드에서 `_enforce_wing_cap` 이 꺼져 무한 발진)는 **아직 열려 있다** → 별도 항목.
+- 요약: `total_threats`(요격률 분모)가 **스폰 경로에 따라 다르게 센다** — 초기 편성은
+  미사일만, 파도 스폰은 **플랫폼도** 센다. 분자는 어느 쪽이든 미사일만 센다
+- 근거본문:
+  ```
+  L2172  초기 편성:  if (미사일) → missiles.append(m); total_threats += 1
+         L2176 else: et = _new_threat(...)            ← 플랫폼은 분모에 안 들어간다
+  L2301  파도 스폰:  else: et = _new_threat(...); enemy_threats.append(et)
+  L2306              self.stats['total_threats'] += 1 ← if/else **밖**이라 플랫폼도 센다
+  L5120  분자:       "MissileObj만 intercepted_threats에 집계
+                      (항공기 플랫폼 격추는 enemy_ships_destroyed로)"
+  ```
+  결과: **같은 항공기가 초기 편성으로 오면 분모에 없고, 파도로 오면 분모에 있다.**
+  파도로 온 쪽은 격추해도 분자에 안 잡히므로 *"때리는데 분모엔 있고 막아도 분자엔 없는"*
+  위협이 된다 — `be4e8b9` 가 *"한쪽만 고치는 게 안 고치는 것보다 나쁘다"* 며 되돌린
+  바로 그 상태가, **파도 스폰 경로에는 이미 존재한다.**
+  → 2.2 D(지표·집계 정의)의 1순위 대상. `total_threats`·`intercepted_threats`·
+  `enemy_ships_destroyed` 세 정의를 **함께** 설계해야 한다(짝).
+
+### F-005 · 축: 모델타당성 · 상태: 수정됨
+- 위치: engine_combat.py:2321 `self.stats['total_threats'] += 1`  (파도 스폰 쪽 — 미사일 가지 안)
 - 근거: [코드]
 - 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
 - 심각도: 중간
@@ -108,7 +163,7 @@
   `enemy_ships_destroyed` 세 정의를 **함께** 설계해야 한다(짝).
 
 ### F-008 · 축: 모델타당성 · 상태: 수정됨
-- 위치: engine_combat.py:5691 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
+- 위치: engine_combat.py:5719 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
@@ -321,7 +376,7 @@
   **골든 데이터가 독립적으로 뒷받침**한다(30케이스 전부 0).
 
 ### F-007 · 축: 뼈대 · 상태: 수정됨
-- 위치: engine_combat.py:6443 `def _apply_ship_evasion(self, evade_r_base: float | None = None,`  (수정 후 — 부모 계약 복원된 시그니처)
+- 위치: engine_combat.py:6471 `def _apply_ship_evasion(self, evade_r_base: float | None = None,`  (수정 후 — 부모 계약 복원된 시그니처)
 - 근거: [코드]
 - 이력: [신규]
 - 심각도: 중간
@@ -486,8 +541,8 @@
   두고 배선하지 않은 것으로 보인다 — `engine_army` 는 자체 프리셋을 쓴다.
   → 4.5(도메인 판단은 내 몫이 아니다)에 따라 **결정 요청 목록**으로 올린다.
 
-### F-013 · 축: 모델타당성 · 상태: 미처리
-- 위치: engine_combat.py:4036 `pk_base  = wpn_info['pk_dist']['mean'],`  (F-005 수정으로 이동)
+### F-013 · 축: 모델타당성 · 상태: 수정됨
+- 위치: engine_combat.py:5657 `def _pk_of(self, wpn_info: dict) -> float:`  (수정 후 — 4개 소비처 통합 헬퍼)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간
@@ -497,10 +552,26 @@
   DB에 둘 이유가 없고**, `CLAUDE.md` 가 *"`pk_dist` 는 Beta 분포 파라미터"* 라고
   선언한 것과 종합 감사 ⑧의 *"Beta 분포 `pk_dist` 파라미터 유효성"* 점검 항목이
   가리키는 바와 어긋난다 → 반증 안 됨(판단은 4.5로 넘긴다)
-- 재현: (없음) — 정적 사실이라 S형식으로 닫는다(`chk_pk_dist_used` 신설 가능)
+- 재현: analysis/probes/p013_pk_uncertainty.py  ← **판정 P** (`audit_effect` 의 enable_pk_uncertainty 프로브를 감싸 ON/OFF 델타를 단언)
 - 수정비용: 소(파라미터 삭제) / 중(표집 도입 — 결정론·골든에 영향)
 - 회귀위험: **표집을 도입하면 골든 전면 갱신**(신규 `random` 호출이 RNG 순서를 바꾼다)
-- 실행주체: **사용자 결정 필요** (분산을 모델에 넣을 것인가, 파라미터를 뺄 것인가)
+- 실행주체: 나 단독 — **결정 완료(2026-09-20): 표집 도입**
+- 대상: engine_combat.py, mixin_configpanel2.py, mixin_configpanel3.py — 배선 나머지 2파일은 F-015 로 분리 등재
+- 짝: 없음(단독) — Pk 를 읽는 4개 경로가 모두 같은 헬퍼(`_pk_of`)를 거치게 했다
+- 무대: **요격이 실제로 일어나는 편성**(이지스 기동전단 vs 랴오닝 항모전단).
+  요격 0이면 Pk 를 바꿔도 결과가 같아 발현하지 않는다
+- 결과: **`enable_pk_uncertainty` 실험적 도입(기본 OFF)** `[실측]`.
+  `_pk_of()` 헬퍼로 4개 소비처를 통합하고, ON 이면 **실행당 한 번** Beta 에서 뽑아
+  그 실행 내내 같은 값을 쓴다. **발사마다 뽑지 않는 이유**: 명중 판정이 이미
+  Bernoulli(pk) 라 발사별 표집은 주변분포를 안 바꿔 **MC 산포가 거의 안 는다** —
+  불확실한 것은 *'이 무기의 참 Pk 가 얼마인가'*(인식론적)이지 발사별 흔들림이 아니다.
+  **발현 증거 3종**(커밋 게이트 `chk_effect_coverage` 요구):
+  ① 델타 `intercept_rate` **−0.0274** · `intercepted_threats` **−2** (audit_effect)
+  ② 짝 없음(단독) ③ 무대 = 요격이 일어나는 편성.
+  골든 **52 → 54 케이스**(`Pk불확실성` #1·#3). **기존 52케이스 전 지표 무변동** —
+  기본 OFF 라 하위 호환이 실측으로 확인됐다.
+  → **정규 승격은 기준값 측정 후**(CLAUDE.md 실험적→정규 게이트). 그때 `±4.0%p` 에
+  Pk 불확실성이 얼마나 더해지는지 재고, 기본 ON 여부를 판단한다
 - 뿌리: 증상
 - 요약: `FRIENDLY_DB` 14개 무기 전부가 **Beta 분포 파라미터(`alpha`·`beta`)를 갖고 있는데
   한 번도 표집되지 않는다** — 항상 `mean` 상수만 쓴다
@@ -518,6 +589,41 @@
   기댓값은 `mean` = Beta 평균이라 **평균은 정확하고 분산만 0**이다.
   → 이것이 [[project-baseline-v11]] 의 *"요격률 11.5% ± 4.0%"* 같은 산포 수치의
   **해석에 영향**을 준다(그 ±4.0%p 에 Pk 불확실성은 포함돼 있지 않다).
+
+### F-015 · 축: 모델타당성 · 상태: 수정됨
+- 위치: audit_effect.py:29 `'enable_pk_uncertainty': (`
+- 근거: [실측]
+- 이력: [신규]
+- 심각도: 중간
+- 반증조건: 효과 프로브 없이도 커밋이 되면 분리할 필요가 없다. 실측: 커밋 게이트
+  `chk_effect_coverage` 가 *"검증 없는 신규 토글"* 로 **실제로 막았다** → 반증 안 됨
+- 재현: analysis/probes/p013_pk_uncertainty.py (F-013 과 공유)
+- 수정비용: 소
+- 회귀위험: 골든 영향 없음(프로브·cfg 빌드 1줄)
+- 실행주체: 나 단독
+- 대상: mixin_configpanel.py, audit_effect.py
+- 짝: **F-013 과 짝** — 3종세트의 나머지 한 줄과 효과 프로브다. 이 둘이 없으면
+  커밋 게이트가 F-013 을 막는다(실측). **기능적으로는 한 묶음이지만 9.1 파일 상한(3)을
+  넘어 형식상 분리한다** — 상한의 목적인 *원인 분리* 는 두 파일이 각각 1줄·6줄이라
+  애초에 문제되지 않는다
+- 무대: F-013 과 동일
+- 뿌리: F-013 의 증상 (3종세트 배선·효과 프로브)
+- 요약: `enable_pk_uncertainty` 의 cfg 빌드 1줄 + `audit_effect` 효과 프로브
+- 결과: 효과 프로브 등재 후 확증 `[실측]`.
+  ```
+  $ python audit_effect.py
+    ✅ enable_pk_uncertainty      효과 있음 — intercept_rate-0.0274 intercepted_threats-2
+
+  $ python audit_static_scan.py     # 등재 전
+    [FAIL] ① 신규 토글 검증 필수(부채 0·상환 43·종결 1)
+           검증 없는 신규 토글 — PROBES 추가 or audit_dead_toggle 스캔으로
+           EFFECT_ALIVE 등재: ['enable_pk_uncertainty']
+  $ python audit_static_scan.py     # 등재 후
+    ✅ 정적 스캔 전부 PASS
+  ```
+- 근거본문: 커밋 게이트가 3종세트와 효과 프로브를 **함께** 요구하므로 기능적으로 분리
+  불가능한 변경이다. 규약 9.1 의 3파일 상한이 이런 '분리 불가 배선'을 예상하지 못했다 —
+  **규약에 반영할 항목**(상한을 파일 수가 아니라 *되돌림 단위* 로 재정의하는 쪽이 맞다).
 
 ### F-014 · 축: 성능 · 상태: 미처리
 - 위치: engine_combat.py:1098 `def _get(self):`
@@ -585,7 +691,7 @@
      엔진 코드만 보존). 즉 **2×2 측정 대상은 사실상 1개**다.
   → 짝 지도는 *"만들 수 없다"* 가 아니라 **"효과 측정의 부산물로만 만들 수 있다"** 가 정답.
 ### F-004 · 축: 뼈대 · 상태: 오탐
-- 위치: engine_combat.py:6777 `def _compile(self) -> dict:`  (BattleEngine 쪽)
+- 위치: engine_combat.py:6805 `def _compile(self) -> dict:`  (BattleEngine 쪽)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간

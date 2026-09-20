@@ -192,6 +192,8 @@ class ConfigPanelExtra2Mixin:
             self.chk_unmanned.setChecked(cfg.get('enable_unmanned_assets', False))
         if hasattr(self, 'chk_drone_swarm'):
             self.chk_drone_swarm.setChecked(cfg.get('enable_drone_swarm', False))
+        if hasattr(self, 'chk_pk_uncertainty'):
+            self.chk_pk_uncertainty.setChecked(cfg.get('enable_pk_uncertainty', False))
         if hasattr(self, 'chk_laser_dew'):
             self.chk_laser_dew.setChecked(cfg.get('enable_laser_dew', False))
         # 항공 자산 복원

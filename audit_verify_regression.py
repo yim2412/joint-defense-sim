@@ -170,6 +170,11 @@ CASES = [
     ('미커버-레이저배치', dict(_BASE, fleet_preset='이지스 기동전단',
                              enemy_fleet_preset='무인기 군집 포화',
                              enable_laser_dew=True, enable_random_placement=True),            [1, 7]),
+    # F-013: Pk 불확실성(실행당 Beta 표집). 기본 OFF 라 이 케이스가 유일한 감시다.
+    # Beta 표집은 RNG 를 소비하므로 **이 케이스만** 값이 다르고 다른 케이스는 영향 없다.
+    ('Pk불확실성',      dict(_BASE, fleet_preset='이지스 기동전단',
+                             enemy_fleet_preset='랴오닝 항모전단',
+                             enable_pk_uncertainty=True),                                     [1, 3]),
 ]
 
 # 결정론적이고 의미 있는 지표만 비교 (시각화·로그 등 비결정 요소 제외)

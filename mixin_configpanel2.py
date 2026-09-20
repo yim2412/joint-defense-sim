@@ -654,6 +654,17 @@ class ConfigPanelExtraMixin:
         )
 
         # v17.2: 지향성 에너지 무기(레이저·DEW)
+        self.chk_pk_uncertainty = QCheckBox("요격 확률 불확실성 (실험적)")
+        self.chk_pk_uncertainty.setChecked(False)
+        self.chk_pk_uncertainty.setToolTip(
+            "요격 확률을 단일 평균값이 아니라 분포에서 뽑아 시뮬레이션합니다.\n"
+            "  · 무기 DB 는 원래부터 Beta 분포(평균·신뢰폭)를 갖고 있었으나 평균만 썼습니다\n"
+            "  · 실행마다 한 번 뽑아 그 실행 내내 같은 값을 씁니다 — '이 무기의 참 명중률이\n"
+            "    얼마인가'라는 불확실성을 표현합니다(발사마다 흔들리는 것이 아닙니다)\n"
+            "  · 몬테카를로 산포가 실제 불확실성을 반영해 넓어집니다\n"
+            "  · 표준편차 예: SM-3 0.078 · SM-6 0.120 · SM-2 0.087\n"
+            "기본값 OFF — 기존 결과와 동일 (실험적 기능)"
+        )
         self.chk_laser_dew = QCheckBox("지향성 에너지 무기 레이저 (실험적)")
         self.chk_laser_dew.setToolTip(
             "저속 표적(자폭 드론 등)을 근접 요격하는 지향성 에너지 무기입니다.\n"

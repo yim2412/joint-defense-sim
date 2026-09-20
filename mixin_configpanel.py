@@ -1448,6 +1448,7 @@ class ConfigPanelMixin:
             'enable_unmanned_assets':    self.chk_unmanned.isChecked(),
             'enable_drone_swarm':        self.chk_drone_swarm.isChecked(),
             'enable_laser_dew':          self.chk_laser_dew.isChecked(),
+            'enable_pk_uncertainty':     self.chk_pk_uncertainty.isChecked(),
             'enable_random_placement':   True,
             'random_spread_km':          10.0,
             'enemy_tactics':          {

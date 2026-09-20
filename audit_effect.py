@@ -29,6 +29,12 @@ PROBES = {
     # 96대'였다 — 이미 포화된 상태의 미세 델타라, 아군 생존이 조금만 좋아져도(v20.5 회피 기동
     # 기본 ON) 델타가 0으로 무너져 멀쩡한 토글이 '죽은 토글'로 오판됐다. 드론 없는 편대에서
     # '0대 vs 48대'를 재야 이 토글이 실제로 군집을 만드는지 검사할 수 있다.
+    # F-013: Pk 불확실성 — 요격 확률을 Beta 분포에서 **실행당 한 번** 뽑는다.
+    # 델타가 보이려면 요격이 충분히 일어나는 무대여야 한다(요격 0이면 Pk 를 바꿔도 결과가
+    # 같다). 이지스 + 다수 위협 편성에서 잰다.
+    'enable_pk_uncertainty': (
+        dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='랴오닝 항모전단'),
+        ['intercept_rate', 'intercepted_threats']),
     'enable_drone_swarm': (
         dict(_BASE, fleet_preset='이지스 기동전단', enemy_fleet_preset='수상함 편대전',
              drone_swarm_size=48),

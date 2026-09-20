@@ -1769,6 +1769,9 @@ class TimeStepEngine:
 
         # NEW-A: 혼합 시나리오 파도 지연 스폰 큐 [(spawn_t, spec_dict), ...]
         self._pending_threats: list = []
+        # F-013: Pk 불확실성(실행당 Beta 표집). 기본 OFF — 기존 결과 보존(실험적 도입).
+        self._pk_uncertainty = bool(cfg.get('enable_pk_uncertainty', False))
+        self._pk_draw: dict = {}
 
         self.friendly_ships: List[FriendlyShipObj]    = self._build_friendly()
         self.missiles:       List[MissileObj]         = []
@@ -4033,7 +4036,7 @@ class TimeStepEngine:
             pos      = ship.pos,
             target   = target,
             speed_ms = wpn_info['speed_ms'],
-            pk_base  = wpn_info['pk_dist']['mean'],
+            pk_base  = self._pk_of(wpn_info),
             owner_id = id(ship),
             t_spawn  = self.t,
         )
@@ -4257,7 +4260,7 @@ class TimeStepEngine:
                         else:
                             wpn_info = FRIENDLY_DB[wpn]
                             ship.inventory[wpn] -= 1
-                            pk_b = wpn_info['pk_dist']['mean']
+                            pk_b = self._pk_of(wpn_info)
                             spd  = wpn_info['speed_ms']
                             cost = wpn_info['cost_usd']
                         ship.total_cost += cost
@@ -4352,7 +4355,7 @@ class TimeStepEngine:
                         pos      = ship.pos,
                         target   = et,
                         speed_ms = wpn_info['speed_ms'],
-                        pk_base  = wpn_info['pk_dist']['mean'],
+                        pk_base  = self._pk_of(wpn_info),
                         owner_id = id(ship),
                         t_spawn  = self.t,
                     ))
@@ -4631,7 +4634,7 @@ class TimeStepEngine:
             # ── 탐지 성공 → 어뢰 투하 ────────────────────────────────────────
             wpn_name = ac.info['payload_wpn']
             wpn_info = FRIENDLY_DB[wpn_name]
-            pk       = max(0.0, min(wpn_info['pk_dist']['mean'] + ac.info.get('pk_bonus', 0.0), 0.98))
+            pk       = max(0.0, min(self._pk_of(wpn_info) + ac.info.get('pk_bonus', 0.0), 0.98))
 
             ac.payload_remaining -= 1
             ac.sorties           += 1
@@ -5649,6 +5652,31 @@ class TimeStepEngine:
                 state = gen.send(choice)
         except StopIteration as e:
             return e.value
+
+
+    def _pk_of(self, wpn_info: dict) -> float:
+        """무기의 요격 확률. 기본은 `pk_dist['mean']`(기존 동작 그대로).
+
+        F-013: `FRIENDLY_DB` 14개 무기가 전부 Beta 파라미터(alpha·beta)를 갖고 있는데
+        **한 번도 표집되지 않았다** — alpha/beta 참조 0회, betavariate 0회. 평균은
+        정확하고 **분산만 0**이라, 기준값의 산포(±4.0%p)에 Pk 불확실성이 빠져 있었다.
+
+        `enable_pk_uncertainty=True` 면 **실행(run)당 한 번** Beta 에서 뽑아 그 실행 내내
+        같은 값을 쓴다. 발사마다 뽑지 않는 이유: 명중 판정이 이미 Bernoulli(pk) 라
+        발사별 표집은 주변분포를 바꾸지 않아 **MC 산포가 거의 안 늘어난다.**
+        불확실한 것은 '이 무기의 참 Pk 가 얼마인가'(인식론적)이지 발사별 흔들림이 아니다.
+        """
+        d = wpn_info.get('pk_dist') or {}
+        mean = d.get('mean', wpn_info.get('pk', 0.0))
+        if not self._pk_uncertainty:
+            return mean
+        a, b = d.get('alpha'), d.get('beta')
+        if not a or not b:
+            return mean
+        key = id(wpn_info)
+        if key not in self._pk_draw:
+            self._pk_draw[key] = min(0.99, max(0.01, random.betavariate(a, b)))
+        return self._pk_draw[key]
 
     def _compile(self) -> dict:
         # v16.12: 무인정(USV·UUV) 손실은 인명피해 0 → friendly_ships_lost에서 분리 집계.
