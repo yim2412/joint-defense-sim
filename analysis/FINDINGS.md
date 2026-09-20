@@ -53,7 +53,7 @@
   전술인데 **전력을 늘려 버린다** — 전술 비교·편대 추천이 그만큼 왜곡된다.
   UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
 
-### F-005 · 축: 모델타당성 · 상태: 미처리
+### F-005 · 축: 모델타당성 · 상태: 수정중
 - 위치: engine_combat.py:2317 `self.stats['total_threats'] += 1`  (F-009 수정으로 +11 이동, 내용 동일)
 - 근거: [코드]
 - 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
@@ -62,10 +62,18 @@
   실측하니 L5120 주석이 *"MissileObj만 intercepted_threats에 집계 (항공기 플랫폼 격추는
   enemy_ships_destroyed로)"* 라고 명시 → 반증 안 됨. 또는 파도 스폰이 미사일만 만든다면
   무해하나, L2301 `else:` 가지가 `_new_threat()` 으로 **플랫폼을 만든다** → 반증 안 됨
-- 재현: (없음) — 2단계에서 프로브화 예정
+- 재현: analysis/probes/p005_denominator_path_independence.py  ← **판정 S**(구조 불변식)
 - 수정비용: 중
 - 회귀위험: **골든 영향 큼** (요격률이 32지표에 들어 있다)
-- 실행주체: 실측·승인 필요
+- 실행주체: 나 단독 (정의 확정은 아래 '짝' 에 명시 — 사용자 결정 불필요)
+- 대상: engine_combat.py
+- 짝: **F-008 과 한 묶음.** 분모 정의를 고치면 무력화율 이중 계산도 함께 사라진다.
+  세 정의를 함께 확정한다 — `total_threats`=**발사체(미사일류)만** ·
+  `intercepted_threats`=**발사체 요격만**(현행 유지) · `suicide_threats`=**자폭 플랫폼**.
+  플랫폼 격침은 `enemy_ships_destroyed` 가 이미 센다. **한쪽만 고치면 안 되는**
+  자리다(`be4e8b9` 가 되돌린 이유)
+- 무대: 파도 스폰이 일어나는 편성 — 골든 `파도-시차공격`·`파도-혼합시나리오`(직전 묶음에서
+  신설). 파도가 없으면 초기 편성 경로만 타서 **현재도 정의가 맞아** 변화가 안 보인다
 - 뿌리: **F-008 의 뿌리** (집계 정의 축 — [[project-fleet-metric-flaw]] 와 같은 축). ~~F-004 의 증상~~ — F-004 가 오탐으로 종결돼 링크 철회
 - 요약: `total_threats`(요격률 분모)가 **스폰 경로에 따라 다르게 센다** — 초기 편성은
   미사일만, 파도 스폰은 **플랫폼도** 센다. 분자는 어느 쪽이든 미사일만 센다
@@ -85,7 +93,7 @@
   → 2.2 D(지표·집계 정의)의 1순위 대상. `total_threats`·`intercepted_threats`·
   `enemy_ships_destroyed` 세 정의를 **함께** 설계해야 한다(짝).
 
-### F-008 · 축: 모델타당성 · 상태: 미처리
+### F-008 · 축: 모델타당성 · 상태: 수정중
 - 위치: engine_combat.py:5685 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
@@ -93,10 +101,13 @@
 - 반증조건: 파도 스폰 플랫폼이 `total_threats` 에 안 들어가면 이중이 아니다.
   실측: 같은 편성에서 파도 없음 `total_threats=32`, stagger(전부 파도) `=56` —
   **차이 24 = 편성 객체 수(12+8+4)와 정확히 일치** → 플랫폼이 분모에 들어간다. 반증 안 됨
-- 재현: analysis/probes/p008_denominator_double_count.py
+- 재현: analysis/probes/p008_denominator_double_count.py · p005(구조 판정)
 - 수정비용: 중 (세 지표 정의를 함께 설계해야 한다)
 - 회귀위험: **골든 영향 큼** — `neutralization_rate` 가 32지표에 있다
-- 실행주체: 실측·승인 필요
+- 실행주체: 나 단독
+- 대상: engine_combat.py
+- 짝: **F-005 와 한 묶음** (분모 정의를 고치면 이중 계산이 함께 사라진다)
+- 무대: 골든 `파도-시차공격`·`파도-혼합시나리오`
 - 뿌리: F-005 의 증상
 - 요약: `neutralization_rate` 분모가 **파도 스폰된 자폭 플랫폼을 두 번 센다**
   (`total_threats` 에 한 번, `suicide_threats` 로 또 한 번)
