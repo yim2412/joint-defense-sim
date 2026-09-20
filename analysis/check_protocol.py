@@ -298,8 +298,14 @@ def run(final=False, base=HERE, repo=REPO, stage_b=False):
     if stage_b:
         print("-" * 72)
         print(" B단계 검사 (9.10) — 착수 게이트·예측 형식·범위·영향 반경")
-        check_stage_b_items(items, rep)
-        check_stage_b_diff(items, rep, repo)
+        # 이 검사기는 pre-commit 에 물려 있다. 검사기 자신의 예외가 traceback 으로
+        # 터지면 저장소 전체 커밋이 막히고 원인도 안 보인다 — audit_static_scan 관례대로
+        # 예외를 FAIL 로 흡수해 무엇이 터졌는지 보이게 한다(우회는 --no-verify).
+        for fn in (check_stage_b_items, check_stage_b_diff):
+            try:
+                fn(items, rep, repo)
+            except Exception as e:
+                rep.fail("9.10 검사기 예외", "%s: %s" % (fn.__name__, e))
 
     return rep.dump()
 
@@ -486,11 +492,21 @@ RADIUS_TABLE = [
     (r"^감사보고서/.*$", "D"),
     (r"^_archive/.*$", "D"),
     (r"^engine_(core|combat)\.py$", "E"),
+    # 엔진이 직접 import 하는 데이터 모듈 — 바꾸면 교전 결과가 바뀐다(회귀 필수).
+    # engine_combat -> db_terrain / engine_campaign -> forecast_features 실측 확인.
+    (r"^db_(terrain|ocean_\w+|ground_threat)\.py$", "E"),
+    (r"^forecast_features\.py$", "C"),
+    (r"^ai_policy_infer\.py$", "W"),          # app_workers 가 런타임에 import
     (r"^engine_(campaign|airforce|army|joint)\.py$", "C"),
     (r"^(app_workers|mixin_simlifecycle)\.py$", "W"),
     (r"^app_utils\.py$", "UB"),          # 리소스 경로(_res)가 있어 번들 반경도 걸린다
     (r"^(ui_.*|mixin_.*|app_main|app_launcher|app_theme|app_engine)\.py$", "U"),
     (r"^(audit_|_audit_|_build_|_bg_|_changelog_|_asset_|improve_|check_).*\.py$", "T"),
+    (r"^(_ai_|ai_|asset_|_forecast_).*\.py$", "T"),   # 학습·생성 도구(런타임 아님)
+    (r"^.*\.(sh|bat|cmd|html)$", "T"),
+    (r"^(assets|images)/.*$", "B"),
+    (r"^(docs|변경이력|감사보고서|_archive)/.*$", "D"),
+    (r"^.*\.pdf$", "D"),
     (r"^(scenarios|db_specsheet)\.py$", "D"),
     (r"^.*\.spec$", "B"),
     (r"^.*\.(jpg|jpeg|png|ico|pkl|npz|ttf|otf|zip)$", "B"),
@@ -550,7 +566,10 @@ def classify_radius(paths):
 def _git(repo, *args):
     """CLAUDE.md 인코딩 규칙: capture_output 에는 반드시 encoding= 을 준다."""
     try:
-        out = subprocess.run(["git"] + list(args), cwd=repo, capture_output=True,
+        # core.quotepath=false — 안 주면 한글 파일명이 "ë³…" octal 로 나와
+        # 반경 분류·선언 대조가 조용히 어긋난다(이 저장소엔 한글 경로가 많다).
+        out = subprocess.run(["git", "-c", "core.quotepath=false"] + list(args),
+                             cwd=repo, capture_output=True,
                              encoding="utf-8", errors="replace")
     except OSError:
         return None
@@ -759,6 +778,16 @@ def check_stage_b_diff(items, rep, repo=REPO):
         rep.note("영향 반경: " + " · ".join("%s(%s)" % (k, RADIUS_NAME[k]) for k in sorted(hit)))
         for k in sorted(hit):
             rep.note("   %s -> %s" % (k, RADIUS_EXTRA[k]))
+
+    tracked = (_git(repo, "ls-files") or "").splitlines()
+    if tracked:
+        _, unk_all = classify_radius(tracked)
+        if unk_all:
+            rep.warn("9.4 반경 표 커버리지",
+                     "저장소 %d개 중 %d개가 반경 미분류 — 표가 낡고 있다(예: %s)"
+                     % (len(tracked), len(unk_all), ", ".join(unk_all[:3])))
+        else:
+            rep.note("반경 표가 추적 파일 %d개를 전부 분류" % len(tracked))
 
     declared = set()
     for it in items:

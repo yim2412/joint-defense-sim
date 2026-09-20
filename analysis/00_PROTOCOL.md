@@ -543,16 +543,22 @@ analysis/
 
 | 반경 | 건드리면 | 훅이 자동으로 | 내가 추가로 |
 |------|----------|---------------|-------------|
-| **E** 엔진 | `engine_core` `engine_combat` | 회귀 · property · effect | R형식이면 ON/OFF MC 델타 |
-| **C** 작전급 | `engine_campaign` `engine_airforce` `engine_army` `engine_joint` | 회귀(캠페인 6케이스 포함) · property | `_audit_campaign_smoke.py` |
-| **W** 워커·수명주기 | `app_workers` `mixin_simlifecycle` | roundtrip | GUI 스모크 — **실제 버튼 클릭**(엔진 직접 호출 우회 금지) |
-| **U** UI·렌더 | `ui_*` `app_launcher` `mixin_*` | roundtrip · UI shot · render smoke | — |
-| **B** 빌드·번들·리소스 | `*.spec` `app_utils._res` · 번들 데이터 | 정적(`chk_resource_paths`) | 전체 빌드 + exe 스모크 |
-| **T** 도구·감사 | `audit_*` `_audit_*` `analysis/*` | — | **일부러 깨뜨려 FAIL 나는지** 확인 — 통과는 증거가 아니다 |
-| **D** 문서·데이터 | `*.md` `app_changelog.json` `db_specsheet` | 정적 | `_changelog_export.py` 재실행 |
+| **E** 엔진 | `engine_core` `engine_combat` · **`db_terrain` `db_ocean_*` `db_ground_threat`** | 회귀 · property · effect | R형식이면 ON/OFF MC 델타 |
+| **C** 작전급 | `engine_campaign` `engine_airforce` `engine_army` `engine_joint` · **`forecast_features`** | 회귀(캠페인 6케이스 포함) · property | `_audit_campaign_smoke.py` |
+| **W** 워커·수명주기 | `app_workers` `mixin_simlifecycle` · **`ai_policy_infer`** | roundtrip | GUI 스모크 — **실제 버튼 클릭**(엔진 직접 호출 우회 금지) |
+| **U** UI·렌더 | `ui_*` `app_launcher` `mixin_*` `app_theme` `app_engine` | roundtrip · UI shot · render smoke | — |
+| **B** 빌드·번들·리소스 | `*.spec` `app_utils`(`_res`) · `assets/*` · 이미지·pkl·npz | 정적(`chk_resource_paths`) | 전체 빌드 + exe 스모크 |
+| **T** 도구·감사 | `audit_*` `_audit_*` `analysis/*` · `ai_*` `_ai_*`(학습) · `*.sh` `*.html` | — | **일부러 깨뜨려 FAIL 나는지** 확인 — 통과는 증거가 아니다 |
+| **D** 문서·데이터 | `*.md` `*.pdf` `app_changelog.json` `db_specsheet` `scenarios` · `docs/` `변경이력/` `감사보고서/` | 정적 | `_changelog_export.py` 재실행 |
 
 - **미분류 파일을 만나면 FAIL**(기본 안전). 새 파일이 조용히 사각으로 빠지지 않는다.
 - 한 묶음이 여러 반경에 걸치면 **합집합**을 돈다.
+- **`db_*`·`forecast_features`·`ai_policy_infer` 가 처음엔 표에 없었다** — 엔진·워커가
+  실제로 import 하는데도 빠져 있었다(`engine_combat`→`db_terrain`, `engine_campaign`→
+  `forecast_features`, `app_workers`→`ai_policy_infer`, 전부 실측 확인). 표는 **소스의
+  import 로 검증**해야지 이름만 보고 짜면 안 된다.
+- 저장소 **추적 파일 전체의 미분류 수를 매 실행 경고로 노출**한다(표가 낡는 것을 보이게).
+  현재 282개 전부 분류 `[실측 2026-09-20]`.
 
 **검증 3단**
 
@@ -669,6 +675,7 @@ B단계의 부산물로 **골든 밖 안전망이 자라는 것**이 약점 나�
 - **내용 판단은 기계 밖이다.** `짝: 없음` · `무대: 적정 편성` · 무관한 URL은 형식을 통과한다.
   자폭 집계 사건이 ⚠로 남은 이유다. 완화책은 무대에 수치가 없으면 경고하는 것뿐.
 - **R의 예측은 내가 쓴다** — 맞히기 쉬운 예측만 고르는 편향은 기계가 못 잡는다.
-- **반경 표는 stale해진다.** 미분류 FAIL로 *새는 것*만 막았고, 분류의 타당성은 사람 몫.
+- **반경 표는 stale해진다.** 미분류 FAIL(변경분) + 저장소 전체 미분류 경고로 *새는 것*은
+  막았고, 분류의 타당성(어느 반경이 맞나)은 사람 몫이다.
 - **pre-push 비용 `[미확인]`** — 9.5의 판단이 그 수치에 따라 바뀔 수 있다.
 - **`--no-verify`** 는 의도적 회피라 규약 범위 밖이다.
