@@ -814,7 +814,11 @@ def check_stage_b_diff(items, rep, repo=REPO):
 
     declared = set()
     for it in items:
-        if it["state"].startswith("수정중"):
+        # 9.1: 묶음 커밋은 '코드 + 대장 상태·결과' 를 함께 담는다. 그 커밋 시점엔 상태가
+        # 이미 '수정됨' 이므로 '수정중' 만 선언으로 인정하면 **규약대로 닫는 순간 FAIL**
+        # 이 난다(2026-09-20 F-009 실작업에서 드러남 — 5라운드 리허설은 코드를 먼저
+        # 커밋하고 상태를 나중에 바꿔서 이 자리를 안 지났다).
+        if it["state"].startswith(("수정중", "수정됨")):
             for p in re.split(r"[,\s]+", it["fields"].get("대상", "")):
                 if p.strip():
                     declared.add(p.strip().replace("\\", "/"))

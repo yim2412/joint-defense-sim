@@ -10,8 +10,8 @@
 > 의존 → 묶음 → 심각도 → 회귀위험. **대장 순서가 곧 작업 순서다.**
 > (오탐·기각은 맨 뒤. 지우지 않는다 — 규약 3.5·3.6)
 
-### F-009 · 축: 모델타당성 · 상태: 수정중
-- 위치: engine_combat.py:2038 `fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]`
+### F-009 · 축: 모델타당성 · 상태: 수정됨
+- 위치: engine_combat.py:2041 `if new_fleet:`  (F-009 수정 후. 원래 `fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]` 한 줄이었다)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
@@ -21,12 +21,22 @@
 - 수정비용: 소 (한 줄 — 즉시 스폰한 spec 을 pending 에서 빼면 된다)
 - 회귀위험: 골든에 stagger 케이스가 있으면 영향. 없으면 **회귀 사각**이라는 뜻이라 그것도 발견
 - 실행주체: 나 단독
-- 대상: engine_combat.py
+- 대상: engine_combat.py, app_main.py, app_changelog.json
+  (선언 확대 2026-09-20: exe 체감 변화가 있어 9.8 대로 버전 번호를 부여했고,
+   `CLAUDE.md` 필수 체크리스트가 `APP_VERSION`·헤더·changelog 갱신을 요구한다.
+   검사기가 *'선언에 없는 파일이 바뀌었다'* 로 잡아 **조용한 확대를 막았다** —
+   규약 9.3 이 의도한 대로 이력에 남긴다. 3파일로 상한 내)
 - 짝: 없음(단독 성립) — `_pending_threats` 소비처는 `_spawn_pending_threat` 하나뿐이고,
   즉시 스폰 경로와 파도 경로가 같은 spec 을 공유하는 것이 결함 자체다. 함께 바꿀 정의 없음
 - 무대: `항만 침투 복합`(전부 저속: USV 14 · 022형 18.5 · 드론 28 m/s) + `ai_tactic='stagger'`.
   **고속 위협이 하나라도 있으면 `new_fleet` 이 안 비어 발동하지 않는다** — 그래서 지금껏 안 보였다
 - 뿌리: 독립
+- 결과: 프로브 p009 **FAIL(자폭 USV 12→24) → PASS(12→12)** 전환 확인 `[실측]`.
+  회귀 42×32 **PASS(골든 무변동)** · 정적 56/56 PASS.
+  **9.4④ 골든 무변동 규명**: 골든에 `ai_tactic='stagger'` 케이스가 **0건**이라
+  이 경로는 애초에 감시 밖이었다 — **무대 부재**이고, 이것이 곧 **F-011 의 실증**이다.
+  (`grep -c stagger audit_verify_regression.py` → 0). 남는 사각: stagger 경로 전체.
+  → 3번 묶음(F-003·F-011)에서 골든 케이스를 추가할 때 **이 시나리오를 넣는다.**
 - 요약: `ai_tactic='stagger'`(UI **"시차 공격"**)에서 **모든 위협이 저속이면 첫 편성 항목이
   중복 스폰**된다 — 즉시 1회 + 파도 1회
 - 근거본문:
@@ -44,7 +54,7 @@
   UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
 
 ### F-005 · 축: 모델타당성 · 상태: 미처리
-- 위치: engine_combat.py:2306 `self.stats['total_threats'] += 1`
+- 위치: engine_combat.py:2317 `self.stats['total_threats'] += 1`  (F-009 수정으로 +11 이동, 내용 동일)
 - 근거: [코드]
 - 이력: [기존] (같은 뿌리를 `be4e8b9` 가 한 번 건드렸다가 되돌림 — 그때는 초기 편성 쪽만 봤다)
 - 심각도: 중간
@@ -76,7 +86,7 @@
   `enemy_ships_destroyed` 세 정의를 **함께** 설계해야 한다(짝).
 
 ### F-008 · 축: 모델타당성 · 상태: 미처리
-- 위치: engine_combat.py:5674 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`
+- 위치: engine_combat.py:5685 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 높음
@@ -210,7 +220,7 @@
   **골든 데이터가 독립적으로 뒷받침**한다(30케이스 전부 0).
 
 ### F-007 · 축: 뼈대 · 상태: 미처리
-- 위치: engine_combat.py:6426 `def _apply_ship_evasion(self):`
+- 위치: engine_combat.py:6437 `def _apply_ship_evasion(self):`  (F-009 수정으로 +11 이동)
 - 근거: [코드]
 - 이력: [신규]
 - 심각도: 중간
@@ -339,7 +349,7 @@
   → 4.5(도메인 판단은 내 몫이 아니다)에 따라 **결정 요청 목록**으로 올린다.
 
 ### F-013 · 축: 모델타당성 · 상태: 미처리
-- 위치: engine_combat.py:4019 `pk_base  = wpn_info['pk_dist']['mean'],`
+- 위치: engine_combat.py:4030 `pk_base  = wpn_info['pk_dist']['mean'],`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간
@@ -438,7 +448,7 @@
   → 짝 지도는 *"만들 수 없다"* 가 아니라 **"효과 측정의 부산물로만 만들 수 있다"** 가 정답.
 
 ### F-004 · 축: 뼈대 · 상태: 오탐
-- 위치: engine_combat.py:6747 `def _compile(self) -> dict:`
+- 위치: engine_combat.py:6758 `def _compile(self) -> dict:`  (F-009 수정으로 +11 이동)
 - 근거: [실측]
 - 이력: [신규]
 - 심각도: 중간

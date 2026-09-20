@@ -1,4 +1,4 @@
-﻿"""
+"""
 engine_combat.py — 이지스 기동전단 통합 방어 시뮬레이터 v7.0
 시간 스텝 기반 양방향 교전 엔진
 
@@ -2034,8 +2034,19 @@ class TimeStepEngine:
                     self._pending_threats.append((30.0, dict(spec)))   # +30초
                 else:
                     self._pending_threats.append((60.0, dict(spec)))   # +60초
-            # 즉시 위협이 아예 없으면 첫 항목은 즉시 등장
-            fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]
+            # 즉시 위협이 아예 없으면 첫 항목은 즉시 등장.
+            # F-009: 즉시 등장시킨 spec 을 _pending_threats 에서 **빼야 한다**. 안 빼면
+            # 같은 항목이 즉시 1회 + 파도 1회로 두 번 스폰돼 적 전력이 편성표보다
+            # 커진다(자폭 USV 12→24 실측). '시차 공격'은 도착 시점만 흩는 전술이다.
+            if new_fleet:
+                fleet_cfg = new_fleet
+            else:
+                fleet_cfg = fleet_cfg[:1]
+                _now = fleet_cfg[0]
+                for _k, (_t, _sp) in enumerate(self._pending_threats):
+                    if _sp is _now or _sp == _now:
+                        del self._pending_threats[_k]
+                        break
 
         elif _ai_tactic == 'exploit_weakness':
             # 약점 공략: 단일 방향 집중 (다방위 억제)
