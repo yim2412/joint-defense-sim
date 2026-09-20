@@ -224,6 +224,63 @@
   있다.** 즉 이 점검이 수동이라 안 돌았거나, 돌았는데 놓쳤다 — **F-003(도구가 없으면
   사람 기억에 의존)의 실증 사례**다.
 
+### F-008 · 축: 모델타당성 · 상태: 미처리
+- 위치: engine_combat.py:5674 `_n_tot = self.stats['total_threats'] + self.stats['suicide_threats']`
+- 근거: [실측]
+- 이력: [신규]
+- 심각도: 높음
+- 반증조건: 파도 스폰 플랫폼이 `total_threats` 에 안 들어가면 이중이 아니다.
+  실측: 같은 편성에서 파도 없음 `total_threats=32`, stagger(전부 파도) `=56` —
+  **차이 24 = 편성 객체 수(12+8+4)와 정확히 일치** → 플랫폼이 분모에 들어간다. 반증 안 됨
+- 재현: analysis/probes/p008_denominator_double_count.py
+- 수정비용: 중 (세 지표 정의를 함께 설계해야 한다)
+- 회귀위험: **골든 영향 큼** — `neutralization_rate` 가 32지표에 있다
+- 실행주체: 실측·승인 필요
+- 뿌리: F-005 의 증상
+- 요약: `neutralization_rate` 분모가 **파도 스폰된 자폭 플랫폼을 두 번 센다**
+  (`total_threats` 에 한 번, `suicide_threats` 로 또 한 번)
+- 근거본문:
+  ```
+  $ python analysis/probes/p008_denominator_double_count.py none
+    total_threats 32 · suicide_threats 20 · neutralization_rate 0.6731 (= 35/52)
+  $ python analysis/probes/p008_denominator_double_count.py stagger
+    total_threats 56 · suicide_threats 32 · neutralization_rate 0.2841 (= 25/88)
+  ```
+  파도 없음일 때는 초기 편성 플랫폼이 `total_threats` 에 안 들어가 **분모 52가 정당**하다.
+  stagger 로 같은 플랫폼이 파도가 되면 `total_threats` 에 들어가고(+24),
+  `suicide_threats` 가 **또** 더해져 분모가 부푼다.
+  → `is_suicide_platform` 의 docstring(L1259)이 *"두 곳이 갈리면 지표가 거짓말을 한다"* 고
+  경고한 바로 그 일이, **술어가 아니라 분모 합성에서** 일어났다.
+  세 정의(`total_threats`·`intercepted_threats`·`suicide_*`)를 **함께** 고쳐야 한다(짝).
+
+### F-009 · 축: 모델타당성 · 상태: 미처리
+- 위치: engine_combat.py:2038 `fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]`
+- 근거: [실측]
+- 이력: [신규]
+- 심각도: 높음
+- 반증조건: 즉시 스폰된 첫 항목이 `_pending_threats` 에서 제거되면 중복이 아니다.
+  실측: 코드에 제거가 없고, 실행 결과 자폭 USV 가 **12 → 24** 로 정확히 두 배가 됐다 → 반증 안 됨
+- 재현: analysis/probes/p008_denominator_double_count.py stagger (이름별 집계 출력)
+- 수정비용: 소 (한 줄 — 즉시 스폰한 spec 을 pending 에서 빼면 된다)
+- 회귀위험: 골든에 stagger 케이스가 있으면 영향. 없으면 **회귀 사각**이라는 뜻이라 그것도 발견
+- 실행주체: 나 단독
+- 뿌리: 독립
+- 요약: `ai_tactic='stagger'`(UI **"시차 공격"**)에서 **모든 위협이 저속이면 첫 편성 항목이
+  중복 스폰**된다 — 즉시 1회 + 파도 1회
+- 근거본문:
+  ```
+  L2027~2036  모든 spec 이 느리면 new_fleet 이 비고, 전부 _pending_threats 로 들어간다
+  L2038       fleet_cfg = new_fleet if new_fleet else fleet_cfg[:1]
+              ↑ 첫 항목을 즉시 스폰하지만 **pending 에서 빼지 않는다**
+
+  실측(항만 침투 복합, 전부 저속: USV 14 · 022형 18.5 · 드론 28 m/s):
+    파도 없음 : {'자폭 USV': 12, '022형': 4, '연안 자폭 드론': 8}  = 24
+    stagger  : {'자폭 USV': 24, '022형': 4, '연안 자폭 드론': 8}  = 36
+  ```
+  적 편대가 **편성표보다 커진다**(첫 항목 수만큼). "시차 공격"은 도착 시점을 흩는
+  전술인데 **전력을 늘려 버린다** — 전술 비교·편대 추천이 그만큼 왜곡된다.
+  UI 정규 옵션이다(`mixin_configpanel.py:1459` `'시차 공격': 'stagger'`).
+
 ---
 
 ## 낮음 집계 (개별 등재하지 않음 — 규약 3.1)
