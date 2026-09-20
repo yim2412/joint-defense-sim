@@ -169,3 +169,23 @@
 > 부수 관찰: `audit_dead_toggle.py` 는 *"유예 목록 43개를 전수로 돌려 상환 여부를 판정"*
 > 하는 도구인데 유예 목록이 0개다. 도구가 죽었다는 뜻은 아니다(EFFECT_ALIVE 재확증에 쓰인다).
 > 다만 **목적 문장이 현재 상태와 안 맞는다** — 다음에 이 도구를 볼 사람이 오해한다.
+
+**L-2. `db_*` 실측 데이터 모듈의 미배선 심볼 13개** `[실측]`
+
+| 모듈 | 완전 미사용 |
+|------|-------------|
+| `db_ocean_acoustic.py` | `mackenzie_sound_speed` · `get_thermocline_top` · `month_to_season_key` / `OCEAN_TEMP_SALINITY_DB` · `OCEAN_SVP_PRECOMPUTED` · `SOFAR_CHANNEL` |
+| `db_terrain.py` | `get_max_submarine_depth` · `thermocline_viable` · `get_radar_shadow_angle` |
+| `db_ocean_environment.py` | `TIDAL_DATA` · `EOIR_DEGRADATION` · `UNDERWATER_ACOUSTICS` |
+| `db_ground_threat.py` | `get_base_coords` (모듈 전체가 미사용 — **F-002**) |
+
+**함수 18개 중 7개 · 상수 29개 중 6개**가 어디서도 안 쓰인다. [[feedback-real-data]] 로
+*"추정값 대신 실측값을 코드에 내장"* 한 데이터인데 **절반 가까이 배선되지 않았다.**
+F-002(모듈 통째)와 같은 부류이고, 4단계(부채)에서 *배선할 것 / 지울 것*을 가른다.
+
+> **방법 메모(중요)**: 첫 스캔은 `호출처 0` 후보를 **100건** 냈는데 표본 4건을 확인하니
+> `_build_home_page`(리스트에 콜백으로 등록) · `_pool_map`(`map_fn=` 인자로 전달) 처럼
+> **호출 괄호가 없는 참조**를 놓친 거짓 양성이었다. 파일 **내부 호출**도 미사용으로
+> 오판했다(`thorp_absorption` 은 `sonar_detection_range` 가 부른다).
+> 걸러내니 13건. 규약 2.4-2 *"grep 히트 수만 세지 않는다 — 각 히트를 읽어 참/거짓 판정"*
+> 이 실제로 **87건의 거짓 양성**을 막았다.
