@@ -847,7 +847,7 @@ class EngagementAnalysisTab(QWidget):
                 f"{ev.detect_m / 1000:.0f}" if ev.detect_m else '—',
                 result_str,
                 ev.intercept_weapon or '—',
-                f"{ev.intercept_km:.1f}" if ev.intercept_km else '—',
+                f"{ev.intercept_km:.1f}" if ev.intercept_km is not None else '—',
                 f"{ev.t_intercepted:.0f}" if ev.t_intercepted else '—',
             ]
             for col, text in enumerate(cells):

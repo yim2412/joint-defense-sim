@@ -5143,7 +5143,14 @@ class TimeStepEngine:
                         self.stats['intercepted_threats'] += 1
                         # A-1: EngagementAnalysis 추적
                         tgt.intercept_weapon = sam.name
-                        tgt.intercept_km     = sam.pos.dist_to(tgt.pos) / 1000
+                        # 격추거리 = 방어 함정에서 표적까지(얼마나 멀리서 막았나).
+                        # 요격탄↔표적 거리는 근접신관 판정(≤INTERCEPT_DIST_M)이라 늘 0.0~0.2km →
+                        # 위협 추적표에서 요격 56건 중 48건이 '—'였다(p018).
+                        _own = next((s for s in self.friendly_ships if id(s) == sam.owner_id), None)
+                        if _own is None and self.friendly_ships:   # 연안 포대 등 함정 외 발사체
+                            _own = min(self.friendly_ships, key=lambda s: s.pos.dist_to(tgt.pos))
+                        if _own is not None:
+                            tgt.intercept_km = _own.pos.dist_to(tgt.pos) / 1000
                     for ship in self.friendly_ships:
                         if id(ship) == sam.owner_id:
                             ship.channels_used = max(0, ship.channels_used - 1)
@@ -5251,6 +5258,7 @@ class TimeStepEngine:
                             if random.random() < DECOY_PK:
                                 m.alive = False
                                 m.intercepted = True
+                                m.intercept_weapon = '음향 기만기'
                                 self.stats['intercepted_threats'] += 1
                                 self._feat('decoy')  # 발현 카운터: 음향 기만기 어뢰 회피 성공
                                 self._log(
@@ -5263,6 +5271,7 @@ class TimeStepEngine:
                         if random.random() < SHIP_EVASION_PK * tgt.speed_factor:
                             m.alive = False
                             m.intercepted = True
+                            m.intercept_weapon = '회피 기동'
                             self.stats['intercepted_threats'] += 1
                             self._log(f"[회피] {tgt.name} 회피 기동 성공 — {m.name}")
                             continue
@@ -5861,7 +5870,10 @@ class TimeStepEngine:
             ev.is_active        = True
             ev.intercepted      = m.intercepted
             ev.intercept_weapon = m.intercept_weapon
-            ev.intercept_km     = m.intercept_km if m.intercept_km else None
+            # 0.0km 도 유효(함정 직상공 CIWS 격추). 기만기·회피는 거리 개념이 없어 None.
+            ev.intercept_km     = (m.intercept_km if m.intercepted and m.intercept_weapon
+                                   and m.intercept_weapon not in ('음향 기만기', '회피 기동')
+                                   else None)
             ev.t_intercepted    = m.t_intercept
             ev.detect_m         = m.detect_m
             ev.enemy_info       = m.enemy_info
